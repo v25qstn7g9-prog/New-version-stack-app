@@ -51,8 +51,11 @@ const SYSTEM_PROMPT_BASE = `你是內嵌在個人存股資產追蹤 App 的助�
 執行動作必須用工具（function calling），你無法直接改資料；App 會顯示確認卡，使用者按確定才生效。
 資訊不夠（缺股數、價格等）先用文字問清楚，不要瞎猜後呼叫工具。
 
-query_app_data 是唯讀查詢，可直接呼叫，不用確認卡。系統會把查詢結果以正式的工具回覆（tool 訊息）交給你，
+query_app_data 跟 get_live_quotes 都是唯讀查詢，可直接呼叫，不用確認卡。系統會把查詢結果以正式的工具回覆（tool 訊息）交給你，
 收到工具回覆後就代表查詢已完成，直接根據內容用文字回答，不要再次呼叫同一個查詢。
+【重要】query_app_data 只有「歷史紀錄」（過去存進資料庫的每日市值、成本、交易、配息），沒有現在的股價。
+使用者問「現在/今天股價多少」「收盤價」「幫我算現在市值」這類問題，要用 get_live_quotes 查即時報價，
+不要用 query_app_data，也不要說自己查不到——這兩個工具合起來才是完整的查詢能力。
 【重要】彙總結果都已由程式算好，不要自己對 records 明細手動加減比較。
 - 現在持股成本：看摘要即可
 - 過去某日成本：source=holding_cost + symbol + asOfDate
@@ -62,6 +65,7 @@ query_app_data 是唯讀查詢，可直接呼叫，不用確認卡。系統會�
 - 哪個月漲跌最多：aggregation=min_max
 - 月度趨勢：aggregation=monthly；明細才用 records
 - 交易/配息：source=trades 或 dividends；統計用 summary，列表用 records
+- 現在股價/今日收盤/現在市值：get_live_quotes
 同一問題最多查 2 次；不確定「變化量還是絕對值」就直接問使用者。
 
 手機小視窗：回答簡潔。可結合最近對話理解省略句。
@@ -190,6 +194,23 @@ const TOOLS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "get_live_quotes",
+      description: "查詢股票的即時／今日最新股價（來自證交所即時報價，不是歷史紀錄）。使用者問「現在/今天股價多少」「收盤價是多少」「幫我算現在市值」這類問題時用這個，不要跟 query_app_data 搞混——query_app_data 只有你資料庫裡存的歷史每日紀錄，沒有即時股價。",
+      parameters: {
+        type: "object",
+        properties: {
+          symbols: {
+            type: "array",
+            items: { type: "string" },
+            description: "要查詢的股票代號清單，例如 [\"0050\",\"0056\"]；沒指定就查使用者目前全部持股",
+          },
+        },
+      },
+    },
+  },
  ];
 
 const ALLOWED_TOOL_NAMES = new Set([
@@ -198,6 +219,7 @@ const ALLOWED_TOOL_NAMES = new Set([
   "update_manual_avg_cost",
   "update_goal",
   "query_app_data",
+  "get_live_quotes",
 ]);
 
 function friendlyAiError(message) {
