@@ -112,7 +112,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.6-personal-v2.19-stable";
+const APP_VERSION = "4.6-personal-v2.20-dual-ai-safe";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -501,16 +501,92 @@ function isObject(v) {
   return v != null && typeof v === "object" && !Array.isArray(v);
 }
 
-function validateBackupPayload(payload) {
-  if (!isObject(payload)) return false;
-  const data = isObject(payload.data) ? payload.data : payload;
-  return Array.isArray(data.dailyRecords)
-    && Array.isArray(data.holdings)
-    && Array.isArray(data.trades)
-    && Array.isArray(data.dividends)
-    && Array.isArray(data.planItems)
-    && isObject(data.goal)
-    && isObject(data.planSchedule);
+function isValidDateStr(v) {
+  if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  const d = parseLocalDate(v);
+  return Number.isFinite(d.getTime()) && `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}` === v;
+}
+
+function finiteNonNegative(v) {
+  return v == null || v === "" || (Number.isFinite(Number(v)) && Number(v) >= 0);
+}
+
+function inspectBackupPayload(payload) {
+  const errors = [], warnings = [];
+  if (!isObject(payload)) return { ok: false, errors: ["最外層不是有效物件"], warnings };
+  const data = isObject(payload.data) ? payload.data : payload; // schema 1 相容
+  const schemaVersion = Number(payload.schemaVersion || 1);
+  if (!Number.isFinite(schemaVersion) || schemaVersion < 1) errors.push("schemaVersion 不合法");
+  if (schemaVersion > BACKUP_SCHEMA_VERSION) errors.push(`備份 schema ${schemaVersion} 比目前 App 支援的 ${BACKUP_SCHEMA_VERSION} 新，為避免資料損壞不匯入`);
+
+  const requiredArrays = ["dailyRecords", "holdings", "trades", "dividends", "planItems"];
+  requiredArrays.forEach((k) => { if (!Array.isArray(data[k])) errors.push(`${k} 不是陣列`); });
+  if (!isObject(data.goal)) errors.push("goal 不存在或格式錯誤");
+  if (!isObject(data.planSchedule)) errors.push("planSchedule 不存在或格式錯誤");
+  if (errors.length) return { ok: false, errors, warnings, data, schemaVersion };
+
+  data.dailyRecords.forEach((r, i) => {
+    if (!isObject(r) || !isValidDateStr(r.date)) errors.push(`每日紀錄第 ${i + 1} 筆日期不合法`);
+    ["twValue", "usValue", "twCost", "usCost"].forEach((k) => {
+      if (!finiteNonNegative(r?.[k])) errors.push(`每日紀錄第 ${i + 1} 筆 ${k} 不是有效非負數字`);
+    });
+  });
+  data.holdings.forEach((h, i) => {
+    if (!isObject(h) || !String(h.symbol || "").trim()) errors.push(`持股第 ${i + 1} 筆缺少股票代號`);
+    ["initialShares", "current", "target2035", "avgCost", "manualAvgCost"].forEach((k) => {
+      if (!finiteNonNegative(h?.[k])) errors.push(`持股第 ${i + 1} 筆 ${k} 不是有效非負數字`);
+    });
+  });
+  data.trades.forEach((t, i) => {
+    if (!isObject(t) || !isValidDateStr(t.date)) errors.push(`交易第 ${i + 1} 筆日期不合法`);
+    if (!String(t?.symbol || "").trim()) errors.push(`交易第 ${i + 1} 筆缺少股票代號`);
+    if (!(["buy", "sell"].includes(t?.action))) errors.push(`交易第 ${i + 1} 筆買賣方向不合法`);
+    if (!(Number(t?.shares) > 0)) errors.push(`交易第 ${i + 1} 筆股數必須大於 0`);
+    if (!(Number(t?.price) > 0)) errors.push(`交易第 ${i + 1} 筆成交價必須大於 0`);
+    ["fee", "tax", "amount"].forEach((k) => { if (!finiteNonNegative(t?.[k])) errors.push(`交易第 ${i + 1} 筆 ${k} 不合法`); });
+    if (Number.isFinite(Number(t?.amount)) && Number(t?.shares) > 0 && Number(t?.price) > 0) {
+      const fee = Number(t?.fee || 0), tax = Number(t?.tax || 0);
+      const expected = t.action === "sell"
+        ? Number(t.shares) * Number(t.price) - fee - tax
+        : Number(t.shares) * Number(t.price) + fee;
+      if (Math.abs(Number(t.amount) - expected) > 1) warnings.push(`交易第 ${i + 1} 筆交易金額與股數×價格不一致`);
+    }
+  });
+  data.dividends.forEach((d, i) => {
+    if (!isObject(d) || !isValidDateStr(d.date)) errors.push(`配息第 ${i + 1} 筆日期不合法`);
+    if (!String(d?.symbol || "").trim()) errors.push(`配息第 ${i + 1} 筆缺少股票代號`);
+    ["shares", "perShare", "amount"].forEach((k) => { if (!finiteNonNegative(d?.[k])) errors.push(`配息第 ${i + 1} 筆 ${k} 不合法`); });
+  });
+  data.planItems.forEach((x, i) => {
+    if (!isObject(x) || !String(x.symbol || "").trim()) errors.push(`定期定額第 ${i + 1} 筆缺少標的`);
+    if (!finiteNonNegative(x?.amount)) errors.push(`定期定額第 ${i + 1} 筆金額不合法`);
+  });
+
+  if (!(Number(data.goal?.targetAmount) > 0)) errors.push("目標金額必須大於 0");
+  if (!(Number(data.goal?.targetYear) >= 2000 && Number(data.goal?.targetYear) <= 2200)) errors.push("目標年份不合理");
+  if (!isValidDateStr(data.planSchedule?.startDate)) errors.push("計畫起始日不合法");
+  ["initialCapital", "initialPrincipal", "initialAssets", "monthlyAmount"].forEach((k) => {
+    if (data.planSchedule?.[k] != null && !finiteNonNegative(data.planSchedule[k])) errors.push(`planSchedule.${k} 不合法`);
+  });
+  if (data.planSchedule?.annualReturn != null && !(Number(data.planSchedule.annualReturn) > -100 && Number.isFinite(Number(data.planSchedule.annualReturn)))) errors.push("年化報酬率不合法");
+  if (data.planSchedule?.horizonMonths != null && !(Number(data.planSchedule.horizonMonths) > 0)) errors.push("投影月數必須大於 0");
+  if (schemaVersion >= 2 && data.costBasis != null && (!isObject(data.costBasis) || !finiteNonNegative(data.costBasis.startingCost))) errors.push("costBasis 格式不合法");
+
+  const duplicateIds = (arr, label) => {
+    const seen = new Set(), dup = new Set();
+    arr.forEach((x) => { const id = String(x?.id || "").trim(); if (id && seen.has(id)) dup.add(id); else if (id) seen.add(id); });
+    if (dup.size) warnings.push(`${label} 有 ${dup.size} 個重複 ID`);
+  };
+  duplicateIds(data.holdings, "持股");
+  duplicateIds(data.trades, "交易");
+  duplicateIds(data.dividends, "配息");
+  duplicateIds(data.planItems, "定期定額");
+  const holdingSymbols = data.holdings.map((h) => String(h?.symbol || "").trim()).filter(Boolean);
+  if (new Set(holdingSymbols).size !== holdingSymbols.length) warnings.push("持股清單有重複股票代號");
+  const dates = data.dailyRecords.map((r) => r?.date).filter(Boolean);
+  if (new Set(dates).size !== dates.length) warnings.push("每日紀錄有重複日期，匯入後請檢查是否為刻意保留");
+
+  return { ok: errors.length === 0, errors, warnings, data, schemaVersion };
 }
 
 // ---- seed data imported from user's Excel (存股現況表) ----
@@ -614,11 +690,12 @@ function AssetTracker() {
   // Starting cost basis, before any trade in the 交易紀錄 log — combined
   // with the running buy/sell total to get today's accumulated cost.
   const [costBasis, setCostBasis] = useState({ startingCost: 0 });
+  const [lastBackupAt, setLastBackupAt] = useState(null);
 
   // ---- initial load ----
   useEffect(() => {
     (async () => {
-      const [dr, h, t, dv, p, g, ps, cb] = await Promise.all([
+      const [dr, h, t, dv, p, g, ps, cb, lba] = await Promise.all([
         loadKey("dailyRecords", defaultDailyRecords()),
         loadKey("holdings", defaultHoldings()),
         loadKey("trades", defaultTrades()),
@@ -627,6 +704,7 @@ function AssetTracker() {
         loadKey("goal", { targetAmount: 10000000, targetYear: 2035 }),
         loadKey("planSchedule", defaultPlanSchedule()),
         loadKey("costBasis", { startingCost: 0 }),
+        loadKey("lastBackupAt", null),
       ]);
       setDailyRecords(dr);
       setHoldings(h);
@@ -642,6 +720,7 @@ function AssetTracker() {
         initialAssets: Number(ps?.initialAssets ?? ps?.initialCapital ?? defaultPs.initialAssets),
       });
       setCostBasis(isObject(cb) ? { ...{ startingCost: 0 }, ...cb } : { startingCost: 0 });
+      setLastBackupAt(typeof lba === "string" && Number.isFinite(Date.parse(lba)) ? lba : null);
       setReady(true);
     })();
   }, []);
@@ -659,11 +738,12 @@ function AssetTracker() {
 
   // ---- full backup / restore ----
   const exportBackup = () => {
+    const exportedAt = new Date().toISOString();
     const payload = {
       app: "存股資產追蹤",
       appVersion: APP_VERSION,
       schemaVersion: BACKUP_SCHEMA_VERSION,
-      exportedAt: new Date().toISOString(),
+      exportedAt,
       data: { dailyRecords, holdings, trades, dividends, planItems, goal, planSchedule, costBasis },
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
@@ -675,6 +755,8 @@ function AssetTracker() {
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+    setLastBackupAt(exportedAt);
+    saveKey("lastBackupAt", exportedAt);
   };
 
   const exportExcel = async () => {
@@ -786,12 +868,19 @@ function AssetTracker() {
     if (!file) return;
     try {
       const payload = JSON.parse(await file.text());
-      if (!validateBackupPayload(payload)) {
-        window.alert("這不是有效的存股資產追蹤備份檔。資料未變更。");
+      const check = inspectBackupPayload(payload);
+      if (!check.ok) {
+        const shown = check.errors.slice(0, 8).map((x) => `• ${x}`).join("\n");
+        const more = check.errors.length > 8 ? `\n…另有 ${check.errors.length - 8} 項` : "";
+        window.alert(`備份檔深度驗證失敗，資料未變更。\n\n${shown}${more}`);
         return;
       }
+      if (check.warnings.length) {
+        const shown = check.warnings.map((x) => `• ${x}`).join("\n");
+        if (!window.confirm(`備份檔可匯入，但有提醒：\n\n${shown}\n\n仍要繼續嗎？`)) return;
+      }
       if (!window.confirm("匯入會以備份內容取代目前 App 內的資料，確定要繼續嗎？")) return;
-      const data = payload.data || payload;
+      const data = check.data;
       setDailyRecords(data.dailyRecords);
       setHoldings(data.holdings);
       setTrades(data.trades);
@@ -807,8 +896,12 @@ function AssetTracker() {
         initialAssets: Number(importedPs.initialAssets ?? importedPs.initialCapital ?? defaultPs.initialAssets),
       });
       // schema 1 沒有 costBasis；保留目前值，不用 0 覆蓋。schema 2 才完整還原。
-      if (payload.schemaVersion >= 2 && isObject(data.costBasis)) setCostBasis(data.costBasis);
-      window.alert(`備份已匯入完成（schema ${payload.schemaVersion || 1}）。建議重新整理一次頁面確認資料。`);
+      if (check.schemaVersion >= 2 && isObject(data.costBasis)) setCostBasis(data.costBasis);
+      if (typeof payload.exportedAt === "string" && Number.isFinite(Date.parse(payload.exportedAt))) {
+        setLastBackupAt(payload.exportedAt);
+        saveKey("lastBackupAt", payload.exportedAt);
+      }
+      window.alert(`備份已匯入完成（schema ${check.schemaVersion}）。建議重新整理一次頁面確認資料。`);
     } catch (e) {
       console.error("backup import failed", e);
       window.alert("備份檔讀取失敗，資料未變更。");
@@ -1016,6 +1109,11 @@ function AssetTracker() {
     }
   }, [totalToday, goal.targetAmount, ready, celebratedMilestones]);
 
+  const backupAgeDays = lastBackupAt && Number.isFinite(Date.parse(lastBackupAt))
+    ? Math.max(0, Math.floor((Date.now() - Date.parse(lastBackupAt)) / 86400000))
+    : null;
+  const backupOverdue = backupAgeDays == null || backupAgeDays >= 7;
+
   if (!ready) {
     return (
       <div style={{ background: COLORS.bg, color: COLORS.sub }}
@@ -1050,7 +1148,7 @@ function AssetTracker() {
         </div>
       )}
 
-      <Header goal={goal} totalToday={totalToday} goalDate={goalDate} />
+      <Header goal={goal} totalToday={totalToday} goalDate={goalDate} backupOverdue={backupOverdue} backupAgeDays={backupAgeDays} />
 
       <main className="px-4 pt-4 pb-24 max-w-2xl mx-auto">
         {tab === "dashboard" && (
@@ -1083,7 +1181,7 @@ function AssetTracker() {
         {tab === "plan" && (
           <PlanPanel planItems={planItems} setPlanItems={setPlanItems}
             planTotal={planTotal} goal={goal} setGoal={setGoal}
-            exportBackup={exportBackup} importBackup={importBackup} exportExcel={exportExcel} />
+            exportBackup={exportBackup} importBackup={importBackup} exportExcel={exportExcel} lastBackupAt={lastBackupAt} backupAgeDays={backupAgeDays} backupOverdue={backupOverdue} />
         )}
         {tab === "progress" && (
           <ProgressPanel
@@ -1111,7 +1209,7 @@ function AssetTracker() {
 }
 
 // ---------------- Header ----------------
-function Header({ goal, totalToday, goalDate }) {
+function Header({ goal, totalToday, goalDate, backupOverdue, backupAgeDays }) {
   const remain = Math.max(0, goal.targetAmount - totalToday);
   const pct = Math.min(100, (totalToday / goal.targetAmount) * 100);
   return (
@@ -1146,6 +1244,12 @@ function Header({ goal, totalToday, goalDate }) {
           <span>距目標 NT${nf(remain)}（已達成 {pct.toFixed(1)}%）</span>
           {goalDate && <span style={{ color: COLORS.gold }}>預計 {goalDate} 達成</span>}
         </div>
+        {backupOverdue && (
+          <div className="mt-2 rounded-lg px-2.5 py-1.5 text-[10px] font-bold"
+            style={{ color: COLORS.gold, background: COLORS.panel, border: `1px solid ${COLORS.gold}` }}>
+            🔐 備份提醒：{backupAgeDays == null ? "尚未記錄 JSON 備份" : `上次備份已 ${backupAgeDays} 天前`}，建議到「計畫設定」匯出一份。
+          </div>
+        )}
       </div>
     </div>
   );
@@ -2430,7 +2534,7 @@ function DividendsPanel({ dividends, setDividends, holdings }) {
 }
 
 // ---------------- Plan Panel ----------------
-function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBackup, importBackup, exportExcel }) {
+function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBackup, importBackup, exportExcel, lastBackupAt, backupAgeDays, backupOverdue }) {
   const [form, setForm] = useState({ symbol: "", amount: "", note: "" });
   const add = () => {
     if (!form.symbol || !form.amount) return;
@@ -2485,6 +2589,11 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
           <ShieldCheck size={18} style={{ color: COLORS.gold, flex: "0 0 auto", marginTop: 1 }} />
           <div className="text-[11px] leading-5" style={{ color: COLORS.sub }}>
             JSON 用來完整備份／還原 App；Excel 用來保存、檢視與分析投資歷史。重要修改後建議兩種都留一份。
+          </div>
+          <div className="ml-auto text-right text-[10px] leading-4" style={{ color: backupOverdue ? COLORS.gold : COLORS.sub }}>
+            {lastBackupAt
+              ? <>上次 JSON 備份<br />{new Date(lastBackupAt).toLocaleDateString("zh-TW")}（{backupAgeDays} 天前）</>
+              : <>上次 JSON 備份<br />尚未記錄</>}
           </div>
         </div>
         <div className="grid grid-cols-3 gap-2 mt-3">
@@ -2948,6 +3057,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const [providerInfo, setProviderInfo] = useState(null); // { provider, model, profile }
   const scrollRef = useRef(null);
 
   useEffect(() => {
@@ -2990,6 +3100,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
       const history = nextMessages.slice(0, -1).filter((m) => typeof m.content === "string");
 
       let data = await askOnce(text, history, baseContext);
+      if (data?.provider) setProviderInfo({ provider: data.provider, model: data.model || "", profile: data.profile || "" });
 
       // 如果 AI 呼叫的是唯讀查詢工具，直接自動執行、把查到的結果用正式的 tool 訊息
       // 接回對話再幫它問一次，使用者完全不用介入；最多自動追問一輪，避免萬一 AI 一直
@@ -3013,6 +3124,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
         })));
         toolTurns.push({ calls: freshCalls, results });
         data = await askOnce(text, history, baseContext, toolTurns);
+        if (data?.provider) setProviderInfo({ provider: data.provider, model: data.model || "", profile: data.profile || "" });
         rounds += 1;
       }
 
@@ -3130,7 +3242,16 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
           }}>
             <div className="flex items-center justify-between px-4 py-3"
               style={{ borderBottom: `1px solid ${COLORS.panelBorder}` }}>
-              <div className="font-bold text-sm">AI 助手</div>
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="font-bold text-sm">AI 助手</div>
+                {providerInfo && (
+                  <div className="text-[9px] px-1.5 py-0.5 rounded-full truncate max-w-[150px]"
+                    title={`${providerInfo.provider} · ${providerInfo.model}`}
+                    style={{ color: providerInfo.provider === "gemini" ? COLORS.gold : COLORS.sub, border: `1px solid ${providerInfo.provider === "gemini" ? COLORS.gold : COLORS.panelBorder}` }}>
+                    {providerInfo.provider === "gemini" ? "Gemini 備援" : "GPT-OSS"}
+                  </div>
+                )}
+              </div>
               <button onClick={() => setOpen(false)} style={{ color: COLORS.sub }}><X size={20} /></button>
             </div>
 
