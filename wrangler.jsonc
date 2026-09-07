@@ -10,8 +10,5 @@
     "directory": ".",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application"
-  },
-  "vars": {
-    "ALLOW_PRIVATE_FALLBACK_MODEL": "true"
   }
 }
