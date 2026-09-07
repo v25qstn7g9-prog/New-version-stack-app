@@ -1,6 +1,6 @@
 {
   "name": "new-version-stack-app",
-,
+
   "compatibility_date": "2025-01-01",
   "main": "worker.js",
   "ai": {
