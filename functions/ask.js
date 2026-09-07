@@ -11,13 +11,14 @@
  *
  * Cloudflare Pages → Settings → Functions → AI bindings → Variable name: AI
  */
-const ASK_VERSION = "4.6-ask-free-17.0-gptoss120b";
+const ASK_VERSION = "4.6-ask-free-18.0-websearch";
 const MODEL = "@cf/openai/gpt-oss-120b";
 const MAX_HISTORY_TURNS = 6; // 再縮一點省輸入 token
 const MAX_MESSAGE_LEN = 2000;
 const MAX_HISTORY_CONTENT = 3000;
 const MAX_CONTEXT_LEN = 4000;
 const MAX_TOKENS = 1000;
+const MAX_SERVER_SEARCH_ROUNDS = 2; // 網路搜尋在伺服器端自動來回幾輪，避免無限查詢
 
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -27,6 +28,33 @@ function jsonResponse(data, status = 200) {
       "cache-control": "no-store, no-cache, must-revalidate",
     },
   });
+}
+
+// 呼叫 Tavily 網路搜尋 API。apiKey 沒設定就直接回錯誤字串，不會讓整個請求掛掉。
+async function callTavily(apiKey, query) {
+  if (!apiKey) return "（尚未設定網路搜尋功能，請提醒使用者到 Cloudflare 加上 TAVILY_API_KEY。）";
+  try {
+    const res = await fetch("https://api.tavily.com/search", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        api_key: apiKey,
+        query: String(query || "").slice(0, 400),
+        max_results: 5,
+        include_answer: true,
+      }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data) return `網路搜尋失敗（HTTP ${res.status}）`;
+    const results = Array.isArray(data.results) ? data.results.slice(0, 5) : [];
+    const lines = results.map(
+      (r) => `- ${r.title || "（無標題）"}：${String(r.content || "").slice(0, 200)}（來源：${r.url}）`
+    );
+    const answer = data.answer ? `摘要：${data.answer}\n\n` : "";
+    return answer + (lines.length ? lines.join("\n") : "搜尋沒有找到相關結果");
+  } catch (e) {
+    return `網路搜尋發生錯誤：${e.message}`;
+  }
 }
 
 const SYSTEM_PROMPT_BASE = `你是內嵌在個人存股資產追蹤 App 的助手，用繁體中文回答。
@@ -66,6 +94,7 @@ query_app_data 跟 get_live_quotes 都是唯讀查詢，可直接呼叫，不用
 - 月度趨勢：aggregation=monthly；明細才用 records
 - 交易/配息：source=trades 或 dividends；統計用 summary，列表用 records
 - 現在股價/今日收盤/現在市值：get_live_quotes
+- 一般新聞/時事/公開資訊/你內建知識不確定的事：web_search（不要拿來查使用者自己的持股或股價）
 同一問題最多查 2 次；不確定「變化量還是絕對值」就直接問使用者。
 
 手機小視窗：回答簡潔。可結合最近對話理解省略句。
@@ -211,6 +240,20 @@ const TOOLS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "web_search",
+      description: "上網搜尋一般性、公開的最新資訊（新聞、時事、你內建知識不確定或太新的事）。只在使用者問的不是他自己的持股/資產資料、也不是股價時才用這個；自己的資料用 query_app_data，股價用 get_live_quotes，不要優先用網路搜尋去查這兩種資料，因為搜尋結果可能不準或跟 App 資料對不起來。",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "搜尋關鍵字，簡短具體，中文或英文皆可" },
+        },
+        required: ["query"],
+      },
+    },
+  },
  ];
 
 const ALLOWED_TOOL_NAMES = new Set([
@@ -220,6 +263,7 @@ const ALLOWED_TOOL_NAMES = new Set([
   "update_goal",
   "query_app_data",
   "get_live_quotes",
+  "web_search",
 ]);
 
 function friendlyAiError(message) {
@@ -319,20 +363,15 @@ export async function onRequestPost(context) {
       });
     });
 
-    const result = await ai.run(MODEL, {
-      messages,
-      max_tokens: MAX_TOKENS,
-      tools: TOOLS,
-    });
-
-    const rawToolCalls =
-      result?.tool_calls ||
-      result?.response?.tool_calls ||
-      result?.choices?.[0]?.message?.tool_calls ||
-      null;
-
-    if (Array.isArray(rawToolCalls) && rawToolCalls.length > 0) {
-      const toolCalls = rawToolCalls
+    // 解析一次 ai.run() 回傳裡的 tool_calls，統一格式成 { id, name, arguments }
+    function parseToolCalls(result) {
+      const rawToolCalls =
+        result?.tool_calls ||
+        result?.response?.tool_calls ||
+        result?.choices?.[0]?.message?.tool_calls ||
+        null;
+      if (!Array.isArray(rawToolCalls) || rawToolCalls.length === 0) return [];
+      return rawToolCalls
         .map((tc, idx) => {
           const name = tc?.name || tc?.function?.name;
           let args = tc?.arguments ?? tc?.function?.arguments;
@@ -346,15 +385,43 @@ export async function onRequestPost(context) {
           }
           // 有些模型不會回傳 id，這裡補一個穩定的 fallback，讓下一輪可以正確對應回去。
           const id = String(tc?.id || tc?.tool_call_id || `call_${idx}`);
-          return name && ALLOWED_TOOL_NAMES.has(name)
-            ? { id, name, arguments: args || {} }
-            : null;
+          return name && ALLOWED_TOOL_NAMES.has(name) ? { id, name, arguments: args || {} } : null;
         })
         .filter(Boolean);
+    }
 
-      if (toolCalls.length > 0) {
-        return jsonResponse({ ok: true, version: ASK_VERSION, toolCalls });
+    let result = await ai.run(MODEL, { messages, max_tokens: MAX_TOKENS, tools: TOOLS });
+    let toolCalls = parseToolCalls(result);
+
+    // 網路搜尋直接在伺服器端自動處理完，使用者跟前端完全不用介入，
+    // 也不會把 Tavily 的 API Key 暴露給瀏覽器。最多來回幾輪，避免無限搜尋。
+    let searchRounds = 0;
+    while (
+      toolCalls.length > 0 &&
+      toolCalls.every((tc) => tc.name === "web_search") &&
+      searchRounds < MAX_SERVER_SEARCH_ROUNDS
+    ) {
+      messages.push({
+        role: "assistant",
+        content: "",
+        tool_calls: toolCalls.map((tc) => ({
+          id: tc.id,
+          type: "function",
+          function: { name: tc.name, arguments: JSON.stringify(tc.arguments || {}) },
+        })),
+      });
+      const tavilyKey = context.env.TAVILY_API_KEY;
+      for (const tc of toolCalls) {
+        const content = await callTavily(tavilyKey, tc.arguments?.query);
+        messages.push({ role: "tool", tool_call_id: tc.id, content: content.slice(0, MAX_CONTEXT_LEN) });
       }
+      result = await ai.run(MODEL, { messages, max_tokens: MAX_TOKENS, tools: TOOLS });
+      toolCalls = parseToolCalls(result);
+      searchRounds += 1;
+    }
+
+    if (toolCalls.length > 0) {
+      return jsonResponse({ ok: true, version: ASK_VERSION, toolCalls });
     }
 
     let reply = String(result?.response || "").trim();
