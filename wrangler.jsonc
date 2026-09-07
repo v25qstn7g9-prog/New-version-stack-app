@@ -12,6 +12,6 @@
     "not_found_handling": "single-page-application"
   },人
   "vars": {
-    "GEMINI_ALLOW_PRIVATE_CONTEXT": "ture"
+    "GEMINI_ALLOW_PRIVATE_CONTEXT": "true"
   }
 }
