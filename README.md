@@ -1,124 +1,218 @@
-# 存股資產追蹤 v2.20 — 雙 AI 備援／安全備份版
+# 存股資產追蹤 v2.21 — 獨立 AI 備援版
 
-這包是以你 2026-09-07 的「存股App_加網路搜尋」版本為底升級，保留原本的即時股價、持股新聞、Tavily 網路搜尋、AI 工具呼叫與全部資產資料邏輯。
+這包直接以你上傳的 **「存股App_最終版_無備援有搜尋」** 為底修改。原本的持股、交易、配息、即時股價、新聞、Tavily 網路搜尋、備份與計畫進度都保留；主 AI 仍是 Cloudflare Workers AI `@cf/openai/gpt-oss-120b`。
 
-## 這版新增
+這版只做一個核心改變：**Gemini 備援不再放在 Cloudflare Worker 裡，而是放到另一個平台（Vercel）**。
 
-### 1. 雙 AI 自動備援
+## 為什麼這次是真正「不同條線」
 
-- 主力：Cloudflare Workers AI `@cf/openai/gpt-oss-120b`
-- 備援：Google Gemini `gemini-3.5-flash-lite`
-- Cloudflare 發生免費額度、429、暫時性 5xx、容量或逾時類錯誤時，會自動改走 Gemini。
-- AI 視窗上方會顯示目前實際使用 `GPT-OSS` 或 `Gemini 備援`。
+原本同一個 Cloudflare Worker 裡：
 
-### 2. AI 額度節省
+`手機 → Cloudflare /ask → Workers AI`
 
-以前每句聊天都可能把完整持股摘要與全部工具 schema 一起送進模型。v2.20 會先做輕量分類：
+即使再從 Cloudflare `/ask` 去叫 Gemini，入口仍然是 Cloudflare。
 
-- 純聊天：不送個人持股 context，也不送工具 schema。
-- 一般最新資訊：只開 `web_search`。
-- 公開市場／股價問題：只開 `get_live_quotes` + `web_search`。
-- 個人資產查詢：才帶持股 context + 唯讀查詢工具。
-- 記交易／改目標等動作：才開完整工具組。
+v2.21 改成：
 
-目的不是改回答邏輯，而是減少不必要的輸入 token / neurons。
+`手機 → Cloudflare /ask → GPT-OSS`
 
-### 3. Gemini 私人資料保護
+Cloudflare `/ask` 額度用完、429、5xx、逾時或網路失敗時：
 
-Gemini 免費層可能依 Google 當期政策將內容用於改善產品，因此本版預設：
+`手機 → Vercel /api/ask → Gemini 3.5 Flash-Lite`
 
-- 一般聊天、公開市場、網路搜尋：可以自動 Gemini 備援。
-- 你的持股、成本、資產等私人 context：**預設不送 Gemini**。
-
-如果你自己接受 Gemini 處理私人資產資料，再把環境變數：
-
-`GEMINI_ALLOW_PRIVATE_CONTEXT=true`
-
-設上去即可；否則 Cloudflare 額度耗盡時，私人資產題目會停在 Cloudflare，不會偷偷轉送。
-
-### 4. JSON 備份提醒
-
-- App 會記住最後一次 JSON 備份時間。
-- 超過 7 天或從未備份，首頁上方會出現提醒。
-- 「計畫設定 → 資料備份與還原」也會顯示上次備份日期。
-
-### 5. 備份深度驗證
-
-JSON 還原前不再只檢查「欄位存在」，還會檢查：
-
-- 日期格式
-- 股數／金額／成本是否為合法非負數
-- 交易股數與成交價是否 > 0
-- 買賣方向
-- 目標金額／年份
-- planSchedule 參數
-- schema 是否比 App 新
-- 重複 ID 與重複每日日期（提醒，不直接擋掉）
-
-驗證失敗時不會覆蓋目前資料。
+因此 Gemini 備援的模型呼叫不會再經過 Cloudflare Workers AI。
 
 ---
 
 ## 專案結構
 
-- `index.html` — 前端 App
-- `worker.js` — Cloudflare Worker 進入點
-- `wrangler.jsonc` — Workers with Static Assets 設定
-- `manifest.webmanifest` — PWA
-- `_routes.json` — 保留相容檔
-- `functions/quote.js` — 即時股價
-- `functions/news.js` — 持股新聞
-- `functions/ask.js` — AI / Tavily / Gemini 備援
+Cloudflare 主 App：
 
-## Cloudflare 必要設定
+- `index.html`
+- `worker.js`
+- `wrangler.jsonc`
+- `functions/ask.js`
+- `functions/quote.js`
+- `functions/news.js`
+- `manifest.webmanifest`
+- `_routes.json`
 
-### A. Cloudflare Workers AI
+獨立備援：
 
-Binding 名稱必須是：
+- `fallback-vercel/api/ask.js`
+- `fallback-vercel/api/health.js`
+- `fallback-vercel/lib/ask-core.js`
+- `fallback-vercel/package.json`
+- `fallback-vercel/vercel.json`
+- `fallback-vercel/.env.example`
 
-`AI`
+---
 
-### B. Gemini 備援
+# 第一步：Cloudflare 主 App
 
-到 Google AI Studio 建立 Gemini API key，然後在 Cloudflare Worker 的 Variables / Secrets 加入：
+照你現在原本的方法部署根目錄即可。
+
+Cloudflare 需要：
+
+- AI Binding：`AI`
+- Secret：`TAVILY_API_KEY`（若要網路搜尋）
+
+`wrangler.jsonc` 的 Worker 名稱仍是：
+
+`new-version-stack-app`
+
+不用再放任何 Gemini API Key 到 Cloudflare。
+
+---
+
+# 第二步：部署 Vercel 備援
+
+把 **`fallback-vercel` 資料夾本身** 當成一個獨立 Vercel Project 部署。
+
+Vercel Environment Variables：
+
+## 必填
 
 `GEMINI_API_KEY`
 
-請用 Secret，不要把 key 寫進任何 `.js` / `.html` 或 GitHub repo。
+到 Google AI Studio 建立 Gemini API Key。
 
-如果接受 Gemini 處理私人持股 context，再額外設定一般環境變數：
+## 建議保留預設
 
-`GEMINI_ALLOW_PRIVATE_CONTEXT=true`
+`GEMINI_MODEL=gemini-3.5-flash-lite`
 
-不設定或設為其他值 = 私人資料 Gemini 備援關閉。
+這版預設使用正式版 `gemini-3.5-flash-lite`。
 
-### C. Tavily 網路搜尋
-
-若要保留目前的「上網搜尋」功能，Secret：
+## 若要備援 AI 也能上網搜尋
 
 `TAVILY_API_KEY`
 
-不設定 Tavily 時，其他 AI 與資產功能仍可使用，只是 `web_search` 會提示尚未設定。
+如果不設定，Gemini 一般聊天／App 工具仍能用，但遇到 `web_search` 會提示 Tavily 未設定。
 
-## Wrangler 部署
+## 強烈建議：保護公開備援網址
 
-若使用 CLI：
+在 Vercel 設定一段你自己產生的長字串：
 
-```bash
-npx wrangler secret put GEMINI_API_KEY
-npx wrangler secret put TAVILY_API_KEY
-npx wrangler deploy
-```
+`FALLBACK_ACCESS_TOKEN=你的長亂碼`
 
-私人 Gemini 備援若要開啟，可在 Cloudflare Dashboard 加 `GEMINI_ALLOW_PRIVATE_CONTEXT=true`，或自行加入 wrangler vars。
+然後到 App：
 
-## GitHub 部署
+**計畫設定 → AI 獨立備援 → 備援存取 Token**
 
-把解壓後的內容放到 repo 根目錄，讓 Cloudflare Worker 連 GitHub 部署即可。這包是 **Workers with Static Assets** 架構，真正的入口是 `worker.js`，不是舊式 Pages Functions 自動偵測模式。
+填入完全相同的值。
 
-## 升級注意
+這個 Token 只存在你的瀏覽器儲存空間，不會被放進 JSON 投資資料備份。
 
-- 不會改動你現有的 localStorage / window.storage 資料格式。
-- `BACKUP_SCHEMA_VERSION` 維持 2，舊 schema 1 仍相容。
-- 首次開 v2.20 看到「尚未記錄 JSON 備份」是正常的；按一次 JSON 備份後就會開始計時。
-- ZIP 內沒有任何 API key。
+## 選填：限制來源網址
+
+`APP_ORIGIN=https://你的Cloudflare網址`
+
+例如：
+
+`APP_ORIGIN=https://new-version-stack-app.workers.dev`
+
+若你有自訂網域，可填自訂網域；多個網址用逗號分隔。
+
+---
+
+# 第三步：App 裡設定 Vercel 網址
+
+Vercel 部署完成後會得到類似：
+
+`https://stockapp-ai-fallback.vercel.app`
+
+到 App：
+
+**計畫設定 → AI 獨立備援**
+
+把這個網址貼進「備援網址」。
+
+不用自己補 `/api/ask`，App 會自動補。
+
+然後按：
+
+**測試獨立備援連線**
+
+成功會看到：
+
+`✓ 備援後端正常 · gemini-3.5-flash-lite`
+
+---
+
+# 私人資產資料保護
+
+預設：
+
+**「允許 Gemini 備援讀取 App 的持股／成本／資產資料」關閉。**
+
+這時候 Gemini 備援可以：
+
+- 一般聊天
+- 公開時事
+- Tavily 網路搜尋
+- 公開個股即時價（仍透過 App 的 `/quote`）
+
+但如果問題需要 `query_app_data` 把你的資產歷史送給 Gemini，App 會直接阻擋，不會偷偷傳送。
+
+你若接受 Gemini 處理自己的投資資料，再把該選項打開即可。
+
+注意：Google Gemini API 免費層依官方目前政策，免費層內容可能用於改善 Google 產品；這也是為什麼本版預設關閉私人資產資料備援。
+
+---
+
+# 實際切換邏輯
+
+App 每一次問答都先試：
+
+`/ask`（Cloudflare GPT-OSS）
+
+只有以下狀況才改走 Vercel：
+
+- Cloudflare /ask 網路失敗
+- 401 / 403（AI 設定或授權問題）
+- 408
+- 429
+- 5xx
+- quota / neuron / 額度 / binding / timeout 類錯誤
+
+正常回答時不會碰 Gemini。
+
+AI 視窗上方會顯示：
+
+- `GPT-OSS`
+- 或 `Gemini 獨立備援`
+
+---
+
+# 功能相容性
+
+Gemini 獨立備援保留跟 Cloudflare AI 相同的工具介面：
+
+- `query_app_data`
+- `get_live_quotes`
+- `web_search`
+- `add_trade`
+- `update_holding_target`
+- `update_manual_avg_cost`
+- `update_goal`
+
+所以不是另一個「只能聊天的 AI」。
+
+它仍能要求 App 查自己的歷史資料、即時股價，也能提出記交易／改目標的工具動作；所有寫入動作仍必須由你按確認卡才會真正寫入。
+
+---
+
+# 已完成的離線驗證
+
+本包製作時已測試：
+
+- Cloudflare `functions/ask.js` JavaScript 語法
+- Vercel `api/ask.js` JavaScript 語法
+- Vercel `api/health.js` JavaScript 語法
+- Gemini 一般文字回答回傳格式
+- Gemini function calling → `get_live_quotes`
+- Gemini → `web_search` → Tavily → Gemini 第二輪回答
+- Provider 標記回傳為 `gemini-external`
+- ZIP 完整性
+
+未在本環境直接使用你的真正 API Key 呼叫 Google／Vercel，因此第一次部署後請先按 App 裡的「測試獨立備援連線」。
