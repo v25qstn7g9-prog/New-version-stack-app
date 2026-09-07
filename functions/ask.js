@@ -1,5 +1,5 @@
 /**
- * ask.js — 4.6-ask-free-21.0-single-model
+ * ask.js — 4.6-ask-free-21.1-single-model-provider-tag
  *
  * POST /ask
  * body: {
@@ -10,11 +10,10 @@
  * 回傳: { ok: true, reply } 或 { ok: true, toolCalls: [{ name, arguments }] }
  *
  * Cloudflare AI Binding：Variable name = AI
- * （曾經試過切到第三方模型 google/gemini-3.8-flash 當備援，但那個模型走的是
- * 「AI Gateway 儲值額度」，跟 Workers AI 每天 10,000 Neurons 免費額度是完全分開的
- * 錢包，帳號沒儲值就一律失敗，不是程式碼能解決的問題，所以拿掉了，只保留單一主模型。）
+ * 這支只保留 Cloudflare 單一主模型；v2.21 的 Gemini 備援由前端直接改連
+ * 另一個平台的 fallback-vercel/api/ask.js，不再把第二模型塞進同一個 Cloudflare Worker。
  */
-const ASK_VERSION = "4.6-ask-free-21.0-single-model";
+const ASK_VERSION = "4.6-ask-free-21.1-single-model-provider-tag";
 const MODEL = "@cf/openai/gpt-oss-120b";
 const MAX_HISTORY_TURNS = 6; // 再縮一點省輸入 token
 const MAX_MESSAGE_LEN = 2000;
@@ -423,7 +422,7 @@ export async function onRequestPost(context) {
     }
 
     if (toolCalls.length > 0) {
-      return jsonResponse({ ok: true, version: ASK_VERSION, toolCalls });
+      return jsonResponse({ ok: true, version: ASK_VERSION, provider: "cloudflare", model: MODEL, toolCalls });
     }
 
     let reply = String(result?.response || "").trim();
@@ -434,7 +433,7 @@ export async function onRequestPost(context) {
       return jsonResponse({ error: "AI 沒有回傳文字內容", version: ASK_VERSION }, 502);
     }
 
-    return jsonResponse({ ok: true, version: ASK_VERSION, reply });
+    return jsonResponse({ ok: true, version: ASK_VERSION, provider: "cloudflare", model: MODEL, reply });
   } catch (e) {
     return jsonResponse({ error: friendlyAiError(e?.message), version: ASK_VERSION }, 500);
   }
