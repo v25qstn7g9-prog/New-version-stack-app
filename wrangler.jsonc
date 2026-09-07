@@ -1,17 +1,10 @@
 {
-  "name": "new-version-stack-app",
-
+  "name": "guanbu",
   "compatibility_date": "2025-01-01",
   "main": "worker.js",
-  "ai": {
-    "binding": "AI"
-  },
   "assets": {
     "directory": ".",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application"
-  },
-  "vars": {
-    "GEMINI_ALLOW_PRIVATE_CONTEXT": "true"
   }
 }
