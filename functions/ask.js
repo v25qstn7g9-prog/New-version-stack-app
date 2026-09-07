@@ -14,7 +14,7 @@
  */
 const ASK_VERSION = "4.6-ask-free-19.1-efficient-dual-ai";
 const MODEL = "@cf/openai/gpt-oss-120b";
-const GEMINI_MODEL = "gemini-3.5-flash-lite";
+const GEMINI_MODEL = "gemini-flash-latest";
 const MAX_HISTORY_TURNS = 6; // 再縮一點省輸入 token
 const MAX_MESSAGE_LEN = 2000;
 const MAX_HISTORY_CONTENT = 3000;
@@ -289,24 +289,103 @@ async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 18000) {
   }
 }
 
-// Gemini 有 OpenAI-compatible Chat Completions API，直接沿用目前 messages/tools 結構，
-// 不需要另外翻譯 function calling 格式；Cloudflare 與 Gemini 因此可以在不同輪次安全接手。
+// ---- OpenAI 風格 messages/tools 翻譯成 Gemini 原生格式 ----
+// Gemini 用 X-goog-api-key 驗證、native generateContent 端點、
+// system 訊息要拆成獨立的 systemInstruction，一般對話用 contents，
+// 工具呼叫用 functionCall / functionResponse part，跟 OpenAI 的 tool_calls 完全不同格式。
+function toGeminiRequest(messages, tools) {
+  const systemParts = [];
+  const contents = [];
+  // 追蹤每個 tool_call_id 對應的函式名稱，因為 OpenAI 的 tool 訊息只有 id 沒有 name，
+  // 但 Gemini 的 functionResponse 需要 name。
+  const callIdToName = {};
+
+  for (const m of messages) {
+    if (m.role === "system") {
+      systemParts.push(String(m.content || ""));
+      continue;
+    }
+    if (m.role === "user") {
+      contents.push({ role: "user", parts: [{ text: String(m.content || "") }] });
+      continue;
+    }
+    if (m.role === "assistant") {
+      if (Array.isArray(m.tool_calls) && m.tool_calls.length) {
+        const parts = m.tool_calls.map((tc) => {
+          let args = {};
+          try { args = JSON.parse(tc.function?.arguments || "{}"); } catch { args = {}; }
+          callIdToName[tc.id] = tc.function?.name;
+          return { functionCall: { name: tc.function?.name, args } };
+        });
+        contents.push({ role: "model", parts });
+      } else {
+        contents.push({ role: "model", parts: [{ text: String(m.content || "") }] });
+      }
+      continue;
+    }
+    if (m.role === "tool") {
+      const name = callIdToName[m.tool_call_id] || "tool_result";
+      contents.push({
+        role: "function",
+        parts: [{ functionResponse: { name, response: { result: String(m.content || "") } } }],
+      });
+      continue;
+    }
+  }
+
+  const body = { contents };
+  if (systemParts.length) body.systemInstruction = { parts: [{ text: systemParts.join("\n\n") }] };
+  if (Array.isArray(tools) && tools.length) {
+    body.tools = [{
+      functionDeclarations: tools.map((t) => ({
+        name: t.function.name,
+        description: t.function.description,
+        parameters: t.function.parameters,
+      })),
+    }];
+  }
+  return body;
+}
+
+// 把 Gemini 原生回應轉回我們系統統一使用的 OpenAI 風格結構（choices[0].message），
+// 這樣 parseToolCalls() 跟其他既有邏輯完全不用另外判斷 provider。
+function fromGeminiResponse(data) {
+  const candidate = data?.candidates?.[0];
+  const parts = candidate?.content?.parts || [];
+  const functionCallParts = parts.filter((p) => p.functionCall);
+  if (functionCallParts.length > 0) {
+    return {
+      choices: [{
+        message: {
+          role: "assistant",
+          content: "",
+          tool_calls: functionCallParts.map((p, idx) => ({
+            id: `gemini_call_${idx}`,
+            type: "function",
+            function: { name: p.functionCall.name, arguments: JSON.stringify(p.functionCall.args || {}) },
+          })),
+        },
+      }],
+    };
+  }
+  const text = parts.map((p) => p.text || "").join("").trim();
+  return { choices: [{ message: { role: "assistant", content: text } }] };
+}
+
+// 用 Google AI Studio「Copy cURL quickstart」驗證過的實際格式：
+// 原生 generateContent 端點 + X-goog-api-key 驗證（新版 AQ. 格式金鑰不支援 Authorization: Bearer）。
 async function runGemini(apiKey, messages, tools = []) {
   if (!apiKey) throw new Error("尚未設定 GEMINI_API_KEY");
+  const body = toGeminiRequest(messages, tools);
   const { res, data } = await fetchJsonWithTimeout(
-    "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
     {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "authorization": `Bearer ${apiKey}`,
+        "x-goog-api-key": apiKey,
       },
-      body: JSON.stringify({
-        model: GEMINI_MODEL,
-        messages,
-        max_tokens: MAX_TOKENS,
-        ...(tools.length ? { tools, tool_choice: "auto" } : {}),
-      }),
+      body: JSON.stringify(body),
     },
     18000
   );
@@ -315,12 +394,12 @@ async function runGemini(apiKey, messages, tools = []) {
     const detail = data?.error?.message || data?.error || `HTTP ${res.status}`;
     throw new Error(`Gemini 備援失敗：${detail}`);
   }
+  if (data?.promptFeedback?.blockReason) {
+    throw new Error(`Gemini 備援失敗：內容被擋下（${data.promptFeedback.blockReason}）`);
+  }
 
-  return {
-    ...data,
-    provider: "gemini",
-    model: data?.model || GEMINI_MODEL,
-  };
+  const translated = fromGeminiResponse(data);
+  return { ...translated, provider: "gemini", model: GEMINI_MODEL };
 }
 
 async function runModel(ai, geminiKey, messages, tools = []) {
