@@ -1,5 +1,5 @@
 /**
- * ask.js — 4.6-ask-free-19.1-efficient-dual-ai
+ * ask.js — 4.6-ask-free-20.0-native-fallback-model
  *
  * POST /ask
  * body: {
@@ -9,12 +9,13 @@
  * }
  * 回傳: { ok: true, reply } 或 { ok: true, toolCalls: [{ name, arguments }] }
  *
- * Cloudflare AI Binding：Variable name = AI
- * Gemini 備援：Secret name = GEMINI_API_KEY（Cloudflare 額度/暫時錯誤時自動切換）
+ * Cloudflare AI Binding：Variable name = AI（主模型 + 備援模型都走這一個綁定）
+ * 備援模型：google/gemini-3.8-flash，Cloudflare 代管的第三方模型，
+ * 不需要另外申請 API Key、不需要另外的 Secret，主模型額度用完時自動切換。
  */
-const ASK_VERSION = "4.6-ask-free-19.1-efficient-dual-ai";
+const ASK_VERSION = "4.6-ask-free-20.0-native-fallback-model";
 const MODEL = "@cf/openai/gpt-oss-120b";
-const GEMINI_MODEL = "gemini-flash-latest";
+const FALLBACK_MODEL = "google/gemini-3.8-flash";
 const MAX_HISTORY_TURNS = 6; // 再縮一點省輸入 token
 const MAX_MESSAGE_LEN = 2000;
 const MAX_HISTORY_CONTENT = 3000;
@@ -274,25 +275,11 @@ function shouldFallbackFromCloudflare(error) {
   return /neuron|quota|daily|exceeded|usage|rate.?limit|429|capacity|temporar|timeout|internal server|service unavailable|502|503|504/i.test(s);
 }
 
-async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 18000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, { ...options, signal: controller.signal });
-    const data = await res.json().catch(() => null);
-    return { res, data };
-  } catch (e) {
-    if (e?.name === "AbortError") throw new Error("Gemini 備援逾時");
-    throw e;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 // ---- OpenAI 風格 messages/tools 翻譯成 Gemini 原生格式 ----
-// Gemini 用 X-goog-api-key 驗證、native generateContent 端點、
-// system 訊息要拆成獨立的 systemInstruction，一般對話用 contents，
-// 工具呼叫用 functionCall / functionResponse part，跟 OpenAI 的 tool_calls 完全不同格式。
+// google/gemini-3.8-flash 這個第三方模型雖然也是走 env.AI 綁定呼叫，
+// 但它吃的是 Gemini 原生格式：system 訊息要拆成獨立的 systemInstruction，
+// 一般對話用 contents，工具呼叫用 functionCall / functionResponse part，
+// 跟 Cloudflare 原生模型用的 OpenAI 風格 messages/tool_calls 完全不同，還是要轉換。
 function toGeminiRequest(messages, tools) {
   const systemParts = [];
   const contents = [];
@@ -372,80 +359,54 @@ function fromGeminiResponse(data) {
   return { choices: [{ message: { role: "assistant", content: text } }] };
 }
 
-// 用 Google AI Studio「Copy cURL quickstart」驗證過的實際格式：
-// 原生 generateContent 端點 + X-goog-api-key 驗證（新版 AQ. 格式金鑰不支援 Authorization: Bearer）。
-async function runGemini(apiKey, messages, tools = []) {
-  if (!apiKey) throw new Error("尚未設定 GEMINI_API_KEY");
+// 透過 Cloudflare 自己代管的第三方模型呼叫 Gemini（不用另外的 GEMINI_API_KEY、
+// 不用另外的網址/驗證方式，一樣走 env.AI 這個綁定）。這個模型本身吃 Gemini 原生的
+// contents/tools 格式，所以還是要用 toGeminiRequest/fromGeminiResponse 做轉換，
+// 只是不用再自己處理 HTTP 呼叫、逾時、金鑰這些細節，Cloudflare 都包好了。
+async function runGeminiViaWorkersAI(ai, messages, tools = []) {
   const body = toGeminiRequest(messages, tools);
-  const { res, data } = await fetchJsonWithTimeout(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-goog-api-key": apiKey,
-      },
-      body: JSON.stringify(body),
-    },
-    18000
-  );
-
-  if (!res.ok || !data) {
-    const detail = data?.error?.message || data?.error || `HTTP ${res.status}`;
-    throw new Error(`Gemini 備援失敗：${detail}`);
-  }
+  const data = await ai.run(FALLBACK_MODEL, body);
   if (data?.promptFeedback?.blockReason) {
-    throw new Error(`Gemini 備援失敗：內容被擋下（${data.promptFeedback.blockReason}）`);
+    throw new Error(`備援模型失敗：內容被擋下（${data.promptFeedback.blockReason}）`);
   }
-
   const translated = fromGeminiResponse(data);
-  return { ...translated, provider: "gemini", model: GEMINI_MODEL };
+  return { ...translated, provider: "gemini", model: FALLBACK_MODEL };
 }
 
-async function runModel(ai, geminiKey, messages, tools = []) {
-  let cloudflareError = null;
-  if (ai) {
-    try {
-      const options = { messages, max_tokens: MAX_TOKENS };
-      if (tools.length) options.tools = tools;
-      const result = await ai.run(MODEL, options);
-      if (result && typeof result === "object") {
-        result.provider = "cloudflare";
-        result.model = MODEL;
-      }
-      return result;
-    } catch (e) {
-      cloudflareError = e;
-      if (!geminiKey || !shouldFallbackFromCloudflare(e)) throw e;
+async function runModel(ai, messages, tools = [], allowFallbackModel = true) {
+  if (!ai) throw new Error("尚未設定 Cloudflare AI Binding");
+  let primaryError = null;
+  try {
+    const options = { messages, max_tokens: MAX_TOKENS };
+    if (tools.length) options.tools = tools;
+    const result = await ai.run(MODEL, options);
+    if (result && typeof result === "object") {
+      result.provider = "cloudflare";
+      result.model = MODEL;
     }
+    return result;
+  } catch (e) {
+    primaryError = e;
+    if (!allowFallbackModel || !shouldFallbackFromCloudflare(e)) throw e;
   }
 
-  if (geminiKey) {
-    try {
-      return await runGemini(geminiKey, messages, tools);
-    } catch (e) {
-      if (cloudflareError) {
-        throw new Error(`Cloudflare AI 已不可用（${cloudflareError.message || cloudflareError}）；${e.message || e}`);
-      }
-      throw e;
-    }
+  try {
+    return await runGeminiViaWorkersAI(ai, messages, tools);
+  } catch (e) {
+    throw new Error(`主模型已不可用（${primaryError.message || primaryError}）；備援模型也失敗：${e.message || e}`);
   }
-
-  if (!ai) throw new Error("尚未設定 Cloudflare AI Binding，也沒有 GEMINI_API_KEY 備援");
-  throw cloudflareError || new Error("AI 服務暫時不可用");
 }
 
 function friendlyAiError(message, meta = {}) {
   const s = String(message || "");
   if (/neuron|quota|limit|daily|exceeded|usage/i.test(s)) {
-    if (meta.privateFallbackBlocked && meta.geminiConfigured) {
-      return "Cloudflare AI 免費額度可能已用完。這題包含你的個人資產資料，Gemini 免費備援因隱私保護預設不接手；若你接受再把 GEMINI_ALLOW_PRIVATE_CONTEXT 設為 true。";
+    if (meta.privateFallbackBlocked) {
+      return "Cloudflare AI 免費額度可能已用完。這題包含你的個人資產資料，備援模型（Gemini）因隱私保護預設不接手；若你接受再把 ALLOW_PRIVATE_FALLBACK_MODEL 設為 true。";
     }
-    if (meta.geminiConfigured) return "Cloudflare AI 免費額度可能已用完，Gemini 備援這次也沒有成功，請稍後再試。";
-    return "Cloudflare AI 免費額度可能已用完。設定 GEMINI_API_KEY 後，一般聊天／公開資訊可自動切到 Gemini 備援。";
+    return "Cloudflare AI 免費額度可能已用完，備援模型這次也沒有成功，請稍後再試。";
   }
   if (/unauthorized|forbidden|401|403/i.test(s)) {
-    return "AI 服務授權失敗，請檢查 Cloudflare／Gemini 設定。";
+    return "AI 服務授權失敗，請檢查 Cloudflare 設定。";
   }
   if (/binding|AI binding|env\.AI/i.test(s)) {
     return "尚未設定 Cloudflare AI Binding（Variable name: AI）。";
@@ -454,7 +415,7 @@ function friendlyAiError(message, meta = {}) {
 }
 
 export async function onRequestPost(context) {
-  const errorMeta = { geminiConfigured: false, privateFallbackBlocked: false };
+  const errorMeta = { privateFallbackBlocked: false };
   try {
     const ai = context.env.AI;
 
@@ -469,10 +430,8 @@ export async function onRequestPost(context) {
         return jsonResponse({ error: "AI 問答太頻繁了，請稍後再試。", version: ASK_VERSION }, 429);
       }
     }
-    const geminiKey = String(context.env.GEMINI_API_KEY || "").trim();
-    errorMeta.geminiConfigured = Boolean(geminiKey);
-    if (!ai && !geminiKey) {
-      return jsonResponse({ error: "尚未設定 AI：請設定 Cloudflare AI Binding（AI）或 GEMINI_API_KEY。", version: ASK_VERSION }, 500);
+    if (!ai) {
+      return jsonResponse({ error: "尚未設定 AI：請設定 Cloudflare AI Binding（Variable name: AI）。", version: ASK_VERSION }, 500);
     }
 
     const body = await context.request.json().catch(() => null);
@@ -490,14 +449,14 @@ export async function onRequestPost(context) {
 
     const toolProfile = { tools: TOOLS, needsPortfolioContext: true };
     const activeTools = toolProfile.tools;
-    const allowPrivateGemini = String(context.env.GEMINI_ALLOW_PRIVATE_CONTEXT || "").toLowerCase() === "true";
+    const allowPrivateFallback = String(context.env.ALLOW_PRIVATE_FALLBACK_MODEL || "").toLowerCase() === "true";
     const rawToolTurns = Array.isArray(body?.toolTurns) ? body.toolTurns : [];
     const contextText = typeof body?.context === "string" ? body.context.slice(0, MAX_CONTEXT_LEN) : "";
     // 隱私保護：只要這次請求裡「真的帶了」持股摘要或工具查詢結果（不管問題怎麼問），
-    // 一律預設不讓 Gemini 備援碰，比用關鍵字猜問題內容穩妥，不會漏接。
+    // 一律預設不讓備援模型（Gemini）碰，比用關鍵字猜問題內容穩妥，不會漏接。
     const hasPrivateData = Boolean(contextText.trim()) || rawToolTurns.some((t) => Array.isArray(t?.results) && t.results.length > 0);
-    errorMeta.privateFallbackBlocked = Boolean(geminiKey && hasPrivateData && !allowPrivateGemini);
-    const requestGeminiKey = errorMeta.privateFallbackBlocked ? "" : geminiKey;
+    errorMeta.privateFallbackBlocked = Boolean(hasPrivateData && !allowPrivateFallback);
+    const allowFallbackModel = !errorMeta.privateFallbackBlocked;
 
     const dateLine = `現在的日期時間是：${taiwanNowLabel()}。問「今天」「現在」「幾天後」以此為準。`;
     const systemPrompt = contextText
@@ -567,7 +526,7 @@ export async function onRequestPost(context) {
         .filter(Boolean);
     }
 
-    let result = await runModel(ai, requestGeminiKey, messages, activeTools);
+    let result = await runModel(ai, messages, activeTools, allowFallbackModel);
     let toolCalls = parseToolCalls(result);
 
     // 網路搜尋直接在伺服器端自動處理完，使用者跟前端完全不用介入，
@@ -592,7 +551,7 @@ export async function onRequestPost(context) {
         const content = await callTavily(tavilyKey, tc.arguments?.query);
         messages.push({ role: "tool", tool_call_id: tc.id, content: content.slice(0, MAX_CONTEXT_LEN) });
       }
-      result = await runModel(ai, requestGeminiKey, messages, activeTools);
+      result = await runModel(ai, messages, activeTools, allowFallbackModel);
       toolCalls = parseToolCalls(result);
       searchRounds += 1;
     }
