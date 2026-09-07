@@ -2730,7 +2730,7 @@ function validateToolCall(tc) {
   }
 }
 
-const READ_TOOL_NAMES = ["query_app_data"];
+const READ_TOOL_NAMES = ["query_app_data", "get_live_quotes"];
 
 // 每日紀錄單筆算出所有欄位（總資產/總本金/損益 + 台美股個別），query_app_data 的
 // 每一種 daily_records 彙總方式都是拿這個函式的結果去加減比較，AI 完全不用自己算。
@@ -2920,6 +2920,28 @@ function executeReadTool(tc, { trades, dailyRecords, dividends, holdings }) {
   return `不支援的 source：${a.source}`;
 }
 
+// AI 助手專用：查即時股價（跟 executeReadTool 不同，這支要打 /quote API，是非同步的）
+async function executeLiveQuoteTool(tc, holdings) {
+  const a = tc.arguments || {};
+  let symbols = Array.isArray(a.symbols) && a.symbols.length
+    ? a.symbols.map((s) => String(s).trim().toUpperCase()).filter(Boolean)
+    : (holdings || []).filter((h) => Number(h.initialShares) > 0 || (h.target2035 || 0) > 0).map((h) => h.symbol);
+  symbols = [...new Set(symbols)];
+  if (!symbols.length) return "沒有指定股票代號，也沒有查到任何持股";
+  try {
+    const { quotes, missing } = await fetchQuotesWithFallback(symbols);
+    const lines = symbols.map((sym) => {
+      const q = quotes[sym];
+      if (!q || q.price == null) return `${sym}：查不到即時股價`;
+      return `${sym}：NT$${q.price}${q.asOfDate ? `（${q.asOfDate}）` : ""}`;
+    });
+    if (missing && missing.length) lines.push(`（查不到報價的代號：${missing.join("、")}）`);
+    return lines.join("\n");
+  } catch (e) {
+    return `即時股價查詢失敗：${e.message}`;
+  }
+}
+
 function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTrades, setHoldings, setGoal, dailyRecords, dividends, planItems, planSchedule, goalDate, perf }) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([]); // {role, content} 一般訊息，或 {role:'assistant', toolCall, status} 確認卡片
@@ -2983,10 +3005,12 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
           return true;
         });
         if (!freshCalls.length) break;
-        const results = freshCalls.map((tc) => ({
+        const results = await Promise.all(freshCalls.map(async (tc) => ({
           id: tc.id,
-          content: executeReadTool(tc, { trades, dailyRecords, dividends, holdings }),
-        }));
+          content: tc.name === "get_live_quotes"
+            ? await executeLiveQuoteTool(tc, holdings)
+            : executeReadTool(tc, { trades, dailyRecords, dividends, holdings }),
+        })));
         toolTurns.push({ calls: freshCalls, results });
         data = await askOnce(text, history, baseContext, toolTurns);
         rounds += 1;
