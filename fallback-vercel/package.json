@@ -1,0 +1,9 @@
+{
+  "name": "stockapp-external-ai-fallback",
+  "version": "2.21.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  }
+}
