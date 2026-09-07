@@ -13,7 +13,7 @@
  * 備援模型：google/gemini-3.8-flash，Cloudflare 代管的第三方模型，
  * 不需要另外申請 API Key、不需要另外的 Secret，主模型額度用完時自動切換。
  */
-const ASK_VERSION = "4.6-ask-free-20.0-native-fallback-model";
+const ASK_VERSION = "4.6-ask-free-20.1-fallback-no-tools";
 const MODEL = "@cf/openai/gpt-oss-120b";
 const FALLBACK_MODEL = "google/gemini-3.8-flash";
 const MAX_HISTORY_TURNS = 6; // 再縮一點省輸入 token
@@ -361,10 +361,27 @@ function fromGeminiResponse(data) {
 
 // 透過 Cloudflare 自己代管的第三方模型呼叫 Gemini（不用另外的 GEMINI_API_KEY、
 // 不用另外的網址/驗證方式，一樣走 env.AI 這個綁定）。這個模型本身吃 Gemini 原生的
-// contents/tools 格式，所以還是要用 toGeminiRequest/fromGeminiResponse 做轉換，
+// contents 格式，所以還是要用 toGeminiRequest/fromGeminiResponse 做轉換，
 // 只是不用再自己處理 HTTP 呼叫、逾時、金鑰這些細節，Cloudflare 都包好了。
-async function runGeminiViaWorkersAI(ai, messages, tools = []) {
-  const body = toGeminiRequest(messages, tools);
+//
+// 【重要】備援模型故意「完全不帶工具清單」呼叫——因為在 Cloudflare 自己的模型
+// 測試頁面上，這個模型單純回答文字是成功的，但我們每次呼叫都會夾帶一整包工具
+// schema，懷疑是這個第三方模型對工具清單的支援不穩定。備援模型只負責把話講
+// 完整、老實回答，不負責呼叫任何工具；工具型任務（記交易、查即時股價、網路
+// 搜尋）額度用完時就先不支援，等原本的 Cloudflare 主模型恢復正常再處理。
+function sanitizeMessagesForPlainFallback(messages) {
+  return messages.filter((m) => {
+    if (m.role === "tool") return false; // 備援模型沒有對應的工具呼叫，這類訊息它看不懂
+    if (m.role === "assistant" && Array.isArray(m.tool_calls) && m.tool_calls.length && !String(m.content || "").trim()) {
+      return false; // 只有工具呼叫、沒有文字內容的助手訊息，備援模型也用不到
+    }
+    return true;
+  });
+}
+
+async function runGeminiViaWorkersAI(ai, messages) {
+  const plainMessages = sanitizeMessagesForPlainFallback(messages);
+  const body = toGeminiRequest(plainMessages, []); // 不帶 tools
   const data = await ai.run(FALLBACK_MODEL, body);
   if (data?.promptFeedback?.blockReason) {
     throw new Error(`備援模型失敗：內容被擋下（${data.promptFeedback.blockReason}）`);
@@ -391,7 +408,7 @@ async function runModel(ai, messages, tools = [], allowFallbackModel = true) {
   }
 
   try {
-    return await runGeminiViaWorkersAI(ai, messages, tools);
+    return await runGeminiViaWorkersAI(ai, messages);
   } catch (e) {
     throw new Error(`主模型已不可用（${primaryError.message || primaryError}）；備援模型也失敗：${e.message || e}`);
   }
@@ -399,10 +416,16 @@ async function runModel(ai, messages, tools = [], allowFallbackModel = true) {
 
 function friendlyAiError(message, meta = {}) {
   const s = String(message || "");
+  if (meta.privateFallbackBlocked && /neuron|quota|limit|daily|exceeded|usage/i.test(s)) {
+    return "Cloudflare AI 免費額度可能已用完。這題包含你的個人資產資料，備援模型（Gemini）因隱私保護預設不接手；若你接受再把 ALLOW_PRIVATE_FALLBACK_MODEL 設為 true。";
+  }
+  // 主模型額度用完、備援模型也失敗時，把備援模型「真正」的失敗原因一起顯示出來，
+  // 不要只丟一句「額度用完」蓋掉真相——不然連我們自己都看不出下次要往哪裡查。
+  const fallbackDetailMatch = s.match(/備援模型也失敗：([\s\S]*)$/);
+  if (fallbackDetailMatch) {
+    return `主模型額度可能已用完，備援模型這次也失敗了。詳細原因：${fallbackDetailMatch[1]}`;
+  }
   if (/neuron|quota|limit|daily|exceeded|usage/i.test(s)) {
-    if (meta.privateFallbackBlocked) {
-      return "Cloudflare AI 免費額度可能已用完。這題包含你的個人資產資料，備援模型（Gemini）因隱私保護預設不接手；若你接受再把 ALLOW_PRIVATE_FALLBACK_MODEL 設為 true。";
-    }
     return "Cloudflare AI 免費額度可能已用完，備援模型這次也沒有成功，請稍後再試。";
   }
   if (/unauthorized|forbidden|401|403/i.test(s)) {
