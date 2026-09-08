@@ -112,7 +112,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.6-personal-v2.21-external-ai-fallback";
+const APP_VERSION = "4.6-personal-v2.19-stable";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -304,44 +304,6 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
   } finally {
     clearTimeout(timer);
   }
-}
-
-// ---------- independent AI fallback helpers ----------
-// The fallback URL points to a second provider (for example Vercel), so it
-// can still answer even when Cloudflare Workers AI quota is exhausted.
-function normalizeExternalAiAskUrl(raw) {
-  const text = String(raw || "").trim();
-  if (!text) return "";
-  try {
-    const u = new URL(text);
-    if (u.protocol !== "https:" && !(u.protocol === "http:" && /^(localhost|127\.0\.0\.1)$/.test(u.hostname))) return "";
-    const cleanPath = u.pathname.replace(/\/+$/, "");
-    if (!cleanPath || cleanPath === "/") u.pathname = "/api/ask";
-    else if (!cleanPath.endsWith("/api/ask")) u.pathname = `${cleanPath}/api/ask`;
-    else u.pathname = cleanPath;
-    u.search = "";
-    u.hash = "";
-    return u.toString();
-  } catch {
-    return "";
-  }
-}
-
-function externalAiHealthUrl(raw) {
-  const askUrl = normalizeExternalAiAskUrl(raw);
-  if (!askUrl) return "";
-  const u = new URL(askUrl);
-  u.pathname = u.pathname.replace(/\/api\/ask$/, "/api/health");
-  return u.toString();
-}
-
-function shouldUseExternalAiFallback(error) {
-  const status = Number(error?.status || 0);
-  const msg = String(error?.message || "");
-  if (!status) return true; // network/timeout
-  if (status === 401 || status === 403 || status === 408 || status === 429) return true;
-  if (status >= 500) return true;
-  return /neuron|quota|額度|limit|binding|AI 服務|timeout|逾時|temporar/i.test(msg);
 }
 
 async function fetchQuotesWithFallback(symbols) {
@@ -539,169 +501,20 @@ function isObject(v) {
   return v != null && typeof v === "object" && !Array.isArray(v);
 }
 
-function isValidDateStr(v) {
-  if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
-  const d = parseLocalDate(v);
-  return Number.isFinite(d.getTime()) && `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}` === v;
-}
-
-function finiteNonNegative(v) {
-  return v == null || v === "" || (Number.isFinite(Number(v)) && Number(v) >= 0);
-}
-
-function inspectBackupPayload(payload) {
-  const errors = [], warnings = [];
-  if (!isObject(payload)) return { ok: false, errors: ["最外層不是有效物件"], warnings };
-  const data = isObject(payload.data) ? payload.data : payload; // schema 1 相容
-  const schemaVersion = Number(payload.schemaVersion || 1);
-  if (!Number.isFinite(schemaVersion) || schemaVersion < 1) errors.push("schemaVersion 不合法");
-  if (schemaVersion > BACKUP_SCHEMA_VERSION) errors.push(`備份 schema ${schemaVersion} 比目前 App 支援的 ${BACKUP_SCHEMA_VERSION} 新，為避免資料損壞不匯入`);
-
-  const requiredArrays = ["dailyRecords", "holdings", "trades", "dividends", "planItems"];
-  requiredArrays.forEach((k) => { if (!Array.isArray(data[k])) errors.push(`${k} 不是陣列`); });
-  if (!isObject(data.goal)) errors.push("goal 不存在或格式錯誤");
-  if (!isObject(data.planSchedule)) errors.push("planSchedule 不存在或格式錯誤");
-  if (errors.length) return { ok: false, errors, warnings, data, schemaVersion };
-
-  data.dailyRecords.forEach((r, i) => {
-    if (!isObject(r) || !isValidDateStr(r.date)) errors.push(`每日紀錄第 ${i + 1} 筆日期不合法`);
-    ["twValue", "usValue", "twCost", "usCost"].forEach((k) => {
-      if (!finiteNonNegative(r?.[k])) errors.push(`每日紀錄第 ${i + 1} 筆 ${k} 不是有效非負數字`);
-    });
-  });
-  data.holdings.forEach((h, i) => {
-    if (!isObject(h) || !String(h.symbol || "").trim()) errors.push(`持股第 ${i + 1} 筆缺少股票代號`);
-    ["initialShares", "current", "target2035", "avgCost", "manualAvgCost"].forEach((k) => {
-      if (!finiteNonNegative(h?.[k])) errors.push(`持股第 ${i + 1} 筆 ${k} 不是有效非負數字`);
-    });
-  });
-  data.trades.forEach((t, i) => {
-    if (!isObject(t) || !isValidDateStr(t.date)) errors.push(`交易第 ${i + 1} 筆日期不合法`);
-    if (!String(t?.symbol || "").trim()) errors.push(`交易第 ${i + 1} 筆缺少股票代號`);
-    if (!(["buy", "sell"].includes(t?.action))) errors.push(`交易第 ${i + 1} 筆買賣方向不合法`);
-    if (!(Number(t?.shares) > 0)) errors.push(`交易第 ${i + 1} 筆股數必須大於 0`);
-    if (!(Number(t?.price) > 0)) errors.push(`交易第 ${i + 1} 筆成交價必須大於 0`);
-    ["fee", "tax", "amount"].forEach((k) => { if (!finiteNonNegative(t?.[k])) errors.push(`交易第 ${i + 1} 筆 ${k} 不合法`); });
-    if (Number.isFinite(Number(t?.amount)) && Number(t?.shares) > 0 && Number(t?.price) > 0) {
-      const fee = Number(t?.fee || 0), tax = Number(t?.tax || 0);
-      const expected = t.action === "sell"
-        ? Number(t.shares) * Number(t.price) - fee - tax
-        : Number(t.shares) * Number(t.price) + fee;
-      if (Math.abs(Number(t.amount) - expected) > 1) warnings.push(`交易第 ${i + 1} 筆交易金額與股數×價格不一致`);
-    }
-  });
-  data.dividends.forEach((d, i) => {
-    if (!isObject(d) || !isValidDateStr(d.date)) errors.push(`配息第 ${i + 1} 筆日期不合法`);
-    if (!String(d?.symbol || "").trim()) errors.push(`配息第 ${i + 1} 筆缺少股票代號`);
-    ["shares", "perShare", "amount"].forEach((k) => { if (!finiteNonNegative(d?.[k])) errors.push(`配息第 ${i + 1} 筆 ${k} 不合法`); });
-  });
-  data.planItems.forEach((x, i) => {
-    if (!isObject(x) || !String(x.symbol || "").trim()) errors.push(`定期定額第 ${i + 1} 筆缺少標的`);
-    if (!finiteNonNegative(x?.amount)) errors.push(`定期定額第 ${i + 1} 筆金額不合法`);
-  });
-
-  if (!(Number(data.goal?.targetAmount) > 0)) errors.push("目標金額必須大於 0");
-  if (!(Number(data.goal?.targetYear) >= 2000 && Number(data.goal?.targetYear) <= 2200)) errors.push("目標年份不合理");
-  if (!isValidDateStr(data.planSchedule?.startDate)) errors.push("計畫起始日不合法");
-  ["initialCapital", "initialPrincipal", "initialAssets", "monthlyAmount"].forEach((k) => {
-    if (data.planSchedule?.[k] != null && !finiteNonNegative(data.planSchedule[k])) errors.push(`planSchedule.${k} 不合法`);
-  });
-  if (data.planSchedule?.annualReturn != null && !(Number(data.planSchedule.annualReturn) > -100 && Number.isFinite(Number(data.planSchedule.annualReturn)))) errors.push("年化報酬率不合法");
-  if (data.planSchedule?.horizonMonths != null && !(Number(data.planSchedule.horizonMonths) > 0)) errors.push("投影月數必須大於 0");
-  if (schemaVersion >= 2 && data.costBasis != null && (!isObject(data.costBasis) || !finiteNonNegative(data.costBasis.startingCost))) errors.push("costBasis 格式不合法");
-
-  const duplicateIds = (arr, label) => {
-    const seen = new Set(), dup = new Set();
-    arr.forEach((x) => { const id = String(x?.id || "").trim(); if (id && seen.has(id)) dup.add(id); else if (id) seen.add(id); });
-    if (dup.size) warnings.push(`${label} 有 ${dup.size} 個重複 ID`);
-  };
-  duplicateIds(data.holdings, "持股");
-  duplicateIds(data.trades, "交易");
-  duplicateIds(data.dividends, "配息");
-  duplicateIds(data.planItems, "定期定額");
-  const holdingSymbols = data.holdings.map((h) => String(h?.symbol || "").trim()).filter(Boolean);
-  if (new Set(holdingSymbols).size !== holdingSymbols.length) warnings.push("持股清單有重複股票代號");
-  const dates = data.dailyRecords.map((r) => r?.date).filter(Boolean);
-  if (new Set(dates).size !== dates.length) warnings.push("每日紀錄有重複日期，匯入後請檢查是否為刻意保留");
-
-  return { ok: errors.length === 0, errors, warnings, data, schemaVersion };
+function validateBackupPayload(payload) {
+  if (!isObject(payload)) return false;
+  const data = isObject(payload.data) ? payload.data : payload;
+  return Array.isArray(data.dailyRecords)
+    && Array.isArray(data.holdings)
+    && Array.isArray(data.trades)
+    && Array.isArray(data.dividends)
+    && Array.isArray(data.planItems)
+    && isObject(data.goal)
+    && isObject(data.planSchedule);
 }
 
 // ---- seed data imported from user's Excel (存股現況表) ----
-const DAILY_SEED = [
-  { date: "2025-06-26", twValue: 3166040, usValue: 0, twCost: 2565517, usCost: 0 },
-  { date: "2025-07-25", twValue: 3195048, usValue: 0, twCost: 2664889, usCost: 0 },
-  { date: "2025-08-26", twValue: 3210265, usValue: 0, twCost: 2774652, usCost: 0 },
-  { date: "2025-09-26", twValue: 3284473, usValue: 0, twCost: 2880672, usCost: 0 },
-  { date: "2025-10-27", twValue: 3368608, usValue: 0, twCost: 2986790, usCost: 0 },
-  { date: "2025-11-26", twValue: 3262660, usValue: 0, twCost: 3089600, usCost: 0 },
-  { date: "2025-12-26", twValue: 3362990, usValue: 0, twCost: 3192293, usCost: 0 },
-  { date: "2026-01-26", twValue: 3538946, usValue: 0, twCost: 3226215, usCost: 0 },
-  { date: "2026-02-26", twValue: 3756281, usValue: 0, twCost: 3235552, usCost: 0 },
-  { date: "2026-03-16", twValue: 3618543, usValue: 0, twCost: 0, usCost: 0 },
-  { date: "2026-03-26", twValue: 3600657, usValue: 0, twCost: 3250251, usCost: 0 },
-  { date: "2026-04-20", twValue: 3888320, usValue: 0, twCost: 3265063, usCost: 0 },
-  { date: "2026-05-22", twValue: 4428092, usValue: 0, twCost: 0, usCost: 0 },
-  { date: "2026-05-25", twValue: 4646611, usValue: 0, twCost: 0, usCost: 0 },
-  { date: "2026-05-26", twValue: 4626800, usValue: 0, twCost: 0, usCost: 0 },
-  { date: "2026-05-27", twValue: 4750345, usValue: 0, twCost: 0, usCost: 0 },
-  { date: "2026-05-28", twValue: 4672076, usValue: 0, twCost: 0, usCost: 0 },
-  { date: "2026-05-29", twValue: 4810347, usValue: 0, twCost: 3342530, usCost: 0 },
-  { date: "2026-06-01", twValue: 4961475, usValue: 0, twCost: 0, usCost: 0 },
-  { date: "2026-06-02", twValue: 5055962, usValue: 0, twCost: 0, usCost: 0 },
-  { date: "2026-06-03", twValue: 5151392, usValue: 0, twCost: 0, usCost: 0 },
-  { date: "2026-06-05", twValue: 4975604, usValue: 0, twCost: 0, usCost: 0 },
-  { date: "2026-06-08", twValue: 4755334, usValue: 0, twCost: 0, usCost: 0 },
-  { date: "2026-06-09", twValue: 4938207, usValue: 0, twCost: 0, usCost: 0 },
-  { date: "2026-06-10", twValue: 4781311, usValue: 0, twCost: 0, usCost: 0 },
-  { date: "2026-06-11", twValue: 4777273, usValue: 0, twCost: 0, usCost: 0 },
-  { date: "2026-06-12", twValue: 4875398, usValue: 0, twCost: 0, usCost: 0 },
-  { date: "2026-06-15", twValue: 4970680, usValue: 0, twCost: 0, usCost: 0 },
-  { date: "2026-06-16", twValue: 4977658, usValue: 3771, twCost: 0, usCost: 0 },
-  { date: "2026-06-17", twValue: 5013265, usValue: 7444, twCost: 0, usCost: 0 },
-  { date: "2026-06-18", twValue: 5093695, usValue: 7475, twCost: 0, usCost: 0 },
-  { date: "2026-06-22", twValue: 5219138, usValue: 7475, twCost: 0, usCost: 0 },
-  { date: "2026-06-23", twValue: 5181764, usValue: 11938, twCost: 0, usCost: 0 },
-  { date: "2026-06-24", twValue: 5132783, usValue: 16242, twCost: 0, usCost: 0 },
-  { date: "2026-06-25", twValue: 5137417, usValue: 16206, twCost: 0, usCost: 0 },
-  { date: "2026-06-26", twValue: 4980721, usValue: 16300, twCost: 0, usCost: 0 },
-  { date: "2026-06-29", twValue: 5009911, usValue: 16311, twCost: 0, usCost: 0 },
-  { date: "2026-06-30", twValue: 5151725, usValue: 21225, twCost: 3403799, usCost: 0 },
-  { date: "2026-07-01", twValue: 5117489, usValue: 21463, twCost: 0, usCost: 0 },
-  { date: "2026-07-02", twValue: 5112269, usValue: 21345, twCost: 0, usCost: 0 },
-  { date: "2026-07-03", twValue: 5143370, usValue: 24984, twCost: 0, usCost: 0 },
-  { date: "2026-07-06", twValue: 5178933, usValue: 24984, twCost: 0, usCost: 0 },
-  { date: "2026-07-07", twValue: 5083060, usValue: 31067, twCost: 0, usCost: 0 },
-  { date: "2026-07-08", twValue: 5100787, usValue: 30874, twCost: 0, usCost: 0 },
-  { date: "2026-07-09", twValue: 5125553, usValue: 30892, twCost: 0, usCost: 0 },
-  { date: "2026-07-13", twValue: 5115395, usValue: 37150, twCost: 3587902, usCost: 36499 },
-  { date: "2026-07-14", twValue: 5066227, usValue: 41292, twCost: 3603620, usCost: 41125 },
-  { date: "2026-07-15", twValue: 5197934, usValue: 41561, twCost: 3615373, usCost: 41125 },
-  { date: "2026-07-16", twValue: 5178960, usValue: 43605, twCost: 3627032, usCost: 43125 },
-  { date: "2026-07-17", twValue: 4991457, usValue: 46362, twCost: 3640177, usCost: 46240 },
-  { date: "2026-07-20", twValue: 4932564, usValue: 45866, twCost: 3656141, usCost: 46250 },
-  { date: "2026-07-21", twValue: 4914623, usValue: 50468, twCost: 3657895, usCost: 51000 },
-  { date: "2026-07-22", twValue: 5052937, usValue: 51283, twCost: 3665135, usCost: 51000 },
-  { date: "2026-07-23", twValue: 5031327, usValue: 51252, twCost: 3669882, usCost: 51000 },
-  { date: "2026-07-24", twValue: 4985815, usValue: 53502, twCost: 3675925, usCost: 54125 },
-  { date: "2026-07-27", twValue: 4975929, usValue: 53445, twCost: 3684836, usCost: 54125 },
-  { date: "2026-07-28", twValue: 4818119, usValue: 58292, twCost: 3712139, usCost: 59250 },
-  { date: "2026-07-29", twValue: 4685161, usValue: 58270, twCost: 3729044, usCost: 59250 },
-  { date: "2026-07-30", twValue: 4646661, usValue: 57151, twCost: 3731030, usCost: 59250 },
-  { date: "2026-07-31", twValue: 4986167, usValue: 58658, twCost: 3733341, usCost: 59250 },
-  { date: "2026-08-03", twValue: 5011134, usValue: 58755, twCost: 3733341, usCost: 59250 },
-  { date: "2026-08-04", twValue: 5080385, usValue: 63033, twCost: 3739509, usCost: 62375 },
-  { date: "2026-08-05", twValue: 5174562, usValue: 64542, twCost: 3739509, usCost: 62375 },
-  { date: "2026-08-06", twValue: 5157649, usValue: 64030, twCost: 3739509, usCost: 62375 },
-  { date: "2026-08-07", twValue: 5141151, usValue: 63815, twCost: 3747554, usCost: 62375 },
-  { date: "2026-08-10", twValue: 5274347, usValue: 67530, twCost: 3748544, usCost: 65500 },
-  { date: "2026-08-11", twValue: 5299567, usValue: 67259, twCost: 3782584, usCost: 65500 },
-  { date: "2026-08-12", twValue: 5339625, usValue: 72282, twCost: 3782573, usCost: 70625 },
-  { date: "2026-08-13", twValue: 5375077, usValue: 72555, twCost: 3782573, usCost: 70625 },
-  { date: "2026-08-14", twValue: 5416627, usValue: 73931, twCost: 3791128, usCost: 71625 },
-  { date: "2026-08-17", twValue: 5381482, usValue: 75639, twCost: 3791319, usCost: 73333 },
-  { date: "2026-08-18", twValue: 5333972, usValue: 74959, twCost: 3792423, usCost: 73750 },
-];
+const DAILY_SEED = [];
 
 function AssetTracker() {
   const [ready, setReady] = useState(false);
@@ -728,15 +541,11 @@ function AssetTracker() {
   // Starting cost basis, before any trade in the 交易紀錄 log — combined
   // with the running buy/sell total to get today's accumulated cost.
   const [costBasis, setCostBasis] = useState({ startingCost: 0 });
-  const [lastBackupAt, setLastBackupAt] = useState(null);
-  // External AI fallback runs on a second platform (for example Vercel).
-  // Token stays only in this browser and is intentionally excluded from JSON backups.
-  const [aiFallbackConfig, setAiFallbackConfig] = useState({ url: "", token: "", allowPrivate: false });
 
   // ---- initial load ----
   useEffect(() => {
     (async () => {
-      const [dr, h, t, dv, p, g, ps, cb, lba, afc] = await Promise.all([
+      const [dr, h, t, dv, p, g, ps, cb] = await Promise.all([
         loadKey("dailyRecords", defaultDailyRecords()),
         loadKey("holdings", defaultHoldings()),
         loadKey("trades", defaultTrades()),
@@ -745,8 +554,6 @@ function AssetTracker() {
         loadKey("goal", { targetAmount: 10000000, targetYear: 2035 }),
         loadKey("planSchedule", defaultPlanSchedule()),
         loadKey("costBasis", { startingCost: 0 }),
-        loadKey("lastBackupAt", null),
-        loadKey("aiFallbackConfig", { url: "", token: "", allowPrivate: false }),
       ]);
       setDailyRecords(dr);
       setHoldings(h);
@@ -762,12 +569,6 @@ function AssetTracker() {
         initialAssets: Number(ps?.initialAssets ?? ps?.initialCapital ?? defaultPs.initialAssets),
       });
       setCostBasis(isObject(cb) ? { ...{ startingCost: 0 }, ...cb } : { startingCost: 0 });
-      setLastBackupAt(typeof lba === "string" && Number.isFinite(Date.parse(lba)) ? lba : null);
-      setAiFallbackConfig(isObject(afc) ? {
-        url: String(afc.url || ""),
-        token: String(afc.token || ""),
-        allowPrivate: afc.allowPrivate === true,
-      } : { url: "", token: "", allowPrivate: false });
       setReady(true);
     })();
   }, []);
@@ -781,17 +582,15 @@ function AssetTracker() {
   useEffect(() => { if (ready) saveKey("goal", goal); }, [goal, ready]);
   useEffect(() => { if (ready) saveKey("planSchedule", planSchedule); }, [planSchedule, ready]);
   useEffect(() => { if (ready) saveKey("costBasis", costBasis); }, [costBasis, ready]);
-  useEffect(() => { if (ready) saveKey("aiFallbackConfig", aiFallbackConfig); }, [aiFallbackConfig, ready]);
 
 
   // ---- full backup / restore ----
   const exportBackup = () => {
-    const exportedAt = new Date().toISOString();
     const payload = {
       app: "存股資產追蹤",
       appVersion: APP_VERSION,
       schemaVersion: BACKUP_SCHEMA_VERSION,
-      exportedAt,
+      exportedAt: new Date().toISOString(),
       data: { dailyRecords, holdings, trades, dividends, planItems, goal, planSchedule, costBasis },
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
@@ -803,8 +602,6 @@ function AssetTracker() {
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
-    setLastBackupAt(exportedAt);
-    saveKey("lastBackupAt", exportedAt);
   };
 
   const exportExcel = async () => {
@@ -916,19 +713,12 @@ function AssetTracker() {
     if (!file) return;
     try {
       const payload = JSON.parse(await file.text());
-      const check = inspectBackupPayload(payload);
-      if (!check.ok) {
-        const shown = check.errors.slice(0, 8).map((x) => `• ${x}`).join("\n");
-        const more = check.errors.length > 8 ? `\n…另有 ${check.errors.length - 8} 項` : "";
-        window.alert(`備份檔深度驗證失敗，資料未變更。\n\n${shown}${more}`);
+      if (!validateBackupPayload(payload)) {
+        window.alert("這不是有效的存股資產追蹤備份檔。資料未變更。");
         return;
       }
-      if (check.warnings.length) {
-        const shown = check.warnings.map((x) => `• ${x}`).join("\n");
-        if (!window.confirm(`備份檔可匯入，但有提醒：\n\n${shown}\n\n仍要繼續嗎？`)) return;
-      }
       if (!window.confirm("匯入會以備份內容取代目前 App 內的資料，確定要繼續嗎？")) return;
-      const data = check.data;
+      const data = payload.data || payload;
       setDailyRecords(data.dailyRecords);
       setHoldings(data.holdings);
       setTrades(data.trades);
@@ -944,12 +734,8 @@ function AssetTracker() {
         initialAssets: Number(importedPs.initialAssets ?? importedPs.initialCapital ?? defaultPs.initialAssets),
       });
       // schema 1 沒有 costBasis；保留目前值，不用 0 覆蓋。schema 2 才完整還原。
-      if (check.schemaVersion >= 2 && isObject(data.costBasis)) setCostBasis(data.costBasis);
-      if (typeof payload.exportedAt === "string" && Number.isFinite(Date.parse(payload.exportedAt))) {
-        setLastBackupAt(payload.exportedAt);
-        saveKey("lastBackupAt", payload.exportedAt);
-      }
-      window.alert(`備份已匯入完成（schema ${check.schemaVersion}）。建議重新整理一次頁面確認資料。`);
+      if (payload.schemaVersion >= 2 && isObject(data.costBasis)) setCostBasis(data.costBasis);
+      window.alert(`備份已匯入完成（schema ${payload.schemaVersion || 1}）。建議重新整理一次頁面確認資料。`);
     } catch (e) {
       console.error("backup import failed", e);
       window.alert("備份檔讀取失敗，資料未變更。");
@@ -1157,11 +943,6 @@ function AssetTracker() {
     }
   }, [totalToday, goal.targetAmount, ready, celebratedMilestones]);
 
-  const backupAgeDays = lastBackupAt && Number.isFinite(Date.parse(lastBackupAt))
-    ? Math.max(0, Math.floor((Date.now() - Date.parse(lastBackupAt)) / 86400000))
-    : null;
-  const backupOverdue = backupAgeDays == null || backupAgeDays >= 7;
-
   if (!ready) {
     return (
       <div style={{ background: COLORS.bg, color: COLORS.sub }}
@@ -1196,7 +977,7 @@ function AssetTracker() {
         </div>
       )}
 
-      <Header goal={goal} totalToday={totalToday} goalDate={goalDate} backupOverdue={backupOverdue} backupAgeDays={backupAgeDays} />
+      <Header goal={goal} totalToday={totalToday} goalDate={goalDate} />
 
       <main className="px-4 pt-4 pb-24 max-w-2xl mx-auto">
         {tab === "dashboard" && (
@@ -1229,8 +1010,7 @@ function AssetTracker() {
         {tab === "plan" && (
           <PlanPanel planItems={planItems} setPlanItems={setPlanItems}
             planTotal={planTotal} goal={goal} setGoal={setGoal}
-            exportBackup={exportBackup} importBackup={importBackup} exportExcel={exportExcel} lastBackupAt={lastBackupAt} backupAgeDays={backupAgeDays} backupOverdue={backupOverdue}
-            aiFallbackConfig={aiFallbackConfig} setAiFallbackConfig={setAiFallbackConfig} />
+            exportBackup={exportBackup} importBackup={importBackup} exportExcel={exportExcel} />
         )}
         {tab === "progress" && (
           <ProgressPanel
@@ -1246,7 +1026,7 @@ function AssetTracker() {
       <AiChatWidget holdings={holdingsWithShares} goal={goal} totalToday={totalToday} totalInvested={totalInvested}
         trades={trades} setTrades={setTrades} setHoldings={setHoldings} setGoal={setGoal}
         dailyRecords={dailyRecords} dividends={dividends} planItems={planItems} planSchedule={planSchedule}
-        goalDate={goalDate} aiFallbackConfig={aiFallbackConfig}
+        goalDate={goalDate}
         perf={{
           capitalGain, totalDividends, totalReturn, totalReturnPct, highPoint, drawdown, ytdGain, ytdPct,
           elapsedMonths, leadMonths, startingCost: costBasis?.startingCost,
@@ -1258,7 +1038,7 @@ function AssetTracker() {
 }
 
 // ---------------- Header ----------------
-function Header({ goal, totalToday, goalDate, backupOverdue, backupAgeDays }) {
+function Header({ goal, totalToday, goalDate }) {
   const remain = Math.max(0, goal.targetAmount - totalToday);
   const pct = Math.min(100, (totalToday / goal.targetAmount) * 100);
   return (
@@ -1293,12 +1073,6 @@ function Header({ goal, totalToday, goalDate, backupOverdue, backupAgeDays }) {
           <span>距目標 NT${nf(remain)}（已達成 {pct.toFixed(1)}%）</span>
           {goalDate && <span style={{ color: COLORS.gold }}>預計 {goalDate} 達成</span>}
         </div>
-        {backupOverdue && (
-          <div className="mt-2 rounded-lg px-2.5 py-1.5 text-[10px] font-bold"
-            style={{ color: COLORS.gold, background: COLORS.panel, border: `1px solid ${COLORS.gold}` }}>
-            🔐 備份提醒：{backupAgeDays == null ? "尚未記錄 JSON 備份" : `上次備份已 ${backupAgeDays} 天前`}，建議到「計畫設定」匯出一份。
-          </div>
-        )}
       </div>
     </div>
   );
@@ -2583,29 +2357,8 @@ function DividendsPanel({ dividends, setDividends, holdings }) {
 }
 
 // ---------------- Plan Panel ----------------
-function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBackup, importBackup, exportExcel, lastBackupAt, backupAgeDays, backupOverdue, aiFallbackConfig, setAiFallbackConfig }) {
+function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBackup, importBackup, exportExcel }) {
   const [form, setForm] = useState({ symbol: "", amount: "", note: "" });
-  const [fallbackTest, setFallbackTest] = useState({ status: "idle", message: "" });
-
-  const testExternalAiFallback = async () => {
-    const healthUrl = externalAiHealthUrl(aiFallbackConfig?.url);
-    if (!healthUrl) {
-      setFallbackTest({ status: "error", message: "網址格式不正確；可直接貼 Vercel 專案網址" });
-      return;
-    }
-    setFallbackTest({ status: "loading", message: "測試中…" });
-    try {
-      const headers = {};
-      if (aiFallbackConfig?.token) headers["x-fallback-token"] = aiFallbackConfig.token;
-      const res = await fetchWithTimeout(healthUrl, { method: "GET", headers, cache: "no-store" }, 10000);
-      const data = await res.json().catch(() => null);
-      if (!res.ok || !data?.ok) throw new Error(data?.error || `HTTP ${res.status}`);
-      const model = data.model ? ` · ${data.model}` : "";
-      setFallbackTest({ status: "ok", message: `備援後端正常${model}` });
-    } catch (e) {
-      setFallbackTest({ status: "error", message: e?.message || "備援測試失敗" });
-    }
-  };
   const add = () => {
     if (!form.symbol || !form.amount) return;
     setPlanItems((p) => [...p, { id: uid(), symbol: form.symbol, amount: Number(form.amount), note: form.note }]);
@@ -2653,52 +2406,12 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
         <AddButton onClick={add} label="新增項目" />
       </Panel>
 
-      <Panel title="AI 獨立備援（Cloudflare 額度用完時）">
-        <div className="text-[11px] leading-5 mb-3" style={{ color: COLORS.sub }}>
-          主 AI 仍走 Cloudflare。只有 <span style={{ color: COLORS.gold }}>Cloudflare /ask 失敗、額度用完或逾時</span> 時，才直接從手機改連第二個平台的 Gemini。
-          這條路不經 Cloudflare Workers AI。
-        </div>
-        <Field label="備援網址（可貼 Vercel 專案首頁網址，App 會自動補 /api/ask）">
-          <input value={aiFallbackConfig?.url || ""}
-            onChange={(e) => setAiFallbackConfig({ ...aiFallbackConfig, url: e.target.value })}
-            placeholder="https://your-project.vercel.app" className="input" autoCapitalize="none" autoCorrect="off" />
-        </Field>
-        <div className="mt-2">
-          <Field label="備援存取 Token（若 Vercel 有設定 FALLBACK_ACCESS_TOKEN）">
-            <input type="password" value={aiFallbackConfig?.token || ""}
-              onChange={(e) => setAiFallbackConfig({ ...aiFallbackConfig, token: e.target.value })}
-              placeholder="可留空" className="input" autoCapitalize="none" autoCorrect="off" />
-          </Field>
-        </div>
-        <label className="mt-3 flex items-start gap-2 text-[11px] leading-5" style={{ color: COLORS.sub }}>
-          <input type="checkbox" checked={aiFallbackConfig?.allowPrivate === true}
-            onChange={(e) => setAiFallbackConfig({ ...aiFallbackConfig, allowPrivate: e.target.checked })}
-            style={{ marginTop: 3 }} />
-          <span>允許 Gemini 備援讀取 App 的持股／成本／資產資料。關閉時，公開資訊、聊天與個股即時價仍可備援；需要 <span className="mono">query_app_data</span> 的私人資產查詢會被擋下。</span>
-        </label>
-        <button onClick={testExternalAiFallback}
-          className="mt-3 w-full rounded-xl py-2.5 text-[11px] font-bold"
-          style={{ background: COLORS.bg, color: COLORS.gold, border: `1px solid ${COLORS.gold}` }}>
-          {fallbackTest.status === "loading" ? "測試中…" : "測試獨立備援連線"}
-        </button>
-        {fallbackTest.message && (
-          <div className="mt-2 text-[10px] leading-4" style={{ color: fallbackTest.status === "ok" ? COLORS.loss : COLORS.gain }}>
-            {fallbackTest.status === "ok" ? "✓ " : "⚠ "}{fallbackTest.message}
-          </div>
-        )}
-      </Panel>
-
       <Panel title="資料備份與還原">
         <div className="rounded-xl p-3 flex gap-2 items-start"
           style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
           <ShieldCheck size={18} style={{ color: COLORS.gold, flex: "0 0 auto", marginTop: 1 }} />
           <div className="text-[11px] leading-5" style={{ color: COLORS.sub }}>
             JSON 用來完整備份／還原 App；Excel 用來保存、檢視與分析投資歷史。重要修改後建議兩種都留一份。
-          </div>
-          <div className="ml-auto text-right text-[10px] leading-4" style={{ color: backupOverdue ? COLORS.gold : COLORS.sub }}>
-            {lastBackupAt
-              ? <>上次 JSON 備份<br />{new Date(lastBackupAt).toLocaleDateString("zh-TW")}（{backupAgeDays} 天前）</>
-              : <>上次 JSON 備份<br />尚未記錄</>}
           </div>
         </div>
         <div className="grid grid-cols-3 gap-2 mt-3">
@@ -2944,7 +2657,7 @@ function validateToolCall(tc) {
   }
 }
 
-const READ_TOOL_NAMES = ["query_app_data", "get_live_quotes"];
+const READ_TOOL_NAMES = ["query_app_data"];
 
 // 每日紀錄單筆算出所有欄位（總資產/總本金/損益 + 台美股個別），query_app_data 的
 // 每一種 daily_records 彙總方式都是拿這個函式的結果去加減比較，AI 完全不用自己算。
@@ -3134,35 +2847,12 @@ function executeReadTool(tc, { trades, dailyRecords, dividends, holdings }) {
   return `不支援的 source：${a.source}`;
 }
 
-// AI 助手專用：查即時股價（跟 executeReadTool 不同，這支要打 /quote API，是非同步的）
-async function executeLiveQuoteTool(tc, holdings) {
-  const a = tc.arguments || {};
-  let symbols = Array.isArray(a.symbols) && a.symbols.length
-    ? a.symbols.map((s) => String(s).trim().toUpperCase()).filter(Boolean)
-    : (holdings || []).filter((h) => Number(h.initialShares) > 0 || (h.target2035 || 0) > 0).map((h) => h.symbol);
-  symbols = [...new Set(symbols)];
-  if (!symbols.length) return "沒有指定股票代號，也沒有查到任何持股";
-  try {
-    const { quotes, missing } = await fetchQuotesWithFallback(symbols);
-    const lines = symbols.map((sym) => {
-      const q = quotes[sym];
-      if (!q || q.price == null) return `${sym}：查不到即時股價`;
-      return `${sym}：NT$${q.price}${q.asOfDate ? `（${q.asOfDate}）` : ""}`;
-    });
-    if (missing && missing.length) lines.push(`（查不到報價的代號：${missing.join("、")}）`);
-    return lines.join("\n");
-  } catch (e) {
-    return `即時股價查詢失敗：${e.message}`;
-  }
-}
-
-function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTrades, setHoldings, setGoal, dailyRecords, dividends, planItems, planSchedule, goalDate, perf, aiFallbackConfig }) {
+function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTrades, setHoldings, setGoal, dailyRecords, dividends, planItems, planSchedule, goalDate, perf }) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([]); // {role, content} 一般訊息，或 {role:'assistant', toolCall, status} 確認卡片
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
-  const [providerInfo, setProviderInfo] = useState(null); // { provider, model, profile }
   const scrollRef = useRef(null);
 
   useEffect(() => {
@@ -3176,60 +2866,18 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
     const deviceIdKey = "stockTrackerDeviceId";
     let deviceId = localStorage.getItem(deviceIdKey);
     if (!deviceId) { deviceId = `d_${uid()}_${uid()}`; localStorage.setItem(deviceIdKey, deviceId); }
-
-    const baseBody = { message, history, context };
-    if (Array.isArray(toolTurns) && toolTurns.length > 0) baseBody.toolTurns = toolTurns;
-
-    const callAskEndpoint = async (url, body, { fallback = false } = {}) => {
-      const headers = { "content-type": "application/json", "x-device-id": deviceId };
-      if (fallback && aiFallbackConfig?.token) headers["x-fallback-token"] = aiFallbackConfig.token;
-      let res;
-      try {
-        res = await fetchWithTimeout(url, {
-          method: "POST", headers, body: JSON.stringify(body), cache: "no-store",
-        }, fallback ? 30000 : 20000);
-      } catch (e) {
-        const err = new Error(e?.name === "AbortError" ? "連線逾時" : (e?.message || "網路連線失敗"));
-        err.status = 0;
-        throw err;
-      }
-      const data = await res.json().catch(() => null);
-      if (!res.ok || !data?.ok) {
-        const err = new Error(data?.error || `問答失敗（HTTP ${res.status}）`);
-        err.status = res.status;
-        err.data = data;
-        throw err;
-      }
-      return data;
-    };
-
-    try {
-      return await callAskEndpoint("/ask", baseBody);
-    } catch (primaryError) {
-      const fallbackUrl = normalizeExternalAiAskUrl(aiFallbackConfig?.url);
-      if (!fallbackUrl || !shouldUseExternalAiFallback(primaryError)) throw primaryError;
-
-      const containsPrivateToolResult = Array.isArray(toolTurns) && toolTurns.some((turn) =>
-        Array.isArray(turn?.calls) && turn.calls.some((tc) => tc?.name === "query_app_data")
-      );
-      if (containsPrivateToolResult && aiFallbackConfig?.allowPrivate !== true) {
-        throw new Error("Cloudflare AI 已失敗；獨立 Gemini 備援可用，但這一輪包含私人資產查詢結果。請到『計畫設定 → AI 獨立備援』開啟私人資料授權後再試。");
-      }
-
-      const fallbackBody = {
-        ...baseBody,
-        context: aiFallbackConfig?.allowPrivate === true ? context : "",
-      };
-      try {
-        const data = await callAskEndpoint(fallbackUrl, fallbackBody, { fallback: true });
-        if (aiFallbackConfig?.allowPrivate !== true && Array.isArray(data?.toolCalls) && data.toolCalls.some((tc) => tc?.name === "query_app_data")) {
-          throw new Error("這個問題需要讀取你的 App 私人資產資料；目前 Gemini 備援的私人資料授權是關閉的。請到『計畫設定 → AI 獨立備援』開啟後再試。");
-        }
-        return { ...data, provider: data.provider || "gemini-external", fallbackFrom: primaryError.message };
-      } catch (fallbackError) {
-        throw new Error(`Cloudflare AI：${primaryError.message}；獨立備援：${fallbackError.message}`);
-      }
+    const body = { message, history, context };
+    if (Array.isArray(toolTurns) && toolTurns.length > 0) body.toolTurns = toolTurns;
+    const res = await fetchWithTimeout("/ask", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-device-id": deviceId },
+      body: JSON.stringify(body),
+    }, 20000);
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.ok) {
+      throw new Error(data?.error || `問答失敗（HTTP ${res.status}）`);
     }
+    return data;
   };
 
   const send = async () => {
@@ -3247,7 +2895,6 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
       const history = nextMessages.slice(0, -1).filter((m) => typeof m.content === "string");
 
       let data = await askOnce(text, history, baseContext);
-      if (data?.provider) setProviderInfo({ provider: data.provider, model: data.model || "", profile: data.profile || "" });
 
       // 如果 AI 呼叫的是唯讀查詢工具，直接自動執行、把查到的結果用正式的 tool 訊息
       // 接回對話再幫它問一次，使用者完全不用介入；最多自動追問一輪，避免萬一 AI 一直
@@ -3263,15 +2910,12 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
           return true;
         });
         if (!freshCalls.length) break;
-        const results = await Promise.all(freshCalls.map(async (tc) => ({
+        const results = freshCalls.map((tc) => ({
           id: tc.id,
-          content: tc.name === "get_live_quotes"
-            ? await executeLiveQuoteTool(tc, holdings)
-            : executeReadTool(tc, { trades, dailyRecords, dividends, holdings }),
-        })));
+          content: executeReadTool(tc, { trades, dailyRecords, dividends, holdings }),
+        }));
         toolTurns.push({ calls: freshCalls, results });
         data = await askOnce(text, history, baseContext, toolTurns);
-        if (data?.provider) setProviderInfo({ provider: data.provider, model: data.model || "", profile: data.profile || "" });
         rounds += 1;
       }
 
@@ -3389,19 +3033,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
           }}>
             <div className="flex items-center justify-between px-4 py-3"
               style={{ borderBottom: `1px solid ${COLORS.panelBorder}` }}>
-              <div className="flex items-center gap-2 min-w-0">
-                <div className="font-bold text-sm">AI 助手</div>
-                {providerInfo && (() => {
-                  const isGemini = String(providerInfo.provider || "").toLowerCase().includes("gemini");
-                  return (
-                    <div className="text-[9px] px-1.5 py-0.5 rounded-full truncate max-w-[170px]"
-                      title={`${providerInfo.provider} · ${providerInfo.model}`}
-                      style={{ color: isGemini ? COLORS.gold : COLORS.sub, border: `1px solid ${isGemini ? COLORS.gold : COLORS.panelBorder}` }}>
-                      {isGemini ? "Gemini 獨立備援" : "GPT-OSS"}
-                    </div>
-                  );
-                })()}
-              </div>
+              <div className="font-bold text-sm">AI 助手</div>
               <button onClick={() => setOpen(false)} style={{ color: COLORS.sub }}><X size={20} /></button>
             </div>
 
@@ -3523,82 +3155,31 @@ function TabBar({ tab, setTab }) {
 }
 
 // ---------------- defaults (first run) ----------------
+// 【家人共用版】以下這幾個 default* 都改成空白起始狀態，不含任何真實個人資料，
+// 給第一次打開這個網址（localStorage 是空的）的人一個乾淨畫面，自己填自己的。
 function defaultHoldings() {
-  return [
-    { id: uid(), symbol: "0050", name: "元大台灣50", initialShares: 3919, target2035: 42679 },
-    { id: uid(), symbol: "0056", name: "元大高股息", initialShares: 90007, target2035: 147196 },
-    { id: uid(), symbol: "006208", name: "富邦台50", initialShares: 56, target2035: 0 },
-    { id: uid(), symbol: "00685L", name: "群益台灣加權正2", initialShares: 2561, target2035: 0 },
-    { id: uid(), symbol: "009816", name: "凱基台灣TOP50", initialShares: 215, target2035: 0 },
-    { id: uid(), symbol: "00981A", name: "主動統一台股增長", initialShares: 0, target2035: 0 },
-    { id: uid(), symbol: "00991A", name: "主動復華未來50", initialShares: 512, target2035: 0 },
-    { id: uid(), symbol: "2330", name: "台積電", initialShares: 32, target2035: 0 },
-  ];
+  return [];
 }
 function defaultTrades() {
-  return [
-    { id: uid(), date: "2026-08-04", symbol: "0056", action: "buy", shares: 49, price: 49.98, fee: 3, tax: 0, amount: 2452.02, note: "" },
-    { id: uid(), date: "2026-08-04", symbol: "0050", action: "buy", shares: 36, price: 100.6, fee: 5, tax: 0, amount: 3626.6, note: "" },
-    { id: uid(), date: "2026-08-07", symbol: "0050", action: "buy", shares: 35, price: 103.8, fee: 5, tax: 0, amount: 3638.0, note: "" },
-    { id: uid(), date: "2026-08-07", symbol: "0056", action: "buy", shares: 47, price: 51.5, fee: 3, tax: 0, amount: 2423.5, note: "" },
-    { id: uid(), date: "2026-08-07", symbol: "00981A", action: "buy", shares: 35, price: 28.27, fee: 1, tax: 0, amount: 990.45, note: "" },
-    { id: uid(), date: "2026-08-07", symbol: "00991A", action: "buy", shares: 59, price: 16.82, fee: 1, tax: 0, amount: 993.38, note: "" },
-    { id: uid(), date: "2026-08-11", symbol: "0050", action: "buy", shares: 324, price: 103.84, fee: 49, tax: 0, amount: 33693.16, note: "" },
-    { id: uid(), date: "2026-08-11", symbol: "0056", action: "buy", shares: 46, price: 52.45, fee: 3, tax: 0, amount: 2415.7, note: "" },
-    { id: uid(), date: "2026-08-14", symbol: "0050", action: "buy", shares: 34, price: 107.2, fee: 5, tax: 0, amount: 3649.8, note: "" },
-    { id: uid(), date: "2026-08-14", symbol: "0056", action: "buy", shares: 46, price: 53.7, fee: 3, tax: 0, amount: 2473.2, note: "" },
-    { id: uid(), date: "2026-08-14", symbol: "2330", action: "buy", shares: 1, price: 2430, fee: 3, tax: 0, amount: 2433, note: "" },
-    { id: uid(), date: "2026-08-17", symbol: "0050", action: "buy", shares: 1, price: 106, fee: 1, tax: 0, amount: 107, note: "" },
-    { id: uid(), date: "2026-08-18", symbol: "0050", action: "buy", shares: 46, price: 106.45, fee: 6, tax: 0, amount: 4902.7, note: "" },
-    { id: uid(), date: "2026-08-18", symbol: "0056", action: "buy", shares: 69, price: 53.1, fee: 5, tax: 0, amount: 3668.9, note: "" },
-    { id: uid(), date: "2026-08-18", symbol: "2330", action: "buy", shares: 1, price: 2395, fee: 3, tax: 0, amount: 2398, note: "" },
-    { id: uid(), date: "2026-08-18", symbol: "00991A", action: "sell", shares: 571, price: 19.5, fee: 15, tax: 11, amount: 11108.5, note: "" },
-  ];
+  return [];
 }
 function defaultDividends() {
-  return [
-    { id: uid(), date: "2021-05-01", symbol: "00878", shares: 32000, perShare: 0.25, amount: 8000 },
-    { id: uid(), date: "2021-08-01", symbol: "00878", shares: 50000, perShare: 0.3, amount: 15000 },
-    { id: uid(), date: "2021-11-01", symbol: "00878", shares: 65000, perShare: 0.28, amount: 18200 },
-    { id: uid(), date: "2022-02-01", symbol: "00878", shares: 87000, perShare: 0.3, amount: 26100 },
-    { id: uid(), date: "2022-05-01", symbol: "00878", shares: 97000, perShare: 0.32, amount: 31040 },
-    { id: uid(), date: "2022-08-01", symbol: "00878", shares: 97000, perShare: 0.28, amount: 27160 },
-    { id: uid(), date: "2022-11-01", symbol: "00878", shares: 99000, perShare: 0.28, amount: 27720 },
-    { id: uid(), date: "2023-02-01", symbol: "00878", shares: 99000, perShare: 0.27, amount: 26730 },
-    { id: uid(), date: "2023-05-01", symbol: "00878", shares: 99000, perShare: 0.27, amount: 26730 },
-    { id: uid(), date: "2023-08-01", symbol: "00878", shares: 99000, perShare: 0.35, amount: 34650 },
-    { id: uid(), date: "2023-11-01", symbol: "00878", shares: 101000, perShare: 0.35, amount: 35350 },
-    { id: uid(), date: "2024-02-01", symbol: "00878", shares: 106000, perShare: 0.4, amount: 42400 },
-    { id: uid(), date: "2024-05-01", symbol: "00878", shares: 110000, perShare: 0.51, amount: 56100 },
-    { id: uid(), date: "2024-08-01", symbol: "00878", shares: 111000, perShare: 0.55, amount: 61050 },
-    { id: uid(), date: "2024-11-01", symbol: "00878", shares: 111000, perShare: 0.55, amount: 61050 },
-    { id: uid(), date: "2025-01-01", symbol: "0056", shares: 86000, perShare: 1.07, amount: 92020 },
-    { id: uid(), date: "2025-04-01", symbol: "0056", shares: 88350, perShare: 1.07, amount: 94534 },
-    { id: uid(), date: "2025-07-01", symbol: "0056", shares: 87944, perShare: 0.87, amount: 76511 },
-    { id: uid(), date: "2025-10-01", symbol: "0056", shares: 87595, perShare: 0.87, amount: 76208 },
-    { id: uid(), date: "2026-01-01", symbol: "0056", shares: 87595, perShare: 0.87, amount: 76208 },
-    { id: uid(), date: "2026-04-01", symbol: "0056", shares: 88062, perShare: 1, amount: 88062 },
-    { id: uid(), date: "2026-07-01", symbol: "0056", shares: 89736, perShare: 1.35, amount: 121144 },
-  ];
+  return [];
 }
 function defaultDailyRecords() {
   return DAILY_SEED.map((r) => ({ id: uid(), ...r }));
 }
 function defaultPlan() {
-  return [
-    { id: uid(), symbol: "0050", amount: 40000, note: "核心分散" },
-    { id: uid(), symbol: "0056", amount: 30000, note: "股息型，衝100張" },
-    { id: uid(), symbol: "VOO", amount: 25000, note: "標普500" },
-  ];
+  return [];
 }
 function defaultPlanSchedule() {
   return {
-    startDate: "2025-07-01",
-    initialPrincipal: 2496327,
-    initialAssets: 2720996,
+    startDate: todayStr(),
+    initialPrincipal: 0,
+    initialAssets: 0,
     // 舊版相容欄位：schema 1 仍可能只有 initialCapital。
-    initialCapital: 2496327,
-    monthlyAmount: 95000,
+    initialCapital: 0,
+    monthlyAmount: 0,
     annualReturn: 11,
     horizonMonths: 120,
   };
