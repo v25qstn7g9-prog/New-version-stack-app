@@ -10,14 +10,14 @@
  *   POST /api/health-cards        → { id, action: "apply" | "dismiss" } 更新卡片狀態
  *   GET  /api/health-check        → 手動觸發一次檢查（也可以被 Cron 呼叫）
  *
- * KV：需要一個叫 HEALTH_KV 的 KV Namespace binding（見 wrangler.jsonc）。
+ * KV：需要一個叫 health_kv 的 KV Namespace binding（見 wrangler.jsonc）。
  * 只存「最近幾張卡片」，不是逐筆日誌，舊卡片超過上限直接丟棄，避免無限長大。
  */
 
 const HEALTH_VERSION = "4.6-health-check-1";
 const KV_KEY = "health:cards";
 const MAX_CARDS = 20;
-const CLOUDFLARE_TEST_MODEL = "@cf/openai/gpt-oss-120b"; // 跟 functions/ask.js 用同一顆模型
+const CLOUDFLARE_TEST_MODEL = "@cf/openai/gpt-oss-20b"; // 跟 functions/ask.js 用同一顆模型
 
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -75,9 +75,9 @@ function diagnose(message) {
 }
 
 async function loadCards(env) {
-  if (!env.HEALTH_KV) return [];
+  if (!env.health_kv) return [];
   try {
-    const raw = await env.HEALTH_KV.get(KV_KEY);
+    const raw = await env.health_kv.get(KV_KEY);
     const cards = raw ? JSON.parse(raw) : [];
     return Array.isArray(cards) ? cards : [];
   } catch {
@@ -86,8 +86,8 @@ async function loadCards(env) {
 }
 
 async function saveCards(env, cards) {
-  if (!env.HEALTH_KV) return;
-  await env.HEALTH_KV.put(KV_KEY, JSON.stringify(cards.slice(-MAX_CARDS)));
+  if (!env.health_kv) return;
+  await env.health_kv.put(KV_KEY, JSON.stringify(cards.slice(-MAX_CARDS)));
 }
 
 // 供 Cron（worker.js 的 scheduled()）跟手動 GET /api/health-check 共用的核心邏輯。
