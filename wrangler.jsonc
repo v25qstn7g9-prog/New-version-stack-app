@@ -10,5 +10,17 @@
     "directory": ".",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application"
+  },
+  // 健康檢查卡片存放處。需要先建立一個 KV Namespace 再把 id 貼進來：
+  //   npx wrangler kv namespace create HEALTH_KV
+  // 指令跑完會印出一個 id，貼到下面 "id" 那格（"YOUR_KV_NAMESPACE_ID" 要換掉）。
+  "kv_namespaces": [
+    { "binding": "HEALTH_KV", "id": "YOUR_KV_NAMESPACE_ID" }
+  ],
+  // 每 30 分鐘自動跑一次健康檢查（背景執行，呼叫 worker.js 的 scheduled()）。
+  // cron 語法是 UTC 時間，跟台灣時間無關——只是「每 30 分鐘」這種間隔本身不受時區影響。
+  // 想改頻率就改這個字串，例如 "0 * * * *" 是每小時一次。
+  "triggers": {
+    "crons": ["*/30 * * * *"]
   }
 }
