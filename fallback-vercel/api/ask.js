@@ -1,7 +1,8 @@
 import { onRequestPost } from "../lib/ask-core.js";
 
-const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
-const GEMINI_OPENAI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+// 改用 2.5 系列（非預設開啟思考模式），避開 Gemini 3 系列強制要求 thought_signature
+// 的驗證規則（3 系列即使設定 minimal thinking 也一樣強制，2.5 預設不會觸發）。
+const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite";
 
 function allowedOrigins() {
   return String(process.env.APP_ORIGIN || "")
@@ -42,6 +43,93 @@ async function parseBody(req) {
   try { return JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { return null; }
 }
 
+// ---- OpenAI 風格 messages/tools 翻譯成 Gemini 原生格式 ----
+// 新版 Gemini API Key（AQ. 開頭）用 Google AI Studio 官方「Copy cURL quickstart」
+// 驗證過的方式：x-goog-api-key 表頭 + 原生 generateContent 端點，不是 Authorization:
+// Bearer + OpenAI 相容端點——後者對 AQ. 格式金鑰會回傳認證錯誤（今天已經實測踩過）。
+function toGeminiRequest(messages, tools) {
+  const systemParts = [];
+  const contents = [];
+  const callIdToName = {};
+
+  for (const m of messages || []) {
+    if (m.role === "system") {
+      systemParts.push(String(m.content || ""));
+      continue;
+    }
+    if (m.role === "user") {
+      contents.push({ role: "user", parts: [{ text: String(m.content || "") }] });
+      continue;
+    }
+    if (m.role === "assistant") {
+      if (Array.isArray(m.tool_calls) && m.tool_calls.length) {
+        const parts = m.tool_calls.map((tc) => {
+          let args = {};
+          try { args = JSON.parse(tc.function?.arguments || "{}"); } catch { args = {}; }
+          callIdToName[tc.id] = tc.function?.name;
+          const part = { functionCall: { name: tc.function?.name, args } };
+          // Gemini 要求把上一輪它自己給的 thought_signature 原封不動帶回同一個
+          // functionCall part，否則下一輪會被拒絕（400: missing thought_signature）。
+          if (tc._geminiThoughtSignature) part.thoughtSignature = tc._geminiThoughtSignature;
+          return part;
+        });
+        contents.push({ role: "model", parts });
+      } else {
+        contents.push({ role: "model", parts: [{ text: String(m.content || "") }] });
+      }
+      continue;
+    }
+    if (m.role === "tool") {
+      const name = callIdToName[m.tool_call_id] || "tool_result";
+      contents.push({
+        role: "function",
+        parts: [{ functionResponse: { name, response: { result: String(m.content || "") } } }],
+      });
+      continue;
+    }
+  }
+
+  const body = { contents };
+  if (systemParts.length) body.systemInstruction = { parts: [{ text: systemParts.join("\n\n") }] };
+  if (Array.isArray(tools) && tools.length) {
+    body.tools = [{
+      functionDeclarations: tools.map((t) => ({
+        name: t.function.name,
+        description: t.function.description,
+        parameters: t.function.parameters,
+      })),
+    }];
+  }
+  return body;
+}
+
+// 把 Gemini 原生回應轉回 ask-core.js 認得的 OpenAI 風格結構（choices[0].message）。
+// 每個 functionCall part 收到的 thoughtSignature 也一併帶出去（放在自訂欄位
+// _geminiThoughtSignature），讓 ask-core.js 組下一輪訊息時能原樣帶回去給 Gemini。
+function fromGeminiResponse(data) {
+  const candidate = data?.candidates?.[0];
+  const parts = candidate?.content?.parts || [];
+  const functionCallParts = parts.filter((p) => p.functionCall);
+  if (functionCallParts.length > 0) {
+    return {
+      choices: [{
+        message: {
+          role: "assistant",
+          content: "",
+          tool_calls: functionCallParts.map((p, idx) => ({
+            id: `gemini_call_${idx}`,
+            type: "function",
+            function: { name: p.functionCall.name, arguments: JSON.stringify(p.functionCall.args || {}) },
+            ...(p.thoughtSignature ? { _geminiThoughtSignature: p.thoughtSignature } : {}),
+          })),
+        },
+      }],
+    };
+  }
+  const text = parts.map((p) => p.text || "").join("").trim();
+  return { choices: [{ message: { role: "assistant", content: text } }] };
+}
+
 async function callGemini(options) {
   const apiKey = String(process.env.GEMINI_API_KEY || "").trim();
   if (!apiKey) throw new Error("GEMINI_API_KEY 尚未設定");
@@ -50,22 +138,20 @@ async function callGemini(options) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 28000);
   try {
-    const payload = {
-      model,
-      messages: Array.isArray(options?.messages) ? options.messages : [],
-      max_tokens: Number(options?.max_tokens || 1000),
-    };
-    if (Array.isArray(options?.tools) && options.tools.length) payload.tools = options.tools;
+    const payload = toGeminiRequest(options?.messages, options?.tools);
 
-    const response = await fetch(GEMINI_OPENAI_URL, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "authorization": `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-goog-api-key": apiKey,
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      }
+    );
     const text = await response.text();
     let data = null;
     try { data = JSON.parse(text); } catch { /* keep null */ }
@@ -76,7 +162,10 @@ async function callGemini(options) {
       throw err;
     }
     if (!data) throw new Error("Gemini 回傳不是 JSON");
-    return data;
+    if (data?.promptFeedback?.blockReason) {
+      throw new Error(`Gemini 內容被擋下（${data.promptFeedback.blockReason}）`);
+    }
+    return fromGeminiResponse(data);
   } catch (e) {
     if (e?.name === "AbortError") throw new Error("Gemini 連線逾時");
     throw e;
