@@ -2,9 +2,15 @@ import { onRequestPost } from "../lib/ask-core.js";
 
 // 這組帳號是新申請的 Gemini API Key，Google 目前限制新帳號只能用 3.x 系列
 // （2.5 系列回傳 404「no longer available to new users」），沒有退路，只能用 3.5。
-// 3.x 系列會強制要求 thought_signature，所以下面 callGemini 乾脆完全不帶工具清單，
-// 從源頭避開這個問題，而不是繼續嘗試正確傳遞那個簽章。
 const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
+
+// 逐步試水溫用：先只開放這個清單裡的工具給 Gemini 備援，其他一律不給
+// functionDeclaration（模型端會完全不知道它們存在）。ask-core.js 也會依照這份清單
+// 自動切換成對應的「部分功能」系統提示詞，只教學這幾個工具、明講其餘不存在，
+// 不會出現「system prompt 教了但沒真的給」導致模型模仿假造呼叫語法的問題。
+// 想加開更多，就把工具名稱加進這個陣列即可（順序建議：唯讀工具先開，會寫入資料的
+// add_trade / update_* 最後再開）。
+const FALLBACK_ALLOWED_TOOL_NAMES = ["get_live_quotes"];
 
 function allowedOrigins() {
   return String(process.env.APP_ORIGIN || "")
@@ -140,11 +146,12 @@ async function callGemini(options) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 28000);
   try {
-    // 【重要】故意不把 options?.tools 傳給 Gemini——完全不給工具清單，
-    // 它就不會產生 functionCall，也就永遠不會踩到 thought_signature 那個驗證規則。
-    // 代價：備援模式下無法查即時股價/網路搜尋/操作資料，只能純聊天回答，
-    // 但换回「額度用完時直接失敗」穩定很多，不會又卡在猜 Google API 細節。
-    const payload = toGeminiRequest(options?.messages, []);
+    // 【重要】以前這裡故意傳 []，完全不給 Gemini 工具清單，用來規避 thought_signature
+    // 驗證問題——但根源其實是 ask-core.js 在把歷史 toolTurns 組回 messages 時，
+    // 弄丟了 Gemini 自己附帶的 thoughtSignature（已修正，見 ask-core.js 的
+    // toolTurns.forEach）。現在改成真的把（篩選過的）tools 傳給 Gemini，讓
+    // FALLBACK_ALLOWED_TOOL_NAMES 清單裡的工具可以真正被呼叫、簽章正確原樣帶回去。
+    const payload = toGeminiRequest(options?.messages, options?.tools || []);
 
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
@@ -220,9 +227,9 @@ export default async function handler(req, res) {
     AI: { run: async (_cloudflareModel, options) => await callGemini(options) },
     TAVILY_API_KEY: process.env.TAVILY_API_KEY,
     ASK_RATE_LIMITER: null,
-    // callGemini() 故意不把 tools 送給 Gemini（見下方註解），所以要讓 ask-core.js
-    // 知道這件事，換成備援專用的系統提示詞，不然模型會照著工具說明「模仿」呼叫語法。
-    AI_SUPPORTS_TOOLS: false,
+    // 告訴 ask-core.js 這次只有這幾個工具是真的能用，其他工具的教學段落會被拿掉，
+    // 換成「這些不存在」的明確提示，避免模型照著它看不到的工具說明模仿呼叫語法。
+    AI_ALLOWED_TOOL_NAMES: FALLBACK_ALLOWED_TOOL_NAMES,
   };
 
   try {
