@@ -89,8 +89,12 @@ function toGeminiRequest(messages, tools) {
     }
     if (m.role === "tool") {
       const name = callIdToName[m.tool_call_id] || "tool_result";
+      // 【重要修正】舊版 Gemini API 用 role:"function" 包工具查詢結果，
+      // 但 gemini-3.5-flash-lite 這個新版不接受這個角色名稱，會直接 400
+      // 「Role 'function' is not supported」。新版只認 USER/MODEL（加系統角色），
+      // functionResponse 這個 part 改包在 role:"user" 底下送回去。
       contents.push({
-        role: "function",
+        role: "user",
         parts: [{ functionResponse: { name, response: { result: String(m.content || "") } } }],
       });
       continue;
