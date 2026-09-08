@@ -13,7 +13,7 @@
  * 這支只保留 Cloudflare 單一主模型；v2.21 的 Gemini 備援由前端直接改連
  * 另一個平台的 fallback-vercel/api/ask.js，不再把第二模型塞進同一個 Cloudflare Worker。
  */
-const ASK_VERSION = "4.6-ask-free-21.1-single-model-provider-tag";
+const ASK_VERSION = "4.6-ask-free-21.2-stock-move-search";
 const MODEL = "@cf/openai/gpt-oss-120b";
 const MAX_HISTORY_TURNS = 6; // 再縮一點省輸入 token
 const MAX_MESSAGE_LEN = 2000;
@@ -97,6 +97,8 @@ query_app_data 跟 get_live_quotes 都是唯讀查詢，可直接呼叫，不用
 - 交易/配息：source=trades 或 dividends；統計用 summary，列表用 records
 - 個股／ETF 的現在股價、今日最新價、個別持股現在市值：get_live_quotes
 - 台股大盤／加權指數／TAIEX／美股大盤指數的點數與收盤：web_search（get_live_quotes 不查大盤指數）
+- 使用者問「某支股票/ETF 為什麼漲/跌」「今天下跌的原因」這類問題：一律用 web_search 查當天新聞，
+  不要只憑自己知識列一般性的漲跌因素（大盤情緒、產業消息…）敷衍帶過——那樣等於沒回答到「今天」這個重點
 - 一般新聞/時事/公開資訊/你內建知識不確定的事：web_search（不要拿來查使用者自己的持股資料；特定個股即時價優先 get_live_quotes）
 同一問題最多查 2 次；不確定「變化量還是絕對值」就直接問使用者。
 
