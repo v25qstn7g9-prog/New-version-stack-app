@@ -1,8 +1,10 @@
 import { onRequestPost } from "../lib/ask-core.js";
 
-// 改用 2.5 系列（非預設開啟思考模式），避開 Gemini 3 系列強制要求 thought_signature
-// 的驗證規則（3 系列即使設定 minimal thinking 也一樣強制，2.5 預設不會觸發）。
-const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite";
+// 這組帳號是新申請的 Gemini API Key，Google 目前限制新帳號只能用 3.x 系列
+// （2.5 系列回傳 404「no longer available to new users」），沒有退路，只能用 3.5。
+// 3.x 系列會強制要求 thought_signature，所以下面 callGemini 乾脆完全不帶工具清單，
+// 從源頭避開這個問題，而不是繼續嘗試正確傳遞那個簽章。
+const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
 
 function allowedOrigins() {
   return String(process.env.APP_ORIGIN || "")
@@ -138,7 +140,11 @@ async function callGemini(options) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 28000);
   try {
-    const payload = toGeminiRequest(options?.messages, options?.tools);
+    // 【重要】故意不把 options?.tools 傳給 Gemini——完全不給工具清單，
+    // 它就不會產生 functionCall，也就永遠不會踩到 thought_signature 那個驗證規則。
+    // 代價：備援模式下無法查即時股價/網路搜尋/操作資料，只能純聊天回答，
+    // 但换回「額度用完時直接失敗」穩定很多，不會又卡在猜 Google API 細節。
+    const payload = toGeminiRequest(options?.messages, []);
 
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
