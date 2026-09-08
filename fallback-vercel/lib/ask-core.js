@@ -1,5 +1,5 @@
 /**
- * ask.js — 4.6-ask-free-21.2-gemini-signature-roundtrip
+ * ask.js — 4.6-ask-free-21.1-single-model-provider-tag
  *
  * POST /ask
  * body: {
@@ -12,7 +12,7 @@
  * 這份檔案是從 Cloudflare 主 AI 邏輯複製出的共用核心。
  * 在 Vercel 端，api/ask.js 會提供一個相容的 env.AI.run()，實際轉送到 Google Gemini。
  */
-const ASK_VERSION = "4.6-ask-free-21.2-gemini-signature-roundtrip";
+const ASK_VERSION = "4.6-ask-free-21.1-single-model-provider-tag";
 const MODEL = "@cf/openai/gpt-oss-120b";
 const MAX_HISTORY_TURNS = 6; // 再縮一點省輸入 token
 const MAX_MESSAGE_LEN = 2000;
@@ -347,10 +347,6 @@ export async function onRequestPost(context) {
             name: String(tc?.name || ""),
             arguments: JSON.stringify(tc?.arguments || {}),
           },
-          // Gemini 3 的 thoughtSignature 必須跨 HTTP round-trip 原封不動帶回。
-          // 前端 toolTurns 會保留 data.toolCalls 上的這個欄位；這裡若漏掉，
-          // query_app_data / get_live_quotes 第二輪就會 400 missing thought_signature。
-          ...(tc?._geminiThoughtSignature ? { _geminiThoughtSignature: tc._geminiThoughtSignature } : {}),
         })),
       });
       results.forEach((tr) => {
