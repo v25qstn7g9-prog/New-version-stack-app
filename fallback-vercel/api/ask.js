@@ -220,6 +220,9 @@ export default async function handler(req, res) {
     AI: { run: async (_cloudflareModel, options) => await callGemini(options) },
     TAVILY_API_KEY: process.env.TAVILY_API_KEY,
     ASK_RATE_LIMITER: null,
+    // callGemini() 故意不把 tools 送給 Gemini（見下方註解），所以要讓 ask-core.js
+    // 知道這件事，換成備援專用的系統提示詞，不然模型會照著工具說明「模仿」呼叫語法。
+    AI_SUPPORTS_TOOLS: false,
   };
 
   try {
