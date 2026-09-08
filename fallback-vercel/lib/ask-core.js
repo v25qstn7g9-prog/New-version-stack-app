@@ -101,6 +101,9 @@ query_app_data 跟 get_live_quotes 都是唯讀查詢，可直接呼叫，不用
 - 個股／ETF 的現在股價、今日最新價、個別持股現在市值：get_live_quotes
 - 台股大盤／加權指數／TAIEX／美股大盤指數的點數與收盤：web_search（get_live_quotes 不查大盤指數）
 - 一般新聞/時事/公開資訊/你內建知識不確定的事：web_search（不要拿來查使用者自己的持股資料；特定個股即時價優先 get_live_quotes）
+【重要】使用者問「今天/現在/最新」這類會隨時間變動的統計數字（地震次數、天氣、疫情、比分、即時災情等），
+一律視為必須查證，禁止憑訓練時的印象或記憶直接回答——即使你「覺得」自己知道答案，也要先呼叫 web_search 查證後才能回覆；
+不要等使用者追問「附來源」才想到要查。
 同一問題最多查 2 次；不確定「變化量還是絕對值」就直接問使用者。`;
 
 // 備援模式（Gemini 完全不帶工具）專用收尾。取代上面那段，明確講清楚「現在沒有任何
@@ -122,7 +125,7 @@ get_live_quotes(...) 這種文字，也絕對不要編造任何數字——那�
 const TOOL_USAGE_BLOCKS = {
   get_live_quotes: `- get_live_quotes 可用：查個股／ETF「現在／今天」股價、收盤價、幫忙算現在市值，直接呼叫，不用確認卡。收到查詢結果（tool 訊息）就代表已完成，直接用文字回答，不要重複呼叫同一檔。它查不到台股大盤／加權指數／TAIEX／美股大盤指數的點數——那個目前沒有任何工具可查，要老實說查不到。`,
   query_app_data: `- query_app_data 可用：App 歷史紀錄（過去每日市值、成本、交易、配息），唯讀直接呼叫，不用確認卡。用法：現在持股成本看摘要即可；過去某日成本用 source=holding_cost+symbol+asOfDate；A→B 變化量用 source=daily_records,aggregation=start_end,fromDate/toDate；某日絕對本金/市值用 aggregation=summary+toDate；哪個月漲跌最多用 aggregation=min_max；月度趨勢用 aggregation=monthly；交易/配息統計用 source=trades或dividends+summary，列表用 records。彙總結果已經算好，不要自己對明細手動加減。`,
-  web_search: `- web_search 可用：一般新聞/時事/公開資訊，或台股大盤／加權指數／美股大盤指數的點數與收盤。不要拿來查使用者自己的持股資料，也不要拿來查個股即時價（優先用 get_live_quotes）。`,
+  web_search: `- web_search 可用：一般新聞/時事/公開資訊，或台股大盤／加權指數／美股大盤指數的點數與收盤。不要拿來查使用者自己的持股資料，也不要拿來查個股即時價（優先用 get_live_quotes）。【重要】問到「今天/現在/最新」這類會隨時間變動的統計數字（地震次數、天氣、疫情、比分、即時災情等），一律視為必須查證，禁止憑印象直接回答，即使覺得自己知道答案也要先查再回覆，不要等使用者追問「附來源」才想到要查。`,
   add_trade: `- add_trade 可用：新增買賣交易紀錄。資訊不夠（缺股數、價格等）先用文字問清楚，不要瞎猜後呼叫；呼叫後 App 會顯示確認卡，使用者按確定才生效，你無法直接改資料。`,
   update_holding_target: `- update_holding_target 可用：修改某檔股票的目標股數。呼叫後 App 會顯示確認卡，使用者按確定才生效。`,
   update_manual_avg_cost: `- update_manual_avg_cost 可用：手動設定或清除平均成本。呼叫後 App 會顯示確認卡，使用者按確定才生效。`,
