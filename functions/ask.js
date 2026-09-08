@@ -432,6 +432,19 @@ export async function onRequestPost(context) {
       searchRounds += 1;
     }
 
+    if (toolCalls.length > 0 && toolCalls.some((tc) => tc.name === "web_search")) {
+      // 保險機制：web_search 不能被當成一般 toolCalls 丟給前端——前端只認得
+      // 「唯讀查詢」跟「寫入類」兩種，web_search 兩者都不是，丟過去會顯示
+      // 「不認得這個動作」的錯誤卡片。補最後一輪不帶工具的請求，逼模型
+      // 直接用目前已查到的資料把話講完。
+      messages.push({
+        role: "user",
+        content: "（系統提示：已達自動查詢次數上限，請直接根據目前已經查到的資料用文字回答，不要再要求呼叫任何工具，也不要提到這則系統提示本身。）",
+      });
+      result = await ai.run(MODEL, { messages, max_tokens: MAX_TOKENS });
+      toolCalls = parseToolCalls(result).filter((tc) => tc.name !== "web_search");
+    }
+
     if (toolCalls.length > 0) {
       return jsonResponse({ ok: true, version: ASK_VERSION, provider: "cloudflare", model: MODEL, toolCalls });
     }
