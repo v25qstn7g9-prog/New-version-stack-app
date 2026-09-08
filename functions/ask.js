@@ -13,7 +13,7 @@
  * 這支只保留 Cloudflare 單一主模型；v2.21 的 Gemini 備援由前端直接改連
  * 另一個平台的 fallback-vercel/api/ask.js，不再把第二模型塞進同一個 Cloudflare Worker。
  */
-const ASK_VERSION = "4.6-ask-free-21.2-stock-move-search";
+const ASK_VERSION = "4.6-ask-free-21.3-search-error-transparency";
 const MODEL = "@cf/openai/gpt-oss-120b";
 const MAX_HISTORY_TURNS = 6; // 再縮一點省輸入 token
 const MAX_MESSAGE_LEN = 2000;
@@ -47,7 +47,10 @@ async function callTavily(apiKey, query) {
       }),
     });
     const data = await res.json().catch(() => null);
-    if (!res.ok || !data) return `網路搜尋失敗（HTTP ${res.status}）`;
+    if (!res.ok || !data) {
+      const detail = data?.detail?.error || data?.error || data?.message || "";
+      return `網路搜尋失敗（HTTP ${res.status}${detail ? `：${detail}` : ""}）`;
+    }
     const results = Array.isArray(data.results) ? data.results.slice(0, 5) : [];
     const lines = results.map(
       (r) => `- ${r.title || "（無標題）"}：${String(r.content || "").slice(0, 200)}（來源：${r.url}）`
@@ -100,6 +103,9 @@ query_app_data 跟 get_live_quotes 都是唯讀查詢，可直接呼叫，不用
 - 使用者問「某支股票/ETF 為什麼漲/跌」「今天下跌的原因」這類問題：一律用 web_search 查當天新聞，
   不要只憑自己知識列一般性的漲跌因素（大盤情緒、產業消息…）敷衍帶過——那樣等於沒回答到「今天」這個重點
 - 一般新聞/時事/公開資訊/你內建知識不確定的事：web_search（不要拿來查使用者自己的持股資料；特定個股即時價優先 get_live_quotes）
+【重要】如果 web_search 的查詢結果是「網路搜尋失敗」「網路搜尋發生錯誤」「尚未設定網路搜尋功能」這類訊息，
+一定要把裡面的完整文字（含錯誤代碼/原因）原封不動告訴使用者，不要自己改寫成「目前無法取得即時新聞」這種模糊說法——
+使用者需要看到真正的錯誤內容才能排查問題。
 同一問題最多查 2 次；不確定「變化量還是絕對值」就直接問使用者。
 
 手機小視窗：回答簡潔。可結合最近對話理解省略句。
