@@ -10,7 +10,7 @@ const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
 // 不會出現「system prompt 教了但沒真的給」導致模型模仿假造呼叫語法的問題。
 // 想加開更多，就把工具名稱加進這個陣列即可（順序建議：唯讀工具先開，會寫入資料的
 // add_trade / update_* 最後再開）。
-const FALLBACK_ALLOWED_TOOL_NAMES = ["get_live_quotes", "query_app_data"];
+const FALLBACK_ALLOWED_TOOL_NAMES = ["get_live_quotes", "query_app_data", "web_search"];
 
 function allowedOrigins() {
   return String(process.env.APP_ORIGIN || "")
