@@ -359,6 +359,10 @@ export async function onRequestPost(context) {
     });
 
     // 解析一次 ai.run() 回傳裡的 tool_calls，統一格式成 { id, name, arguments }
+    // 【重要】Gemini 系列模型每次呼叫工具都會附帶一個 thoughtSignature（加密簽章），
+    // 下一輪把工具結果送回去時必須原封不動帶回同一個位置，缺了會直接被 Gemini 拒絕
+    // （400: missing a thought_signature）。這裡把它一起保留住，交給後面組訊息時使用；
+    // Cloudflare 原生模型沒有這個欄位，就自然是 undefined，不影響原本邏輯。
     function parseToolCalls(result) {
       const rawToolCalls =
         result?.tool_calls ||
@@ -380,7 +384,10 @@ export async function onRequestPost(context) {
           }
           // 有些模型不會回傳 id，這裡補一個穩定的 fallback，讓下一輪可以正確對應回去。
           const id = String(tc?.id || tc?.tool_call_id || `call_${idx}`);
-          return name && ALLOWED_TOOL_NAMES.has(name) ? { id, name, arguments: args || {} } : null;
+          const thoughtSignature = tc?._geminiThoughtSignature || tc?.thoughtSignature || undefined;
+          return name && ALLOWED_TOOL_NAMES.has(name)
+            ? { id, name, arguments: args || {}, ...(thoughtSignature ? { _geminiThoughtSignature: thoughtSignature } : {}) }
+            : null;
         })
         .filter(Boolean);
     }
@@ -408,6 +415,7 @@ export async function onRequestPost(context) {
           id: tc.id,
           type: "function",
           function: { name: tc.name, arguments: JSON.stringify(tc.arguments || {}) },
+          ...(tc._geminiThoughtSignature ? { _geminiThoughtSignature: tc._geminiThoughtSignature } : {}),
         })),
       });
       const tavilyKey = context.env.TAVILY_API_KEY;
