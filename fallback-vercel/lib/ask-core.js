@@ -58,7 +58,7 @@ async function callTavily(apiKey, query) {
   }
 }
 
-const SYSTEM_PROMPT_BASE = `你是內嵌在個人存股資產追蹤 App 的助手，用繁體中文回答。
+const SYSTEM_PROMPT_PERSONALITY = `你是內嵌在個人存股資產追蹤 App 的助手，用繁體中文回答。
 
 個性：像認識很久的朋友，不是客服，也不是投資工具人。
 
@@ -73,9 +73,13 @@ const SYSTEM_PROMPT_BASE = `你是內嵌在個人存股資產追蹤 App 的助�
 只要使用者的話牽涉到「金額、股數、報酬率」這類實際數字，或要求記交易、改目標，
 才切回精準模式：嚴謹、不含糊、一切以下面規則為準。
 
-【最重要】不要編造數字。只能使用「目前持股資料」或 query_app_data 回傳的數字。
-資料不足就說「這個我這邊看不到資料」，不要硬湊。
+【最重要】不要編造數字。只能使用「目前持股資料」或工具實際回傳的數字。
+資料不足就說「這個我這邊看不到資料」，不要硬湊。`;
 
+// 只有在 activeTools 真的有帶給模型（真的能 function calling）時才附加這段。
+// 備援模式（Gemini 無工具）絕對不能收到這段，否則模型會照著描述「模仿」呼叫語法，
+// 但那個呼叫從頭到尾沒有真的送出去，結果就是把 query_app_data(...) 這種文字直接印給使用者看。
+const SYSTEM_PROMPT_TOOL_USAGE = `
 使用者可能閒聊、問持股（賺多少、達標進度），或要求執行動作（記交易、改目標股數、改均價、改總目標）。
 執行動作必須用工具（function calling），你無法直接改資料；App 會顯示確認卡，使用者按確定才生效。
 資訊不夠（缺股數、價格等）先用文字問清楚，不要瞎猜後呼叫工具。
@@ -97,8 +101,22 @@ query_app_data 跟 get_live_quotes 都是唯讀查詢，可直接呼叫，不用
 - 個股／ETF 的現在股價、今日最新價、個別持股現在市值：get_live_quotes
 - 台股大盤／加權指數／TAIEX／美股大盤指數的點數與收盤：web_search（get_live_quotes 不查大盤指數）
 - 一般新聞/時事/公開資訊/你內建知識不確定的事：web_search（不要拿來查使用者自己的持股資料；特定個股即時價優先 get_live_quotes）
-同一問題最多查 2 次；不確定「變化量還是絕對值」就直接問使用者。
+同一問題最多查 2 次；不確定「變化量還是絕對值」就直接問使用者。`;
 
+// 備援模式（Gemini 完全不帶工具）專用收尾。取代上面那段，明確講清楚「現在沒有任何
+// 查詢工具」，逼模型對超出「目前持股資料」快照範圍的問題老實說查不到，而不是
+// 用文字模仿一個從沒被真的呼叫過的函式，或編數字充數。
+const SYSTEM_PROMPT_NO_TOOLS_USAGE = `
+【備援模式】你現在是「Gemini 獨立備援」，手上完全沒有 query_app_data、get_live_quotes、web_search 這些工具，
+也不能執行任何動作（不能記交易、改目標、改均價）——這些功能在備援模式下全部關閉。
+你唯一能用的資料，是下面「目前持股資料」那段純文字快照（如果有提供的話），它只代表「現在這一刻」的持股概況，
+不包含任何歷史日期、區間變化、交易/配息明細、即時股價或大盤指數。
+使用者問到快照以外的任何東西（例如某個過去日期的市值、某檔股票現在股價、變化量、要求記交易或改目標），
+一律直接用文字明確回答：「這個問題要主 AI 才能查，備援模式看不到，等 Cloudflare 額度恢復後再問我」。
+【最重要、絕對不能違反】不管使用者怎麼問，都不要輸出任何函式呼叫語法或類似 query_app_data(...)、
+get_live_quotes(...) 這種文字，也絕對不要編造任何數字——那些工具在備援模式下不存在，你沒有能力執行它們。`;
+
+const SYSTEM_PROMPT_CLOSING = `
 手機小視窗：回答簡潔。可結合最近對話理解省略句。
 你不是財務顧問，不要給應買應賣建議，可中性說明資訊。`;
 
@@ -314,13 +332,21 @@ export async function onRequestPost(context) {
       .slice(-MAX_HISTORY_TURNS * 2)
       .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_HISTORY_CONTENT) }));
 
-    const activeTools = TOOLS;
+    // env.AI_SUPPORTS_TOOLS 由呼叫端（Cloudflare 主程式 / Vercel 備援 shim）決定。
+    // 沒有明確設成 false，預設當作支援（Cloudflare Workers AI 原本就支援），
+    // 只有備援 shim 會顯式關閉，因為它從頭到尾都沒有把 tools 真的送給 Gemini。
+    const supportsTools = context.env.AI_SUPPORTS_TOOLS !== false;
+    const activeTools = supportsTools ? TOOLS : [];
     const contextText = typeof body?.context === "string" ? body.context.slice(0, MAX_CONTEXT_LEN) : "";
+
+    const systemPromptBase = supportsTools
+      ? `${SYSTEM_PROMPT_PERSONALITY}${SYSTEM_PROMPT_TOOL_USAGE}${SYSTEM_PROMPT_CLOSING}`
+      : `${SYSTEM_PROMPT_PERSONALITY}${SYSTEM_PROMPT_NO_TOOLS_USAGE}${SYSTEM_PROMPT_CLOSING}`;
 
     const dateLine = `現在的日期時間是：${taiwanNowLabel()}。問「今天」「現在」「幾天後」以此為準。`;
     const systemPrompt = contextText
-      ? `${SYSTEM_PROMPT_BASE}\n\n${dateLine}\n\n目前持股資料：\n${contextText}`
-      : `${SYSTEM_PROMPT_BASE}\n\n${dateLine}`;
+      ? `${systemPromptBase}\n\n${dateLine}\n\n目前持股資料：\n${contextText}`
+      : `${systemPromptBase}\n\n${dateLine}`;
 
     const messages = [
       { role: "system", content: systemPrompt },
@@ -393,7 +419,8 @@ export async function onRequestPost(context) {
     }
 
     async function runModel() {
-      const options = { messages, max_tokens: MAX_TOKENS, tools: activeTools };
+      const options = { messages, max_tokens: MAX_TOKENS };
+      if (activeTools.length) options.tools = activeTools;
       return await ai.run(MODEL, options);
     }
 
