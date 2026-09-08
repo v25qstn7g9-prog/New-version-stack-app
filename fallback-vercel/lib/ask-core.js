@@ -116,6 +116,43 @@ const SYSTEM_PROMPT_NO_TOOLS_USAGE = `
 【最重要、絕對不能違反】不管使用者怎麼問，都不要輸出任何函式呼叫語法或類似 query_app_data(...)、
 get_live_quotes(...) 這種文字，也絕對不要編造任何數字——那些工具在備援模式下不存在，你沒有能力執行它們。`;
 
+// 備援模式只開放「部分」工具時用（例如只開 get_live_quotes 先試水溫）。
+// 每個工具各自一段完整教學，只把「真的有開」的那幾段拼進去；沒開的只給名稱清單，
+// 明講「不存在」，避免模型看不到教學卻自己腦補語法硬湊。
+const TOOL_USAGE_BLOCKS = {
+  get_live_quotes: `- get_live_quotes 可用：查個股／ETF「現在／今天」股價、收盤價、幫忙算現在市值，直接呼叫，不用確認卡。收到查詢結果（tool 訊息）就代表已完成，直接用文字回答，不要重複呼叫同一檔。它查不到台股大盤／加權指數／TAIEX／美股大盤指數的點數——那個目前沒有任何工具可查，要老實說查不到。`,
+  query_app_data: `- query_app_data 可用：App 歷史紀錄（過去每日市值、成本、交易、配息），唯讀直接呼叫，不用確認卡。用法：現在持股成本看摘要即可；過去某日成本用 source=holding_cost+symbol+asOfDate；A→B 變化量用 source=daily_records,aggregation=start_end,fromDate/toDate；某日絕對本金/市值用 aggregation=summary+toDate；哪個月漲跌最多用 aggregation=min_max；月度趨勢用 aggregation=monthly；交易/配息統計用 source=trades或dividends+summary，列表用 records。彙總結果已經算好，不要自己對明細手動加減。`,
+  web_search: `- web_search 可用：一般新聞/時事/公開資訊，或台股大盤／加權指數／美股大盤指數的點數與收盤。不要拿來查使用者自己的持股資料，也不要拿來查個股即時價（優先用 get_live_quotes）。`,
+  add_trade: `- add_trade 可用：新增買賣交易紀錄。資訊不夠（缺股數、價格等）先用文字問清楚，不要瞎猜後呼叫；呼叫後 App 會顯示確認卡，使用者按確定才生效，你無法直接改資料。`,
+  update_holding_target: `- update_holding_target 可用：修改某檔股票的目標股數。呼叫後 App 會顯示確認卡，使用者按確定才生效。`,
+  update_manual_avg_cost: `- update_manual_avg_cost 可用：手動設定或清除平均成本。呼叫後 App 會顯示確認卡，使用者按確定才生效。`,
+  update_goal: `- update_goal 可用：修改總目標金額或目標年份。呼叫後 App 會顯示確認卡，使用者按確定才生效。`,
+};
+
+const TOOL_LABELS = {
+  query_app_data: "查 App 歷史紀錄（過去市值/成本/交易/配息）",
+  get_live_quotes: "查個股/ETF 即時股價",
+  web_search: "上網查新聞/大盤指數/公開資訊",
+  add_trade: "新增交易紀錄",
+  update_holding_target: "改目標股數",
+  update_manual_avg_cost: "改均價",
+  update_goal: "改總目標",
+};
+
+function buildPartialToolsUsagePrompt(activeNames, allNames) {
+  const disabledNames = allNames.filter((n) => !activeNames.includes(n));
+  const enabledBlocks = activeNames.map((n) => TOOL_USAGE_BLOCKS[n]).filter(Boolean).join("\n");
+  const disabledLabels = disabledNames.map((n) => TOOL_LABELS[n] || n).join("、");
+  return `
+【備援模式：部分功能開放中，逐步測試】你現在是「Gemini 獨立備援」，目前只有下面列出的工具是真的能用，其他一律不存在：
+${enabledBlocks || "（目前沒有任何工具）"}
+
+以下能力現在關閉、絕對不能用，也不要輸出任何函式呼叫語法去模仿它們：${disabledLabels}。
+遇到需要這些關閉能力才能回答的問題，一律直接用文字回答：「這個要主 AI 才能查，備援模式目前沒開這個功能」，
+不要編數字、不要假裝已經查過。
+同一問題最多查 2 次；不確定「變化量還是絕對值」就直接問使用者。`;
+}
+
 const SYSTEM_PROMPT_CLOSING = `
 手機小視窗：回答簡潔。可結合最近對話理解省略句。
 你不是財務顧問，不要給應買應賣建議，可中性說明資訊。`;
@@ -285,6 +322,7 @@ const ALLOWED_TOOL_NAMES = new Set([
   "get_live_quotes",
   "web_search",
 ]);
+const ALL_TOOL_NAMES = TOOLS.map((t) => t.function.name);
 
 function friendlyAiError(message) {
   const s = String(message || "");
@@ -332,16 +370,28 @@ export async function onRequestPost(context) {
       .slice(-MAX_HISTORY_TURNS * 2)
       .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_HISTORY_CONTENT) }));
 
-    // env.AI_SUPPORTS_TOOLS 由呼叫端（Cloudflare 主程式 / Vercel 備援 shim）決定。
-    // 沒有明確設成 false，預設當作支援（Cloudflare Workers AI 原本就支援），
-    // 只有備援 shim 會顯式關閉，因為它從頭到尾都沒有把 tools 真的送給 Gemini。
-    const supportsTools = context.env.AI_SUPPORTS_TOOLS !== false;
-    const activeTools = supportsTools ? TOOLS : [];
+    // env.AI_ALLOWED_TOOL_NAMES 由呼叫端（Cloudflare 主程式 / Vercel 備援 shim）決定。
+    // 沒有設定（undefined/null）＝預設全部工具都能用，跟原本 Cloudflare 主線行為一樣。
+    // 傳一個陣列＝只開放陣列裡列出的工具名稱（例如備援先只開 ["get_live_quotes"] 試水溫）；
+    // 傳空陣列 []＝完全沒有工具。
+    const allowedToolNames = Array.isArray(context.env.AI_ALLOWED_TOOL_NAMES)
+      ? context.env.AI_ALLOWED_TOOL_NAMES
+      : null;
+    const activeTools = allowedToolNames
+      ? TOOLS.filter((t) => allowedToolNames.includes(t.function.name))
+      : TOOLS;
+    const activeToolNames = activeTools.map((t) => t.function.name);
     const contextText = typeof body?.context === "string" ? body.context.slice(0, MAX_CONTEXT_LEN) : "";
 
-    const systemPromptBase = supportsTools
-      ? `${SYSTEM_PROMPT_PERSONALITY}${SYSTEM_PROMPT_TOOL_USAGE}${SYSTEM_PROMPT_CLOSING}`
-      : `${SYSTEM_PROMPT_PERSONALITY}${SYSTEM_PROMPT_NO_TOOLS_USAGE}${SYSTEM_PROMPT_CLOSING}`;
+    let toolUsageSection;
+    if (activeToolNames.length === ALL_TOOL_NAMES.length) {
+      toolUsageSection = SYSTEM_PROMPT_TOOL_USAGE; // 全部工具都開，用原本完整教學
+    } else if (activeToolNames.length === 0) {
+      toolUsageSection = SYSTEM_PROMPT_NO_TOOLS_USAGE; // 完全沒工具
+    } else {
+      toolUsageSection = buildPartialToolsUsagePrompt(activeToolNames, ALL_TOOL_NAMES); // 只開放一部分
+    }
+    const systemPromptBase = `${SYSTEM_PROMPT_PERSONALITY}${toolUsageSection}${SYSTEM_PROMPT_CLOSING}`;
 
     const dateLine = `現在的日期時間是：${taiwanNowLabel()}。問「今天」「現在」「幾天後」以此為準。`;
     const systemPrompt = contextText
@@ -373,6 +423,10 @@ export async function onRequestPost(context) {
             name: String(tc?.name || ""),
             arguments: JSON.stringify(tc?.arguments || {}),
           },
+          // 【重要修正】這裡以前漏掉了 thoughtSignature，導致 Gemini 3.x 系列在下一輪
+          // 一律收到「missing a thought_signature」而拒絕——不是 Gemini 真的不給簽章，
+          // 是我們自己在把歷史紀錄組回 messages 時，把它弄丟了。
+          ...(tc?._geminiThoughtSignature ? { _geminiThoughtSignature: tc._geminiThoughtSignature } : {}),
         })),
       });
       results.forEach((tr) => {
