@@ -1311,44 +1311,48 @@ function AssetTracker() {
                 return null;
             }
           };
+          // 兩種狀態（換頁動畫中／靜止）統一用同一組長條結構渲染，只差在靜止時
+          // 長條只有一格、寬度 100%。這樣做是刻意的：如果動畫結束那一刻切去
+          // 另一組完全不同的 DOM 結構，React 會認不出「這其實是同一個分頁」，
+          // 直接把剛滑到的分頁整個重新掛載一次——如果那個分頁裡有圖表（像
+          // 「總覽」的資產曲線），重新掛載就會讓圖表的進場動畫重播一次，
+          // 看起來就是「滑到後閃一下」。每一格都加上 key={id}，讓 React
+          // 兩種狀態之間能認出同一個分頁、不用重新掛載，這個閃爍就不會發生。
+          const panelIds = transitionState
+            ? (transitionState.dir === "left" ? [transitionState.from, transitionState.to] : [transitionState.to, transitionState.from])
+            : [tab];
+          const stripWidthPct = panelIds.length === 2 ? "200%" : "100%";
+          const childWidthPct = panelIds.length === 2 ? "50%" : "100%";
+          let offsetPct = "0%";
           if (transitionState) {
-            // 換頁動畫進行中：新舊兩頁接成一條寬度 200% 的長條，寬度只露出其中
-            // 一半（每頁各佔長條的 50%），靠平移整條長條 ±50% 來換頁——
-            // 兩頁全程貼在一起同步移動，畫面上任何一刻都只看得到「一整頁」，
-            // 不會有兩頁疊在一起看到底層殘影的問題。
-            const leftContent = transitionState.dir === "left" ? transitionState.from : transitionState.to;
-            const rightContent = transitionState.dir === "left" ? transitionState.to : transitionState.from;
-            // dir "left"（換到後面的分頁）：長條一開始露出左半（from），
-            //   動畫跑完後平移到露出右半（to）。
-            // dir "right"（換到前面的分頁）：長條一開始露出右半（from），
-            //   動畫跑完後平移到露出左半（to）。
             const startOffset = transitionState.dir === "left" ? "0%" : "-50%";
             const endOffset = transitionState.dir === "left" ? "-50%" : "0%";
-            return (
-              <div style={{ overflow: "hidden", position: "relative" }}>
-                <div style={{
-                  display: "flex",
-                  width: "200%",
-                  transform: `translate3d(${settled ? endOffset : startOffset}, 0, 0)`,
-                  transition: settled ? "transform 0.3s cubic-bezier(.32,.72,0,1)" : "none",
-                  WebkitBackfaceVisibility: "hidden",
-                  backfaceVisibility: "hidden",
-                  WebkitPerspective: 1000,
-                  perspective: 1000,
-                }}>
-                  <div style={{
-                    width: "50%", flexShrink: 0, minWidth: 0,
-                    WebkitTransform: "translateZ(0)", transform: "translateZ(0)",
-                  }}>{renderTabContent(leftContent)}</div>
-                  <div style={{
-                    width: "50%", flexShrink: 0, minWidth: 0,
-                    WebkitTransform: "translateZ(0)", transform: "translateZ(0)",
-                  }}>{renderTabContent(rightContent)}</div>
-                </div>
-              </div>
-            );
+            offsetPct = settled ? endOffset : startOffset;
           }
-          return <div>{renderTabContent(tab)}</div>;
+          return (
+            <div style={{ overflow: "hidden", position: "relative" }}>
+              <div style={{
+                display: "flex",
+                alignItems: "flex-start",
+                width: stripWidthPct,
+                transform: `translate3d(${offsetPct}, 0, 0)`,
+                transition: transitionState && settled ? "transform 0.3s cubic-bezier(.32,.72,0,1)" : "none",
+                WebkitBackfaceVisibility: "hidden",
+                backfaceVisibility: "hidden",
+                WebkitPerspective: 1000,
+                perspective: 1000,
+              }}>
+                {panelIds.map((id) => (
+                  <div key={id} style={{
+                    width: childWidthPct, flexShrink: 0, minWidth: 0,
+                    WebkitTransform: "translateZ(0)", transform: "translateZ(0)",
+                  }}>
+                    {renderTabContent(id)}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
         })()}
       </main>
 
