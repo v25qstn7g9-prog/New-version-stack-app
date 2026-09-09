@@ -1603,9 +1603,9 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
               </div>
             ))}
           </div>
-          <div className="flex justify-between items-center pt-2 mt-2" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
-            <span className="text-xs font-bold" style={{ color: COLORS.sub }}>{quoteComplete ? "今日台股總市值" : "目前可得市值（部分）"}</span>
-            <span className="text-sm font-bold mono" style={{ color: COLORS.gold }}>NT$ {nf(totalValue)}</span>
+          <div className="flex justify-between text-xs mono pt-2 mt-2 font-bold" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
+            <span style={{ color: COLORS.sub }}>{quoteComplete ? "今日台股總市值" : "目前可得市值（部分）"}</span>
+            <span style={{ color: COLORS.gold }}>NT$ {nf(totalValue)}</span>
           </div>
           {yesterdayTwValue != null && (
             <>
