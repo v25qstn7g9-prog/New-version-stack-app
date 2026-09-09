@@ -112,7 +112,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.6-personal-v2.22.1-shared-live-quotes";
+const APP_VERSION = "4.6-personal-v2.22.4-estimated-pnl-market-minus-cost";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -2374,18 +2374,21 @@ function HoldingsPanel({ holdings, setHoldings }) {
                     const prevClose = Number(q?.prevClose);
                     const hasPrice = Number.isFinite(price) && price > 0;
                     const hasPrevClose = Number.isFinite(prevClose) && prevClose > 0;
-                    const todayPnl = hasPrice && hasPrevClose
-                      ? Math.round(Number(h.current || 0) * (price - prevClose))
+                    const marketValue = hasPrice
+                      ? price * Number(h.current || 0)
                       : null;
-                    const cumulativePct = hasPrice && Number(h.estCostBasis || 0) > 0
-                      ? ((price * Number(h.current || 0) - Number(h.estCostBasis)) / Number(h.estCostBasis)) * 100
+                    const estimatedPnl = marketValue != null && Number(h.estCostBasis || 0) > 0
+                      ? Math.round(marketValue - Number(h.estCostBasis))
+                      : null;
+                    const cumulativePct = marketValue != null && Number(h.estCostBasis || 0) > 0
+                      ? ((marketValue - Number(h.estCostBasis)) / Number(h.estCostBasis)) * 100
                       : null;
                     return (
                       <div className="flex justify-between text-[11px] mono mt-1">
                         <span style={{ color: COLORS.sub }}>
-                          今日損益{" "}
-                          <span style={{ color: todayPnl == null ? COLORS.sub : (todayPnl >= 0 ? COLORS.gain : COLORS.loss) }}>
-                            {todayPnl == null ? "--" : `${todayPnl >= 0 ? "+" : ""}${nf(todayPnl)}`}
+                          預估損益{" "}
+                          <span style={{ color: estimatedPnl == null ? COLORS.sub : (estimatedPnl >= 0 ? COLORS.gain : COLORS.loss) }}>
+                            {estimatedPnl == null ? "--" : `${estimatedPnl >= 0 ? "+" : ""}${nf(estimatedPnl)}`}
                           </span>
                         </span>
                         <span style={{ color: COLORS.sub }}>
