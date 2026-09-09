@@ -1337,7 +1337,8 @@ function AssetTracker() {
                   {renderTabContent(prevTab)}
                 </div>
               )}
-              <div key={tab} className={pageSlideDir === "left" ? "page-slide-left" : "page-slide-right"}>
+              <div key={tab} className={pageSlideDir === "left" ? "page-slide-left" : "page-slide-right"}
+                style={{ position: "relative", zIndex: 1 }}>
                 {renderTabContent(tab)}
               </div>
             </>
