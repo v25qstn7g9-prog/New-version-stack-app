@@ -112,7 +112,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.6-personal-v2.22.5-tab-order";
+const APP_VERSION = "4.6-personal-v2.23-swipe-tabs";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -645,6 +645,48 @@ function AssetTracker() {
   // had just filled in). Owning it here means it survives tab switches.
   const [dailyForm, setDailyForm] = useState({ date: todayStr(), twValue: "", usValue: "", twCost: "", usCost: "" });
 
+  // 左右滑動切換分頁：只在明確的水平手勢時觸發，避免正常上下捲動誤換頁。
+  // 從輸入框、按鈕、連結、圖表等互動區開始的手勢一律不接管。
+  const swipeStartRef = useRef(null);
+  const swipeBlockedRef = useRef(false);
+
+  const onPageTouchStart = (e) => {
+    if (!e.touches || e.touches.length !== 1) {
+      swipeStartRef.current = null;
+      swipeBlockedRef.current = true;
+      return;
+    }
+    const target = e.target;
+    swipeBlockedRef.current = Boolean(
+      target?.closest?.('input, textarea, select, button, a, [role="button"], .recharts-wrapper, [data-no-page-swipe="true"]')
+    );
+    const t = e.touches[0];
+    swipeStartRef.current = { x: t.clientX, y: t.clientY };
+  };
+
+  const onPageTouchEnd = (e) => {
+    const start = swipeStartRef.current;
+    swipeStartRef.current = null;
+    if (!start || swipeBlockedRef.current || !e.changedTouches || e.changedTouches.length !== 1) return;
+
+    const t = e.changedTouches[0];
+    const dx = t.clientX - start.x;
+    const dy = t.clientY - start.y;
+    const absX = Math.abs(dx);
+    const absY = Math.abs(dy);
+
+    // 至少滑 70px，而且水平位移要明顯大於垂直位移，才算換頁手勢。
+    if (absX < 70 || absX < absY * 1.35) return;
+
+    const currentIndex = TABS.findIndex((x) => x.id === tab);
+    if (currentIndex < 0) return;
+
+    // 左滑 = 下一頁；右滑 = 上一頁。第一頁/最後一頁不循環。
+    const nextIndex = dx < 0 ? currentIndex + 1 : currentIndex - 1;
+    if (nextIndex < 0 || nextIndex >= TABS.length) return;
+    setTab(TABS[nextIndex].id);
+  };
+
   const [dailyRecords, setDailyRecords] = useState([]);
   const [holdings, setHoldings] = useState([]);
   const [trades, setTrades] = useState([]);
@@ -1164,7 +1206,11 @@ function AssetTracker() {
 
       <Header goal={goal} totalToday={totalToday} goalDate={goalDate} backupOverdue={backupOverdue} backupAgeDays={backupAgeDays} />
 
-      <main className="px-4 pt-4 pb-24 max-w-2xl mx-auto">
+      <main
+        className="px-4 pt-4 pb-24 max-w-2xl mx-auto"
+        onTouchStart={onPageTouchStart}
+        onTouchEnd={onPageTouchEnd}
+      >
         {tab === "dashboard" && (
           <Dashboard
             totalToday={totalToday} dailyChange={dailyChange} dailyChangePct={dailyChangePct}
