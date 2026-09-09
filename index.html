@@ -633,7 +633,6 @@ const DAILY_SEED = [];
 function AssetTracker() {
   const [ready, setReady] = useState(false);
   const [tab, setTab] = useState("dashboard");
-  const [pageSlideDir, setPageSlideDir] = useState("left");
   // Set (with a fresh object each time so the effect in DailyPanel re-fires
   // even if the same number is sent twice) when "記錄為今日資產" is pressed
   // on the dashboard — carries the fetched TW market value over to the
@@ -651,12 +650,15 @@ function AssetTracker() {
   const swipeStartRef = useRef(null);
   const swipeBlockedRef = useRef(false);
 
-  // 換頁「出場」用：切換的瞬間把舊分頁的內容留一份在這裡，跟新分頁同時
-  // 各自往反方向滑動，看起來才會像「兩頁一起移動」，而不是舊的瞬間消失、
-  // 新的才慢慢滑進來（後者就是點按鈕切換時覺得「很跳」的原因——之前
-  // 只有滑手勢那條路徑有動畫，點下面分頁按鈕是直接 setTab，完全沒動畫）。
-  const [prevTab, setPrevTab] = useState(null);
-  const [prevTabDir, setPrevTabDir] = useState("left");
+  // 換頁動畫：仿 iPhone 主畫面切頁——舊、新兩頁接在一起變成一條「長條」，
+  // 整條一起橫向平移一個畫面寬度，不是各自淡入淡出。這樣兩頁之間不會疊
+  // 在一起看到底層的殘影，因為同一時間畫面上永遠只看得到「半條」內容。
+  // transitionState 非 null 的這段期間，畫面上同時掛著新舊兩頁；
+  // settled 控制的是「有沒有套用 transition + 移到定位」，靠兩次
+  // requestAnimationFrame 確保瀏覽器先畫出起始位置、才套用動畫，
+  // 不然兩個狀態擠在同一幀會被瀏覽器直接跳過，看起來就是瞬間切換。
+  const [transitionState, setTransitionState] = useState(null); // { from, to, dir } | null
+  const [settled, setSettled] = useState(true);
   const tabTransitionTimerRef = useRef(null);
 
   // 統一的換頁入口：不管是滑手勢還是點下面的分頁按鈕，都走這裡，
@@ -668,13 +670,27 @@ function AssetTracker() {
     if (toIndex < 0) return;
     const dir = toIndex > fromIndex ? "left" : "right";
     if (tabTransitionTimerRef.current) clearTimeout(tabTransitionTimerRef.current);
-    setPrevTab(tab);
-    setPrevTabDir(dir);
-    setPageSlideDir(dir);
+    setTransitionState({ from: tab, to: nextId, dir });
+    setSettled(false);
     setTab(nextId);
-    // 動畫跑完（跟下面 CSS 的 .22s 對齊，抓寬一點避免手機效能較慢時被切斷）
-    tabTransitionTimerRef.current = setTimeout(() => setPrevTab(null), 260);
   };
+
+  useEffect(() => {
+    if (!transitionState || settled) return;
+    // 第一幀：維持起始位置讓瀏覽器先畫出來；第二幀才切到目標位置，
+    // CSS 的 transition 才會抓到「起點→終點」去跑動畫。
+    const raf1 = requestAnimationFrame(() => {
+      const raf2 = requestAnimationFrame(() => setSettled(true));
+      tabTransitionTimerRef.current = raf2;
+    });
+    return () => cancelAnimationFrame(raf1);
+  }, [transitionState, settled]);
+
+  useEffect(() => {
+    if (!transitionState || !settled) return;
+    const t = setTimeout(() => setTransitionState(null), 300);
+    return () => clearTimeout(t);
+  }, [transitionState, settled]);
 
   const onPageTouchStart = (e) => {
     if (!e.touches || e.touches.length !== 1) {
@@ -1219,40 +1235,6 @@ function AssetTracker() {
           0% { opacity: 0; transform: translate(-50%, -12px) scale(0.9); }
           100% { opacity: 1; transform: translate(-50%, 0) scale(1); }
         }
-        @keyframes page-slide-from-right {
-          0% { opacity: 0.88; transform: translateX(32px); }
-          100% { opacity: 1; transform: translateX(0); }
-        }
-        @keyframes page-slide-from-left {
-          0% { opacity: 0.88; transform: translateX(-32px); }
-          100% { opacity: 1; transform: translateX(0); }
-        }
-        @keyframes page-slide-to-left {
-          0% { opacity: 1; transform: translateX(0); }
-          100% { opacity: 0; transform: translateX(-32px); }
-        }
-        @keyframes page-slide-to-right {
-          0% { opacity: 1; transform: translateX(0); }
-          100% { opacity: 0; transform: translateX(32px); }
-        }
-        .page-slide-left {
-          animation: page-slide-from-right 0.24s cubic-bezier(.22,.61,.36,1);
-          will-change: transform, opacity;
-        }
-        .page-slide-right {
-          animation: page-slide-from-left 0.24s cubic-bezier(.22,.61,.36,1);
-          will-change: transform, opacity;
-        }
-        .page-exit-left {
-          animation: page-slide-to-left 0.22s cubic-bezier(.4,0,1,1) forwards;
-          will-change: transform, opacity;
-          pointer-events: none;
-        }
-        .page-exit-right {
-          animation: page-slide-to-right 0.22s cubic-bezier(.4,0,1,1) forwards;
-          will-change: transform, opacity;
-          pointer-events: none;
-        }
       `}</style>
 
       {celebration && (
@@ -1329,20 +1311,34 @@ function AssetTracker() {
                 return null;
             }
           };
-          return (
-            <>
-              {prevTab && (
-                <div className={prevTabDir === "left" ? "page-exit-left" : "page-exit-right"}
-                  style={{ position: "absolute", inset: 0 }}>
-                  {renderTabContent(prevTab)}
+          if (transitionState) {
+            // 換頁動畫進行中：新舊兩頁接成一條寬度 200% 的長條，寬度只露出其中
+            // 一半（每頁各佔長條的 50%），靠平移整條長條 ±50% 來換頁——
+            // 兩頁全程貼在一起同步移動，畫面上任何一刻都只看得到「一整頁」，
+            // 不會有兩頁疊在一起看到底層殘影的問題。
+            const leftContent = transitionState.dir === "left" ? transitionState.from : transitionState.to;
+            const rightContent = transitionState.dir === "left" ? transitionState.to : transitionState.from;
+            // dir "left"（換到後面的分頁）：長條一開始露出左半（from），
+            //   動畫跑完後平移到露出右半（to）。
+            // dir "right"（換到前面的分頁）：長條一開始露出右半（from），
+            //   動畫跑完後平移到露出左半（to）。
+            const startOffset = transitionState.dir === "left" ? "0%" : "-50%";
+            const endOffset = transitionState.dir === "left" ? "-50%" : "0%";
+            return (
+              <div style={{ overflow: "hidden", position: "relative" }}>
+                <div style={{
+                  display: "flex",
+                  width: "200%",
+                  transform: `translateX(${settled ? endOffset : startOffset})`,
+                  transition: settled ? "transform 0.3s cubic-bezier(.32,.72,0,1)" : "none",
+                }}>
+                  <div style={{ width: "50%", flexShrink: 0, minWidth: 0 }}>{renderTabContent(leftContent)}</div>
+                  <div style={{ width: "50%", flexShrink: 0, minWidth: 0 }}>{renderTabContent(rightContent)}</div>
                 </div>
-              )}
-              <div key={tab} className={pageSlideDir === "left" ? "page-slide-left" : "page-slide-right"}
-                style={{ position: "relative", zIndex: 1 }}>
-                {renderTabContent(tab)}
               </div>
-            </>
-          );
+            );
+          }
+          return <div>{renderTabContent(tab)}</div>;
         })()}
       </main>
 
