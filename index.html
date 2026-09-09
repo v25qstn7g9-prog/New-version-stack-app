@@ -1589,7 +1589,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
                   <span className="text-right font-bold">{nf(r.value)}</span>
                 </div>
                 {!r.quoteIsStale && (
-                  <div className="text-[9px] text-right mt-0.5" style={{ color: r.chg >= 0 ? COLORS.gain : COLORS.loss, opacity: 0.8 }}>
+                  <div className="text-xs text-right mt-0.5" style={{ color: r.chg >= 0 ? COLORS.gain : COLORS.loss }}>
                     今日損益 {r.chg >= 0 ? "+" : ""}{nf(Math.round(r.chg * r.current))}
                   </div>
                 )}
