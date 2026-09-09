@@ -1210,6 +1210,35 @@ function AssetTracker() {
     : null;
   const backupOverdue = backupAgeDays == null || backupAgeDays >= 7;
 
+  // <main> 最小高度：量測 Header + TabBar 實際高度，讓每個分頁至少撐滿一個
+  // 螢幕高度，不會因為內容多寡（例如「配息」頁常常內容很少）忽高忽低——
+  // 這在剛做完的左右滑頁動畫下特別重要，不然兩頁高度差太多，切換時看起來
+  // 會很不順。用實際量測、不是寫死一個數字，是因為 Header 高度本身會變
+  // （備份逾期警告出現時會多一行），寫死的數字只要警告一跳出來就會不準。
+  const headerRef = useRef(null);
+  const tabBarRef = useRef(null);
+  const [mainMinHeight, setMainMinHeight] = useState(null);
+
+  useEffect(() => {
+    const measure = () => {
+      const headerH = headerRef.current?.offsetHeight || 0;
+      const tabBarH = tabBarRef.current?.offsetHeight || 0;
+      const viewportH = window.visualViewport?.height || window.innerHeight;
+      setMainMinHeight(Math.max(0, viewportH - headerH - tabBarH));
+    };
+    measure();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    if (ro && headerRef.current) ro.observe(headerRef.current);
+    if (ro && tabBarRef.current) ro.observe(tabBarRef.current);
+    window.addEventListener("resize", measure);
+    window.visualViewport?.addEventListener("resize", measure);
+    return () => {
+      if (ro) ro.disconnect();
+      window.removeEventListener("resize", measure);
+      window.visualViewport?.removeEventListener("resize", measure);
+    };
+  }, [backupOverdue]);
+
   if (!ready) {
     return (
       <div style={{ background: COLORS.bg, color: COLORS.sub }}
@@ -1244,11 +1273,13 @@ function AssetTracker() {
         </div>
       )}
 
-      <Header goal={goal} totalToday={totalToday} goalDate={goalDate} backupOverdue={backupOverdue} backupAgeDays={backupAgeDays} />
+      <div ref={headerRef}>
+        <Header goal={goal} totalToday={totalToday} goalDate={goalDate} backupOverdue={backupOverdue} backupAgeDays={backupAgeDays} />
+      </div>
 
       <main
         className="relative px-4 pt-4 pb-24 max-w-2xl mx-auto overflow-x-hidden"
-        style={{ touchAction: "pan-y" }}
+        style={{ touchAction: "pan-y", ...(mainMinHeight != null ? { minHeight: `${mainMinHeight}px` } : {}) }}
         onTouchStart={onPageTouchStart}
         onTouchEnd={onPageTouchEnd}
       >
@@ -1368,7 +1399,7 @@ function AssetTracker() {
           elapsedMonths, leadMonths, startingCost: costBasis?.startingCost,
         }} />
 
-      <TabBar tab={tab} setTab={goToTab} />
+      <TabBar tab={tab} setTab={goToTab} rootRef={tabBarRef} />
     </div>
   );
 }
@@ -3724,9 +3755,9 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
   );
 }
 
-function TabBar({ tab, setTab }) {
+function TabBar({ tab, setTab, rootRef }) {
   return (
-    <div className="fixed bottom-0 left-0 right-0"
+    <div ref={rootRef} className="fixed bottom-0 left-0 right-0"
       style={{
         background: COLORS.panel, borderTop: `1px solid ${COLORS.panelBorder}`,
         paddingBottom: "env(safe-area-inset-bottom, 4px)",
