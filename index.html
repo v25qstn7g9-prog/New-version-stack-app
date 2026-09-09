@@ -112,7 +112,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.6-personal-v2.23-swipe-tabs";
+const APP_VERSION = "4.6-personal-v2.23.1-swipe-delay";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -684,7 +684,11 @@ function AssetTracker() {
     // 左滑 = 下一頁；右滑 = 上一頁。第一頁/最後一頁不循環。
     const nextIndex = dx < 0 ? currentIndex + 1 : currentIndex - 1;
     if (nextIndex < 0 || nextIndex >= TABS.length) return;
-    setTab(TABS[nextIndex].id);
+
+    // 手勢完成後延後 0.3 秒再切頁，讓滑動操作感不要太急促。
+    setTimeout(() => {
+      setTab(TABS[nextIndex].id);
+    }, 300);
   };
 
   const [dailyRecords, setDailyRecords] = useState([]);
