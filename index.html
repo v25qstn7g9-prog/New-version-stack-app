@@ -112,7 +112,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.6-personal-v2.23.1-swipe-delay";
+const APP_VERSION = "4.6-personal-v2.24-smooth-page-slide";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -633,6 +633,7 @@ const DAILY_SEED = [];
 function AssetTracker() {
   const [ready, setReady] = useState(false);
   const [tab, setTab] = useState("dashboard");
+  const [pageSlideDir, setPageSlideDir] = useState("left");
   // Set (with a fresh object each time so the effect in DailyPanel re-fires
   // even if the same number is sent twice) when "記錄為今日資產" is pressed
   // on the dashboard — carries the fetched TW market value over to the
@@ -685,10 +686,9 @@ function AssetTracker() {
     const nextIndex = dx < 0 ? currentIndex + 1 : currentIndex - 1;
     if (nextIndex < 0 || nextIndex >= TABS.length) return;
 
-    // 手勢完成後延後 0.3 秒再切頁，讓滑動操作感不要太急促。
-    setTimeout(() => {
-      setTab(TABS[nextIndex].id);
-    }, 300);
+    // 左滑時新頁由右側滑入；右滑時新頁由左側滑入。
+    setPageSlideDir(dx < 0 ? "left" : "right");
+    setTab(TABS[nextIndex].id);
   };
 
   const [dailyRecords, setDailyRecords] = useState([]);
@@ -1196,6 +1196,22 @@ function AssetTracker() {
           0% { opacity: 0; transform: translate(-50%, -12px) scale(0.9); }
           100% { opacity: 1; transform: translate(-50%, 0) scale(1); }
         }
+        @keyframes page-slide-from-right {
+          0% { opacity: 0.82; transform: translateX(42px); }
+          100% { opacity: 1; transform: translateX(0); }
+        }
+        @keyframes page-slide-from-left {
+          0% { opacity: 0.82; transform: translateX(-42px); }
+          100% { opacity: 1; transform: translateX(0); }
+        }
+        .page-slide-left {
+          animation: page-slide-from-right 0.30s cubic-bezier(.22,.61,.36,1);
+          will-change: transform, opacity;
+        }
+        .page-slide-right {
+          animation: page-slide-from-left 0.30s cubic-bezier(.22,.61,.36,1);
+          will-change: transform, opacity;
+        }
       `}</style>
 
       {celebration && (
@@ -1211,10 +1227,11 @@ function AssetTracker() {
       <Header goal={goal} totalToday={totalToday} goalDate={goalDate} backupOverdue={backupOverdue} backupAgeDays={backupAgeDays} />
 
       <main
-        className="px-4 pt-4 pb-24 max-w-2xl mx-auto"
+        className="px-4 pt-4 pb-24 max-w-2xl mx-auto overflow-x-hidden"
         onTouchStart={onPageTouchStart}
         onTouchEnd={onPageTouchEnd}
       >
+        <div key={tab} className={pageSlideDir === "left" ? "page-slide-left" : "page-slide-right"}>
         {tab === "dashboard" && (
           <Dashboard
             totalToday={totalToday} dailyChange={dailyChange} dailyChangePct={dailyChangePct}
@@ -1258,6 +1275,7 @@ function AssetTracker() {
             elapsedMonths={elapsedMonths} leadMonths={leadMonths}
           />
         )}
+        </div>
       </main>
 
       <AiChatWidget holdings={holdingsWithShares} goal={goal} totalToday={totalToday} totalInvested={totalInvested}
