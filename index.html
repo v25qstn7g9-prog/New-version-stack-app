@@ -954,6 +954,12 @@ function AssetTracker() {
     total: r.twValue + r.usValue,
   }));
 
+  // 昨日台股市值：抓最近一筆日期在「今天」之前的每日紀錄的 twValue。
+  // 用來在「即時股價」面板算「今/昨日盈虧」——比較的是你自己台股持股的市值，
+  // 不是單一股票的漲跌幅。
+  const yesterdayTwRecord = [...sortedDaily].reverse().find((r) => r.date < todayStr());
+  const yesterdayTwValue = yesterdayTwRecord ? yesterdayTwRecord.twValue : null;
+
   // "今年資產變化(YTD)" — market-value change since the start of the current
   // calendar year. Like the other stat cards, this is value-based, not a
   // cost-adjusted/time-weighted return: it doesn't separate new
@@ -1166,7 +1172,7 @@ function AssetTracker() {
             totalReturnPct={totalReturnPct} highPoint={highPoint} drawdown={drawdown}
             ytdGain={ytdGain} ytdPct={ytdPct}
             chartData={chartData} goal={goal} totalInvested={totalInvested}
-            holdings={holdingsWithShares}
+            holdings={holdingsWithShares} yesterdayTwValue={yesterdayTwValue}
             onFillDailyTw={(value) => { setDailyPrefill({ twValue: value, nonce: Date.now() }); setTab("daily"); }}
           />
         )}
@@ -1383,7 +1389,7 @@ function NewsCarousel({ holdings }) {
 }
 
 // ---------------- Live Price Panel (dashboard) ----------------
-function LivePricePanel({ holdings, onFillDailyTw }) {
+function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
   const [live, setLive] = useState({});      // symbol -> { price, prevClose, isUS, asOfDate, isStale }
   const [liveStatus, setLiveStatus] = useState("idle"); // idle | loading | done | error
   const [liveAt, setLiveAt] = useState(null);
@@ -1596,6 +1602,27 @@ function LivePricePanel({ holdings, onFillDailyTw }) {
             <span style={{ color: COLORS.sub }}>{quoteComplete ? "全部股票總市值" : "目前可得市值（部分）"}</span>
             <span style={{ color: COLORS.gold }}>NT$ {nf(totalValue)}</span>
           </div>
+          {yesterdayTwValue != null && (
+            <>
+              <div className="flex justify-between text-xs mono mt-1">
+                <span style={{ color: COLORS.sub }}>昨日台股總市值</span>
+                <span style={{ color: COLORS.sub }}>NT$ {nf(yesterdayTwValue)}</span>
+              </div>
+              <div className="flex justify-between text-xs mono mt-1 font-bold">
+                <span style={{ color: COLORS.sub }}>今/昨日盈虧</span>
+                {(() => {
+                  const diff = totalValue - yesterdayTwValue;
+                  const diffPct = yesterdayTwValue ? (diff / yesterdayTwValue) * 100 : 0;
+                  const up = diff >= 0;
+                  return (
+                    <span style={{ color: up ? COLORS.gain : COLORS.loss }}>
+                      {up ? "+" : ""}{nf(diff)}（{up ? "+" : ""}{diffPct.toFixed(2)}%）
+                    </span>
+                  );
+                })()}
+              </div>
+            </>
+          )}
           {onFillDailyTw && (
             <>
               <button onClick={recordToday} disabled={!quoteComplete}
@@ -1636,7 +1663,7 @@ const CHART_RANGES = [
 
 function Dashboard({ totalToday, dailyChange, dailyChangePct, capitalGain, totalDividends,
   totalReturn, totalReturnPct, highPoint, drawdown, ytdGain, ytdPct, chartData, goal, totalInvested, holdings,
-  onFillDailyTw }) {
+  yesterdayTwValue, onFillDailyTw }) {
   const up = dailyChange >= 0;
   // Defaults to "1年" rather than "全部": with 3+ sparse years plotted
   // proportionally to real time (see pickEvenTimeTicks above), the last
@@ -1672,7 +1699,7 @@ function Dashboard({ totalToday, dailyChange, dailyChangePct, capitalGain, total
         </div>
       </div>
 
-      <LivePricePanel holdings={holdings} onFillDailyTw={onFillDailyTw} />
+      <LivePricePanel holdings={holdings} onFillDailyTw={onFillDailyTw} yesterdayTwValue={yesterdayTwValue} />
 
       {chartData.length > 1 && (
         <div className="rounded-2xl p-4" style={{
