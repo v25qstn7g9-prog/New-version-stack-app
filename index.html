@@ -112,7 +112,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.6-personal-v2.25.1-smooth-horizontal-slide";
+const APP_VERSION = "4.6-personal-v2.25.2-swipe-stability";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -659,17 +659,17 @@ function AssetTracker() {
   // 不然兩個狀態擠在同一幀會被瀏覽器直接跳過，看起來就是瞬間切換。
   const [transitionState, setTransitionState] = useState(null); // { from, to, dir } | null
   const [settled, setSettled] = useState(true);
-  const tabTransitionTimerRef = useRef(null);
+  const tabTransitionRaf1Ref = useRef(null);
+  const tabTransitionRaf2Ref = useRef(null);
 
   // 統一的換頁入口：不管是滑手勢還是點下面的分頁按鈕，都走這裡，
   // 這樣兩種切換方式的動畫才會一致。
   const goToTab = (nextId) => {
-    if (nextId === tab) return;
+    if (nextId === tab || transitionState) return;
     const fromIndex = TABS.findIndex((x) => x.id === tab);
     const toIndex = TABS.findIndex((x) => x.id === nextId);
     if (toIndex < 0) return;
     const dir = toIndex > fromIndex ? "left" : "right";
-    if (tabTransitionTimerRef.current) clearTimeout(tabTransitionTimerRef.current);
     setTransitionState({ from: tab, to: nextId, dir });
     setSettled(false);
     setTab(nextId);
@@ -677,19 +677,16 @@ function AssetTracker() {
 
   useEffect(() => {
     if (!transitionState || settled) return;
-    // 第一幀：維持起始位置讓瀏覽器先畫出來；第二幀才切到目標位置，
-    // CSS 的 transition 才會抓到「起點→終點」去跑動畫。
-    const raf1 = requestAnimationFrame(() => {
-      const raf2 = requestAnimationFrame(() => setSettled(true));
-      tabTransitionTimerRef.current = raf2;
+    // 第一幀先讓瀏覽器畫出起點，第二幀才移到終點，CSS transition 才會真的跑。
+    tabTransitionRaf1Ref.current = requestAnimationFrame(() => {
+      tabTransitionRaf2Ref.current = requestAnimationFrame(() => setSettled(true));
     });
-    return () => cancelAnimationFrame(raf1);
-  }, [transitionState, settled]);
-
-  useEffect(() => {
-    if (!transitionState || !settled) return;
-    const t = setTimeout(() => setTransitionState(null), 300);
-    return () => clearTimeout(t);
+    return () => {
+      if (tabTransitionRaf1Ref.current != null) cancelAnimationFrame(tabTransitionRaf1Ref.current);
+      if (tabTransitionRaf2Ref.current != null) cancelAnimationFrame(tabTransitionRaf2Ref.current);
+      tabTransitionRaf1Ref.current = null;
+      tabTransitionRaf2Ref.current = null;
+    };
   }, [transitionState, settled]);
 
   const onPageTouchStart = (e) => {
@@ -1251,6 +1248,7 @@ function AssetTracker() {
 
       <main
         className="relative px-4 pt-4 pb-24 max-w-2xl mx-auto overflow-x-hidden"
+        style={{ touchAction: "pan-y" }}
         onTouchStart={onPageTouchStart}
         onTouchEnd={onPageTouchEnd}
       >
@@ -1331,17 +1329,22 @@ function AssetTracker() {
           }
           return (
             <div style={{ overflow: "hidden", position: "relative" }}>
-              <div style={{
-                display: "flex",
-                alignItems: "flex-start",
-                width: stripWidthPct,
-                transform: `translate3d(${offsetPct}, 0, 0)`,
-                transition: transitionState && settled ? "transform 0.3s cubic-bezier(.32,.72,0,1)" : "none",
-                WebkitBackfaceVisibility: "hidden",
-                backfaceVisibility: "hidden",
-                WebkitPerspective: 1000,
-                perspective: 1000,
-              }}>
+              <div
+                onTransitionEnd={(e) => {
+                  if (e.propertyName === "transform" && transitionState) setTransitionState(null);
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  width: stripWidthPct,
+                  transform: `translate3d(${offsetPct}, 0, 0)`,
+                  transition: transitionState && settled ? "transform 0.28s cubic-bezier(.22,.61,.36,1)" : "none",
+                  willChange: transitionState ? "transform" : "auto",
+                  WebkitBackfaceVisibility: "hidden",
+                  backfaceVisibility: "hidden",
+                  WebkitPerspective: 1000,
+                  perspective: 1000,
+                }}>
                 {panelIds.map((id) => (
                   <div key={id} style={{
                     width: childWidthPct, flexShrink: 0, minWidth: 0,
@@ -1491,7 +1494,7 @@ function NewsCarousel({ holdings }) {
   const item = newsList[idx];
 
   return (
-    <div className="rounded-2xl p-4" style={{
+    <div data-no-page-swipe="true" className="rounded-2xl p-4" style={{
       background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`,
       boxShadow: "0 4px 16px rgba(0,0,0,0.28)",
     }} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
@@ -1638,6 +1641,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
     // Persist the merged map so failed symbols also survive an app reopen.
     if (Object.keys(mergedMap).length) {
       saveKey("livePrices", { map: mergedMap, failedSymbols: failed, at: now.toISOString() });
+      window.dispatchEvent(new CustomEvent("livePricesUpdated", { detail: { map: mergedMap } }));
     }
     isFetchingRef.current = false;
   };
@@ -2414,12 +2418,21 @@ function HoldingsPanel({ holdings, setHoldings }) {
 
   useEffect(() => {
     let cancelled = false;
+    const onLivePricesUpdated = (e) => {
+      if (!cancelled && e?.detail?.map) setHoldingQuotes(e.detail.map);
+    };
+    window.addEventListener("livePricesUpdated", onLivePricesUpdated);
+
     (async () => {
       const cached = await loadKey("livePrices", null);
       if (cancelled) return;
       setHoldingQuotes(cached?.map || {});
     })();
-    return () => { cancelled = true; };
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("livePricesUpdated", onLivePricesUpdated);
+    };
   }, []);
 
   const add = () => {
