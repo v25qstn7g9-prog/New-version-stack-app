@@ -1329,11 +1329,21 @@ function AssetTracker() {
                 <div style={{
                   display: "flex",
                   width: "200%",
-                  transform: `translateX(${settled ? endOffset : startOffset})`,
+                  transform: `translate3d(${settled ? endOffset : startOffset}, 0, 0)`,
                   transition: settled ? "transform 0.3s cubic-bezier(.32,.72,0,1)" : "none",
+                  WebkitBackfaceVisibility: "hidden",
+                  backfaceVisibility: "hidden",
+                  WebkitPerspective: 1000,
+                  perspective: 1000,
                 }}>
-                  <div style={{ width: "50%", flexShrink: 0, minWidth: 0 }}>{renderTabContent(leftContent)}</div>
-                  <div style={{ width: "50%", flexShrink: 0, minWidth: 0 }}>{renderTabContent(rightContent)}</div>
+                  <div style={{
+                    width: "50%", flexShrink: 0, minWidth: 0,
+                    WebkitTransform: "translateZ(0)", transform: "translateZ(0)",
+                  }}>{renderTabContent(leftContent)}</div>
+                  <div style={{
+                    width: "50%", flexShrink: 0, minWidth: 0,
+                    WebkitTransform: "translateZ(0)", transform: "translateZ(0)",
+                  }}>{renderTabContent(rightContent)}</div>
                 </div>
               </div>
             );
