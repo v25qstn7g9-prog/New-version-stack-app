@@ -112,7 +112,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.6-personal-v2.24-smooth-page-slide";
+const APP_VERSION = "4.6-personal-v2.25.1-smooth-horizontal-slide";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -1197,19 +1197,19 @@ function AssetTracker() {
           100% { opacity: 1; transform: translate(-50%, 0) scale(1); }
         }
         @keyframes page-slide-from-right {
-          0% { opacity: 0.82; transform: translateX(42px); }
+          0% { opacity: 0.88; transform: translateX(32px); }
           100% { opacity: 1; transform: translateX(0); }
         }
         @keyframes page-slide-from-left {
-          0% { opacity: 0.82; transform: translateX(-42px); }
+          0% { opacity: 0.88; transform: translateX(-32px); }
           100% { opacity: 1; transform: translateX(0); }
         }
         .page-slide-left {
-          animation: page-slide-from-right 0.30s cubic-bezier(.22,.61,.36,1);
+          animation: page-slide-from-right 0.28s cubic-bezier(.22,.61,.36,1);
           will-change: transform, opacity;
         }
         .page-slide-right {
-          animation: page-slide-from-left 0.30s cubic-bezier(.22,.61,.36,1);
+          animation: page-slide-from-left 0.28s cubic-bezier(.22,.61,.36,1);
           will-change: transform, opacity;
         }
       `}</style>
