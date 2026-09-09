@@ -17,7 +17,9 @@ const SYMBOL_PATTERN = /^[0-9]{4,6}[A-Z]?$/;
 const QUOTE_VERSION = "4.6-quote-stable-11";
 
 function isAllowedSymbol(s) {
-  return SYMBOL_PATTERN.test(s);
+  // TAIEX 是我們自己定義的假股票代號，代表「加權指數」這個大盤指數本身，
+  // 不是真的股票代號，所以要跳過股票代號格式檢查，額外放行。
+  return s === "TAIEX" || SYMBOL_PATTERN.test(s);
 }
 
 function jsonResponse(data, status = 200) {
@@ -154,9 +156,19 @@ function parseTwseItem(item) {
   };
 }
 
+// 大盤指數（加權指數）在證交所即時報價系統裡的代號是 "t00"，不是一般股票代號，
+// 所以查詢／解析結果時要在這兩個名字之間轉換：對外一律用好懂的 "TAIEX"，
+// 對證交所 API 才轉成它認得的 "t00"。
+function toTwseCode(symbol) {
+  return symbol === "TAIEX" ? "t00" : symbol;
+}
+function fromTwseCode(code) {
+  return code === "t00" ? "TAIEX" : code;
+}
+
 async function fetchTwseBatch(symbols, debug = false) {
   const exCh = symbols
-    .map((s) => `tse_${s}.tw`)
+    .map((s) => `tse_${toTwseCode(s)}.tw`)
     .join("|");
 
   const url =
@@ -175,7 +187,7 @@ async function fetchTwseBatch(symbols, debug = false) {
   const quotes = {};
 
   for (const item of data.msgArray) {
-    const symbol = String(item.c || "");
+    const symbol = fromTwseCode(String(item.c || ""));
 
     if (!symbols.includes(symbol)) {
       continue;
@@ -310,7 +322,8 @@ function taipeiDateStr(unixSeconds) {
  * have enough history to do that (e.g. a very new listing).
  */
 async function fetchYahooPrice(symbol) {
-  const yahooSymbol = `${symbol}.TW`;
+  // 大盤指數在 Yahoo 的代號是 ^TWII，不是 "TAIEX.TW"（一般股票才用 .TW 這個格式）。
+  const yahooSymbol = symbol === "TAIEX" ? "^TWII" : `${symbol}.TW`;
   const encoded = encodeURIComponent(yahooSymbol);
 
   // Intraday bars are required during market hours. The old stable-9 path
