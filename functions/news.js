@@ -1,5 +1,5 @@
 /**
- * news.js — 4.6-news-stable-5
+ * news.js — 4.6-news-stable-6
  *
  * 持股新聞摘要：Yahoo Finance JSON 為主，Bing News RSS 為備援。
  * - Yahoo query1 失敗/空資料 → query2 再試

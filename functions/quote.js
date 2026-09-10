@@ -1,5 +1,5 @@
 /**
- * quote.js — 4.6-quote-stable-10
+ * quote.js — 4.6-quote-stable-12-taiex
  *
  * Stability strategy for 漲跌幅:
  * 1. TWSE `y` is preferred prevClose (matches brokers); Yahoo is final fallback only.
