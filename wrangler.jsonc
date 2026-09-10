@@ -1,27 +1,77 @@
 {
-  "name": "new-version-stack-app",
-
+  "name": "stock-app",
+  "type": "service",
   "compatibility_date": "2025-01-01",
   "main": "worker.js",
+
+  // ============================================
+  // AI 綁定 (Cloudflare AI)
+  // ============================================
+  // 名稱必須是 "AI"，worker.js 中 env.AI 會用到
   "ai": {
     "binding": "AI"
   },
+
+  // ============================================
+  // 靜態資源 (Workers with Static Assets)
+  // ============================================
+  // 把整個資料夾（包括 index.html）作為靜態資源
+  // 其他端點由 worker.js 的路由規則處理
   "assets": {
     "directory": ".",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application"
   },
-  // 健康檢查卡片存放處。id 是你在 Cloudflare Dashboard 建立 health_kv 命名空間
-  // 拿到的真正 ID；binding 名稱設成 health_kv（小寫），因為 Dashboard 手動接
-  // 這個 KV 的時候把變數名稱自動同步成命名空間本身的名字了，這裡配合它，
-  // 不用再回去 Dashboard 改——functions/health-check.js 讀的是 env.health_kv。
+
+  // ============================================
+  // 預設環境 (生產)
+  // ============================================
+  // KV namespace ID：替換成你自己的實際 ID
+  // 取得方式：wrangler kv:namespace create "health_kv"
   "kv_namespaces": [
     { "binding": "health_kv", "id": "dac5ef4cc5414ad982cb1c135c8abe39" }
   ],
-  // 每 30 分鐘自動跑一次健康檢查（背景執行，呼叫 worker.js 的 scheduled()）。
-  // cron 語法是 UTC 時間，跟台灣時間無關——只是「每 30 分鐘」這種間隔本身不受時區影響。
-  // 想改頻率就改這個字串，例如 "0 * * * *" 是每小時一次。
+
+  // ============================================
+  // 定時任務 (Cron Triggers)
+  // ============================================
+  // 每 30 分鐘自動跑一次健康檢查 (UTC 時間)
+  // 格式：分 時 日 月 週 (cron 標準格式)
+  // 修改範例：
+  //   "0 * * * *"     = 每小時第 0 分鐘
+  //   "0 0 * * *"     = 每天午夜 (UTC)
+  //   "0 9 * * 1-5"   = 平日上午 9 點 (UTC)
   "triggers": {
     "crons": ["*/30 * * * *"]
+  },
+
+  // ============================================
+  // 開發環境
+  // ============================================
+  // 本地開發用 (wrangler dev)
+  // 可以用不同的 KV namespace，避免汙染生產資料
+  "env": {
+    "development": {
+      // 開發環境不硬塞假 KV ID。
+      // health-check.js 在沒有 health_kv binding 時會安全退化為「不保存卡片」。
+      // 若你需要獨立 dev KV，再自行加入真正的 namespace id。
+      "triggers": {
+        "crons": []  // 開發環境不執行定時任務
+      }
+    },
+
+    // ============================================
+    // 生產環境 (明確指定)
+    // ============================================
+    // 部署用 (wrangler deploy --env production)
+    "production": {
+      "kv_namespaces": [
+        { "binding": "health_kv", "id": "dac5ef4cc5414ad982cb1c135c8abe39" }
+      ],
+      "triggers": {
+        "crons": ["*/30 * * * *"]  // 生產環境執行定時任務
+      }
+    }
   }
 }
+

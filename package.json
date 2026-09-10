@@ -1,0 +1,33 @@
+{
+  "name": "stock-app",
+  "version": "2.25.3",
+  "description": "存股 App - 雙層架構 (Cloudflare Workers + Vercel Backup)",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:prod": "wrangler deploy --env production",
+    "deploy:backup": "cd fallback-vercel && vercel --prod && cd ..",
+    "check:version": "node scripts/check-versions.js",
+    "kv:list": "wrangler kv:namespace list",
+    "kv:create": "wrangler kv:namespace create health_kv",
+    "kv:delete": "wrangler kv:namespace delete health_kv"
+  },
+  "keywords": [
+    "stock",
+    "portfolio",
+    "台股",
+    "存股",
+    "cloudflare-workers",
+    "vercel",
+    "gemini-ai"
+  ],
+  "author": "Johnny",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {},
+  "dependencies": {}
+}
