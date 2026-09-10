@@ -1,4 +1,10 @@
-const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
+const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite";
+
+function resolvedGeminiModel() {
+  const configured = String(process.env.GEMINI_MODEL || "").trim();
+  if (!configured || /^gemini-3(?:\.|-|$)/i.test(configured)) return DEFAULT_GEMINI_MODEL;
+  return configured;
+}
 
 function allowedOrigins() {
   return String(process.env.APP_ORIGIN || "")
@@ -48,7 +54,7 @@ export default async function handler(req, res) {
   res.status(hasGeminiKey ? 200 : 500).json({
     ok: hasGeminiKey,
     provider: "gemini-external",
-    model: String(process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL),
+    model: resolvedGeminiModel(),
     geminiKeyConfigured: hasGeminiKey,
     tavilyConfigured: Boolean(String(process.env.TAVILY_API_KEY || "").trim()),
     originRestricted: allowedOrigins().length > 0,
