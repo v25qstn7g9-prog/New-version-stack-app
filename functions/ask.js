@@ -13,7 +13,9 @@
  * 這支只保留 Cloudflare 單一主模型；v2.21 的 Gemini 備援由前端直接改連
  * 另一個平台的 fallback-vercel/api/ask.js，不再把第二模型塞進同一個 Cloudflare Worker。
  */
-const ASK_VERSION = "4.6-ask-free-21.3-search-error-transparency";
+const ASK_VERSION = "4.6-ask-free-22-gemini-direct-fallback";
+const GEMINI_MODEL_DEFAULT = "gemini-2.5-flash-lite";
+const GEMINI_MAX_OUTPUT_TOKENS = 1000;
 // 從 120b 換成同系列的 20b：一樣支援 function calling、訊息格式完全相容，不用改其他程式碼。
 // 20b 運算量小很多，回應通常比較快，換算下來單次問答用掉的神經元也比較少，
 // 同樣的免費額度可以撐比較多次問答；代價是複雜推理/長篇分析的品質可能略遜於 120b，
@@ -285,6 +287,153 @@ const ALLOWED_TOOL_NAMES = new Set([
   "web_search",
 ]);
 
+
+function geminiTypeSchema(schema) {
+  if (!schema || typeof schema !== "object") return schema;
+  const out = { ...schema };
+  if (typeof out.type === "string") out.type = out.type.toUpperCase();
+  if (out.properties && typeof out.properties === "object") {
+    out.properties = Object.fromEntries(Object.entries(out.properties).map(([k, v]) => [k, geminiTypeSchema(v)]));
+  }
+  if (out.items) out.items = geminiTypeSchema(out.items);
+  return out;
+}
+
+function geminiFunctionDeclarations(tools = TOOLS) {
+  return tools
+    .filter((t) => t?.type === "function" && t?.function?.name)
+    .map((t) => ({
+      name: t.function.name,
+      description: t.function.description || "",
+      parameters: geminiTypeSchema(t.function.parameters || { type: "OBJECT", properties: {} }),
+    }));
+}
+
+function parseGeminiParts(data) {
+  const parts = data?.candidates?.[0]?.content?.parts;
+  return Array.isArray(parts) ? parts : [];
+}
+
+function parseGeminiToolCalls(data) {
+  const calls = [];
+  for (const [idx, part] of parseGeminiParts(data).entries()) {
+    const fc = part?.functionCall;
+    if (!fc?.name || !ALLOWED_TOOL_NAMES.has(fc.name)) continue;
+    calls.push({
+      id: `gemini_call_${idx}_${Date.now()}`,
+      name: fc.name,
+      arguments: fc.args && typeof fc.args === "object" ? fc.args : {},
+    });
+  }
+  return calls;
+}
+
+function geminiText(data) {
+  return parseGeminiParts(data)
+    .map((p) => typeof p?.text === "string" ? p.text : "")
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+async function callGemini(env, contents, systemInstruction, tools = true) {
+  const apiKey = String(env?.GEMINI_API_KEY || "").trim();
+  if (!apiKey) throw new Error("Gemini 備援未設定 GEMINI_API_KEY");
+  const model = String(env?.GEMINI_MODEL || GEMINI_MODEL_DEFAULT).trim() || GEMINI_MODEL_DEFAULT;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+  const body = {
+    systemInstruction: { parts: [{ text: systemInstruction }] },
+    contents,
+    generationConfig: {
+      maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS,
+      temperature: 0.2,
+    },
+  };
+  if (tools) {
+    body.tools = [{ functionDeclarations: geminiFunctionDeclarations(TOOLS) }];
+  }
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !data) {
+    const detail = data?.error?.message || data?.error?.status || `HTTP ${res.status}`;
+    throw new Error(`Gemini ${detail}`);
+  }
+  return { data, model };
+}
+
+function buildGeminiContents(history, message, toolTurns = []) {
+  const contents = [];
+  for (const m of history || []) {
+    const role = m?.role === "assistant" ? "model" : "user";
+    const text = String(m?.content || "").slice(0, MAX_HISTORY_CONTENT);
+    if (text) contents.push({ role, parts: [{ text }] });
+  }
+  for (const turn of toolTurns || []) {
+    const calls = Array.isArray(turn?.calls) ? turn.calls : [];
+    const results = Array.isArray(turn?.results) ? turn.results : [];
+    if (calls.length) {
+      contents.push({
+        role: "model",
+        parts: calls.map((tc) => ({ functionCall: {
+          name: String(tc?.name || ""),
+          args: tc?.arguments && typeof tc.arguments === "object" ? tc.arguments : {},
+        }})).filter((p) => p.functionCall.name),
+      });
+    }
+    if (results.length) {
+      const callNames = new Map(calls.map((tc) => [String(tc?.id || ""), String(tc?.name || "query_app_data")]));
+      contents.push({
+        role: "user",
+        parts: results.map((tr) => ({ functionResponse: {
+          name: String(tr?.name || callNames.get(String(tr?.id || "")) || "query_app_data"),
+          response: { result: String(tr?.content || "").slice(0, MAX_CONTEXT_LEN) },
+        }})),
+      });
+    }
+  }
+  contents.push({ role: "user", parts: [{ text: message }] });
+  return contents;
+}
+
+async function runGeminiFallback(env, { message, history, contextText, toolTurns, allowPrivate = false }) {
+  const allowPrivateByEnv = String(env?.GEMINI_ALLOW_PRIVATE_CONTEXT || "false").toLowerCase() === "true";
+  allowPrivate = allowPrivate === true || allowPrivateByEnv;
+  const safeContext = allowPrivate ? contextText : "";
+  const dateLine = `現在的日期時間是：${taiwanNowLabel()}。問「今天」「現在」「幾天後」以此為準。`;
+  const systemPrompt = safeContext
+    ? `${SYSTEM_PROMPT_BASE}\n\n${dateLine}\n\n目前持股資料：\n${safeContext}`
+    : `${SYSTEM_PROMPT_BASE}\n\n${dateLine}\n\n這是 Cloudflare 主 AI 的 Gemini 備援。若問題需要私人資產資料但目前沒有提供持股 context，不要猜數字，改用 query_app_data 工具讓前端查詢。`;
+
+  let contents = buildGeminiContents(history, message, toolTurns);
+  let searchRounds = 0;
+  while (true) {
+    const { data, model } = await callGemini(env, contents, systemPrompt, true);
+    const toolCalls = parseGeminiToolCalls(data);
+    if (toolCalls.length > 0 && toolCalls.every((tc) => tc.name === "web_search") && searchRounds < MAX_SERVER_SEARCH_ROUNDS) {
+      const modelParts = parseGeminiParts(data).filter((p) => p?.functionCall || p?.text);
+      contents.push({ role: "model", parts: modelParts });
+      const responseParts = [];
+      for (const tc of toolCalls) {
+        const content = await callTavily(env.TAVILY_API_KEY, tc.arguments?.query);
+        responseParts.push({ functionResponse: { name: tc.name, response: { result: content.slice(0, MAX_CONTEXT_LEN) } } });
+      }
+      contents.push({ role: "user", parts: responseParts });
+      searchRounds += 1;
+      continue;
+    }
+    if (toolCalls.length > 0) {
+      return { provider: "gemini-direct-fallback", model, toolCalls };
+    }
+    const reply = geminiText(data);
+    if (!reply) throw new Error("Gemini 沒有回傳文字內容");
+    return { provider: "gemini-direct-fallback", model, reply };
+  }
+}
+
 function friendlyAiError(message) {
   const s = String(message || "");
   if (/neuron|quota|limit|daily|exceeded|usage/i.test(s)) {
@@ -300,12 +449,10 @@ function friendlyAiError(message) {
 }
 
 export async function onRequestPost(context) {
+  let primaryError = null;
   try {
     const ai = context.env.AI;
 
-    // Optional Cloudflare Rate Limiting binding. If it is not configured,
-    // nothing changes. We only use the anonymous device id supplied by the
-    // app; we do not forward the visitor IP to the model.
     const limiter = context.env.ASK_RATE_LIMITER;
     const deviceId = String(context.request.headers.get("x-device-id") || "").slice(0, 80);
     if (limiter && deviceId) {
@@ -314,26 +461,18 @@ export async function onRequestPost(context) {
         return jsonResponse({ error: "AI 問答太頻繁了，請稍後再試。", version: ASK_VERSION }, 429);
       }
     }
-    if (!ai) {
-      return jsonResponse({ error: "尚未設定 AI：請設定 Cloudflare AI Binding（Variable name: AI）。", version: ASK_VERSION }, 500);
-    }
 
     const body = await context.request.json().catch(() => null);
     const message = String(body?.message || "").trim();
     if (!message) return jsonResponse({ error: "沒有收到訊息內容", version: ASK_VERSION }, 400);
-    if (message.length > MAX_MESSAGE_LEN) {
-      return jsonResponse({ error: "訊息太長了，麻煩縮短一點", version: ASK_VERSION }, 400);
-    }
+    if (message.length > MAX_MESSAGE_LEN) return jsonResponse({ error: "訊息太長了，麻煩縮短一點", version: ASK_VERSION }, 400);
 
     const rawHistory = Array.isArray(body?.history) ? body.history : [];
     const history = rawHistory
       .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
       .slice(-MAX_HISTORY_TURNS * 2)
       .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_HISTORY_CONTENT) }));
-
-    const activeTools = TOOLS;
     const contextText = typeof body?.context === "string" ? body.context.slice(0, MAX_CONTEXT_LEN) : "";
-
     const dateLine = `現在的日期時間是：${taiwanNowLabel()}。問「今天」「現在」「幾天後」以此為準。`;
     const systemPrompt = contextText
       ? `${SYSTEM_PROMPT_BASE}\n\n${dateLine}\n\n目前持股資料：\n${contextText}`
@@ -344,125 +483,87 @@ export async function onRequestPost(context) {
       ...history,
       { role: "user", content: message },
     ];
-
-    // 標準工具呼叫來回：把之前每一輪「AI 呼叫了什麼工具」+「實際查到的結果」
-    // 用正式的 assistant tool_calls + tool 訊息接回對話，而不是塞成一段文字。
-    // 這樣不管幾輪，模型都能正確判斷「工具已經回覆」，不會再重複呼叫同一個查詢。
-    // toolTurns: [{ calls: [{id,name,arguments}], results: [{id,content}] }, ...]（依發生順序）
     const toolTurns = Array.isArray(body?.toolTurns) ? body.toolTurns : [];
     toolTurns.forEach((turn) => {
       const calls = Array.isArray(turn?.calls) ? turn.calls : [];
       const results = Array.isArray(turn?.results) ? turn.results : [];
       if (!calls.length) return;
       messages.push({
-        role: "assistant",
-        content: "",
-        tool_calls: calls.map((tc) => ({
-          id: String(tc?.id || ""),
-          type: "function",
-          function: {
-            name: String(tc?.name || ""),
-            arguments: JSON.stringify(tc?.arguments || {}),
-          },
-        })),
+        role: "assistant", content: "",
+        tool_calls: calls.map((tc) => ({ id: String(tc?.id || ""), type: "function", function: { name: String(tc?.name || ""), arguments: JSON.stringify(tc?.arguments || {}) } })),
       });
-      results.forEach((tr) => {
-        messages.push({
-          role: "tool",
-          tool_call_id: String(tr?.id || ""),
-          content: String(tr?.content || "").slice(0, MAX_CONTEXT_LEN),
-        });
-      });
+      results.forEach((tr) => messages.push({ role: "tool", tool_call_id: String(tr?.id || ""), content: String(tr?.content || "").slice(0, MAX_CONTEXT_LEN) }));
     });
 
-    // 解析一次 ai.run() 回傳裡的 tool_calls，統一格式成 { id, name, arguments }
     function parseToolCalls(result) {
-      const rawToolCalls =
-        result?.tool_calls ||
-        result?.response?.tool_calls ||
-        result?.choices?.[0]?.message?.tool_calls ||
-        null;
+      const rawToolCalls = result?.tool_calls || result?.response?.tool_calls || result?.choices?.[0]?.message?.tool_calls || null;
       if (!Array.isArray(rawToolCalls) || rawToolCalls.length === 0) return [];
-      return rawToolCalls
-        .map((tc, idx) => {
-          const name = tc?.name || tc?.function?.name;
-          let args = tc?.arguments ?? tc?.function?.arguments;
-          if (typeof args === "string") {
-            try {
-              const cleanArgs = args.replace(/```json\n?/gi, "").replace(/```/g, "").trim();
-              args = JSON.parse(cleanArgs);
-            } catch {
-              args = {};
-            }
-          }
-          // 有些模型不會回傳 id，這裡補一個穩定的 fallback，讓下一輪可以正確對應回去。
-          const id = String(tc?.id || tc?.tool_call_id || `call_${idx}`);
-          return name && ALLOWED_TOOL_NAMES.has(name) ? { id, name, arguments: args || {} } : null;
-        })
-        .filter(Boolean);
+      return rawToolCalls.map((tc, idx) => {
+        const name = tc?.name || tc?.function?.name;
+        let args = tc?.arguments ?? tc?.function?.arguments;
+        if (typeof args === "string") {
+          try { args = JSON.parse(args.replace(/```json\n?/gi, "").replace(/```/g, "").trim()); } catch { args = {}; }
+        }
+        const id = String(tc?.id || tc?.tool_call_id || `call_${idx}`);
+        return name && ALLOWED_TOOL_NAMES.has(name) ? { id, name, arguments: args || {} } : null;
+      }).filter(Boolean);
     }
+
+    if (!ai) throw new Error("尚未設定 Cloudflare AI Binding（AI）");
 
     async function runModel() {
-      const options = { messages, max_tokens: MAX_TOKENS, tools: activeTools };
-      return await ai.run(MODEL, options);
+      return await ai.run(MODEL, { messages, max_tokens: MAX_TOKENS, tools: TOOLS });
     }
 
-    let result = await runModel();
-    let toolCalls = parseToolCalls(result);
-
-    // 網路搜尋直接在伺服器端自動處理完，使用者跟前端完全不用介入，
-    // 也不會把 Tavily 的 API Key 暴露給瀏覽器。最多來回幾輪，避免無限搜尋。
-    let searchRounds = 0;
-    while (
-      toolCalls.length > 0 &&
-      toolCalls.every((tc) => tc.name === "web_search") &&
-      searchRounds < MAX_SERVER_SEARCH_ROUNDS
-    ) {
-      messages.push({
-        role: "assistant",
-        content: "",
-        tool_calls: toolCalls.map((tc) => ({
-          id: tc.id,
-          type: "function",
-          function: { name: tc.name, arguments: JSON.stringify(tc.arguments || {}) },
-        })),
-      });
-      const tavilyKey = context.env.TAVILY_API_KEY;
-      for (const tc of toolCalls) {
-        const content = await callTavily(tavilyKey, tc.arguments?.query);
-        messages.push({ role: "tool", tool_call_id: tc.id, content: content.slice(0, MAX_CONTEXT_LEN) });
-      }
+    let result;
+    try {
       result = await runModel();
-      toolCalls = parseToolCalls(result);
-      searchRounds += 1;
+    } catch (e) {
+      primaryError = e;
     }
 
-    if (toolCalls.length > 0 && toolCalls.some((tc) => tc.name === "web_search")) {
-      // 保險機制：web_search 不能被當成一般 toolCalls 丟給前端——前端只認得
-      // 「唯讀查詢」跟「寫入類」兩種，web_search 兩者都不是，丟過去會顯示
-      // 「不認得這個動作」的錯誤卡片。補最後一輪不帶工具的請求，逼模型
-      // 直接用目前已查到的資料把話講完。
-      messages.push({
-        role: "user",
-        content: "（系統提示：已達自動查詢次數上限，請直接根據目前已經查到的資料用文字回答，不要再要求呼叫任何工具，也不要提到這則系統提示本身。）",
+    if (!primaryError) {
+      try {
+      let toolCalls = parseToolCalls(result);
+      let searchRounds = 0;
+      while (toolCalls.length > 0 && toolCalls.every((tc) => tc.name === "web_search") && searchRounds < MAX_SERVER_SEARCH_ROUNDS) {
+        messages.push({ role: "assistant", content: "", tool_calls: toolCalls.map((tc) => ({ id: tc.id, type: "function", function: { name: tc.name, arguments: JSON.stringify(tc.arguments || {}) } })) });
+        for (const tc of toolCalls) {
+          const content = await callTavily(context.env.TAVILY_API_KEY, tc.arguments?.query);
+          messages.push({ role: "tool", tool_call_id: tc.id, content: content.slice(0, MAX_CONTEXT_LEN) });
+        }
+        result = await runModel();
+        toolCalls = parseToolCalls(result);
+        searchRounds += 1;
+      }
+      if (toolCalls.length > 0 && toolCalls.some((tc) => tc.name === "web_search")) {
+        messages.push({ role: "user", content: "（系統提示：已達自動查詢次數上限，請直接根據目前已經查到的資料用文字回答，不要再要求呼叫任何工具，也不要提到這則系統提示本身。）" });
+        result = await ai.run(MODEL, { messages, max_tokens: MAX_TOKENS });
+        toolCalls = parseToolCalls(result).filter((tc) => tc.name !== "web_search");
+      }
+      if (toolCalls.length > 0) return jsonResponse({ ok: true, version: ASK_VERSION, provider: "cloudflare", model: MODEL, toolCalls });
+      let reply = String(result?.response || "").trim();
+      if (!reply && Array.isArray(result?.choices)) reply = String(result.choices[0]?.message?.content || "").trim();
+      if (!reply) throw new Error("AI 沒有回傳文字內容");
+      return jsonResponse({ ok: true, version: ASK_VERSION, provider: "cloudflare", model: MODEL, reply });
+      } catch (e) {
+        primaryError = e;
+      }
+    }
+
+    // 第二層：同一個 Cloudflare Worker 直接呼叫 Gemini。
+    // API key 只存在 Worker Secret，不經瀏覽器，也不需要 Vercel。
+    try {
+      const gemini = await runGeminiFallback(context.env, {
+        message, history, contextText, toolTurns, allowPrivate: body?.allowGeminiPrivate === true,
       });
-      result = await ai.run(MODEL, { messages, max_tokens: MAX_TOKENS });
-      toolCalls = parseToolCalls(result).filter((tc) => tc.name !== "web_search");
+      return jsonResponse({ ok: true, version: ASK_VERSION, ...gemini, fallbackFrom: friendlyAiError(primaryError?.message) });
+    } catch (geminiError) {
+      return jsonResponse({
+        error: `Cloudflare AI：${friendlyAiError(primaryError?.message)}；Gemini 備援：${geminiError?.message || "失敗"}`,
+        version: ASK_VERSION,
+      }, 502);
     }
-
-    if (toolCalls.length > 0) {
-      return jsonResponse({ ok: true, version: ASK_VERSION, provider: "cloudflare", model: MODEL, toolCalls });
-    }
-
-    let reply = String(result?.response || "").trim();
-    if (!reply && Array.isArray(result?.choices)) {
-      reply = String(result.choices[0]?.message?.content || "").trim();
-    }
-    if (!reply) {
-      return jsonResponse({ error: "AI 沒有回傳文字內容", version: ASK_VERSION }, 502);
-    }
-
-    return jsonResponse({ ok: true, version: ASK_VERSION, provider: "cloudflare", model: MODEL, reply });
   } catch (e) {
     return jsonResponse({ error: friendlyAiError(e?.message), version: ASK_VERSION }, 500);
   }
