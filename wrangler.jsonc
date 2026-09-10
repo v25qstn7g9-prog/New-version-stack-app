@@ -1,5 +1,6 @@
 {
   "name": "new-version-stack-app",
+  "type": "service",
   "compatibility_date": "2025-01-01",
   "main": "worker.js",
 
@@ -22,9 +23,16 @@
     "not_found_handling": "single-page-application"
   },
 
+  // Gemini 備援模型（API Key 請用 Cloudflare Secret：GEMINI_API_KEY）
+  "vars": {
+    "GEMINI_MODEL": "gemini-2.5-flash-lite"
+  },
+
   // ============================================
-  // 健康檢查卡片存放的 KV
+  // 預設環境 (生產)
   // ============================================
+  // KV namespace ID：替換成你自己的實際 ID
+  // 取得方式：wrangler kv:namespace create "health_kv"
   "kv_namespaces": [
     { "binding": "health_kv", "id": "dac5ef4cc5414ad982cb1c135c8abe39" }
   ],
@@ -33,11 +41,42 @@
   // 定時任務 (Cron Triggers)
   // ============================================
   // 每 30 分鐘自動跑一次健康檢查 (UTC 時間)
+  // 格式：分 時 日 月 週 (cron 標準格式)
   // 修改範例：
   //   "0 * * * *"     = 每小時第 0 分鐘
   //   "0 0 * * *"     = 每天午夜 (UTC)
   //   "0 9 * * 1-5"   = 平日上午 9 點 (UTC)
   "triggers": {
     "crons": ["*/30 * * * *"]
+  },
+
+  // ============================================
+  // 開發環境
+  // ============================================
+  // 本地開發用 (wrangler dev)
+  // 可以用不同的 KV namespace，避免汙染生產資料
+  "env": {
+    "development": {
+      // 開發環境不硬塞假 KV ID。
+      // health-check.js 在沒有 health_kv binding 時會安全退化為「不保存卡片」。
+      // 若你需要獨立 dev KV，再自行加入真正的 namespace id。
+      "triggers": {
+        "crons": []  // 開發環境不執行定時任務
+      }
+    },
+
+    // ============================================
+    // 生產環境 (明確指定)
+    // ============================================
+    // 部署用 (wrangler deploy --env production)
+    "production": {
+      "kv_namespaces": [
+        { "binding": "health_kv", "id": "dac5ef4cc5414ad982cb1c135c8abe39" }
+      ],
+      "triggers": {
+        "crons": ["*/30 * * * *"]  // 生產環境執行定時任務
+      }
+    }
   }
 }
+

@@ -738,8 +738,7 @@ function AssetTracker() {
   // with the running buy/sell total to get today's accumulated cost.
   const [costBasis, setCostBasis] = useState({ startingCost: 0 });
   const [lastBackupAt, setLastBackupAt] = useState(null);
-  // External AI fallback runs on a second platform (for example Vercel).
-  // Token stays only in this browser and is intentionally excluded from JSON backups.
+  // Gemini 備援權限只控制是否把私人持股 context 交給 Gemini；API Key 永遠只留在 Cloudflare Worker Secret。
   const [aiFallbackConfig, setAiFallbackConfig] = useState({ url: "", token: "", allowPrivate: false });
   // 系統健康卡片：由 Cloudflare 背景排程（或手動觸發）產生，App 開啟時抓一次現況。
   // 只是顯示用的暫存狀態，不寫進 localStorage/JSON 備份——它本來就是伺服器端的資料。
@@ -2965,39 +2964,22 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
         </Panel>
       )}
 
-      <Panel title="AI 獨立備援（Cloudflare 額度用完時）">
-        <div className="text-[11px] leading-5 mb-3" style={{ color: COLORS.sub }}>
-          主 AI 仍走 Cloudflare。只有 <span style={{ color: COLORS.gold }}>Cloudflare /ask 失敗、額度用完或逾時</span> 時，才直接從手機改連第二個平台的 Gemini。
-          這條路不經 Cloudflare Workers AI。
+      <Panel title="AI 雙層備援（自動）">
+        <div className="text-[11px] leading-5" style={{ color: COLORS.sub }}>
+          主 AI：<span style={{ color: COLORS.gold }}>Cloudflare GPT-OSS</span>。如果遇到額度用完、429、逾時或服務錯誤，會由同一個 Cloudflare Worker <span style={{ color: COLORS.gold }}>直接切到 Gemini 2.5 Flash-Lite</span>，不再需要 Vercel，也不會把 Gemini API Key 放在手機。
         </div>
-        <Field label="備援網址（可貼 Vercel 專案首頁網址，App 會自動補 /api/ask）">
-          <input value={aiFallbackConfig?.url || ""}
-            onChange={(e) => setAiFallbackConfig({ ...aiFallbackConfig, url: e.target.value })}
-            placeholder="https://your-project.vercel.app" className="input" autoCapitalize="none" autoCorrect="off" />
-        </Field>
-        <div className="mt-2">
-          <Field label="備援存取 Token（若 Vercel 有設定 FALLBACK_ACCESS_TOKEN）">
-            <input type="password" value={aiFallbackConfig?.token || ""}
-              onChange={(e) => setAiFallbackConfig({ ...aiFallbackConfig, token: e.target.value })}
-              placeholder="可留空" className="input" autoCapitalize="none" autoCorrect="off" />
-          </Field>
+        <div className="mt-2 rounded-xl p-3 text-[11px] leading-5" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, color: COLORS.sub }}>
+          <div><span style={{ color: COLORS.loss }}>①</span> Cloudflare AI</div>
+          <div><span style={{ color: COLORS.gold }}>↓ 失敗自動切換</span></div>
+          <div><span style={{ color: COLORS.gain }}>②</span> Gemini 2.5 Flash-Lite（Worker 伺服器端）</div>
+          <div><span style={{ color: COLORS.sub }}>↓ 如果 Gemini 也失敗，才顯示真正錯誤，不會假裝成功</span></div>
         </div>
         <label className="mt-3 flex items-start gap-2 text-[11px] leading-5" style={{ color: COLORS.sub }}>
           <input type="checkbox" checked={aiFallbackConfig?.allowPrivate === true}
             onChange={(e) => setAiFallbackConfig({ ...aiFallbackConfig, allowPrivate: e.target.checked })}
             style={{ marginTop: 3 }} />
-          <span>允許 Gemini 備援讀取 App 的持股／成本／資產資料。關閉時，公開資訊、聊天與個股即時價仍可備援；需要 <span className="mono">query_app_data</span> 的私人資產查詢會被擋下。</span>
+          <span>允許 Gemini 備援讀取 App 的持股／成本／資產資料。關閉時，公開資訊、聊天、新聞與即時股價仍可備援；需要私人資產資料時，Gemini 會改用唯讀工具請 App 查詢，不會把整份私人 context 送出去。</span>
         </label>
-        <button onClick={testExternalAiFallback}
-          className="mt-3 w-full rounded-xl py-2.5 text-[11px] font-bold"
-          style={{ background: COLORS.bg, color: COLORS.gold, border: `1px solid ${COLORS.gold}` }}>
-          {fallbackTest.status === "loading" ? "測試中…" : "測試獨立備援連線"}
-        </button>
-        {fallbackTest.message && (
-          <div className="mt-2 text-[10px] leading-4" style={{ color: fallbackTest.status === "ok" ? COLORS.loss : COLORS.gain }}>
-            {fallbackTest.status === "ok" ? "✓ " : "⚠ "}{fallbackTest.message}
-          </div>
-        )}
       </Panel>
 
       <Panel title="資料備份與還原">
@@ -3489,7 +3471,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
     let deviceId = localStorage.getItem(deviceIdKey);
     if (!deviceId) { deviceId = `d_${uid()}_${uid()}`; localStorage.setItem(deviceIdKey, deviceId); }
 
-    const baseBody = { message, history, context };
+    const baseBody = { message, history, context, allowGeminiPrivate: aiFallbackConfig?.allowPrivate === true };
     if (Array.isArray(toolTurns) && toolTurns.length > 0) baseBody.toolTurns = toolTurns;
 
     const callAskEndpoint = async (url, body, { fallback = false } = {}) => {
