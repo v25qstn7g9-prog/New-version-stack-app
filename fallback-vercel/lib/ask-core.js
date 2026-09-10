@@ -1,5 +1,5 @@
 /**
- * ask.js — 4.6-ask-free-21.1-single-model-provider-tag
+ * ask.js — 4.6-ask-free-21.3-gemini25-stable-tools
  *
  * POST /ask
  * body: {
@@ -12,7 +12,7 @@
  * 這份檔案是從 Cloudflare 主 AI 邏輯複製出的共用核心。
  * 在 Vercel 端，api/ask.js 會提供一個相容的 env.AI.run()，實際轉送到 Google Gemini。
  */
-const ASK_VERSION = "4.6-ask-free-21.1-single-model-provider-tag";
+const ASK_VERSION = "4.6-ask-free-21.3-gemini25-stable-tools";
 const MODEL = "@cf/openai/gpt-oss-120b";
 const MAX_HISTORY_TURNS = 6; // 再縮一點省輸入 token
 const MAX_MESSAGE_LEN = 2000;
@@ -33,7 +33,7 @@ function jsonResponse(data, status = 200) {
 
 // 呼叫 Tavily 網路搜尋 API。apiKey 沒設定就直接回錯誤字串，不會讓整個請求掛掉。
 async function callTavily(apiKey, query) {
-  if (!apiKey) return "（尚未設定網路搜尋功能，請提醒使用者到 Cloudflare 加上 TAVILY_API_KEY。）";
+  if (!apiKey) return "（Vercel 備援尚未設定 TAVILY_API_KEY，暫時不能執行網路搜尋。）";
   try {
     const res = await fetch("https://api.tavily.com/search", {
       method: "POST",
@@ -58,7 +58,7 @@ async function callTavily(apiKey, query) {
   }
 }
 
-const SYSTEM_PROMPT_PERSONALITY = `你是內嵌在個人存股資產追蹤 App 的助手，用繁體中文回答。
+const SYSTEM_PROMPT_BASE = `你是內嵌在個人存股資產追蹤 App 的助手，用繁體中文回答。
 
 個性：像認識很久的朋友，不是客服，也不是投資工具人。
 
@@ -73,13 +73,9 @@ const SYSTEM_PROMPT_PERSONALITY = `你是內嵌在個人存股資產追蹤 App �
 只要使用者的話牽涉到「金額、股數、報酬率」這類實際數字，或要求記交易、改目標，
 才切回精準模式：嚴謹、不含糊、一切以下面規則為準。
 
-【最重要】不要編造數字。只能使用「目前持股資料」或工具實際回傳的數字。
-資料不足就說「這個我這邊看不到資料」，不要硬湊。`;
+【最重要】不要編造數字。只能使用「目前持股資料」或 query_app_data 回傳的數字。
+資料不足就說「這個我這邊看不到資料」，不要硬湊。
 
-// 只有在 activeTools 真的有帶給模型（真的能 function calling）時才附加這段。
-// 備援模式（Gemini 無工具）絕對不能收到這段，否則模型會照著描述「模仿」呼叫語法，
-// 但那個呼叫從頭到尾沒有真的送出去，結果就是把 query_app_data(...) 這種文字直接印給使用者看。
-const SYSTEM_PROMPT_TOOL_USAGE = `
 使用者可能閒聊、問持股（賺多少、達標進度），或要求執行動作（記交易、改目標股數、改均價、改總目標）。
 執行動作必須用工具（function calling），你無法直接改資料；App 會顯示確認卡，使用者按確定才生效。
 資訊不夠（缺股數、價格等）先用文字問清楚，不要瞎猜後呼叫工具。
@@ -101,62 +97,9 @@ query_app_data 跟 get_live_quotes 都是唯讀查詢，可直接呼叫，不用
 - 個股／ETF 的現在股價、今日最新價、個別持股現在市值：get_live_quotes
 - 台股大盤／加權指數／TAIEX／美股大盤指數的點數與收盤：web_search（get_live_quotes 不查大盤指數）
 - 一般新聞/時事/公開資訊/你內建知識不確定的事：web_search（不要拿來查使用者自己的持股資料；特定個股即時價優先 get_live_quotes）
-【重要】使用者問「今天/現在/最新」這類會隨時間變動的統計數字（地震次數、天氣、疫情、比分、即時災情等），
-一律視為必須查證，禁止憑訓練時的印象或記憶直接回答——即使你「覺得」自己知道答案，也要先呼叫 web_search 查證後才能回覆；
-不要等使用者追問「附來源」才想到要查。
-同一問題最多查 2 次；不確定「變化量還是絕對值」就直接問使用者。`;
+【工具節奏】一次只選一類工具。若同一題同時需要 web_search 與 App 私人資料，先完成 web_search，收到結果後再決定是否需要 query_app_data / get_live_quotes；不要在同一個回覆同時呼叫 web_search 和其他工具。
+同一問題最多查 2 次；不確定「變化量還是絕對值」就直接問使用者。
 
-// 備援模式（Gemini 完全不帶工具）專用收尾。取代上面那段，明確講清楚「現在沒有任何
-// 查詢工具」，逼模型對超出「目前持股資料」快照範圍的問題老實說查不到，而不是
-// 用文字模仿一個從沒被真的呼叫過的函式，或編數字充數。
-const SYSTEM_PROMPT_NO_TOOLS_USAGE = `
-【備援模式】你現在是「Gemini 獨立備援」，手上完全沒有 query_app_data、get_live_quotes、web_search 這些工具，
-也不能執行任何動作（不能記交易、改目標、改均價）——這些功能在備援模式下全部關閉。
-你唯一能用的資料，是下面「目前持股資料」那段純文字快照（如果有提供的話），它只代表「現在這一刻」的持股概況，
-不包含任何歷史日期、區間變化、交易/配息明細、即時股價或大盤指數。
-使用者問到快照以外的任何東西（例如某個過去日期的市值、某檔股票現在股價、變化量、要求記交易或改目標），
-一律直接用文字明確回答：「這個問題要主 AI 才能查，備援模式看不到，等 Cloudflare 額度恢復後再問我」。
-【最重要、絕對不能違反】不管使用者怎麼問，都不要輸出任何函式呼叫語法或類似 query_app_data(...)、
-get_live_quotes(...) 這種文字，也絕對不要編造任何數字——那些工具在備援模式下不存在，你沒有能力執行它們。`;
-
-// 備援模式只開放「部分」工具時用（例如只開 get_live_quotes 先試水溫）。
-// 每個工具各自一段完整教學，只把「真的有開」的那幾段拼進去；沒開的只給名稱清單，
-// 明講「不存在」，避免模型看不到教學卻自己腦補語法硬湊。
-const TOOL_USAGE_BLOCKS = {
-  get_live_quotes: `- get_live_quotes 可用：查個股／ETF「現在／今天」股價、收盤價、幫忙算現在市值，直接呼叫，不用確認卡。收到查詢結果（tool 訊息）就代表已完成，直接用文字回答，不要重複呼叫同一檔。它查不到台股大盤／加權指數／TAIEX／美股大盤指數的點數——那個目前沒有任何工具可查，要老實說查不到。`,
-  query_app_data: `- query_app_data 可用：App 歷史紀錄（過去每日市值、成本、交易、配息），唯讀直接呼叫，不用確認卡。用法：現在持股成本看摘要即可；過去某日成本用 source=holding_cost+symbol+asOfDate；A→B 變化量用 source=daily_records,aggregation=start_end,fromDate/toDate；某日絕對本金/市值用 aggregation=summary+toDate；哪個月漲跌最多用 aggregation=min_max；月度趨勢用 aggregation=monthly；交易/配息統計用 source=trades或dividends+summary，列表用 records。彙總結果已經算好，不要自己對明細手動加減。`,
-  web_search: `- web_search 可用：一般新聞/時事/公開資訊，或台股大盤／加權指數／美股大盤指數的點數與收盤。不要拿來查使用者自己的持股資料，也不要拿來查個股即時價（優先用 get_live_quotes）。【重要】問到「今天/現在/最新」這類會隨時間變動的統計數字（地震次數、天氣、疫情、比分、即時災情等），一律視為必須查證，禁止憑印象直接回答，即使覺得自己知道答案也要先查再回覆，不要等使用者追問「附來源」才想到要查。`,
-  add_trade: `- add_trade 可用：新增買賣交易紀錄。資訊不夠（缺股數、價格等）先用文字問清楚，不要瞎猜後呼叫；呼叫後 App 會顯示確認卡，使用者按確定才生效，你無法直接改資料。`,
-  update_holding_target: `- update_holding_target 可用：修改某檔股票的目標股數。呼叫後 App 會顯示確認卡，使用者按確定才生效。`,
-  update_manual_avg_cost: `- update_manual_avg_cost 可用：手動設定或清除平均成本。呼叫後 App 會顯示確認卡，使用者按確定才生效。`,
-  update_goal: `- update_goal 可用：修改總目標金額或目標年份。呼叫後 App 會顯示確認卡，使用者按確定才生效。`,
-};
-
-const TOOL_LABELS = {
-  query_app_data: "查 App 歷史紀錄（過去市值/成本/交易/配息）",
-  get_live_quotes: "查個股/ETF 即時股價",
-  web_search: "上網查新聞/大盤指數/公開資訊",
-  add_trade: "新增交易紀錄",
-  update_holding_target: "改目標股數",
-  update_manual_avg_cost: "改均價",
-  update_goal: "改總目標",
-};
-
-function buildPartialToolsUsagePrompt(activeNames, allNames) {
-  const disabledNames = allNames.filter((n) => !activeNames.includes(n));
-  const enabledBlocks = activeNames.map((n) => TOOL_USAGE_BLOCKS[n]).filter(Boolean).join("\n");
-  const disabledLabels = disabledNames.map((n) => TOOL_LABELS[n] || n).join("、");
-  return `
-【備援模式：部分功能開放中，逐步測試】你現在是「Gemini 獨立備援」，目前只有下面列出的工具是真的能用，其他一律不存在：
-${enabledBlocks || "（目前沒有任何工具）"}
-
-以下能力現在關閉、絕對不能用，也不要輸出任何函式呼叫語法去模仿它們：${disabledLabels}。
-遇到需要這些關閉能力才能回答的問題，一律直接用文字回答：「這個要主 AI 才能查，備援模式目前沒開這個功能」，
-不要編數字、不要假裝已經查過。
-同一問題最多查 2 次；不確定「變化量還是絕對值」就直接問使用者。`;
-}
-
-const SYSTEM_PROMPT_CLOSING = `
 手機小視窗：回答簡潔。可結合最近對話理解省略句。
 你不是財務顧問，不要給應買應賣建議，可中性說明資訊。`;
 
@@ -325,7 +268,6 @@ const ALLOWED_TOOL_NAMES = new Set([
   "get_live_quotes",
   "web_search",
 ]);
-const ALL_TOOL_NAMES = TOOLS.map((t) => t.function.name);
 
 function friendlyAiError(message) {
   const s = String(message || "");
@@ -373,33 +315,13 @@ export async function onRequestPost(context) {
       .slice(-MAX_HISTORY_TURNS * 2)
       .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_HISTORY_CONTENT) }));
 
-    // env.AI_ALLOWED_TOOL_NAMES 由呼叫端（Cloudflare 主程式 / Vercel 備援 shim）決定。
-    // 沒有設定（undefined/null）＝預設全部工具都能用，跟原本 Cloudflare 主線行為一樣。
-    // 傳一個陣列＝只開放陣列裡列出的工具名稱（例如備援先只開 ["get_live_quotes"] 試水溫）；
-    // 傳空陣列 []＝完全沒有工具。
-    const allowedToolNames = Array.isArray(context.env.AI_ALLOWED_TOOL_NAMES)
-      ? context.env.AI_ALLOWED_TOOL_NAMES
-      : null;
-    const activeTools = allowedToolNames
-      ? TOOLS.filter((t) => allowedToolNames.includes(t.function.name))
-      : TOOLS;
-    const activeToolNames = activeTools.map((t) => t.function.name);
+    const activeTools = TOOLS;
     const contextText = typeof body?.context === "string" ? body.context.slice(0, MAX_CONTEXT_LEN) : "";
-
-    let toolUsageSection;
-    if (activeToolNames.length === ALL_TOOL_NAMES.length) {
-      toolUsageSection = SYSTEM_PROMPT_TOOL_USAGE; // 全部工具都開，用原本完整教學
-    } else if (activeToolNames.length === 0) {
-      toolUsageSection = SYSTEM_PROMPT_NO_TOOLS_USAGE; // 完全沒工具
-    } else {
-      toolUsageSection = buildPartialToolsUsagePrompt(activeToolNames, ALL_TOOL_NAMES); // 只開放一部分
-    }
-    const systemPromptBase = `${SYSTEM_PROMPT_PERSONALITY}${toolUsageSection}${SYSTEM_PROMPT_CLOSING}`;
 
     const dateLine = `現在的日期時間是：${taiwanNowLabel()}。問「今天」「現在」「幾天後」以此為準。`;
     const systemPrompt = contextText
-      ? `${systemPromptBase}\n\n${dateLine}\n\n目前持股資料：\n${contextText}`
-      : `${systemPromptBase}\n\n${dateLine}`;
+      ? `${SYSTEM_PROMPT_BASE}\n\n${dateLine}\n\n目前持股資料：\n${contextText}`
+      : `${SYSTEM_PROMPT_BASE}\n\n${dateLine}`;
 
     const messages = [
       { role: "system", content: systemPrompt },
@@ -426,9 +348,9 @@ export async function onRequestPost(context) {
             name: String(tc?.name || ""),
             arguments: JSON.stringify(tc?.arguments || {}),
           },
-          // 【重要修正】這裡以前漏掉了 thoughtSignature，導致 Gemini 3.x 系列在下一輪
-          // 一律收到「missing a thought_signature」而拒絕——不是 Gemini 真的不給簽章，
-          // 是我們自己在把歷史紀錄組回 messages 時，把它弄丟了。
+          // Gemini 3 的 thoughtSignature 必須跨 HTTP round-trip 原封不動帶回。
+          // 前端 toolTurns 會保留 data.toolCalls 上的這個欄位；這裡若漏掉，
+          // query_app_data / get_live_quotes 第二輪就會 400 missing thought_signature。
           ...(tc?._geminiThoughtSignature ? { _geminiThoughtSignature: tc._geminiThoughtSignature } : {}),
         })),
       });
@@ -475,59 +397,64 @@ export async function onRequestPost(context) {
         .filter(Boolean);
     }
 
-    async function runModel() {
-      const options = { messages, max_tokens: MAX_TOKENS };
-      if (activeTools.length) options.tools = activeTools;
+    async function runModel(toolsForThisRun = activeTools) {
+      const options = { messages, max_tokens: MAX_TOKENS, tools: toolsForThisRun };
       return await ai.run(MODEL, options);
     }
 
     let result = await runModel();
     let toolCalls = parseToolCalls(result);
 
-    // 網路搜尋直接在伺服器端自動處理完，使用者跟前端完全不用介入，
-    // 也不會把 Tavily 的 API Key 暴露給瀏覽器。最多來回幾輪，避免無限搜尋。
+    // web_search 是 Vercel 伺服器端工具，絕對不能回到前端當成「待執行動作」。
+    // 即使模型同一輪混叫 web_search + query_app_data，也先只完成搜尋、丟棄同輪
+    // 其他呼叫，讓模型讀完搜尋結果後再重新決定下一步。這可避免前端出現
+    // 「執行未知動作：web_search」。
     let searchRounds = 0;
-    while (
-      toolCalls.length > 0 &&
-      toolCalls.every((tc) => tc.name === "web_search") &&
-      searchRounds < MAX_SERVER_SEARCH_ROUNDS
-    ) {
+    while (toolCalls.some((tc) => tc.name === "web_search") && searchRounds < MAX_SERVER_SEARCH_ROUNDS) {
+      const searchCalls = toolCalls.filter((tc) => tc.name === "web_search");
       messages.push({
         role: "assistant",
         content: "",
-        tool_calls: toolCalls.map((tc) => ({
+        tool_calls: searchCalls.map((tc) => ({
           id: tc.id,
           type: "function",
           function: { name: tc.name, arguments: JSON.stringify(tc.arguments || {}) },
           ...(tc._geminiThoughtSignature ? { _geminiThoughtSignature: tc._geminiThoughtSignature } : {}),
         })),
       });
+
       const tavilyKey = context.env.TAVILY_API_KEY;
-      for (const tc of toolCalls) {
+      for (const tc of searchCalls) {
         const content = await callTavily(tavilyKey, tc.arguments?.query);
         messages.push({ role: "tool", tool_call_id: tc.id, content: content.slice(0, MAX_CONTEXT_LEN) });
       }
+
       result = await runModel();
       toolCalls = parseToolCalls(result);
       searchRounds += 1;
     }
 
-    if (toolCalls.length > 0 && toolCalls.some((tc) => tc.name === "web_search")) {
-      // 保險機制：不管原因是什麼（搜尋輪數用完、跟其他工具混在一起呼叫等），
-      // web_search 都絕對不能被當成一般 toolCalls 丟給前端——前端只認得
-      // 「唯讀查詢」（自動查）跟「寫入類」（跳確認卡）這兩種，web_search 兩者都不是，
-      // 丟過去只會顯示「不認得這個動作」的錯誤卡片給使用者看，體驗很差。
-      // 這裡補最後一輪不帶任何工具的請求，逼模型直接用目前已查到的資料把話講完。
-      messages.push({
-        role: "user",
-        content: "（系統提示：已達自動查詢次數上限，請直接根據目前已經查到的資料用文字回答，不要再要求呼叫任何工具，也不要提到這則系統提示本身。）",
-      });
-      result = await ai.run(MODEL, { messages, max_tokens: MAX_TOKENS });
+    // 已達搜尋輪數上限後，如果模型還想再搜，不能把 web_search 丟回 App。
+    // 直接捨棄那個尚未執行的模型回覆，利用已經取得的搜尋結果再跑一次，
+    // 並從工具清單移除 web_search，逼模型整理現有資料或改叫 App 能執行的工具。
+    if (toolCalls.some((tc) => tc.name === "web_search")) {
+      const noWebSearchTools = activeTools.filter((t) => t?.function?.name !== "web_search");
+      result = await runModel(noWebSearchTools);
       toolCalls = parseToolCalls(result).filter((tc) => tc.name !== "web_search");
     }
 
     if (toolCalls.length > 0) {
-      return jsonResponse({ ok: true, version: ASK_VERSION, provider: "cloudflare", model: MODEL, toolCalls });
+      const clientToolCalls = toolCalls.filter((tc) => tc.name !== "web_search");
+      if (clientToolCalls.length > 0) {
+        return jsonResponse({ ok: true, version: ASK_VERSION, provider: "cloudflare", model: MODEL, toolCalls: clientToolCalls });
+      }
+      return jsonResponse({
+        ok: true,
+        version: ASK_VERSION,
+        provider: "cloudflare",
+        model: MODEL,
+        reply: "網路搜尋已完成，但模型沒有整理出最終回答。請再送一次同一個問題。",
+      });
     }
 
     let reply = String(result?.response || "").trim();
