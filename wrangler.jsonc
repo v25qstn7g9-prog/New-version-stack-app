@@ -1,5 +1,6 @@
 {
-  "name": "stock-app",
+  "na"name": "new-version-stack-app",
+",
   "type": "service",
   "compatibility_date": "2025-01-01",
   "main": "worker.js",
