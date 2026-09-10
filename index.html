@@ -112,7 +112,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.6-personal-v2.25.2-swipe-stability";
+const APP_VERSION = "4.6-personal-v2.25.3-market-benchmark";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -1574,6 +1574,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
   const [liveStatus, setLiveStatus] = useState("idle"); // idle | loading | done | error
   const [liveAt, setLiveAt] = useState(null);
   const [failedSymbols, setFailedSymbols] = useState([]);
+  const [marketIndex, setMarketIndex] = useState(null); // { price, prevClose, ... } 加權指數
   const [cacheLoaded, setCacheLoaded] = useState(false);
   const liveRef = useRef({});
   const isFetchingRef = useRef(false);
@@ -1613,6 +1614,12 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
       liveRef.current = revived;
       setLive(revived);
       setFailedSymbols(cached.failedSymbols || []);
+      if (cached.marketIndex) {
+        setMarketIndex({
+          ...cached.marketIndex,
+          asOfDate: cached.marketIndex.asOfDate ? new Date(cached.marketIndex.asOfDate) : null,
+        });
+      }
       const cachedAt = cached.at ? new Date(cached.at) : null;
       setLiveAt(cachedAt);
       if (cachedAt) lastFetchAtRef.current = cachedAt.getTime();
@@ -1631,23 +1638,27 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
     isFetchingRef.current = true;
     setLiveStatus("loading");
     const symbols = targets.map((h) => h.symbol);
+    const requestSymbols = [...symbols, "TAIEX"];
     let quoteResult = null;
     let quotes = null;
     try {
       try {
-        quoteResult = await fetchQuotesWithFallback(symbols);
+        quoteResult = await fetchQuotesWithFallback(requestSymbols);
         quotes = quoteResult.quotes;
       } catch (e) {
         // One retry after a short pause — a brief TWSE/API hiccup
         // shouldn't fail the whole refresh.
         await new Promise((res) => setTimeout(res, 800));
-        quoteResult = await fetchQuotesWithFallback(symbols);
+        quoteResult = await fetchQuotesWithFallback(requestSymbols);
         quotes = quoteResult.quotes;
       }
     } catch (e) {
       quotes = null;
     }
-    const failed = quoteResult?.missing || symbols.filter((s) => !quotes || !quotes[s]);
+    const allMissing = quoteResult?.missing || requestSymbols.filter((s) => !quotes || !quotes[s]);
+    // 大盤抓不到不能影響「持股報價是否完整」與每日紀錄寫入。
+    const failed = allMissing.filter((s) => s !== "TAIEX");
+    const freshIndex = quotes?.TAIEX || null;
     const now = new Date();
     // Merge this refresh with the last known successful price for any
     // symbol that failed this round. This keeps the dashboard useful during
@@ -1666,12 +1677,23 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
     liveRef.current = mergedMap;
     setLive(mergedMap);
     setFailedSymbols(failed);
+    if (freshIndex) {
+      setMarketIndex({ ...freshIndex, fetchedAt: now.toISOString() });
+    }
     setLiveStatus(Object.keys(mergedMap).length ? "done" : "error");
     setLiveAt(now);
     lastFetchAtRef.current = now.getTime();
     // Persist the merged map so failed symbols also survive an app reopen.
     if (Object.keys(mergedMap).length) {
-      saveKey("livePrices", { map: mergedMap, failedSymbols: failed, at: now.toISOString() });
+      const indexForCache = freshIndex
+        ? { ...freshIndex, fetchedAt: now.toISOString() }
+        : marketIndex;
+      saveKey("livePrices", {
+        map: mergedMap,
+        failedSymbols: failed,
+        marketIndex: indexForCache || null,
+        at: now.toISOString(),
+      });
       window.dispatchEvent(new CustomEvent("livePricesUpdated", { detail: { map: mergedMap } }));
     }
     isFetchingRef.current = false;
@@ -1716,6 +1738,18 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
     && failedSymbols.length === 0
     && rows.every((r) => Number.isFinite(r.price) && r.price > 0 && !r.isFromCache);
   const staleOne = Object.values(live).find((l) => l.isStale && l.asOfDate);
+  const indexPrice = Number(marketIndex?.price);
+  const indexPrevClose = Number(marketIndex?.prevClose);
+  const hasMarketIndex = Number.isFinite(indexPrice) && indexPrice > 0
+    && Number.isFinite(indexPrevClose) && indexPrevClose > 0;
+  const indexChange = hasMarketIndex ? indexPrice - indexPrevClose : 0;
+  const indexChangePct = hasMarketIndex ? (indexChange / indexPrevClose) * 100 : null;
+  const portfolioDayPct = yesterdayTwValue
+    ? ((totalValue - yesterdayTwValue) / yesterdayTwValue) * 100
+    : null;
+  const vsMarketPct = portfolioDayPct != null && indexChangePct != null
+    ? portfolioDayPct - indexChangePct
+    : null;
 
   const recordToday = () => {
     if (!onFillDailyTw) return;
@@ -1807,6 +1841,24 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
                   );
                 })()}
               </div>
+            </>
+          )}
+          {hasMarketIndex && (
+            <>
+              <div className="flex justify-between text-xs mono mt-1">
+                <span style={{ color: COLORS.sub }}>加權指數</span>
+                <span style={{ color: indexChange >= 0 ? COLORS.gain : COLORS.loss }}>
+                  {nf(Math.round(indexPrice))}　{indexChange >= 0 ? "▲" : "▼"} {indexChangePct >= 0 ? "+" : ""}{indexChangePct.toFixed(2)}%
+                </span>
+              </div>
+              {vsMarketPct != null && (
+                <div className="flex justify-between text-xs mono mt-1">
+                  <span style={{ color: COLORS.sub }}>今日 vs 大盤</span>
+                  <span style={{ color: vsMarketPct >= 0 ? COLORS.gain : COLORS.loss }}>
+                    {vsMarketPct >= 0 ? "贏大盤" : "輸大盤"} {vsMarketPct >= 0 ? "+" : ""}{vsMarketPct.toFixed(2)}%
+                  </span>
+                </div>
+              )}
             </>
           )}
           {onFillDailyTw && (
