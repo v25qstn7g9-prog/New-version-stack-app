@@ -1,1 +1,52 @@
+# 環境變數 & 機密檔案
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Cloudflare Wrangler
+.wrangler/
+wrangler.lock
+
+# Vercel
+.vercel/
+.vercelignore
+
+# Node.js
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+npm-debug.log*
+
+# IDE & 編輯器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+__MACOSX/
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Build & 分發
+dist/
+build/
+*.zip
+*.tar.gz
+
+# 快取
+.cache/
+temp/
+tmp/
+coverage/
 
