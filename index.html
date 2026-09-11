@@ -17,11 +17,17 @@
        改用 100svh（永遠抓最小可視高度，不受網址列狀態影響）比較穩定。
        不支援 svh 的舊瀏覽器會忽略這行，自動退回 Tailwind 原本的 100vh。 */
     .min-h-screen { min-height: 100svh !important; }
-    /* AI 助手面板：外層會由 visualViewport 同步成「目前真正可視的高度」。
-       不再同時混用 dvh / keyboard-inset-height，避免 iOS PWA 鍵盤出現時
-       面板仍被鎖在原本 layout viewport 的最底部。面板本身固定佔可視區約 65%。 */
-    .ai-panel-wrap { height: 100%; }
-    .ai-panel-h { height: 65%; }
+    /* AI 助手面板：改用 env(keyboard-inset-height)（iOS 15.4+ 原生變數，
+       瀏覽器自己回報鍵盤實際高度）當作外層的 padding-bottom。這是已經
+       驗證過真的會動的機制；之前試過用 JS 讀 visualViewport.height 自己
+       算面板高度，量到的值在這個 PWA 環境下不會跟著鍵盤縮小，導致面板
+       算出來的高度一直是「沒開鍵盤」那個滿版高度，才會看起來大塊空白、
+       標題被推到畫面外。 */
+    .ai-panel-wrap { padding-bottom: env(keyboard-inset-height, 0px); }
+    .ai-panel-h { height: 65svh; }
+    @supports (height: 65dvh) {
+      .ai-panel-h { height: 65dvh; }
+    }
     #boot-error {
       display:none; position:fixed; inset:0; z-index:99999; padding:24px;
       background:#0A0F1C; color:#E9EEF7; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
@@ -3463,14 +3469,17 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
   const [error, setError] = useState("");
   const [providerInfo, setProviderInfo] = useState(null); // { provider, model, profile }
   const scrollRef = useRef(null);
-  const panelWrapRef = useRef(null);
 
-  // 開啟 AI 助手時把背景頁面真正「鎖死」，不能被 iOS 內部的
-  // scroll-into-view 行為拖走。只用 overflow:hidden 不夠——那只能擋使用者
-  // 手動滑動，擋不住 iOS 為了讓聚焦的輸入框可見而做的內部捲動（比 CSS
-  // overflow 屬性更底層）。改用 position:fixed 把 body 整個「拔出」文件流，
-  // 記錄原本捲動位置，關閉時再捲回去，畫面就不會需要手動滑回原位。
-
+  // 開啟 AI 助手時把背景頁面「鎖死」，不能被 iOS 內部的 scroll-into-view
+  // 行為拖走。只用 overflow:hidden 不夠——那只能擋使用者手動滑動，擋不住
+  // iOS 為了讓聚焦的輸入框可見而做的內部捲動（比 CSS overflow 屬性更底
+  // 層）。用 position:fixed 把 body 整個「拔出」文件流，記錄原本捲動位
+  // 置，關閉時自動捲回去，不用手動滑回原位。
+  //
+  // 面板本身貼齊鍵盤的部分交給 CSS 的 env(keyboard-inset-height)（見上面
+  // .ai-panel-wrap），這裡不用 JS 去算面板高度——量 visualViewport.height
+  // 在這個 PWA 環境下試過不準，鍵盤彈起時量到的還是滿版高度，算出來的面板
+  // 高度就會不對，導致標題被推到畫面外、留下大塊空白。
   useEffect(() => {
     if (!open) return;
 
@@ -3491,41 +3500,6 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
     bodyStyle.width = "100%";
     bodyStyle.overflow = "hidden";
 
-    // iOS / PWA：直接把 overlay 的高度同步到 visualViewport。
-    // 鍵盤彈出後 visualViewport.height 會縮小，overlay 底部就會跟著
-    // 移到鍵盤上緣；不再用 body fixed 或 window.scrollTo(0, 0) 干預頁面座標。
-    const syncAiViewport = () => {
-      const wrap = panelWrapRef.current;
-      if (!wrap) return;
-      const vv = window.visualViewport;
-      const viewportHeight = vv?.height || window.innerHeight;
-      const offsetTop = vv?.offsetTop || 0;
-      // iOS PWA 開鍵盤時，visualViewport 可能會比實際鍵盤上緣
-      // 再往上縮一截；此時若把 wrapper 底端直接綁在 vv.height，
-      // 輸入列與鍵盤之間就會出現一大段空白。
-      // 保留 visualViewport 的高度來控制「能看到多少」，但底端回到
-      // layout viewport 的底部，讓輸入列貼近鍵盤；不再額外加 bottomGap。
-      const layoutHeight = Math.max(window.innerHeight, viewportHeight + offsetTop);
-      wrap.style.height = `${layoutHeight}px`;
-      wrap.style.bottom = "0px";
-      wrap.style.top = "auto";
-
-      // iOS 鍵盤開啟時，safe-area-inset-bottom 有時會把「鍵盤上方」
-      // 誤算成一大段底部安全區。輸入列改成：鍵盤開啟只留 8px，
-      // 鍵盤收起才恢復原本的 Home Indicator safe-area。
-      const keyboardOpen = viewportHeight < window.innerHeight - 80;
-      wrap.style.setProperty(
-        "--ai-input-bottom",
-        keyboardOpen ? "8px" : "calc(12px + env(safe-area-inset-bottom, 4px))"
-      );
-    };
-
-    syncAiViewport();
-    const vv = window.visualViewport;
-    vv?.addEventListener("resize", syncAiViewport);
-    vv?.addEventListener("scroll", syncAiViewport);
-    window.addEventListener("resize", syncAiViewport);
-
     return () => {
       htmlStyle.overflow = prevHtml.overflow;
       htmlStyle.height = prevHtml.height;
@@ -3536,15 +3510,6 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
       bodyStyle.width = prevBody.width;
       bodyStyle.overflow = prevBody.overflow;
       window.scrollTo(0, scrollY);
-      if (panelWrapRef.current) {
-        panelWrapRef.current.style.height = "";
-        panelWrapRef.current.style.bottom = "";
-        panelWrapRef.current.style.top = "";
-        panelWrapRef.current.style.removeProperty("--ai-input-bottom");
-      }
-      vv?.removeEventListener("resize", syncAiViewport);
-      vv?.removeEventListener("scroll", syncAiViewport);
-      window.removeEventListener("resize", syncAiViewport);
     };
   }, [open]);
 
@@ -3765,7 +3730,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
       </button>
 
       {open && (
-        <div ref={panelWrapRef} className="ai-panel-wrap fixed inset-x-0 bottom-0 z-50 flex flex-col justify-end"
+        <div className="ai-panel-wrap fixed inset-x-0 bottom-0 z-50 flex flex-col justify-end"
           style={{ background: "rgba(0,0,0,0.5)" }}
           onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}>
           <div className="ai-panel-h flex flex-col rounded-t-2xl" style={{
@@ -3865,7 +3830,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
             </div>
 
             <div className="px-3 py-3 flex items-end gap-2"
-              style={{ borderTop: `1px solid ${COLORS.panelBorder}`, paddingBottom: "var(--ai-input-bottom, calc(12px + env(safe-area-inset-bottom, 4px)))" }}>
+              style={{ borderTop: `1px solid ${COLORS.panelBorder}`, paddingBottom: "calc(12px + env(safe-area-inset-bottom, 4px))" }}>
               <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onKeyDown}
                 placeholder="輸入訊息…" rows={1}
                 className="flex-1 rounded-xl px-3 py-2 text-sm resize-none"
