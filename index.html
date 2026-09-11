@@ -24,7 +24,7 @@
        在這個 PWA 獨立模式下 interactive-widget 沒有真的讓 dvh 跟著鍵盤縮小
        ——鍵盤彈起後面板還是卡在原本大小，所以改回這個已經驗證有效的
        env(keyboard-inset-height) 機制。 */
-    .ai-panel-wrap { padding-bottom: env(keyboard-inset-height, 0px); }
+    .ai-panel-wrap { padding-bottom: max(0px, calc(env(keyboard-inset-height, 0px) - 36px)); }
     .ai-panel-h { height: 65svh; }
     @supports (height: 65dvh) {
       .ai-panel-h { height: 65dvh; }
