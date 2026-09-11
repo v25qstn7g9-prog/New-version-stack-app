@@ -10,11 +10,11 @@
  * 回傳: { ok: true, reply } 或 { ok: true, toolCalls: [{ name, arguments }] }
  *
  * Cloudflare AI Binding：Variable name = AI
- * 這支只保留 Cloudflare 單一主模型；v2.21 的 Gemini 備援由前端直接改連
- * 另一個平台的 fallback-vercel/api/ask.js，不再把第二模型塞進同一個 Cloudflare Worker。
+ * Cloudflare 為主模型；Cloudflare 失敗時由同一個 Worker 直接切 Gemini 3.5 Flash-Lite。
+ * 舊 fallback-vercel 仍保留作最後一道相容備援。
  */
-const ASK_VERSION = "4.6-ask-free-22-gemini-direct-fallback";
-const GEMINI_MODEL_DEFAULT = "gemini-2.5-flash-lite";
+const ASK_VERSION = "4.6-ask-free-23-gemini35-direct-fallback";
+const GEMINI_MODEL_DEFAULT = "gemini-3.5-flash-lite";
 const GEMINI_MAX_OUTPUT_TOKENS = 1000;
 // 從 120b 換成同系列的 20b：一樣支援 function calling、訊息格式完全相容，不用改其他程式碼。
 // 20b 運算量小很多，回應通常比較快，換算下來單次問答用掉的神經元也比較少，
@@ -110,6 +110,18 @@ query_app_data 跟 get_live_quotes 都是唯讀查詢，可直接呼叫，不用
 - 使用者問「某支股票/ETF 為什麼漲/跌」「今天下跌的原因」這類問題：一律用 web_search 查當天新聞，
   不要只憑自己知識列一般性的漲跌因素（大盤情緒、產業消息…）敷衍帶過——那樣等於沒回答到「今天」這個重點
 - 一般新聞/時事/公開資訊/你內建知識不確定的事：web_search（不要拿來查使用者自己的持股資料；特定個股即時價優先 get_live_quotes）
+
+【市場分析規範】
+1. 「今天」一律以台灣時間（UTC+8）為準。
+2. 優先使用最新新聞、官方資料及最新市場數據。
+3. 前一交易日資料必須明確標示「昨日收盤」，不可稱為今天。
+4. 已查證的事實與 AI 推論必須分開。
+5. 每個「主要原因」都必須有可靠資料支持。
+6. 沒有資料支持的市場說法，不得自行補充或當成原因。
+7. 「獲利了結」「技術面壓力」等也只能在有資料支持時提出；否則不要自行推測。
+8. 資料不足時，直接說「目前沒有足夠資料確認」，不要為了完整而腦補。
+9. 回答時優先說明：已查證的市場事件、數據，以及它們與盤勢的可能關聯。
+
 【重要】使用者問「今天/現在/最新」這類會隨時間變動的統計數字（地震次數、天氣、疫情、比分、即時災情等），
 一律視為必須查證，禁止憑訓練時的印象或記憶直接回答——即使你「覺得」自己知道答案，也要先呼叫 web_search 查證後才能回覆；
 不要等使用者追問「附來源」才想到要查。
@@ -320,9 +332,10 @@ function parseGeminiToolCalls(data) {
     const fc = part?.functionCall;
     if (!fc?.name || !ALLOWED_TOOL_NAMES.has(fc.name)) continue;
     calls.push({
-      id: `gemini_call_${idx}_${Date.now()}`,
+      id: String(fc.id || `gemini_call_${idx}_${Date.now()}`),
       name: fc.name,
       arguments: fc.args && typeof fc.args === "object" ? fc.args : {},
+      ...(fc.thoughtSignature ? { _geminiThoughtSignature: fc.thoughtSignature } : {}),
     });
   }
   return calls;
@@ -346,7 +359,7 @@ async function callGemini(env, contents, systemInstruction, tools = true) {
     contents,
     generationConfig: {
       maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS,
-      temperature: 0.2,
+      thinkingConfig: { thinkingLevel: "minimal" },
     },
   };
   if (tools) {
@@ -381,6 +394,8 @@ function buildGeminiContents(history, message, toolTurns = []) {
         parts: calls.map((tc) => ({ functionCall: {
           name: String(tc?.name || ""),
           args: tc?.arguments && typeof tc.arguments === "object" ? tc.arguments : {},
+          ...(tc?.id ? { id: String(tc.id) } : {}),
+          ...(tc?._geminiThoughtSignature ? { thoughtSignature: tc._geminiThoughtSignature } : {}),
         }})).filter((p) => p.functionCall.name),
       });
     }
@@ -390,6 +405,7 @@ function buildGeminiContents(history, message, toolTurns = []) {
         role: "user",
         parts: results.map((tr) => ({ functionResponse: {
           name: String(tr?.name || callNames.get(String(tr?.id || "")) || "query_app_data"),
+          ...(tr?.id ? { id: String(tr.id) } : {}),
           response: { result: String(tr?.content || "").slice(0, MAX_CONTEXT_LEN) },
         }})),
       });
@@ -419,7 +435,7 @@ async function runGeminiFallback(env, { message, history, contextText, toolTurns
       const responseParts = [];
       for (const tc of toolCalls) {
         const content = await callTavily(env.TAVILY_API_KEY, tc.arguments?.query);
-        responseParts.push({ functionResponse: { name: tc.name, response: { result: content.slice(0, MAX_CONTEXT_LEN) } } });
+        responseParts.push({ functionResponse: { name: tc.name, ...(tc?.id ? { id: String(tc.id) } : {}), response: { result: content.slice(0, MAX_CONTEXT_LEN) } } });
       }
       contents.push({ role: "user", parts: responseParts });
       searchRounds += 1;
