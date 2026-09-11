@@ -1,8 +1,8 @@
-# 存股 App v2.25.3 | 完整穩定版 ✨
+# 存股 App v2.25.5 | Gemini 3.5 完整升級版 ✨
 
 **最後更新**: 2026年9月10日  
-**狀態**: ✅ 生產穩定版 | 準備部署  
-**架構**: Cloudflare Workers (主力) + Vercel 備援
+**狀態**: ✅ 生產穩定版 | Gemini 內建 fallback  
+**架構**: Cloudflare Workers（主力）→ Gemini 3.5 Flash-Lite（同 Worker 內建備援）→ 舊 Vercel 備援（可選）
 
 ---
 
@@ -15,7 +15,7 @@
 ---
 
 ## 主 App
-- App：`4.6-personal-v2.25.3-market-benchmark`
+- App：`4.6-personal-v2.25.5-gemini35`
 - 左右滑頁與穩定化手勢保留
 - 持股頁沿用首頁即時報價
 - 加權指數 TAIEX 已恢復
@@ -26,16 +26,23 @@
 - `functions/quote.js`：`4.6-quote-stable-12-taiex`
 - 支援一般台股代號 + `TAIEX`
 - TAIEX 使用 TWSE `tse_t00.tw`，Yahoo fallback 使用 `^TWII`
-- `functions/ask.js`：`4.6-ask-free-21.3-search-error-transparency`（Cloudflare GPT-OSS 20B）
+- `functions/ask.js`：`4.6-ask-free-23-gemini35-direct-fallback`（Cloudflare GPT-OSS 20B + Gemini 3.5 Flash-Lite fallback）
 - `functions/news.js`：`4.6-news-stable-6`
 - `functions/health-check.js`：`4.6-health-check-1`
 - Workers with Static Assets：`worker.js`
 
-## 獨立 Vercel AI 備援
-- fallback package：`2.21.3`
-- `api/ask.js`：Gemini 2.5 Flash-Lite
-- `api/health.js`：Gemini 2.5 Flash-Lite 健康檢查
-- `lib/ask-core.js`：`4.6-ask-free-21.3-gemini25-stable-tools`
+## Gemini 內建自動備援（新版）
+- `GEMINI_API_KEY`：Cloudflare Worker Secret
+- `GEMINI_MODEL`：`gemini-3.5-flash-lite`
+- Cloudflare AI 額度用完、429、逾時或 5xx 時，直接在 Worker 伺服器端切 Gemini。
+- Gemini Key 不會送到瀏覽器。
+- 私人持股 context 預設不送 Gemini；可在 App「AI 雙層備援」勾選後允許。
+
+## 舊版 Vercel AI 備援（相容保留）
+- fallback package：`2.21.4`
+- `api/ask.js`：Gemini 3.5 Flash-Lite
+- `api/health.js`：Gemini 3.5 Flash-Lite 健康檢查
+- `lib/ask-core.js`：`4.6-ask-free-21.4-gemini35-stable-tools`
 - thinking 關閉：`thinkingBudget: 0`
 - 保留 function calling、App 資料查詢、即時股價與 Tavily web search
 
@@ -70,7 +77,7 @@
 ### fallback-vercel/ (獨立備援)
 ```
 ├── api/
-│   ├── ask.js              # 備援 AI 助手 (Gemini 2.5)
+│   ├── ask.js              # 備援 AI 助手 (Gemini 3.5)
 │   └── health.js           # 備援健康檢查
 ├── lib/
 │   └── ask-core.js         # 備援核心引擎

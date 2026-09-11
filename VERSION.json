@@ -1,25 +1,25 @@
 {
-  "app": "v2.25.4",
+  "app": "v2.25.5",
   "lastUpdated": "2026-09-10",
   "status": "stable-gemini-direct-fallback",
   "cloudflare": {
-    "index.html": "4.6-personal-v2.25.3-market-benchmark",
+    "index.html": "4.6-personal-v2.25.5-gemini35",
     "quote.js": "4.6-quote-stable-12-taiex",
-    "ask.js": "4.6-ask-free-22-gemini-direct-fallback",
+    "ask.js": "4.6-ask-free-23-gemini35-direct-fallback",
     "news.js": "4.6-news-stable-6",
     "health-check.js": "4.6-health-check-1",
-    "model": "@cf/openai/gpt-oss-20b + Gemini 2.5 Flash-Lite fallback"
+    "model": "@cf/openai/gpt-oss-20b"
   },
   "vercel": {
-    "package": "2.21.3",
-    "ask-core.js": "4.6-ask-free-21.3-gemini25-stable-tools",
-    "model": "gemini-2.5-flash-lite",
-    "thinkingBudget": 0
+    "package": "2.21.4",
+    "ask-core.js": "4.6-ask-free-21.4-gemini35-stable-tools",
+    "model": "gemini-3.5-flash-lite",
+    "thinkingLevel": "minimal"
   },
   "features": {
     "quote": "TAIEX + 台股即時報價",
-    "ask": "Cloudflare GPT-OSS 主 AI；Worker 內建 Gemini 2.5 Flash-Lite 自動備援",
-    "fallback": "Cloudflare Worker 內建 Gemini 備援；舊 Vercel 備援可作最後一道相容備援",
+    "ask": "Cloudflare GPT-OSS 主 AI；Worker 內建 Gemini 3.5 Flash-Lite 自動備援",
+    "fallback": "Cloudflare Worker 內建 Gemini 3.5 Flash-Lite 備援；舊 Vercel 備援可作最後一道相容備援",
     "news": "台股市場新聞",
     "health": "自動健康檢查卡片",
     "backup": "JSON 備份／匯入"

@@ -112,7 +112,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.6-personal-v2.25.3-market-benchmark";
+const APP_VERSION = "4.6-personal-v2.25.5-gemini35";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -2966,12 +2966,12 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
 
       <Panel title="AI 雙層備援（自動）">
         <div className="text-[11px] leading-5" style={{ color: COLORS.sub }}>
-          主 AI：<span style={{ color: COLORS.gold }}>Cloudflare GPT-OSS</span>。如果遇到額度用完、429、逾時或服務錯誤，會由同一個 Cloudflare Worker <span style={{ color: COLORS.gold }}>直接切到 Gemini 2.5 Flash-Lite</span>，不再需要 Vercel，也不會把 Gemini API Key 放在手機。
+          主 AI：<span style={{ color: COLORS.gold }}>Cloudflare GPT-OSS</span>。如果遇到額度用完、429、逾時或服務錯誤，會由同一個 Cloudflare Worker <span style={{ color: COLORS.gold }}>直接切到 Gemini 3.5 Flash-Lite</span>，不再需要 Vercel，也不會把 Gemini API Key 放在手機。
         </div>
         <div className="mt-2 rounded-xl p-3 text-[11px] leading-5" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, color: COLORS.sub }}>
           <div><span style={{ color: COLORS.loss }}>①</span> Cloudflare AI</div>
           <div><span style={{ color: COLORS.gold }}>↓ 失敗自動切換</span></div>
-          <div><span style={{ color: COLORS.gain }}>②</span> Gemini 2.5 Flash-Lite（Worker 伺服器端）</div>
+          <div><span style={{ color: COLORS.gain }}>②</span> Gemini 3.5 Flash-Lite（Worker 伺服器端）</div>
           <div><span style={{ color: COLORS.sub }}>↓ 如果 Gemini 也失敗，才顯示真正錯誤，不會假裝成功</span></div>
         </div>
         <label className="mt-3 flex items-start gap-2 text-[11px] leading-5" style={{ color: COLORS.sub }}>

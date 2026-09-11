@@ -1,3 +1,14 @@
+
+## 🆕 v2.25.5 Gemini 3.5 完整升級
+
+本版不再依賴 Vercel 才能完成第二層 AI 備援。Cloudflare `/ask` 失敗時，Worker 會直接呼叫 `gemini-3.5-flash-lite`。
+
+Cloudflare Dashboard → Worker → Settings → Variables and Secrets：
+- Secret：`GEMINI_API_KEY`（你已經加好的那一個）
+- Variable：`GEMINI_MODEL` = `gemini-3.5-flash-lite`（本包的 `wrangler.jsonc` 已包含）
+
+部署後確認最新版本流量為 100%。
+
 # 部署檢查清單 📋
 
 ## 概述
@@ -260,5 +271,5 @@ cat wrangler.jsonc | grep health_kv
 ### 2026-09-10
 - ✅ 初始穩定版本 v2.25.3
 - ✅ Cloudflare Workers with Static Assets
-- ✅ Vercel Gemini 2.5 Flash-Lite 備援
+- ✅ Vercel Gemini 3.5 Flash-Lite 備援
 - ✅ 自動健康檢查 (30 分鐘間隔)
