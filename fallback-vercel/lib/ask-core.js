@@ -1,5 +1,5 @@
 /**
- * ask.js — 4.6-ask-free-21.3-gemini25-stable-tools
+ * ask.js — 4.6-ask-free-21.4-gemini35-stable-tools
  *
  * POST /ask
  * body: {
@@ -12,7 +12,7 @@
  * 這份檔案是從 Cloudflare 主 AI 邏輯複製出的共用核心。
  * 在 Vercel 端，api/ask.js 會提供一個相容的 env.AI.run()，實際轉送到 Google Gemini。
  */
-const ASK_VERSION = "4.6-ask-free-21.3-gemini25-stable-tools";
+const ASK_VERSION = "4.6-ask-free-21.4-gemini35-stable-tools";
 const MODEL = "@cf/openai/gpt-oss-120b";
 const MAX_HISTORY_TURNS = 6; // 再縮一點省輸入 token
 const MAX_MESSAGE_LEN = 2000;
@@ -97,6 +97,18 @@ query_app_data 跟 get_live_quotes 都是唯讀查詢，可直接呼叫，不用
 - 個股／ETF 的現在股價、今日最新價、個別持股現在市值：get_live_quotes
 - 台股大盤／加權指數／TAIEX／美股大盤指數的點數與收盤：web_search（get_live_quotes 不查大盤指數）
 - 一般新聞/時事/公開資訊/你內建知識不確定的事：web_search（不要拿來查使用者自己的持股資料；特定個股即時價優先 get_live_quotes）
+
+【市場分析規範】
+1. 「今天」一律以台灣時間（UTC+8）為準。
+2. 優先使用最新新聞、官方資料及最新市場數據。
+3. 前一交易日資料必須明確標示「昨日收盤」，不可稱為今天。
+4. 已查證的事實與 AI 推論必須分開。
+5. 每個「主要原因」都必須有可靠資料支持。
+6. 沒有資料支持的市場說法，不得自行補充或當成原因。
+7. 「獲利了結」「技術面壓力」等也只能在有資料支持時提出；否則不要自行推測。
+8. 資料不足時，直接說「目前沒有足夠資料確認」，不要為了完整而腦補。
+9. 回答時優先說明：已查證的市場事件、數據，以及它們與盤勢的可能關聯。
+
 【工具節奏】一次只選一類工具。若同一題同時需要 web_search 與 App 私人資料，先完成 web_search，收到結果後再決定是否需要 query_app_data / get_live_quotes；不要在同一個回覆同時呼叫 web_search 和其他工具。
 同一問題最多查 2 次；不確定「變化量還是絕對值」就直接問使用者。
 
