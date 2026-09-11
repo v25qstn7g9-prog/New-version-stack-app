@@ -3459,6 +3459,29 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
   const [providerInfo, setProviderInfo] = useState(null); // { provider, model, profile }
   const scrollRef = useRef(null);
 
+  // iOS Safari 的 position:fixed 是相對「layout viewport」定位，鍵盤彈起時
+  // 不會自動跟著縮小；瀏覽器為了讓輸入框可見會捲動整頁，導致 fixed 面板
+  // 被視覺上推走、露出一大塊空白。這裡用 visualViewport 即時量測「鍵盤彈起後
+  // 真正可見的範圍」，讓面板永遠貼齊它，而不是寫死的 inset:0。
+  const [viewportRect, setViewportRect] = useState(() => ({
+    top: 0,
+    height: typeof window !== "undefined" ? window.innerHeight : 0,
+  }));
+
+  useEffect(() => {
+    if (!open) return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => setViewportRect({ top: vv.offsetTop, height: vv.height });
+    update();
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+    };
+  }, [open]);
+
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages, open]);
@@ -3676,10 +3699,11 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex flex-col justify-end" style={{ background: "rgba(0,0,0,0.5)" }}
+        <div className="fixed inset-x-0 z-50 flex flex-col justify-end"
+          style={{ background: "rgba(0,0,0,0.5)", top: viewportRect.top, height: viewportRect.height }}
           onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}>
           <div className="flex flex-col rounded-t-2xl" style={{
-            background: COLORS.bg, height: "65svh", boxShadow: "0 -8px 24px rgba(0,0,0,0.4)",
+            background: COLORS.bg, height: "65svh", maxHeight: "100%", boxShadow: "0 -8px 24px rgba(0,0,0,0.4)",
           }}>
             <div className="flex items-center justify-between px-4 py-3"
               style={{ borderBottom: `1px solid ${COLORS.panelBorder}` }}>
