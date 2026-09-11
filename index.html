@@ -3468,14 +3468,23 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
   const scrollRef = useRef(null);
 
   // PWA 獨立模式（加入主畫面）下，CSS 的 dvh 不一定會即時跟著鍵盤縮放，
-  // 這裡用 visualViewport 再量一次實際可見高度，當作 JS 備援；量到的值
-  // 會直接寫進面板的 inline style，蓋過 CSS 的 65dvh／65svh。
+  // 這裡用 visualViewport 再量一次實際可見高度，當作 JS 備援。
+  // 一打開面板先記下「鍵盤還沒彈起」時的高度當基準；之後只要量到的高度
+  // 明顯變小（代表鍵盤彈起了），就把面板高度直接設成「剛好等於鍵盤上緣」，
+  // 讓輸入框緊貼鍵盤、不留空隙。鍵盤收起時則交還給 CSS 的 65dvh／65svh，
+  // 維持原本「半屏彈出」的樣式。
   const [kbHeight, setKbHeight] = useState(null);
+  const baseHeightRef = useRef(null);
   useEffect(() => {
     if (!open) return;
     const vv = window.visualViewport;
     if (!vv) return;
-    const update = () => setKbHeight(vv.height);
+    baseHeightRef.current = vv.height;
+    const update = () => {
+      const base = baseHeightRef.current || vv.height;
+      const diff = base - vv.height;
+      setKbHeight(diff > 100 ? vv.height : null);
+    };
     update();
     vv.addEventListener("resize", update);
     return () => {
@@ -3755,7 +3764,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
           onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}>
           <div className="ai-panel-h flex flex-col rounded-t-2xl" style={{
             background: COLORS.bg,
-            maxHeight: kbHeight != null ? kbHeight : "100%",
+            ...(kbHeight != null ? { height: kbHeight, maxHeight: kbHeight } : { maxHeight: "100%" }),
             boxShadow: "0 -8px 24px rgba(0,0,0,0.4)",
           }}>
             <div className="flex items-center justify-between px-4 py-3"
