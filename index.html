@@ -3467,6 +3467,35 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
   const [providerInfo, setProviderInfo] = useState(null); // { provider, model, profile }
   const scrollRef = useRef(null);
 
+  // 開啟 AI 助手時把背景頁面「凍結」（position:fixed 鎖住 body），讓它完全
+  // 不能被捲動。點輸入框、鍵盤彈起時，iOS 有時仍會嘗試捲動整個網頁去讓
+  // 輸入框可見，就算面板本身是 fixed 也會被這個捲動連帶影響（整頁跟著往上
+  // 頂、跟時間/狀態列重疊）。把 body 鎖死之後，iOS 就沒有「頁面」可以捲了。
+  useEffect(() => {
+    if (!open) return;
+    const scrollY = window.scrollY;
+    const { style } = document.body;
+    const prev = {
+      position: style.position, top: style.top, left: style.left,
+      right: style.right, width: style.width, overflow: style.overflow,
+    };
+    style.position = "fixed";
+    style.top = `-${scrollY}px`;
+    style.left = "0";
+    style.right = "0";
+    style.width = "100%";
+    style.overflow = "hidden";
+    return () => {
+      style.position = prev.position;
+      style.top = prev.top;
+      style.left = prev.left;
+      style.right = prev.right;
+      style.width = prev.width;
+      style.overflow = prev.overflow;
+      window.scrollTo(0, scrollY);
+    };
+  }, [open]);
+
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages, open]);
