@@ -3489,10 +3489,14 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
       const vv = window.visualViewport;
       const viewportHeight = vv?.height || window.innerHeight;
       const offsetTop = vv?.offsetTop || 0;
-      const layoutHeight = window.innerHeight;
-      const bottomGap = Math.max(0, layoutHeight - (viewportHeight + offsetTop));
-      wrap.style.height = `${viewportHeight}px`;
-      wrap.style.bottom = `${bottomGap}px`;
+      // iOS PWA 開鍵盤時，visualViewport 可能會比實際鍵盤上緣
+      // 再往上縮一截；此時若把 wrapper 底端直接綁在 vv.height，
+      // 輸入列與鍵盤之間就會出現一大段空白。
+      // 保留 visualViewport 的高度來控制「能看到多少」，但底端回到
+      // layout viewport 的底部，讓輸入列貼近鍵盤；不再額外加 bottomGap。
+      const layoutHeight = Math.max(window.innerHeight, viewportHeight + offsetTop);
+      wrap.style.height = `${layoutHeight}px`;
+      wrap.style.bottom = "0px";
       wrap.style.top = "auto";
     };
 
