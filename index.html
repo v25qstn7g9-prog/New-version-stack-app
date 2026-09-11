@@ -23,7 +23,7 @@
        算面板高度，量到的值在這個 PWA 環境下不會跟著鍵盤縮小，導致面板
        算出來的高度一直是「沒開鍵盤」那個滿版高度，才會看起來大塊空白、
        標題被推到畫面外。 */
-    .ai-panel-wrap { padding-bottom: env(keyboard-inset-height, 0px); }
+    .ai-panel-wrap { padding-bottom: 0; }
     .ai-panel-h { height: 65svh; }
     @supports (height: 65dvh) {
       .ai-panel-h { height: 65dvh; }
@@ -3476,10 +3476,9 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
   // 層）。用 position:fixed 把 body 整個「拔出」文件流，記錄原本捲動位
   // 置，關閉時自動捲回去，不用手動滑回原位。
   //
-  // 面板本身貼齊鍵盤的部分交給 CSS 的 env(keyboard-inset-height)（見上面
-  // .ai-panel-wrap），這裡不用 JS 去算面板高度——量 visualViewport.height
-  // 在這個 PWA 環境下試過不準，鍵盤彈起時量到的還是滿版高度，算出來的面板
-  // 高度就會不對，導致標題被推到畫面外、留下大塊空白。
+  // 面板本身貼齊鍵盤交給 interactive-widget=resizes-content：
+  // 鍵盤出現時 layout viewport 直接縮到鍵盤上緣，因此 .ai-panel-wrap
+  // 不再額外吃 keyboard-inset-height，避免把同一個鍵盤高度算兩次。
   useEffect(() => {
     if (!open) return;
 
