@@ -17,13 +17,14 @@
        改用 100svh（永遠抓最小可視高度，不受網址列狀態影響）比較穩定。
        不支援 svh 的舊瀏覽器會忽略這行，自動退回 Tailwind 原本的 100vh。 */
     .min-h-screen { min-height: 100svh !important; }
-    /* AI 助手面板：改用 env(keyboard-inset-height)（iOS 15.4+ 原生變數，
-       瀏覽器自己回報鍵盤實際高度）當作外層的 padding-bottom。這是已經
-       驗證過真的會動的機制；之前試過用 JS 讀 visualViewport.height 自己
-       算面板高度，量到的值在這個 PWA 環境下不會跟著鍵盤縮小，導致面板
-       算出來的高度一直是「沒開鍵盤」那個滿版高度，才會看起來大塊空白、
-       標題被推到畫面外。 */
-    .ai-panel-wrap { padding-bottom: 0; }
+    /* AI 助手面板：用 env(keyboard-inset-height)（iOS 15.4+ 原生變數，
+       瀏覽器自己回報鍵盤實際高度）當作外層的 padding-bottom。
+       中間試過只靠 interactive-widget=resizes-content 讓 65dvh 自己縮小、
+       不疊加這個 padding（理論上可以避免鍵盤高度算兩次），但實測後確認
+       在這個 PWA 獨立模式下 interactive-widget 沒有真的讓 dvh 跟著鍵盤縮小
+       ——鍵盤彈起後面板還是卡在原本大小，所以改回這個已經驗證有效的
+       env(keyboard-inset-height) 機制。 */
+    .ai-panel-wrap { padding-bottom: env(keyboard-inset-height, 0px); }
     .ai-panel-h { height: 65svh; }
     @supports (height: 65dvh) {
       .ai-panel-h { height: 65dvh; }
@@ -3476,9 +3477,10 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
   // 層）。用 position:fixed 把 body 整個「拔出」文件流，記錄原本捲動位
   // 置，關閉時自動捲回去，不用手動滑回原位。
   //
-  // 面板本身貼齊鍵盤交給 interactive-widget=resizes-content：
-  // 鍵盤出現時 layout viewport 直接縮到鍵盤上緣，因此 .ai-panel-wrap
-  // 不再額外吃 keyboard-inset-height，避免把同一個鍵盤高度算兩次。
+  // 面板本身貼齊鍵盤交給 CSS 的 env(keyboard-inset-height)（見上面
+  // .ai-panel-wrap）。實測過 interactive-widget=resizes-content 沒有真的
+  // 讓 dvh 跟著鍵盤縮小，所以不能只靠它；這裡不用 JS 去算面板高度——量
+  // visualViewport.height 在這個 PWA 環境下試過也不準。
   useEffect(() => {
     if (!open) return;
 
