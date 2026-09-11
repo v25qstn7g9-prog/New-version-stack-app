@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
   <meta name="theme-color" content="#0A0F1C" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -17,6 +17,14 @@
        改用 100svh（永遠抓最小可視高度，不受網址列狀態影響）比較穩定。
        不支援 svh 的舊瀏覽器會忽略這行，自動退回 Tailwind 原本的 100vh。 */
     .min-h-screen { min-height: 100svh !important; }
+    /* AI 助手面板：優先用 dvh（動態視窗高度，鍵盤彈起時會即時縮小），
+       不支援 dvh 的舊瀏覽器會忽略這行、自動退回 65svh。
+       配合上面 viewport 的 interactive-widget=resizes-content，
+       鍵盤彈起時這個高度會「真的」縮小，面板底部（輸入框）自然貼齊鍵盤。 */
+    .ai-panel-h { height: 65svh; }
+    @supports (height: 65dvh) {
+      .ai-panel-h { height: 65dvh; }
+    }
     #boot-error {
       display:none; position:fixed; inset:0; z-index:99999; padding:24px;
       background:#0A0F1C; color:#E9EEF7; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
@@ -3459,29 +3467,6 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
   const [providerInfo, setProviderInfo] = useState(null); // { provider, model, profile }
   const scrollRef = useRef(null);
 
-  // iOS Safari 的 position:fixed 是相對「layout viewport」定位，鍵盤彈起時
-  // 不會自動跟著縮小；瀏覽器為了讓輸入框可見會捲動整頁，導致 fixed 面板
-  // 被視覺上推走、露出一大塊空白。這裡用 visualViewport 即時量測「鍵盤彈起後
-  // 真正可見的範圍」，讓面板永遠貼齊它，而不是寫死的 inset:0。
-  const [viewportRect, setViewportRect] = useState(() => ({
-    top: 0,
-    height: typeof window !== "undefined" ? window.innerHeight : 0,
-  }));
-
-  useEffect(() => {
-    if (!open) return;
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const update = () => setViewportRect({ top: vv.offsetTop, height: vv.height });
-    update();
-    vv.addEventListener("resize", update);
-    vv.addEventListener("scroll", update);
-    return () => {
-      vv.removeEventListener("resize", update);
-      vv.removeEventListener("scroll", update);
-    };
-  }, [open]);
-
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages, open]);
@@ -3699,14 +3684,13 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
       </button>
 
       {open && (
-        <div className="fixed inset-x-0 z-50 flex flex-col justify-end"
-          style={{ background: "rgba(0,0,0,0.5)", top: viewportRect.top, height: viewportRect.height }}
+        <div className="fixed inset-0 z-50 flex flex-col justify-end" style={{ background: "rgba(0,0,0,0.5)" }}
           onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}>
-          <div className="flex flex-col rounded-t-2xl" style={{
-            background: COLORS.bg, height: "65svh", maxHeight: "100%", boxShadow: "0 -8px 24px rgba(0,0,0,0.4)",
+          <div className="ai-panel-h flex flex-col rounded-t-2xl" style={{
+            background: COLORS.bg, maxHeight: "100%", boxShadow: "0 -8px 24px rgba(0,0,0,0.4)",
           }}>
             <div className="flex items-center justify-between px-4 py-3"
-              style={{ borderBottom: `1px solid ${COLORS.panelBorder}` }}>
+              style={{ borderBottom: `1px solid ${COLORS.panelBorder}`, paddingTop: "max(12px, env(safe-area-inset-top, 0px))" }}>
               <div className="flex items-center gap-2 min-w-0">
                 <div className="font-bold text-sm">AI 助手</div>
                 {providerInfo && (() => {
