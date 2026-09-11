@@ -3498,6 +3498,15 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
       wrap.style.height = `${layoutHeight}px`;
       wrap.style.bottom = "0px";
       wrap.style.top = "auto";
+
+      // iOS 鍵盤開啟時，safe-area-inset-bottom 有時會把「鍵盤上方」
+      // 誤算成一大段底部安全區。輸入列改成：鍵盤開啟只留 8px，
+      // 鍵盤收起才恢復原本的 Home Indicator safe-area。
+      const keyboardOpen = viewportHeight < window.innerHeight - 80;
+      wrap.style.setProperty(
+        "--ai-input-bottom",
+        keyboardOpen ? "8px" : "calc(12px + env(safe-area-inset-bottom, 4px))"
+      );
     };
 
     syncAiViewport();
@@ -3513,6 +3522,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
         panelWrapRef.current.style.height = "";
         panelWrapRef.current.style.bottom = "";
         panelWrapRef.current.style.top = "";
+        panelWrapRef.current.style.removeProperty("--ai-input-bottom");
       }
       vv?.removeEventListener("resize", syncAiViewport);
       vv?.removeEventListener("scroll", syncAiViewport);
@@ -3837,7 +3847,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
             </div>
 
             <div className="px-3 py-3 flex items-end gap-2"
-              style={{ borderTop: `1px solid ${COLORS.panelBorder}`, paddingBottom: "calc(12px + env(safe-area-inset-bottom, 4px))" }}>
+              style={{ borderTop: `1px solid ${COLORS.panelBorder}`, paddingBottom: "var(--ai-input-bottom, calc(12px + env(safe-area-inset-bottom, 4px)))" }}>
               <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onKeyDown}
                 placeholder="輸入訊息…" rows={1}
                 className="flex-1 rounded-xl px-3 py-2 text-sm resize-none"
