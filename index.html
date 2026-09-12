@@ -124,7 +124,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.6-personal-v2.26.0-gemini35";
+const APP_VERSION = "4.6-personal-v2.26.1-gemini35";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -583,9 +583,12 @@ function inspectBackupPayload(payload) {
   });
   data.holdings.forEach((h, i) => {
     if (!isObject(h) || !String(h.symbol || "").trim()) errors.push(`持股第 ${i + 1} 筆缺少股票代號`);
-    ["initialShares", "current", "target2035", "avgCost", "manualAvgCost", "initialCostBasis"].forEach((k) => {
+    ["initialShares", "current", "target2035", "avgCost", "manualAvgCost"].forEach((k) => {
       if (!finiteNonNegative(h?.[k])) errors.push(`持股第 ${i + 1} 筆 ${k} 不是有效非負數字`);
     });
+    if (h?.costOverride != null && (!isObject(h.costOverride) || !finiteNonNegative(h.costOverride.amount) || !finiteNonNegative(h.costOverride.asOfShares))) {
+      errors.push(`持股第 ${i + 1} 筆 costOverride 格式不合法`);
+    }
   });
   data.trades.forEach((t, i) => {
     if (!isObject(t) || !isValidDateStr(t.date)) errors.push(`交易第 ${i + 1} 筆日期不合法`);
@@ -1078,26 +1081,29 @@ function AssetTracker() {
     const current = h.initialShares + bought - sold;
     const pct = h.target2035 ? Math.min(100, (current / h.target2035) * 100) : 0;
 
-    // 用「移動加權平均法」依交易紀錄算出平均成本：
-    // 起始成本（initialCostBasis，對應期初股數 initialShares，可在持股進度手動編輯）當起點，
-    // 買進時把成本併入、股數增加；賣出時依當下平均成本按比例扣除。
-    // 持有成本＝起始成本＋歷來所有買賣紀錄，每新增一筆交易都會自動往下疊加更新；
-    // 平均成本則是「倒算」出來的：持有成本 ÷ 目前股數，不用另外手動輸入均價。
+    // 持有成本用「快照＋往後疊加」的方式算：
+    // costOverride = { amount, asOfDate, asOfShares } 記錄「在 asOfDate 這天，
+    // 手動輸入的總持有成本是 amount，當時股數是 asOfShares」。
+    // 之後只會把「asOfDate 之後」的買賣紀錄疊加上去（用移動加權平均法），
+    // 不會重複計算 asOfDate（含）當天以前已經發生、已經算進 amount 裡的交易。
+    // 平均成本＝疊加後的持有成本 ÷ 股數，用倒算的，不用另外手動輸入均價。
+    // 沒有設定過 costOverride 的舊資料，預設等同「一開始（很久以前）成本 0、
+    // 股數＝期初股數」，等於整段交易紀錄都照算，跟改版前的行為一致。
     const symbolTrades = trades
       .filter((t) => t.symbol === h.symbol)
       .slice()
       .sort((a, b) => a.date.localeCompare(b.date));
 
-    const initialCostBasis = Number(h.initialCostBasis || 0);
-    let runningShares = Number(h.initialShares || 0), runningCost = initialCostBasis;
-    let runningSharesNoFee = 0, runningCostNoFee = 0; // 不含手續費、不含起始成本，算「成交均價」用
-    for (const t of symbolTrades) {
+    const hasOverride = h.costOverride && Number.isFinite(Number(h.costOverride.amount));
+    const overrideAsOfDate = hasOverride ? (h.costOverride.asOfDate || "0000-01-01") : "0000-01-01";
+    let runningShares = hasOverride ? Number(h.costOverride.asOfShares || 0) : Number(h.initialShares || 0);
+    let runningCost = hasOverride ? Number(h.costOverride.amount || 0) : 0;
+    const laterTrades = symbolTrades.filter((t) => t.date > overrideAsOfDate);
+    let runningSharesNoFee = 0, runningCostNoFee = 0; // 不含手續費，算「成交均價」用，永遠用全部交易紀錄
+    for (const t of laterTrades) {
       if (t.action === "buy") {
         runningCost += t.shares * t.price + Number(t.fee || 0);
         runningShares += t.shares;
-
-        runningCostNoFee += t.shares * t.price;
-        runningSharesNoFee += t.shares;
       } else {
         if (runningShares > 0) {
           const avgPerShare = runningCost / runningShares;
@@ -1105,25 +1111,32 @@ function AssetTracker() {
           runningCost -= avgPerShare * sellShares;
           runningShares -= sellShares;
         }
-        if (runningSharesNoFee > 0) {
-          const avgPerShareNoFee = runningCostNoFee / runningSharesNoFee;
-          const sellSharesNoFee = Math.min(t.shares, runningSharesNoFee);
-          runningCostNoFee -= avgPerShareNoFee * sellSharesNoFee;
-          runningSharesNoFee -= sellSharesNoFee;
-        }
+      }
+    }
+    for (const t of symbolTrades) {
+      if (t.action === "buy") {
+        runningCostNoFee += t.shares * t.price;
+        runningSharesNoFee += t.shares;
+      } else if (runningSharesNoFee > 0) {
+        const avgPerShareNoFee = runningCostNoFee / runningSharesNoFee;
+        const sellSharesNoFee = Math.min(t.shares, runningSharesNoFee);
+        runningCostNoFee -= avgPerShareNoFee * sellSharesNoFee;
+        runningSharesNoFee -= sellSharesNoFee;
       }
     }
     const autoAvgCost = runningShares > 0 ? runningCost / runningShares : null;
     const avgTradePrice = runningSharesNoFee > 0 ? runningCostNoFee / runningSharesNoFee : null; // 不含手續費的成交均價
 
-    // 舊版相容：早期版本是直接手動輸入「平均成本」整個覆蓋掉自動計算，且不會隨新交易更新。
-    // 現在編輯持股改成填「起始成本」，這裡只保留讀取舊資料／AI 指令相容用途。
+    // 舊版相容：更早的版本是直接手動輸入「平均成本」整個覆蓋掉自動計算，且不會隨新交易更新。
+    // 現在編輯持股改成填「持有成本」快照，這裡只保留讀取舊資料／AI 指令相容用途。
     const manualAvgCost = Number(h.manualAvgCost);
     const hasManualAvgCost = h.manualAvgCost !== undefined && h.manualAvgCost !== "" && Number.isFinite(manualAvgCost) && manualAvgCost > 0;
     const avgCost = hasManualAvgCost ? manualAvgCost : autoAvgCost;
     const estCostBasis = hasManualAvgCost
       ? (avgCost != null ? Math.round(avgCost * current) : null)
-      : (runningShares > 0 || initialCostBasis > 0 ? Math.round(runningCost) : null);
+      : (runningShares > 0 || runningCost > 0 ? Math.round(runningCost) : null);
+
+
 
     // 本季（自然季度：1-3月/4-6月/7-9月/10-12月）淨增加股數，過季就歸零重算。
     const now = new Date();
@@ -2508,7 +2521,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
 
 // ---------------- Holdings Panel ----------------
 function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
-  const [form, setForm] = useState({ symbol: "", name: "", initialShares: "", target2035: "", initialCostBasis: "" });
+  const [form, setForm] = useState({ symbol: "", name: "", initialShares: "", target2035: "", costBasis: "" });
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState(null);
 
@@ -2537,12 +2550,13 @@ function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
 
   const add = () => {
     if (!form.symbol) return;
+    const costAmount = form.costBasis === "" ? null : Number(form.costBasis);
     setHoldings((h) => [...h, {
       id: uid(), symbol: form.symbol, name: form.name,
       initialShares: Number(form.initialShares || 0), target2035: Number(form.target2035 || 0),
-      initialCostBasis: Number(form.initialCostBasis || 0),
+      costOverride: costAmount != null ? { amount: costAmount, asOfDate: todayStr(), asOfShares: Number(form.initialShares || 0) } : null,
     }]);
-    setForm({ symbol: "", name: "", initialShares: "", target2035: "", initialCostBasis: "" });
+    setForm({ symbol: "", name: "", initialShares: "", target2035: "", costBasis: "" });
   };
   const remove = (id) => setHoldings((h) => h.filter((x) => x.id !== id));
 
@@ -2550,16 +2564,25 @@ function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
     setEditingId(h.id);
     setEditForm({
       symbol: h.symbol, name: h.name, initialShares: String(h.initialShares), target2035: String(h.target2035),
-      initialCostBasis: h.initialCostBasis != null && h.initialCostBasis !== "" ? String(h.initialCostBasis) : "",
+      // 編輯時預先帶入目前算出來的持有成本，方便直接對照券商 App 修改，
+      // 不用自己從零算起。
+      costBasis: h.estCostBasis != null ? String(h.estCostBasis) : "",
     });
   };
   const cancelEdit = () => { setEditingId(null); setEditForm(null); };
   const saveEdit = () => {
+    // asOfShares 用目前算出來的股數（來自 holdings 這個已經算好 current 的 prop），
+    // 不是 setHoldings 裡那個還沒算過的原始資料，兩者不能搞混。
+    const currentShares = holdings.find((x) => x.id === editingId)?.current ?? 0;
     setHoldings((hs) => hs.map((h) => h.id === editingId ? {
       ...h, symbol: editForm.symbol, name: editForm.name,
       initialShares: Number(editForm.initialShares || 0), target2035: Number(editForm.target2035 || 0),
-      initialCostBasis: editForm.initialCostBasis === "" ? 0 : Number(editForm.initialCostBasis),
-      // 一旦手動編輯過持股，就不再吃舊版的手動平均成本覆蓋，全部改由「起始成本＋交易紀錄」自動算。
+      // 把「持有成本」存成一筆快照（今天的成本 + 今天的股數），之後只會疊加快照
+      // 日期「之後」發生的買賣紀錄，不會重複計算今天以前已經算進這個數字裡的交易。
+      costOverride: editForm.costBasis === "" ? null : {
+        amount: Number(editForm.costBasis || 0), asOfDate: todayStr(), asOfShares: currentShares,
+      },
+      // 一旦手動編輯過持股，就不再吃舊版的手動平均成本覆蓋，全部改由「持有成本快照＋交易紀錄」自動算。
       manualAvgCost: "",
     } : h));
     cancelEdit();
@@ -2601,12 +2624,13 @@ function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
                     <Field label="目標股數"><input type="number" value={editForm.target2035}
                       onChange={(e) => setEditForm({ ...editForm, target2035: e.target.value })} className="input" /></Field>
                     <div className="col-span-2">
-                      <Field label="起始成本（期初股數對應的持有成本，留空=0）">
-                        <input type="number" value={editForm.initialCostBasis} placeholder="0"
-                          onChange={(e) => setEditForm({ ...editForm, initialCostBasis: e.target.value })} className="input" />
+                      <Field label="持有成本（直接輸入目前總成本，例如對照券商App的數字）">
+                        <input type="number" value={editForm.costBasis} placeholder="0"
+                          onChange={(e) => setEditForm({ ...editForm, costBasis: e.target.value })} className="input" />
                       </Field>
                       <div className="text-[10px] mt-1" style={{ color: COLORS.sub }}>
-                        平均成本會用「持有成本 ÷ 目前股數」自動倒算，之後每新增一筆交易都會自動更新，不用手動填均價。
+                        平均成本會用「持有成本 ÷ 目前股數」自動倒算。儲存後會把這個數字當成「今天」的成本快照，
+                        之後新增的每一筆交易都會自動疊加上去；今天以前已經發生的交易不會被重複計算。
                       </div>
                     </div>
                   </div>
@@ -2728,8 +2752,8 @@ function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
             placeholder="0" className="input" /></Field>
           <div className="col-span-2">
             <Field label="起始成本（期初股數對應的持有成本，留空=0）">
-              <input type="number" value={form.initialCostBasis}
-                onChange={(e) => setForm({ ...form, initialCostBasis: e.target.value })}
+              <input type="number" value={form.costBasis}
+                onChange={(e) => setForm({ ...form, costBasis: e.target.value })}
                 placeholder="0" className="input" />
             </Field>
           </div>
