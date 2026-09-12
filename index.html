@@ -73,7 +73,7 @@ const { useState, useEffect, useMemo, useRef } = window.React;
 
 const RC = window.Recharts;
 if (!RC) throw new Error("Recharts 載入失敗");
-const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } = RC;
+const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, PieChart, Pie, Cell } = RC;
 
 const LR = window.LucideReact || window["lucide-react"] || window.lucideReact || {};
 const FallbackIcon = ({ size = 20, ...props }) => (
@@ -124,7 +124,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.6-personal-v2.27.0-gemini35";
+const APP_VERSION = "4.6-personal-v2.28.0-gemini35";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -2598,6 +2598,22 @@ function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
   // 用來跟「每日紀錄」的台股成本互相核對、同步。
   const totalHoldingCost = holdings.reduce((s, h) => s + (h.estCostBasis || 0), 0);
 
+  // 資產配置圓餅圖：優先用「即時股價 × 目前股數」算市值佔比（比較貼近再平衡要看的
+  // 實際曝險），單一標的抓不到報價時，退回用該檔的持有成本，圖表才不會缺一塊。
+  const ALLOC_COLORS = [COLORS.gold, "#60A5FA", "#34D399", "#F472B6", "#A78BFA", "#F87171", "#22D3EE", "#FBBF24"];
+  const allocationData = useMemo(() => {
+    return holdings.map((h) => {
+      const q = holdingQuotes[h.symbol];
+      const price = Number(q?.price);
+      const hasPrice = Number.isFinite(price) && price > 0 && Number(h.current || 0) > 0;
+      const marketValue = hasPrice ? price * Number(h.current) : null;
+      const value = marketValue != null ? marketValue : Number(h.estCostBasis || 0);
+      return { symbol: h.symbol, name: h.name, value, usedCostFallback: !hasPrice };
+    }).filter((x) => x.value > 0);
+  }, [holdings, holdingQuotes]);
+  const allocationTotal = allocationData.reduce((s, x) => s + x.value, 0);
+  const hasCostFallback = allocationData.some((x) => x.usedCostFallback);
+
   return (
     <div className="space-y-4">
       <Panel title="持股進度">
@@ -2615,6 +2631,42 @@ function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
             </button>
           )}
         </div>
+
+        {allocationData.length > 0 && (
+          <div className="rounded-xl p-3 mb-3" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
+            <div className="text-[11px] mb-1" style={{ color: COLORS.sub }}>資產配置（以市值計，抓不到報價時退回用成本）</div>
+            <div style={{ height: 180 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={allocationData} dataKey="value" nameKey="symbol"
+                    innerRadius={40} outerRadius={70} paddingAngle={2}>
+                    {allocationData.map((_, i) => (
+                      <Cell key={i} fill={ALLOC_COLORS[i % ALLOC_COLORS.length]} stroke={COLORS.bg} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{ background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`, fontSize: 12 }}
+                    formatter={(v, n) => [`NT$ ${nf(v)}（${((v / allocationTotal) * 100).toFixed(1)}%）`, n]} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1">
+              {allocationData.map((x, i) => (
+                <div key={x.symbol} className="flex items-center gap-1 text-[11px]" style={{ color: COLORS.sub }}>
+                  <span className="inline-block rounded-full" style={{ width: 8, height: 8, background: ALLOC_COLORS[i % ALLOC_COLORS.length] }} />
+                  <span className="mono" style={{ color: COLORS.text }}>{x.symbol}</span>
+                  <span>{((x.value / allocationTotal) * 100).toFixed(1)}%{x.usedCostFallback ? "*" : ""}</span>
+                </div>
+              ))}
+            </div>
+            {hasCostFallback && (
+              <div className="text-[10px] mt-1" style={{ color: COLORS.sub }}>
+                * 抓不到即時報價，暫時用持有成本計算佔比
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="space-y-3">
           {holdings.map((h) => (
             <div key={h.id} className="rounded-xl p-3" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
