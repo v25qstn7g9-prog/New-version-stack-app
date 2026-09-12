@@ -124,7 +124,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.6-personal-v2.26.1-gemini35";
+const APP_VERSION = "4.6-personal-v2.27.0-gemini35";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -428,10 +428,11 @@ function buildPortfolioContext(holdings, goal, totalToday, totalInvested, trades
     if (perf.startingCost) lines.push(`起始成本(計畫外的期初投入)：NT$${nf(perf.startingCost)}`);
   }
 
-  // 計畫進度頁：資產累積 vs 本金累積的投影比較（資產是否超前/落後於本金投入的速度）。
+  // 計畫進度頁：成本進度／資產進度各自跟「已執行月數」比較，是否超前或落後排程。
   if (perf && perf.elapsedMonths != null) {
+    const leadText = (label, v) => v == null ? "" : `，${label}${v >= 0 ? "領先" : "落後"}計畫排程約${Math.abs(v).toFixed(1)}個月`;
     lines.push(`計畫進度：已執行${perf.elapsedMonths}個月` +
-      (perf.leadMonths != null ? `，資產成長進度${perf.leadMonths >= 0 ? "領先" : "落後"}本金投入進度約${Math.abs(perf.leadMonths)}個月` : ""));
+      leadText("成本進度", perf.costLeadMonths) + leadText("資產進度", perf.assetLeadMonths));
   }
 
   const active = holdings.filter((h) => h.symbol);
@@ -1205,8 +1206,13 @@ function AssetTracker() {
   const goalDate = goalCrossing && !goalCrossing.beyond
     ? addMonths(planSchedule.startDate, goalCrossing.index) : null;
   const elapsedMonths = monthsBetween(planSchedule.startDate, latest ? latest.date : todayStr());
-  const leadMonths = (principalCrossing && assetCrossing)
-    ? principalCrossing.index - assetCrossing.index : null;
+  // 分別看「成本進度」「資產進度」各自比「計畫已執行的月數」超前或落後幾個月，
+  // 而不是拿這兩個基準點數字不同的東西互相相減（那樣算出來的正負號常常會誤導人）。
+  // 正值＝實際數字比排程預期的還早達到（領先），負值＝比預期晚達到（落後）。
+  const costLeadMonths = (principalCrossing && elapsedMonths != null)
+    ? principalCrossing.index - elapsedMonths : null;
+  const assetLeadMonths = (assetCrossing && elapsedMonths != null)
+    ? assetCrossing.index - elapsedMonths : null;
 
   // Milestone celebration: show a one-time toast the first time total assets
   // cross 50% / 80% / 100% of the goal. celebratedMilestones is persisted so
@@ -1363,7 +1369,7 @@ function AssetTracker() {
                     planTotal={planTotal} schedule={schedule}
                     totalInvested={totalInvested} totalToday={totalToday}
                     principalCrossing={principalCrossing} assetCrossing={assetCrossing}
-                    elapsedMonths={elapsedMonths} leadMonths={leadMonths}
+                    elapsedMonths={elapsedMonths} costLeadMonths={costLeadMonths} assetLeadMonths={assetLeadMonths}
                   />
                 );
               default:
@@ -1426,7 +1432,7 @@ function AssetTracker() {
         goalDate={goalDate} aiFallbackConfig={aiFallbackConfig}
         perf={{
           capitalGain, totalDividends, totalReturn, totalReturnPct, highPoint, drawdown, ytdGain, ytdPct,
-          elapsedMonths, leadMonths, startingCost: costBasis?.startingCost,
+          elapsedMonths, costLeadMonths, assetLeadMonths, startingCost: costBasis?.startingCost,
         }} />
 
       <TabBar tab={tab} setTab={goToTab} rootRef={tabBarRef} />
@@ -3097,7 +3103,7 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
 
 // ---------------- Progress Panel ----------------
 function ProgressPanel({ planSchedule, setPlanSchedule, planTotal, schedule, totalInvested, totalToday,
-  principalCrossing, assetCrossing, elapsedMonths, leadMonths }) {
+  principalCrossing, assetCrossing, elapsedMonths, costLeadMonths, assetLeadMonths }) {
 
   const principalDate = principalCrossing ? addMonths(planSchedule.startDate, principalCrossing.index) : "—";
   const assetDate = assetCrossing ? addMonths(planSchedule.startDate, assetCrossing.index) : "—";
@@ -3124,13 +3130,27 @@ function ProgressPanel({ planSchedule, setPlanSchedule, planTotal, schedule, tot
           </div>
         </div>
 
-        <div className="mt-3 rounded-xl p-3 flex items-center justify-between"
-          style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
-          <span className="text-xs" style={{ color: COLORS.sub }}>資產領先成本進度</span>
-          <span className="text-lg font-bold mono"
-            style={{ color: leadMonths >= 0 ? COLORS.gain : COLORS.loss }}>
-            {leadMonths == null ? "—" : `${leadMonths >= 0 ? "+" : ""}${leadMonths.toFixed(1)} 個月`}
-          </span>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <div className="rounded-xl p-3 flex flex-col justify-between" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
+            <span className="text-[11px]" style={{ color: COLORS.sub }}>成本進度 vs 已執行月數</span>
+            <span className="text-lg font-bold mono mt-1"
+              style={{ color: costLeadMonths == null ? COLORS.text : (costLeadMonths >= 0 ? COLORS.gain : COLORS.loss) }}>
+              {costLeadMonths == null ? "—" : `${costLeadMonths >= 0 ? "+" : ""}${costLeadMonths.toFixed(1)} 個月`}
+            </span>
+            <span className="text-[10px] mt-1" style={{ color: COLORS.sub }}>
+              {costLeadMonths == null ? "" : (costLeadMonths >= 0 ? "投入節奏領先計畫" : "投入節奏落後計畫")}
+            </span>
+          </div>
+          <div className="rounded-xl p-3 flex flex-col justify-between" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
+            <span className="text-[11px]" style={{ color: COLORS.sub }}>資產進度 vs 已執行月數</span>
+            <span className="text-lg font-bold mono mt-1"
+              style={{ color: assetLeadMonths == null ? COLORS.text : (assetLeadMonths >= 0 ? COLORS.gain : COLORS.loss) }}>
+              {assetLeadMonths == null ? "—" : `${assetLeadMonths >= 0 ? "+" : ""}${assetLeadMonths.toFixed(1)} 個月`}
+            </span>
+            <span className="text-[10px] mt-1" style={{ color: COLORS.sub }}>
+              {assetLeadMonths == null ? "" : (assetLeadMonths >= 0 ? "資產成長領先假設報酬率" : "資產成長落後假設報酬率")}
+            </span>
+          </div>
         </div>
         <div className="mt-2 text-[11px] mono" style={{ color: COLORS.sub }}>
           計畫已執行約 {elapsedMonths.toFixed(1)} 個月（自 {planSchedule.startDate}）
