@@ -124,7 +124,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.6-personal-v2.25.5-gemini35";
+const APP_VERSION = "4.6-personal-v2.26.0-gemini35";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -583,7 +583,7 @@ function inspectBackupPayload(payload) {
   });
   data.holdings.forEach((h, i) => {
     if (!isObject(h) || !String(h.symbol || "").trim()) errors.push(`持股第 ${i + 1} 筆缺少股票代號`);
-    ["initialShares", "current", "target2035", "avgCost", "manualAvgCost"].forEach((k) => {
+    ["initialShares", "current", "target2035", "avgCost", "manualAvgCost", "initialCostBasis"].forEach((k) => {
       if (!finiteNonNegative(h?.[k])) errors.push(`持股第 ${i + 1} 筆 ${k} 不是有效非負數字`);
     });
   });
@@ -1078,17 +1078,19 @@ function AssetTracker() {
     const current = h.initialShares + bought - sold;
     const pct = h.target2035 ? Math.min(100, (current / h.target2035) * 100) : 0;
 
-    // 用「移動加權平均法」依交易紀錄算出平均成本（自動）：
+    // 用「移動加權平均法」依交易紀錄算出平均成本：
+    // 起始成本（initialCostBasis，對應期初股數 initialShares，可在持股進度手動編輯）當起點，
     // 買進時把成本併入、股數增加；賣出時依當下平均成本按比例扣除。
-    // 注意：期初股數（initialShares）本身沒有記錄成本，這裡只根據交易紀錄計算，
-    // 所以自動算出的均價僅供參考，可能跟實際成本對不起來。
+    // 持有成本＝起始成本＋歷來所有買賣紀錄，每新增一筆交易都會自動往下疊加更新；
+    // 平均成本則是「倒算」出來的：持有成本 ÷ 目前股數，不用另外手動輸入均價。
     const symbolTrades = trades
       .filter((t) => t.symbol === h.symbol)
       .slice()
       .sort((a, b) => a.date.localeCompare(b.date));
 
-    let runningShares = 0, runningCost = 0;
-    let runningSharesNoFee = 0, runningCostNoFee = 0; // 不含手續費，算「平均成交價」用
+    const initialCostBasis = Number(h.initialCostBasis || 0);
+    let runningShares = Number(h.initialShares || 0), runningCost = initialCostBasis;
+    let runningSharesNoFee = 0, runningCostNoFee = 0; // 不含手續費、不含起始成本，算「成交均價」用
     for (const t of symbolTrades) {
       if (t.action === "buy") {
         runningCost += t.shares * t.price + Number(t.fee || 0);
@@ -1114,12 +1116,14 @@ function AssetTracker() {
     const autoAvgCost = runningShares > 0 ? runningCost / runningShares : null;
     const avgTradePrice = runningSharesNoFee > 0 ? runningCostNoFee / runningSharesNoFee : null; // 不含手續費的成交均價
 
-    // 若有手動填「平均成本」，優先用手動值；否則用交易紀錄自動算出的均價。
-    // 持有成本一律用這個平均成本 × 目前股數算出，兩個數字才會對得起來。
+    // 舊版相容：早期版本是直接手動輸入「平均成本」整個覆蓋掉自動計算，且不會隨新交易更新。
+    // 現在編輯持股改成填「起始成本」，這裡只保留讀取舊資料／AI 指令相容用途。
     const manualAvgCost = Number(h.manualAvgCost);
     const hasManualAvgCost = h.manualAvgCost !== undefined && h.manualAvgCost !== "" && Number.isFinite(manualAvgCost) && manualAvgCost > 0;
     const avgCost = hasManualAvgCost ? manualAvgCost : autoAvgCost;
-    const estCostBasis = avgCost != null ? Math.round(avgCost * current) : null;
+    const estCostBasis = hasManualAvgCost
+      ? (avgCost != null ? Math.round(avgCost * current) : null)
+      : (runningShares > 0 || initialCostBasis > 0 ? Math.round(runningCost) : null);
 
     // 本季（自然季度：1-3月/4-6月/7-9月/10-12月）淨增加股數，過季就歸零重算。
     const now = new Date();
@@ -1316,7 +1320,9 @@ function AssetTracker() {
                 );
               case "holdings":
                 return (
-                  <HoldingsPanel holdings={holdingsWithShares} setHoldings={setHoldings} />
+                  <HoldingsPanel holdings={holdingsWithShares} setHoldings={setHoldings}
+                    onFillDailyCost={(value) => { setDailyPrefill({ twCost: value, nonce: Date.now() }); goToTab("daily"); }}
+                  />
                 );
               case "trades":
                 return (
@@ -2501,8 +2507,8 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
 }
 
 // ---------------- Holdings Panel ----------------
-function HoldingsPanel({ holdings, setHoldings }) {
-  const [form, setForm] = useState({ symbol: "", name: "", initialShares: "", target2035: "" });
+function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
+  const [form, setForm] = useState({ symbol: "", name: "", initialShares: "", target2035: "", initialCostBasis: "" });
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState(null);
 
@@ -2534,8 +2540,9 @@ function HoldingsPanel({ holdings, setHoldings }) {
     setHoldings((h) => [...h, {
       id: uid(), symbol: form.symbol, name: form.name,
       initialShares: Number(form.initialShares || 0), target2035: Number(form.target2035 || 0),
+      initialCostBasis: Number(form.initialCostBasis || 0),
     }]);
-    setForm({ symbol: "", name: "", initialShares: "", target2035: "" });
+    setForm({ symbol: "", name: "", initialShares: "", target2035: "", initialCostBasis: "" });
   };
   const remove = (id) => setHoldings((h) => h.filter((x) => x.id !== id));
 
@@ -2543,7 +2550,7 @@ function HoldingsPanel({ holdings, setHoldings }) {
     setEditingId(h.id);
     setEditForm({
       symbol: h.symbol, name: h.name, initialShares: String(h.initialShares), target2035: String(h.target2035),
-      manualAvgCost: h.manualAvgCost != null ? String(h.manualAvgCost) : "",
+      initialCostBasis: h.initialCostBasis != null && h.initialCostBasis !== "" ? String(h.initialCostBasis) : "",
     });
   };
   const cancelEdit = () => { setEditingId(null); setEditForm(null); };
@@ -2551,14 +2558,34 @@ function HoldingsPanel({ holdings, setHoldings }) {
     setHoldings((hs) => hs.map((h) => h.id === editingId ? {
       ...h, symbol: editForm.symbol, name: editForm.name,
       initialShares: Number(editForm.initialShares || 0), target2035: Number(editForm.target2035 || 0),
-      manualAvgCost: editForm.manualAvgCost === "" ? "" : Number(editForm.manualAvgCost),
+      initialCostBasis: editForm.initialCostBasis === "" ? 0 : Number(editForm.initialCostBasis),
+      // 一旦手動編輯過持股，就不再吃舊版的手動平均成本覆蓋，全部改由「起始成本＋交易紀錄」自動算。
+      manualAvgCost: "",
     } : h));
     cancelEdit();
   };
 
+  // 總持有成本：加總每一檔目前的持有成本（起始成本＋歷來買賣紀錄），
+  // 用來跟「每日紀錄」的台股成本互相核對、同步。
+  const totalHoldingCost = holdings.reduce((s, h) => s + (h.estCostBasis || 0), 0);
+
   return (
     <div className="space-y-4">
       <Panel title="持股進度">
+        <div className="flex items-center justify-between rounded-xl p-3 mb-3"
+          style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
+          <div>
+            <div className="text-[11px]" style={{ color: COLORS.sub }}>總持有成本（所有標的合計）</div>
+            <div className="text-base font-bold mono" style={{ color: COLORS.gold }}>NT$ {nf(totalHoldingCost)}</div>
+          </div>
+          {onFillDailyCost && (
+            <button onClick={() => onFillDailyCost(Math.round(totalHoldingCost))}
+              className="text-[11px] px-2.5 py-1.5 rounded-lg font-bold"
+              style={{ border: `1px solid ${COLORS.gold}`, color: COLORS.gold }}>
+              帶入「每日紀錄」台股成本
+            </button>
+          )}
+        </div>
         <div className="space-y-3">
           {holdings.map((h) => (
             <div key={h.id} className="rounded-xl p-3" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
@@ -2574,10 +2601,13 @@ function HoldingsPanel({ holdings, setHoldings }) {
                     <Field label="目標股數"><input type="number" value={editForm.target2035}
                       onChange={(e) => setEditForm({ ...editForm, target2035: e.target.value })} className="input" /></Field>
                     <div className="col-span-2">
-                      <Field label="平均成本（留空=自動用交易紀錄算）">
-                        <input type="number" value={editForm.manualAvgCost} placeholder="自動計算"
-                          onChange={(e) => setEditForm({ ...editForm, manualAvgCost: e.target.value })} className="input" />
+                      <Field label="起始成本（期初股數對應的持有成本，留空=0）">
+                        <input type="number" value={editForm.initialCostBasis} placeholder="0"
+                          onChange={(e) => setEditForm({ ...editForm, initialCostBasis: e.target.value })} className="input" />
                       </Field>
+                      <div className="text-[10px] mt-1" style={{ color: COLORS.sub }}>
+                        平均成本會用「持有成本 ÷ 目前股數」自動倒算，之後每新增一筆交易都會自動更新，不用手動填均價。
+                      </div>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
@@ -2696,6 +2726,13 @@ function HoldingsPanel({ holdings, setHoldings }) {
           <Field label="2035目標股數"><input type="number" value={form.target2035}
             onChange={(e) => setForm({ ...form, target2035: e.target.value })}
             placeholder="0" className="input" /></Field>
+          <div className="col-span-2">
+            <Field label="起始成本（期初股數對應的持有成本，留空=0）">
+              <input type="number" value={form.initialCostBasis}
+                onChange={(e) => setForm({ ...form, initialCostBasis: e.target.value })}
+                placeholder="0" className="input" />
+            </Field>
+          </div>
         </div>
         <AddButton onClick={add} label="新增標的" />
       </Panel>
