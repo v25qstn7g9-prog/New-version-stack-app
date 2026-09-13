@@ -73,7 +73,7 @@ const { useState, useEffect, useMemo, useRef } = window.React;
 
 const RC = window.Recharts;
 if (!RC) throw new Error("Recharts 載入失敗");
-const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, PieChart, Pie, Cell, BarChart, Bar } = RC;
+const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, PieChart, Pie, Cell, BarChart, Bar, Legend } = RC;
 
 const LR = window.LucideReact || window["lucide-react"] || window.lucideReact || {};
 const FallbackIcon = ({ size = 20, ...props }) => (
@@ -2997,18 +2997,41 @@ function UpcomingDividendReminder({ holdings }) {
 
 // 配息歷史圖表：依股票代號篩選（或看全部加總），用長條圖看每年配息
 // 金額的變化。資料完全來自使用者自己輸入過的配息紀錄，不用額外打 API。
+// 選「全部」時改成依股票代號分色的堆疊圖，可以看出當年配息主要來自哪一檔；
+// 選特定代號時就是單純的單色長條圖。
+const DIVIDEND_CHART_COLORS = [COLORS.gold, "#4FB6A8", "#6C93C7", "#B77DC9", "#D98C63", "#8FBF6B"];
+function colorForSymbol(symbol, symbols) {
+  const i = symbols.indexOf(symbol);
+  return DIVIDEND_CHART_COLORS[i % DIVIDEND_CHART_COLORS.length];
+}
+
 function DividendHistoryChart({ dividends }) {
   const symbols = [...new Set(dividends.map((d) => d.symbol))].sort();
   const [filter, setFilter] = useState("all");
   if (!dividends.length) return null;
 
-  const filtered = filter === "all" ? dividends : dividends.filter((d) => d.symbol === filter);
-  const byYear = {};
-  filtered.forEach((d) => {
-    const year = String(d.date).slice(0, 4);
-    byYear[year] = (byYear[year] || 0) + Number(d.amount || 0);
-  });
-  const chartData = Object.keys(byYear).sort().map((year) => ({ year, amount: byYear[year] }));
+  const isAll = filter === "all";
+  let chartData, seriesKeys;
+
+  if (isAll) {
+    // 每年一筆，欄位是各代號當年配息加總：{ year, "0056": 12345, "00878": 6789 }
+    const byYear = {};
+    dividends.forEach((d) => {
+      const year = String(d.date).slice(0, 4);
+      if (!byYear[year]) byYear[year] = {};
+      byYear[year][d.symbol] = (byYear[year][d.symbol] || 0) + Number(d.amount || 0);
+    });
+    chartData = Object.keys(byYear).sort().map((year) => ({ year, ...byYear[year] }));
+    seriesKeys = symbols;
+  } else {
+    const byYear = {};
+    dividends.filter((d) => d.symbol === filter).forEach((d) => {
+      const year = String(d.date).slice(0, 4);
+      byYear[year] = (byYear[year] || 0) + Number(d.amount || 0);
+    });
+    chartData = Object.keys(byYear).sort().map((year) => ({ year, amount: byYear[year] }));
+    seriesKeys = ["amount"];
+  }
 
   return (
     <Panel title="配息歷史">
@@ -3028,7 +3051,7 @@ function DividendHistoryChart({ dividends }) {
           );
         })}
       </div>
-      <div style={{ height: 180 }}>
+      <div style={{ height: isAll ? 210 : 180 }}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
             <CartesianGrid stroke={COLORS.panelBorder} strokeDasharray="3 3" vertical={false} />
@@ -3037,8 +3060,16 @@ function DividendHistoryChart({ dividends }) {
               tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} width={40} />
             <Tooltip
               contentStyle={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, fontSize: 12 }}
-              formatter={(v) => [`NT$ ${nf(v)}`, "配息"]} />
-            <Bar dataKey="amount" fill={COLORS.gold} radius={[4, 4, 0, 0]} />
+              formatter={(v, name) => [`NT$ ${nf(v)}`, isAll ? name : "配息"]} />
+            {isAll && (
+              <Legend wrapperStyle={{ fontSize: 11 }}
+                formatter={(value) => <span style={{ color: COLORS.sub }}>{value}</span>} />
+            )}
+            {seriesKeys.map((key, i) => (
+              <Bar key={key} dataKey={key} stackId={isAll ? "a" : undefined}
+                fill={colorForSymbol(isAll ? key : filter, symbols)}
+                radius={i === seriesKeys.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
+            ))}
           </BarChart>
         </ResponsiveContainer>
       </div>
