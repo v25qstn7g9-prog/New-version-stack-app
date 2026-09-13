@@ -73,7 +73,7 @@ const { useState, useEffect, useMemo, useRef } = window.React;
 
 const RC = window.Recharts;
 if (!RC) throw new Error("Recharts 載入失敗");
-const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, PieChart, Pie, Cell } = RC;
+const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, PieChart, Pie, Cell, BarChart, Bar } = RC;
 
 const LR = window.LucideReact || window["lucide-react"] || window.lucideReact || {};
 const FallbackIcon = ({ size = 20, ...props }) => (
@@ -2924,6 +2924,128 @@ function TradesPanel({ trades, setTrades, holdings, costBasis, setCostBasis, acc
   );
 }
 
+// 近期除息倒數提醒：一次查詢所有「還在追蹤」的持股，只顯示已公告、
+// 日期還沒過的那幾筆，由近到遠排序。查不到公告的股票安靜略過（不當錯誤）。
+function UpcomingDividendReminder({ holdings }) {
+  const symbols = [...new Set(
+    holdings.filter((h) => Number(h.current || 0) > 0 && h.symbol).map((h) => h.symbol)
+  )];
+  const [items, setItems] = useState([]);
+  const [status, setStatus] = useState(symbols.length ? "loading" : "idle");
+
+  useEffect(() => {
+    if (!symbols.length) { setStatus("idle"); setItems([]); return; }
+    let cancelled = false;
+    setStatus("loading");
+    (async () => {
+      try {
+        const res = await fetchWithTimeout(
+          `/dividend-schedule?symbols=${encodeURIComponent(symbols.join(","))}`, { cache: "no-store" }, 8000
+        );
+        const data = await res.json().catch(() => null);
+        if (cancelled) return;
+        if (!res.ok || !data?.ok) { setStatus("error"); return; }
+        const today = todayStr();
+        const upcoming = (data.results || [])
+          .filter((r) => r.found && r.date >= today)
+          .sort((a, b) => a.date.localeCompare(b.date));
+        setItems(upcoming);
+        setStatus("done");
+      } catch (e) {
+        if (!cancelled) setStatus("error");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [symbols.join(",")]);
+
+  if (status === "idle" || status === "error") return null;
+  if (status === "loading") {
+    return (
+      <Panel title="近期除息">
+        <div className="text-xs" style={{ color: COLORS.sub }}>查詢中…</div>
+      </Panel>
+    );
+  }
+  if (!items.length) return null; // 沒有即將除息的持股，安靜不顯示這個區塊
+
+  const daysUntil = (dateStr) => {
+    const diff = (new Date(dateStr) - new Date(todayStr())) / (1000 * 60 * 60 * 24);
+    return Math.round(diff);
+  };
+
+  return (
+    <Panel title="近期除息">
+      <div className="space-y-2">
+        {items.map((r) => {
+          const days = daysUntil(r.date);
+          return (
+            <div key={r.symbol} className="flex items-center justify-between text-sm">
+              <div className="mono">{r.symbol}{r.name ? ` · ${r.name}` : ""}</div>
+              <div className="text-right">
+                <span className="mono" style={{ color: COLORS.gold }}>{r.date}</span>
+                <span className="text-[11px] ml-1" style={{ color: COLORS.sub }}>
+                  {days === 0 ? "就是今天" : `還有 ${days} 天`}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Panel>
+  );
+}
+
+// 配息歷史圖表：依股票代號篩選（或看全部加總），用長條圖看每年配息
+// 金額的變化。資料完全來自使用者自己輸入過的配息紀錄，不用額外打 API。
+function DividendHistoryChart({ dividends }) {
+  const symbols = [...new Set(dividends.map((d) => d.symbol))].sort();
+  const [filter, setFilter] = useState("all");
+  if (!dividends.length) return null;
+
+  const filtered = filter === "all" ? dividends : dividends.filter((d) => d.symbol === filter);
+  const byYear = {};
+  filtered.forEach((d) => {
+    const year = String(d.date).slice(0, 4);
+    byYear[year] = (byYear[year] || 0) + Number(d.amount || 0);
+  });
+  const chartData = Object.keys(byYear).sort().map((year) => ({ year, amount: byYear[year] }));
+
+  return (
+    <Panel title="配息歷史">
+      <div className="flex gap-1.5 flex-wrap mb-3">
+        {["all", ...symbols].map((s) => {
+          const active = filter === s;
+          return (
+            <button key={s} onClick={() => setFilter(s)}
+              className="rounded-lg px-2 py-1 text-[11px] font-bold"
+              style={{
+                background: active ? COLORS.gold : COLORS.bg,
+                color: active ? "#0A0F1C" : COLORS.sub,
+                border: `1px solid ${active ? COLORS.gold : COLORS.panelBorder}`,
+              }}>
+              {s === "all" ? "全部" : s}
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ height: 180 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+            <CartesianGrid stroke={COLORS.panelBorder} strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="year" tick={{ fontSize: 9, fill: COLORS.sub }} />
+            <YAxis tick={{ fontSize: 9, fill: COLORS.sub }}
+              tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} width={40} />
+            <Tooltip
+              contentStyle={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, fontSize: 12 }}
+              formatter={(v) => [`NT$ ${nf(v)}`, "配息"]} />
+            <Bar dataKey="amount" fill={COLORS.gold} radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </Panel>
+  );
+}
+
 // ---------------- Dividends Panel ----------------
 function DividendsPanel({ dividends, setDividends, holdings }) {
   const [form, setForm] = useState({ date: todayStr(), symbol: "", shares: "", perShare: "" });
@@ -2941,7 +3063,9 @@ function DividendsPanel({ dividends, setDividends, holdings }) {
   };
 
   // 代號打完（符合股票代號格式）之後，自動去查 TWSE 的「除權除息預告表」，
-  // 抓到的話幫忙帶入除息日（還有每股配息，如果那格還是空的）。
+  // 抓到的話幫忙帶入除息日跟每股配息（查到就直接覆蓋，使用者只要看一眼、
+  // 確認沒問題就送出——查不到金額（cashDividend 是 null，例如 ETF 常見的
+  // 「待公告實際收益分配金額」）才會留著原本填的值，不會清空。
   // 這張表只列出「已經公告」的，多數個股一年只公告一次，公告前查不到是
   // 正常情況（not-found），不當成錯誤處理；兩個欄位帶入後都還是可以手動改。
   const [scheduleStatus, setScheduleStatus] = useState(null); // null | "loading" | "found" | "not-found" | "error"
@@ -2971,7 +3095,7 @@ function DividendsPanel({ dividends, setDividends, holdings }) {
           return {
             ...f,
             date: data.date || f.date,
-            perShare: (!f.perShare && data.cashDividend != null) ? String(data.cashDividend) : f.perShare,
+            perShare: (data.cashDividend != null) ? String(data.cashDividend) : f.perShare,
           };
         });
       } catch (e) {
@@ -3007,6 +3131,8 @@ function DividendsPanel({ dividends, setDividends, holdings }) {
 
   return (
     <div className="space-y-4">
+      <UpcomingDividendReminder holdings={holdings} />
+
       <Panel title="新增配息">
         <div className="grid grid-cols-2 gap-2">
           <Field label="除息日"><input type="date" value={form.date}
@@ -3021,11 +3147,17 @@ function DividendsPanel({ dividends, setDividends, holdings }) {
           </Field>
           <Field label="股數（選了有持股的代號會自動帶入，可再手動調整）"><input type="number" value={form.shares}
             onChange={(e) => setForm({ ...form, shares: e.target.value })} className="input" /></Field>
-          <Field label="每股配息"><input type="number" step="0.01" value={form.perShare}
+          <Field label={
+            scheduleStatus === "found" && scheduleInfo?.cashDividend != null
+              ? "每股配息（已用最新公告帶入，請確認後再送出）"
+              : "每股配息"
+          }><input type="number" step="0.01" value={form.perShare}
             onChange={(e) => setForm({ ...form, perShare: e.target.value })} className="input" /></Field>
         </div>
         <AddButton onClick={add} label="新增配息紀錄" />
       </Panel>
+
+      <DividendHistoryChart dividends={dividends} />
 
       <Panel title={`累積股息：NT$ ${nf(total)}`}>
         <div className="space-y-2 max-h-96 overflow-y-auto">
