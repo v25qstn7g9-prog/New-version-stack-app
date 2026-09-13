@@ -2023,13 +2023,15 @@ function Dashboard({ totalToday, dailyChange, dailyChangePct, capitalGain, total
       <div className="grid grid-cols-2 gap-3">
         <StatCard label="持倉損益(估)" value={`NT$ ${nf(capitalGain)}`} tone={capitalGain >= 0 ? "gain" : "loss"} />
         <StatCard label="累積股息" value={`NT$ ${nf(totalDividends)}`} tone="gold" />
+        <StatCard label="配息回報率" value={pf(totalInvested ? (totalDividends / totalInvested) * 100 : 0)} tone="gold" />
         <StatCard label="粗估總報酬" value={`NT$ ${nf(totalReturn)}`} tone={totalReturn >= 0 ? "gain" : "loss"} />
         <StatCard label="粗估報酬率" value={pf(totalReturnPct)} tone={totalReturnPct >= 0 ? "gain" : "loss"} />
         <StatCard label="今年資產變化(YTD)" value={`${nf(ytdGain)}（${pf(ytdPct)}）`} tone={ytdGain >= 0 ? "gain" : "loss"} className="col-span-2" />
       </div>
       <div className="text-[11px] px-1" style={{ color: COLORS.sub }}>
         註：目前成本來自券商/每日紀錄的持倉成本；若曾賣出、換股或用股息再投入，
-        「粗估總報酬」不等同完整 XIRR 或全期間真實總報酬。
+        「粗估總報酬」不等同完整 XIRR 或全期間真實總報酬；「配息回報率」是累積股息
+        佔目前持倉成本的比例，不是年化殖利率。
       </div>
 
       <div className="rounded-2xl p-4" style={{ background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}` }}>
@@ -3079,6 +3081,47 @@ function DividendHistoryChart({ dividends }) {
   );
 }
 
+// 每檔配息回報率：累積配息 ÷ 目前持倉成本（平均成本 × 股數）。
+// 已經出清（股數歸零）或沒填過平均成本的股票，成本抓不到，就只顯示累積
+// 配息金額、不硬算比率——避免顯示一個誤導的數字。
+function DividendYieldBreakdown({ dividends, holdings }) {
+  const bySymbol = {};
+  dividends.forEach((d) => {
+    bySymbol[d.symbol] = (bySymbol[d.symbol] || 0) + Number(d.amount || 0);
+  });
+  const rows = Object.keys(bySymbol).map((symbol) => {
+    const holding = holdings.find((h) => h.symbol === symbol);
+    const hasCost = holding && holding.avgCost != null && Number(holding.current || 0) > 0;
+    const cost = hasCost ? holding.avgCost * holding.current : null;
+    const yieldPct = cost ? (bySymbol[symbol] / cost) * 100 : null;
+    return { symbol, totalDividend: bySymbol[symbol], yieldPct };
+  }).sort((a, b) => (b.yieldPct ?? -1) - (a.yieldPct ?? -1));
+
+  if (!rows.length) return null;
+
+  return (
+    <Panel title="配息回報率（每檔）">
+      <div className="space-y-2">
+        {rows.map((r) => (
+          <div key={r.symbol} className="flex items-center justify-between text-sm">
+            <div className="mono">{r.symbol}</div>
+            <div className="text-right">
+              {r.yieldPct != null ? (
+                <span className="mono" style={{ color: COLORS.gold }}>{pf(r.yieldPct)}</span>
+              ) : (
+                <span className="text-[11px]" style={{ color: COLORS.sub }}>缺持股成本</span>
+              )}
+              <span className="text-[11px] ml-2" style={{ color: COLORS.sub }}>
+                累積 NT$ {nf(r.totalDividend)}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
 // ---------------- Dividends Panel ----------------
 function DividendsPanel({ dividends, setDividends, holdings }) {
   const [form, setForm] = useState({ date: todayStr(), symbol: "", shares: "", perShare: "" });
@@ -3191,6 +3234,8 @@ function DividendsPanel({ dividends, setDividends, holdings }) {
       </Panel>
 
       <DividendHistoryChart dividends={dividends} />
+
+      <DividendYieldBreakdown dividends={dividends} holdings={holdings} />
 
       <Panel title={`累積股息：NT$ ${nf(total)}`}>
         <div className="space-y-2 max-h-96 overflow-y-auto">
