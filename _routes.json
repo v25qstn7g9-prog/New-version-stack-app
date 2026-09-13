@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "include": ["/quote", "/news", "/ask", "/api/health-check", "/api/health-cards"],
+  "include": ["/quote", "/news", "/ask", "/api/health-check", "/api/health-cards", "/dividend-schedule"],
   "exclude": []
 }
 

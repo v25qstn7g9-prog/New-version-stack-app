@@ -2939,6 +2939,59 @@ function DividendsPanel({ dividends, setDividends, holdings }) {
       shares: match ? String(match.current) : f.shares,
     }));
   };
+
+  // 代號打完（符合股票代號格式）之後，自動去查 TWSE 的「除權除息預告表」，
+  // 抓到的話幫忙帶入除息日（還有每股配息，如果那格還是空的）。
+  // 這張表只列出「已經公告」的，多數個股一年只公告一次，公告前查不到是
+  // 正常情況（not-found），不當成錯誤處理；兩個欄位帶入後都還是可以手動改。
+  const [scheduleStatus, setScheduleStatus] = useState(null); // null | "loading" | "found" | "not-found" | "error"
+  const [scheduleInfo, setScheduleInfo] = useState(null);
+  useEffect(() => {
+    const symbol = form.symbol.trim().toUpperCase();
+    if (!/^[0-9]{4,6}[A-Z]?$/.test(symbol)) {
+      setScheduleStatus(null);
+      setScheduleInfo(null);
+      return;
+    }
+    let cancelled = false;
+    setScheduleStatus("loading");
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetchWithTimeout(
+          `/dividend-schedule?symbol=${encodeURIComponent(symbol)}`, { cache: "no-store" }, 8000
+        );
+        const data = await res.json().catch(() => null);
+        if (cancelled) return;
+        if (!res.ok || !data?.ok) { setScheduleStatus("error"); setScheduleInfo(null); return; }
+        if (!data.found) { setScheduleStatus("not-found"); setScheduleInfo(null); return; }
+        setScheduleStatus("found");
+        setScheduleInfo(data);
+        setForm((f) => {
+          if (f.symbol.trim().toUpperCase() !== symbol) return f; // 使用者已經改打別的代號了
+          return {
+            ...f,
+            date: data.date || f.date,
+            perShare: (!f.perShare && data.cashDividend != null) ? String(data.cashDividend) : f.perShare,
+          };
+        });
+      } catch (e) {
+        if (!cancelled) { setScheduleStatus("error"); setScheduleInfo(null); }
+      }
+    }, 500); // debounce：等打完字停一下再查，不要每敲一個字就打一次
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [form.symbol]);
+
+  const scheduleHint = (() => {
+    if (scheduleStatus === "loading") return { text: "查詢最新除息公告中…", color: COLORS.sub };
+    if (scheduleStatus === "found") {
+      const cash = scheduleInfo?.cashDividend != null ? `，每股 ${scheduleInfo.cashDividend}` : "";
+      return { text: `已抓到最新公告：${scheduleInfo.date} 除${scheduleInfo.type || "息"}${cash}`, color: COLORS.gold };
+    }
+    if (scheduleStatus === "not-found") return { text: "尚未有除權息公告（可能還沒到公告時間，日期請自行填寫）", color: COLORS.sub };
+    if (scheduleStatus === "error") return { text: "查詢公告失敗，請自行填寫除息日", color: "#EF4444" };
+    return null;
+  })();
+
   const add = () => {
     if (!form.symbol || !form.shares || !form.perShare) return;
     const amount = Number(form.shares) * Number(form.perShare);
@@ -2962,6 +3015,9 @@ function DividendsPanel({ dividends, setDividends, holdings }) {
             <input value={form.symbol} onChange={(e) => handleSymbolChange(e.target.value)}
               placeholder="0056" list="symbols2" className="input" />
             <datalist id="symbols2">{holdings.map((h) => <option key={h.id} value={h.symbol} />)}</datalist>
+            {scheduleHint && (
+              <div className="text-[11px] mt-1" style={{ color: scheduleHint.color }}>{scheduleHint.text}</div>
+            )}
           </Field>
           <Field label="股數（選了有持股的代號會自動帶入，可再手動調整）"><input type="number" value={form.shares}
             onChange={(e) => setForm({ ...form, shares: e.target.value })} className="input" /></Field>

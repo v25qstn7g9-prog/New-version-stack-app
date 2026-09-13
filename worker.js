@@ -5,6 +5,7 @@
  * - /quote（GET）→ 交給 functions/quote.js 的即時股價邏輯
  * - /news（GET）→ 交給 functions/news.js 的新聞邏輯
  * - /ask（POST）→ 交給 functions/ask.js 的 AI 助手邏輯
+ * - /dividend-schedule（GET）→ 交給 functions/dividend-schedule.js，查 TWSE 除權除息預告表
  * - /api/health-cards（GET/POST）→ 交給 functions/health-check.js，讀卡片清單／確認或忽略卡片
  * - /api/health-check（GET）→ 交給 functions/health-check.js，手動觸發一次健康檢查
  * - 其他所有網址 → 當一般靜態檔案送出去（index.html 等）
@@ -19,6 +20,7 @@
 import { onRequestGet as quoteHandler } from "./functions/quote.js";
 import { onRequestGet as newsHandler } from "./functions/news.js";
 import { onRequestPost as askHandler } from "./functions/ask.js";
+import { onRequestGet as dividendScheduleHandler } from "./functions/dividend-schedule.js";
 import {
   onRequestGet as healthGetHandler,
   onRequestPost as healthPostHandler,
@@ -37,6 +39,9 @@ export default {
     }
     if (url.pathname === "/ask" && request.method === "POST") {
       return askHandler({ request, env, ctx });
+    }
+    if (url.pathname === "/dividend-schedule" && request.method === "GET") {
+      return dividendScheduleHandler({ request, env, ctx });
     }
     if ((url.pathname === "/api/health-cards" || url.pathname === "/api/health-check") && request.method === "GET") {
       return healthGetHandler({ request, env, ctx });
