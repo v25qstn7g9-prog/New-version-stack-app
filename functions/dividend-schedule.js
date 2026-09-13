@@ -102,32 +102,52 @@ async function getScheduleRows() {
   return rows;
 }
 
+function buildEntry(symbol, match) {
+  if (!match || !match.date) {
+    // 沒公告不是錯誤——多數個股一年只公告一次，公告前本來就查不到。
+    return { symbol, found: false };
+  }
+  return {
+    symbol,
+    found: true,
+    date: match.date,
+    type: match.type || null, // "息" / "權" / "權息"
+    cashDividend: match.cashDividend, // 每股現金股利；ETF常顯示「待公告」→ null
+    name: match.name || null,
+  };
+}
+
 export async function onRequestGet({ request }) {
   const url = new URL(request.url);
-  const symbol = (url.searchParams.get("symbol") || "").trim().toUpperCase();
+  const symbolsParam = (url.searchParams.get("symbols") || "").trim();
+  const symbolParam = (url.searchParams.get("symbol") || "").trim();
 
+  // 批量模式：?symbols=2330,0056,006208 一次查多檔（除息倒數提醒用，
+  // 一次把持股清單全部丟進來，只打一次 TWSE 那張表，不用每檔分開查）。
+  if (symbolsParam) {
+    const symbols = [...new Set(symbolsParam.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean))];
+    if (!symbols.length) return jsonResponse({ ok: false, error: "缺少股票代號" }, 400);
+    const invalid = symbols.filter((s) => !isAllowedSymbol(s));
+    if (invalid.length) return jsonResponse({ ok: false, error: `股票代號格式不正確：${invalid.join(",")}` }, 400);
+
+    try {
+      const rows = await getScheduleRows();
+      const results = symbols.map((s) => buildEntry(s, rows.find((r) => r.symbol === s)));
+      return jsonResponse({ ok: true, source: "twse-exright-announcement", results });
+    } catch (err) {
+      return jsonResponse({ ok: false, error: `查詢失敗：${String(err?.message || err)}` }, 502);
+    }
+  }
+
+  // 單一模式：?symbol=2330（新增配息表單用，維持原本行為不變）。
+  const symbol = symbolParam.toUpperCase();
   if (!symbol) return jsonResponse({ ok: false, error: "缺少股票代號" }, 400);
   if (!isAllowedSymbol(symbol)) return jsonResponse({ ok: false, error: "股票代號格式不正確" }, 400);
 
   try {
     const rows = await getScheduleRows();
     const match = rows.find((r) => r.symbol === symbol);
-
-    if (!match || !match.date) {
-      // 沒公告不是錯誤——多數個股一年只公告一次，公告前本來就查不到。
-      return jsonResponse({ ok: true, symbol, found: false });
-    }
-
-    return jsonResponse({
-      ok: true,
-      symbol,
-      found: true,
-      date: match.date,
-      type: match.type || null, // "息" / "權" / "權息"
-      cashDividend: match.cashDividend, // 每股現金股利；ETF常顯示「待公告」→ null
-      name: match.name || null,
-      source: "twse-exright-announcement",
-    });
+    return jsonResponse({ ok: true, source: "twse-exright-announcement", ...buildEntry(symbol, match) });
   } catch (err) {
     return jsonResponse({ ok: false, error: `查詢失敗：${String(err?.message || err)}` }, 502);
   }
