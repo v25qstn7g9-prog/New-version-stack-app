@@ -3068,6 +3068,7 @@ function DividendHistoryChart({ dividends }) {
             {seriesKeys.map((key, i) => (
               <Bar key={key} dataKey={key} stackId={isAll ? "a" : undefined}
                 fill={colorForSymbol(isAll ? key : filter, symbols)}
+                activeBar={false}
                 radius={i === seriesKeys.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
             ))}
           </BarChart>
