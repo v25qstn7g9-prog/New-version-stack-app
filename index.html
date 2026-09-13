@@ -3082,20 +3082,23 @@ function DividendHistoryChart({ dividends }) {
 }
 
 // 每檔配息回報率：累積配息 ÷ 目前持倉成本（平均成本 × 股數）。
-// 已經出清（股數歸零）或沒填過平均成本的股票，成本抓不到，就只顯示累積
-// 配息金額、不硬算比率——避免顯示一個誤導的數字。
+// 以「目前持股」為準——只列股數大於 0 的股票，已經出清的不會再出現在
+// 這個清單裡；持股裡沒填過平均成本的，只顯示累積配息金額、不硬算比率。
 function DividendYieldBreakdown({ dividends, holdings }) {
   const bySymbol = {};
   dividends.forEach((d) => {
     bySymbol[d.symbol] = (bySymbol[d.symbol] || 0) + Number(d.amount || 0);
   });
-  const rows = Object.keys(bySymbol).map((symbol) => {
-    const holding = holdings.find((h) => h.symbol === symbol);
-    const hasCost = holding && holding.avgCost != null && Number(holding.current || 0) > 0;
-    const cost = hasCost ? holding.avgCost * holding.current : null;
-    const yieldPct = cost ? (bySymbol[symbol] / cost) * 100 : null;
-    return { symbol, totalDividend: bySymbol[symbol], yieldPct };
-  }).sort((a, b) => (b.yieldPct ?? -1) - (a.yieldPct ?? -1));
+  const rows = holdings
+    .filter((h) => Number(h.current || 0) > 0 && h.symbol)
+    .map((h) => {
+      const totalDividend = bySymbol[h.symbol] || 0;
+      const hasCost = h.avgCost != null;
+      const cost = hasCost ? h.avgCost * h.current : null;
+      const yieldPct = cost ? (totalDividend / cost) * 100 : null;
+      return { symbol: h.symbol, totalDividend, yieldPct };
+    })
+    .sort((a, b) => (b.yieldPct ?? -1) - (a.yieldPct ?? -1));
 
   if (!rows.length) return null;
 
