@@ -2999,7 +2999,7 @@ function UpcomingDividendReminder({ holdings }) {
 // 金額的變化。資料完全來自使用者自己輸入過的配息紀錄，不用額外打 API。
 // 選「全部」時改成依股票代號分色的堆疊圖，可以看出當年配息主要來自哪一檔；
 // 選特定代號時就是單純的單色長條圖。
-const DIVIDEND_CHART_COLORS = [COLORS.gold, "#4FB6A8", "#6C93C7", "#B77DC9", "#D98C63", "#8FBF6B"];
+const DIVIDEND_CHART_COLORS = ["#6C93C7", "#4FB6A8", "#B77DC9", "#D98C63", "#8FBF6B", "#E0A9C5"];
 function colorForSymbol(symbol, symbols) {
   const i = symbols.indexOf(symbol);
   return DIVIDEND_CHART_COLORS[i % DIVIDEND_CHART_COLORS.length];
