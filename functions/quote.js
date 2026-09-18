@@ -874,14 +874,12 @@ export async function onRequestGet(
       day,
       quotes,
       missing,
-      warnings: errors,
+      warnings: errors.map((e) => String(e).startsWith("Yahoo") ? "Yahoo 報價來源暫時失敗" : "TWSE 報價來源暫時失敗"),
     });
   } catch (e) {
     return jsonResponse(
       {
-        error:
-          e?.message ||
-          "quote function failed",
+        error: "報價服務暫時無法使用",
 
         version:
           QUOTE_VERSION,
