@@ -1,11 +1,11 @@
 {
-  "app": "v2.28.0",
+  "app": "2.29.0",
   "lastUpdated": "2026-09-18",
-  "status": "stable-gemini-direct-fallback",
+  "status": "personal-investment-advisor-gemini-direct-fallback",
   "cloudflare": {
-    "index.html": "4.6-personal-v2.28.0-gemini35",
+    "index.html": "4.7-personal-advisor-v2.29.0-gemini35",
     "quote.js": "4.6-quote-stable-12-taiex",
-    "ask.js": "4.6-ask-free-23-gemini35-direct-fallback",
+    "ask.js": "4.7-personal-advisor-v2.29.0-gemini35-direct-fallback",
     "news.js": "4.6-news-stable-6",
     "health-check.js": "4.6-health-check-2",
     "model": "@cf/openai/gpt-oss-20b"
@@ -18,11 +18,11 @@
   },
   "features": {
     "quote": "TAIEX + 台股即時報價",
-    "ask": "Cloudflare GPT-OSS 主 AI；Worker 內建 Gemini 3.5 Flash-Lite 自動備援",
+    "ask": "使用者專用投資顧問助手：以 App 個人資產資料為優先，支援即時行情、歷史分析、新聞與情境比較；Cloudflare GPT-OSS 主 AI + Gemini 3.5 備援",
     "fallback": "Cloudflare Worker 內建 Gemini 3.5 Flash-Lite 備援；舊 Vercel 備援可作最後一道相容備援",
     "news": "台股市場新聞",
     "health": "自動健康檢查卡片",
     "backup": "JSON 備份／匯入"
   },
-  "package": "2.28.0"
+  "package": "2.29.0"
 }
