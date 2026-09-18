@@ -12,7 +12,7 @@
   },
   "vercel": {
     "package": "2.21.4",
-    "ask-core.js": "4.6-ask-free-21.4-gemini35-stable-tools",
+    "ask-core.js": "4.7-personal-advisor-v2.29.0-gemini35-stable-tools",
     "model": "gemini-3.5-flash-lite",
     "thinkingLevel": "minimal"
   },
