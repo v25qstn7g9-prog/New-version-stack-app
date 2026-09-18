@@ -1,7 +1,7 @@
 {
   "name": "stock-app",
-  "version": "2.28.0",
-  "description": "存股 App - 雙層架構 (Cloudflare Workers + Vercel Backup)",
+  "version": "2.29.0",
+  "description": "個人存股資產追蹤 App - 專用投資顧問助手（Cloudflare Workers + Gemini Backup）",
   "private": true,
   "type": "module",
   "scripts": {
