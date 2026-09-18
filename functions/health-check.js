@@ -14,7 +14,7 @@
  * 只存「最近幾張卡片」，不是逐筆日誌，舊卡片超過上限直接丟棄，避免無限長大。
  */
 
-const HEALTH_VERSION = "4.6-health-check-1";
+const HEALTH_VERSION = "4.6-health-check-2";
 const KV_KEY = "health:cards";
 const MAX_CARDS = 20;
 const CLOUDFLARE_TEST_MODEL = "@cf/openai/gpt-oss-20b"; // 跟 functions/ask.js 用同一顆模型
@@ -101,16 +101,16 @@ export async function runHealthCheck(env) {
   let errorMessage = "";
   try {
     if (!env.AI) throw new Error("尚未設定 Cloudflare AI Binding（Variable name: AI）。");
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
-    try {
-      await env.AI.run(CLOUDFLARE_TEST_MODEL, {
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("Cloudflare AI health check timeout (15000ms)")), 15000);
+    });
+    await Promise.race([
+      env.AI.run(CLOUDFLARE_TEST_MODEL, {
         messages: [{ role: "user", content: "ping" }],
         max_tokens: 5,
-      });
-    } finally {
-      clearTimeout(timeout);
-    }
+      }),
+      timeoutPromise,
+    ]);
   } catch (e) {
     ok = false;
     errorMessage = e?.message || String(e);
