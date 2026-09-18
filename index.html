@@ -2865,14 +2865,15 @@ function TradesPanel({ trades, setTrades, holdings, costBasis, setCostBasis, acc
   })();
 
   // 抓可能重複輸入的紀錄：同一檔股票、同一天、同買賣別、同股數、同價格出現超過一次。
-  const dupGroups = (() => {
+  // 只在有打字搜尋時才算、才顯示，平常瀏覽全部409筆不會跳出來洗版。
+  const dupGroups = q ? (() => {
     const map = {};
     for (const t of filtered) {
       const key = `${t.symbol}|${t.date}|${t.action}|${t.shares}|${t.price}`;
       (map[key] = map[key] || []).push(t);
     }
     return Object.values(map).filter((g) => g.length > 1);
-  })();
+  })() : [];
 
   return (
     <div className="space-y-4">
@@ -2947,7 +2948,7 @@ function TradesPanel({ trades, setTrades, holdings, costBasis, setCostBasis, acc
             <div style={{ color: COLORS.sub }}>期初股數 {nf(singleSymbolSummary.initialShares)} + 淨增加 {nf(singleSymbolSummary.net)} = 目前應有 <span className="font-bold" style={{ color: COLORS.text }}>{nf(singleSymbolSummary.total)}</span> 股（跟「持股進度」頁顯示的股數對一下，兩邊算法一樣，如果對不起來代表持股進度那邊被手動改過）</div>
           </div>
         )}
-        {dupGroups.length > 0 && (
+        {q && dupGroups.length > 0 && (
           <div className="rounded-lg p-3 mb-3 text-[11px]" style={{ background: "#3a1f1f", border: `1px solid ${COLORS.loss}` }}>
             <div style={{ color: COLORS.loss }} className="font-bold mb-1">⚠️ 發現 {dupGroups.length} 組疑似重複輸入</div>
             {dupGroups.map((g, i) => (
