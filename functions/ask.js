@@ -27,6 +27,7 @@ const MAX_MESSAGE_LEN = 2000;
 const MAX_HISTORY_CONTENT = 3000;
 const MAX_CONTEXT_LEN = 4000;
 const MAX_TOKENS = 1000;
+const MAX_BODY_BYTES = 64 * 1024;
 const MAX_SERVER_SEARCH_ROUNDS = 2; // 網路搜尋在伺服器端自動來回幾輪，避免無限查詢
 
 function jsonResponse(data, status = 200) {
@@ -35,6 +36,8 @@ function jsonResponse(data, status = 200) {
     headers: {
       "content-type": "application/json; charset=utf-8",
       "cache-control": "no-store, no-cache, must-revalidate",
+      "x-content-type-options": "nosniff",
+      "referrer-policy": "same-origin",
     },
   });
 }
@@ -511,7 +514,12 @@ export async function onRequestPost(context) {
       }
     }
 
-    const body = await context.request.json().catch(() => null);
+    const contentLength = Number(context.request.headers.get("content-length") || 0);
+    if (contentLength > MAX_BODY_BYTES) return jsonResponse({ error: "Request too large" }, 413);
+    const rawBody = await context.request.text();
+    if (new TextEncoder().encode(rawBody).byteLength > MAX_BODY_BYTES) return jsonResponse({ error: "Request too large" }, 413);
+    let body = null;
+    try { body = rawBody.trim() ? JSON.parse(rawBody) : null; } catch { return jsonResponse({ error: "Invalid JSON" }, 400); }
     const message = String(body?.message || "").trim();
     if (!message) return jsonResponse({ error: "沒有收到訊息內容", version: ASK_VERSION }, 400);
     if (message.length > MAX_MESSAGE_LEN) return jsonResponse({ error: "訊息太長了，麻煩縮短一點", version: ASK_VERSION }, 400);
