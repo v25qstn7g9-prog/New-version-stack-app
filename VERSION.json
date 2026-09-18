@@ -1,9 +1,9 @@
 {
-  "app": "v2.25.5",
-  "lastUpdated": "2026-09-10",
+  "app": "v2.28.0",
+  "lastUpdated": "2026-09-18",
   "status": "stable-gemini-direct-fallback",
   "cloudflare": {
-    "index.html": "4.6-personal-v2.25.5-gemini35",
+    "index.html": "4.6-personal-v2.28.0-gemini35",
     "quote.js": "4.6-quote-stable-12-taiex",
     "ask.js": "4.6-ask-free-23-gemini35-direct-fallback",
     "news.js": "4.6-news-stable-6",
