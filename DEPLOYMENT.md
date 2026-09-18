@@ -1,5 +1,5 @@
 
-## 🆕 v2.25.5 Gemini 3.5 完整升級
+## 🆕 v2.28.0 Gemini 3.5 完整升級
 
 本版不再依賴 Vercel 才能完成第二層 AI 備援。Cloudflare `/ask` 失敗時，Worker 會直接呼叫 `gemini-3.5-flash-lite`。
 
@@ -268,8 +268,16 @@ cat wrangler.jsonc | grep health_kv
 
 ## 變更日誌
 
-### 2026-09-10
+### 2026-09-18
 - ✅ 初始穩定版本 v2.25.3
 - ✅ Cloudflare Workers with Static Assets
 - ✅ Vercel Gemini 3.5 Flash-Lite 備援
 - ✅ 自動健康檢查 (30 分鐘間隔)
+
+
+## v2.28.0 正式版補充
+
+- `package.json` 已同步至 `2.28.0`。
+- `VERSION.json`、程式內版本與 fallback 版本已納入一致性檢查。
+- health check 已加入有效的 15 秒檢查上限。
+- Workers Static Assets 已加入 `.assetsignore`，排除 server-side 原始碼、設定檔與文件。
