@@ -19,6 +19,7 @@ const actual = {
   fallbackCore: grab(read("fallback-vercel/lib/ask-core.js"), /const ASK_VERSION = "([^"]+)"/, "fallback ASK_VERSION"),
   fallbackModel: grab(read("fallback-vercel/api/ask.js"), /const DEFAULT_GEMINI_MODEL = "([^"]+)"/, "DEFAULT_GEMINI_MODEL"),
   fallbackPackage: JSON.parse(read("fallback-vercel/package.json")).version,
+  rootPackage: JSON.parse(read("package.json")).version,
 };
 
 const expected = {
@@ -31,6 +32,7 @@ const expected = {
   fallbackCore: version.vercel["ask-core.js"],
   fallbackModel: version.vercel.model,
   fallbackPackage: version.vercel.package,
+  rootPackage: version.app,
 };
 
 let failed = false;
