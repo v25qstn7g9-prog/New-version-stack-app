@@ -2023,15 +2023,13 @@ function Dashboard({ totalToday, dailyChange, dailyChangePct, capitalGain, total
       <div className="grid grid-cols-2 gap-3">
         <StatCard label="持倉損益(估)" value={`NT$ ${nf(capitalGain)}`} tone={capitalGain >= 0 ? "gain" : "loss"} />
         <StatCard label="累積股息" value={`NT$ ${nf(totalDividends)}`} tone="gold" />
-        <StatCard label="配息回報率" value={pf(totalInvested ? (totalDividends / totalInvested) * 100 : 0)} tone="gold" />
         <StatCard label="粗估總報酬" value={`NT$ ${nf(totalReturn)}`} tone={totalReturn >= 0 ? "gain" : "loss"} />
         <StatCard label="粗估報酬率" value={pf(totalReturnPct)} tone={totalReturnPct >= 0 ? "gain" : "loss"} />
         <StatCard label="今年資產變化(YTD)" value={`${nf(ytdGain)}（${pf(ytdPct)}）`} tone={ytdGain >= 0 ? "gain" : "loss"} className="col-span-2" />
       </div>
       <div className="text-[11px] px-1" style={{ color: COLORS.sub }}>
         註：目前成本來自券商/每日紀錄的持倉成本；若曾賣出、換股或用股息再投入，
-        「粗估總報酬」不等同完整 XIRR 或全期間真實總報酬；「配息回報率」是累積股息
-        佔目前持倉成本的比例，不是年化殖利率。
+        「粗估總報酬」不等同完整 XIRR 或全期間真實總報酬。
       </div>
 
       <div className="rounded-2xl p-4" style={{ background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}` }}>
@@ -2829,6 +2827,7 @@ function TradesPanel({ trades, setTrades, holdings, costBasis, setCostBasis, acc
   const [form, setForm] = useState({
     date: todayStr(), symbol: "", action: "buy", shares: "", price: "", fee: "", tax: "", note: "",
   });
+  const [search, setSearch] = useState("");
   const add = () => {
     if (!form.symbol || !form.shares || !form.price) return;
     const shares = Number(form.shares), price = Number(form.price);
@@ -2842,6 +2841,38 @@ function TradesPanel({ trades, setTrades, holdings, costBasis, setCostBasis, acc
   };
   const remove = (id) => setTrades((t) => t.filter((x) => x.id !== id));
   const sorted = [...trades].sort((a, b) => b.date.localeCompare(a.date));
+
+  // 依代號或名稱搜尋，方便查某一檔股票的完整交易紀錄、抓股數哪裡算錯。
+  const q = search.trim().toLowerCase();
+  const filtered = q
+    ? sorted.filter((t) => {
+        const h = holdings.find((x) => x.symbol === t.symbol);
+        return t.symbol.toLowerCase().includes(q) || (h && h.name && h.name.toLowerCase().includes(q));
+      })
+    : sorted;
+
+  // 篩選結果如果剛好只對到一檔股票，順便把這檔的買賣加總算出來，跟「持股進度」
+  // 頁用的同一套公式（期初股數 + 買進 - 賣出）對一次，方便你核對股數卡在哪裡。
+  const filteredSymbols = [...new Set(filtered.map((t) => t.symbol))];
+  const singleSymbolSummary = (() => {
+    if (filteredSymbols.length !== 1 || filtered.length === 0) return null;
+    const sym = filteredSymbols[0];
+    const h = holdings.find((x) => x.symbol === sym);
+    const bought = filtered.filter((t) => t.action === "buy").reduce((s, t) => s + t.shares, 0);
+    const sold = filtered.filter((t) => t.action === "sell").reduce((s, t) => s + t.shares, 0);
+    const initialShares = h ? Number(h.initialShares || 0) : 0;
+    return { symbol: sym, name: h ? h.name : "", bought, sold, net: bought - sold, initialShares, total: initialShares + bought - sold };
+  })();
+
+  // 抓可能重複輸入的紀錄：同一檔股票、同一天、同買賣別、同股數、同價格出現超過一次。
+  const dupGroups = (() => {
+    const map = {};
+    for (const t of filtered) {
+      const key = `${t.symbol}|${t.date}|${t.action}|${t.shares}|${t.price}`;
+      (map[key] = map[key] || []).push(t);
+    }
+    return Object.values(map).filter((g) => g.length > 1);
+  })();
 
   return (
     <div className="space-y-4">
@@ -2900,9 +2931,34 @@ function TradesPanel({ trades, setTrades, holdings, costBasis, setCostBasis, acc
         <AddButton onClick={add} label="新增交易" />
       </Panel>
 
-      <Panel title={`交易紀錄（${trades.length}）`}>
+      <Panel title={`交易紀錄（${filtered.length}${q ? ` / 共${trades.length}` : ""}）`}>
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="搜尋代號或名稱，例如 0050 或 元大台灣50"
+          className="input mb-3"
+        />
+        {singleSymbolSummary && (
+          <div className="rounded-lg p-3 mb-3 text-[11px] mono" style={{ background: COLORS.bg, border: `1px solid ${COLORS.gold}` }}>
+            <div style={{ color: COLORS.gold }} className="font-bold mb-1">
+              {singleSymbolSummary.symbol}{singleSymbolSummary.name ? `｜${singleSymbolSummary.name}` : ""} 核對
+            </div>
+            <div style={{ color: COLORS.sub }}>買進共 {nf(singleSymbolSummary.bought)} 股、賣出共 {nf(singleSymbolSummary.sold)} 股，淨增加 {nf(singleSymbolSummary.net)} 股</div>
+            <div style={{ color: COLORS.sub }}>期初股數 {nf(singleSymbolSummary.initialShares)} + 淨增加 {nf(singleSymbolSummary.net)} = 目前應有 <span className="font-bold" style={{ color: COLORS.text }}>{nf(singleSymbolSummary.total)}</span> 股（跟「持股進度」頁顯示的股數對一下，兩邊算法一樣，如果對不起來代表持股進度那邊被手動改過）</div>
+          </div>
+        )}
+        {dupGroups.length > 0 && (
+          <div className="rounded-lg p-3 mb-3 text-[11px]" style={{ background: "#3a1f1f", border: `1px solid ${COLORS.loss}` }}>
+            <div style={{ color: COLORS.loss }} className="font-bold mb-1">⚠️ 發現 {dupGroups.length} 組疑似重複輸入</div>
+            {dupGroups.map((g, i) => (
+              <div key={i} style={{ color: COLORS.sub }} className="mono">
+                {g[0].symbol} {g[0].date} {g[0].action === "buy" ? "買" : "賣"} {g[0].shares}股@{g[0].price}（出現 {g.length} 次）
+              </div>
+            ))}
+          </div>
+        )}
         <div className="space-y-2 max-h-96 overflow-y-auto">
-          {sorted.map((t) => (
+          {filtered.map((t) => (
             <Row key={t.id} onDelete={() => remove(t.id)}>
               <div className="flex-1">
                 <div className="text-sm mono">
@@ -2919,7 +2975,7 @@ function TradesPanel({ trades, setTrades, holdings, costBasis, setCostBasis, acc
               </div>
             </Row>
           ))}
-          {trades.length === 0 && <Empty text="尚無交易紀錄" />}
+          {filtered.length === 0 && <Empty text={q ? "查無符合的交易紀錄" : "尚無交易紀錄"} />}
         </div>
       </Panel>
     </div>
@@ -3081,50 +3137,6 @@ function DividendHistoryChart({ dividends }) {
   );
 }
 
-// 每檔配息回報率：累積配息 ÷ 目前持倉成本（平均成本 × 股數）。
-// 以「目前持股」為準——只列股數大於 0 的股票，已經出清的不會再出現在
-// 這個清單裡；持股裡沒填過平均成本的，只顯示累積配息金額、不硬算比率。
-function DividendYieldBreakdown({ dividends, holdings }) {
-  const bySymbol = {};
-  dividends.forEach((d) => {
-    bySymbol[d.symbol] = (bySymbol[d.symbol] || 0) + Number(d.amount || 0);
-  });
-  const rows = holdings
-    .filter((h) => Number(h.current || 0) > 0 && h.symbol)
-    .map((h) => {
-      const totalDividend = bySymbol[h.symbol] || 0;
-      const hasCost = h.avgCost != null;
-      const cost = hasCost ? h.avgCost * h.current : null;
-      const yieldPct = cost ? (totalDividend / cost) * 100 : null;
-      return { symbol: h.symbol, totalDividend, yieldPct };
-    })
-    .sort((a, b) => (b.yieldPct ?? -1) - (a.yieldPct ?? -1));
-
-  if (!rows.length) return null;
-
-  return (
-    <Panel title="配息回報率（每檔）">
-      <div className="space-y-2">
-        {rows.map((r) => (
-          <div key={r.symbol} className="flex items-center justify-between text-sm">
-            <div className="mono">{r.symbol}</div>
-            <div className="text-right">
-              {r.yieldPct != null ? (
-                <span className="mono" style={{ color: COLORS.gold }}>{pf(r.yieldPct)}</span>
-              ) : (
-                <span className="text-[11px]" style={{ color: COLORS.sub }}>缺持股成本</span>
-              )}
-              <span className="text-[11px] ml-2" style={{ color: COLORS.sub }}>
-                累積 NT$ {nf(r.totalDividend)}
-              </span>
-            </div>
-          </div>
-        ))}
-      </div>
-    </Panel>
-  );
-}
-
 // ---------------- Dividends Panel ----------------
 function DividendsPanel({ dividends, setDividends, holdings }) {
   const [form, setForm] = useState({ date: todayStr(), symbol: "", shares: "", perShare: "" });
@@ -3237,8 +3249,6 @@ function DividendsPanel({ dividends, setDividends, holdings }) {
       </Panel>
 
       <DividendHistoryChart dividends={dividends} />
-
-      <DividendYieldBreakdown dividends={dividends} holdings={holdings} />
 
       <Panel title={`累積股息：NT$ ${nf(total)}`}>
         <div className="space-y-2 max-h-96 overflow-y-auto">
