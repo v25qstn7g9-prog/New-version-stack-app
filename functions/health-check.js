@@ -1,5 +1,5 @@
 /**
- * health-check.js — 4.6-health-check-1
+ * health-check.js — 4.6-health-check-2
  *
  * 系統健康自我檢查：定期（Cron）或手動（App 打開時）測試 Cloudflare 主 AI
  * 還通不通，出狀況時用規則庫（不是又叫一次 AI，快又不花額度）判斷可能原因，
