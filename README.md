@@ -1,6 +1,6 @@
-# 存股 App v2.25.5 | Gemini 3.5 完整升級版 ✨
+# 存股 App v2.28.0 | Gemini 3.5 完整升級版 ✨
 
-**最後更新**: 2026年9月10日  
+**最後更新**: 2026年9月18日  
 **狀態**: ✅ 生產穩定版 | Gemini 內建 fallback  
 **架構**: Cloudflare Workers（主力）→ Gemini 3.5 Flash-Lite（同 Worker 內建備援）→ 舊 Vercel 備援（可選）
 
@@ -15,7 +15,7 @@
 ---
 
 ## 主 App
-- App：`4.6-personal-v2.25.5-gemini35`
+- App：`4.6-personal-v2.28.0-gemini35`
 - 左右滑頁與穩定化手勢保留
 - 持股頁沿用首頁即時報價
 - 加權指數 TAIEX 已恢復
@@ -28,7 +28,7 @@
 - TAIEX 使用 TWSE `tse_t00.tw`，Yahoo fallback 使用 `^TWII`
 - `functions/ask.js`：`4.6-ask-free-23-gemini35-direct-fallback`（Cloudflare GPT-OSS 20B + Gemini 3.5 Flash-Lite fallback）
 - `functions/news.js`：`4.6-news-stable-6`
-- `functions/health-check.js`：`4.6-health-check-1`
+- `functions/health-check.js`：`4.6-health-check-2`
 - Workers with Static Assets：`worker.js`
 
 ## Gemini 內建自動備援（新版）
@@ -43,7 +43,7 @@
 - `api/ask.js`：Gemini 3.5 Flash-Lite
 - `api/health.js`：Gemini 3.5 Flash-Lite 健康檢查
 - `lib/ask-core.js`：`4.6-ask-free-21.4-gemini35-stable-tools`
-- thinking 關閉：`thinkingBudget: 0`
+- thinking 關閉：`thinkingLevel: minimal`
 - 保留 function calling、App 資料查詢、即時股價與 Tavily web search
 
 ## 📁 檔案結構
@@ -55,7 +55,8 @@
 ├── 📝 README.md                    # 本檔案
 ├── 📝 QUICKSTART.md                # 🆕 快速啟動指南
 ├── 📝 DEPLOYMENT.md                # 🆕 完整部署檢查清單
-├── 📋 VERSION.json                 # 🆕 版本資訊追蹤
+├── 📋 VERSION.json                 # 版本資訊追蹤
+├── 🛡️ .assetsignore                 # Static Assets 公開檔案排除清單
 ├── 📋 package.json                 # 🆕 專案設定 & 命令
 ├── 🔑 .env.example                 # 🆕 環境變數範本 (Cloudflare)
 ├── 🚫 .gitignore                   # 🆕 Git 忽略規則
@@ -111,3 +112,8 @@ npm run check:version
 ```
 
 會核對 `index.html`、Cloudflare functions、Vercel fallback 與 `VERSION.json` 是否一致。
+
+
+## Static Assets 安全
+
+專案目前使用 Workers Static Assets；`.assetsignore` 會排除 `worker.js`、`functions/`、`fallback-vercel/`、設定檔與文件，避免後端原始碼被當成公開靜態資產發布。
