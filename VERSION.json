@@ -7,7 +7,7 @@
     "quote.js": "4.6-quote-stable-12-taiex",
     "ask.js": "4.6-ask-free-23-gemini35-direct-fallback",
     "news.js": "4.6-news-stable-6",
-    "health-check.js": "4.6-health-check-1",
+    "health-check.js": "4.6-health-check-2",
     "model": "@cf/openai/gpt-oss-20b"
   },
   "vercel": {
@@ -23,5 +23,6 @@
     "news": "台股市場新聞",
     "health": "自動健康檢查卡片",
     "backup": "JSON 備份／匯入"
-  }
+  },
+  "package": "2.28.0"
 }
