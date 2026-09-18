@@ -264,7 +264,7 @@ export default async function handler(req, res) {
   } catch (e) {
     res.status(500).json({
       ok: false,
-      error: e?.message || "獨立 Gemini 備援發生未知錯誤",
+      error: "獨立 Gemini 備援暫時無法使用",
       provider: "gemini-external",
       model: resolvedGeminiModel(),
     });
