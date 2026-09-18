@@ -17,6 +17,7 @@
 const HEALTH_VERSION = "4.6-health-check-2";
 const KV_KEY = "health:cards";
 const MAX_CARDS = 20;
+const MAX_BODY_BYTES = 64 * 1024;
 const CLOUDFLARE_TEST_MODEL = "@cf/openai/gpt-oss-20b"; // 跟 functions/ask.js 用同一顆模型
 
 function jsonResponse(data, status = 200) {
@@ -141,7 +142,7 @@ export async function runHealthCheck(env) {
     lastSeenAt: taiwanNowIso(),
     occurrences: 1,
     severity: "warning",
-    rawError: errorMessage.slice(0, 300),
+    rawError: "Cloudflare AI 呼叫失敗，詳細錯誤不對外儲存",
     ...diagnosis,
     status: "pending",
   };
@@ -163,7 +164,20 @@ export async function onRequestGet(context) {
 }
 
 export async function onRequestPost(context) {
-  const body = await context.request.json().catch(() => null);
+  const contentLength = Number(context.request.headers.get("content-length") || 0);
+  if (contentLength > MAX_BODY_BYTES) {
+    return jsonResponse({ ok: false, error: "請求內容過大", version: HEALTH_VERSION }, 413);
+  }
+  const rawBody = await context.request.text();
+  if (new TextEncoder().encode(rawBody).byteLength > MAX_BODY_BYTES) {
+    return jsonResponse({ ok: false, error: "請求內容過大", version: HEALTH_VERSION }, 413);
+  }
+  let body = null;
+  try {
+    body = rawBody.trim() ? JSON.parse(rawBody) : null;
+  } catch {
+    return jsonResponse({ ok: false, error: "請求 JSON 格式錯誤", version: HEALTH_VERSION }, 400);
+  }
   const id = String(body?.id || "");
   const action = String(body?.action || "");
   if (!id || !["apply", "dismiss"].includes(action)) {
