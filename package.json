@@ -1,6 +1,6 @@
 {
   "name": "stock-app",
-  "version": "2.25.5",
+  "version": "2.28.0",
   "description": "存股 App - 雙層架構 (Cloudflare Workers + Vercel Backup)",
   "private": true,
   "type": "module",
