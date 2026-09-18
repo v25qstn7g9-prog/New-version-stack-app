@@ -371,7 +371,7 @@ function parseGeminiToolCalls(data) {
       id: String(fc.id || `gemini_call_${idx}_${Date.now()}`),
       name: fc.name,
       arguments: fc.args && typeof fc.args === "object" ? fc.args : {},
-      ...(fc.thoughtSignature ? { _geminiThoughtSignature: fc.thoughtSignature } : {}),
+      ...(part.thoughtSignature ? { _geminiThoughtSignature: part.thoughtSignature } : {}),
     });
   }
   return calls;
@@ -617,7 +617,7 @@ export async function onRequestPost(context) {
       return jsonResponse({ ok: true, version: ASK_VERSION, ...gemini, fallbackFrom: friendlyAiError(primaryError?.message) });
     } catch (geminiError) {
       return jsonResponse({
-        error: `Cloudflare AI：${friendlyAiError(primaryError?.message)}；Gemini 備援：${geminiError?.message || "失敗"}`,
+        error: `Cloudflare AI：${friendlyAiError(primaryError?.message)}；Gemini 備援：${friendlyAiError(geminiError?.message || "失敗")}`,
         version: ASK_VERSION,
       }, 502);
     }
