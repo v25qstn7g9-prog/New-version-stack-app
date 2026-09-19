@@ -1,5 +1,5 @@
 /**
- * quote.js — 4.7-quote-cache-ttl-1
+ * quote.js — 4.7-quote-schedule-1
  *
  * Stability strategy for 漲跌幅:
  * 1. TWSE `y` is preferred prevClose (matches brokers); Yahoo is final fallback only.
@@ -11,22 +11,30 @@
  * 4. Retry TWSE once for 500/502/503/504/522/524 (520 excluded — observed to
  *    fail identically on retry, so it only adds latency for this endpoint).
  * 5. ?debug=1 surfaces raw TWSE fields + which fallback path was used.
- * 6. Market requests are capped at 15s refresh cadence; after 15:00 Taiwan time,
- *    the Worker stops issuing new fetches and serves the last cached snapshot instead.
+ * 6. Auto refresh is limited to 15s cadence during trading hours; after 13:30 Taiwan time,
+ *    auto refresh stops. Manual refresh remains available via ?force=1.
+ * 7. The most recent successful quote payload is kept as the final cached snapshot for
+ *    manual reads after trading hours.
  */
 
 const SYMBOL_PATTERN = /^[0-9]{4,6}[A-Z]?$/;
-const QUOTE_VERSION = "4.7-quote-cache-ttl-1";
+const QUOTE_VERSION = "4.7-quote-schedule-1";
 const QUOTE_REFRESH_INTERVAL_MS = 15 * 1000;
-const QUOTE_STOP_HOUR = 15;
+const QUOTE_AUTO_STOP_HOUR = 13;
+const QUOTE_AUTO_STOP_MINUTE = 30;
 
 function isAllowedSymbol(s) {
   return s === "TAIEX" || SYMBOL_PATTERN.test(s);
 }
 
-function shouldStopQuoteRequests(now = new Date()) {
+function shouldAutoStopQuoteRequests(now = new Date()) {
   const t = new Date(now.getTime() + 8 * 60 * 60 * 1000);
-  return t.getUTCHours() >= QUOTE_STOP_HOUR;
+  const minutes = t.getUTCHours() * 60 + t.getUTCMinutes();
+  return minutes >= QUOTE_AUTO_STOP_HOUR * 60 + QUOTE_AUTO_STOP_MINUTE;
+}
+
+function isManualForceRefresh(url) {
+  return String(url.searchParams.get("force") || "").toLowerCase() === "1";
 }
 
 function quoteCacheKey(symbols, day) {
@@ -55,12 +63,12 @@ async function writeQuoteResponseCache(symbols, day, payload) {
       new Response(JSON.stringify(payload), {
         headers: {
           "content-type": "application/json",
-          "cache-control": `public, max-age=${QUOTE_REFRESH_INTERVAL_MS / 1000}, s-maxage=${QUOTE_REFRESH_INTERVAL_MS / 1000}`,
+          "cache-control": "public, max-age=86400, s-maxage=86400",
         },
       })
     );
   } catch {
-    // Cache is optional.
+    // cache is optional.
   }
 }
 
@@ -123,18 +131,6 @@ function firstNumber(s) {
   return Number.isFinite(n) ? n : NaN;
 }
 
-/**
- * TWSE row parser.
- *
- * IMPORTANT:
- * Do NOT use opening price as the current/closing price.
- *
- * Priority:
- * last trade -> bid/ask midpoint -> ask -> bid
- *
- * If none exists, price remains null and Yahoo gets a chance
- * to provide the latest/closing price.
- */
 function parseTwseItem(item) {
   const prevClose = Number(item.y);
 
@@ -162,9 +158,7 @@ function parseTwseItem(item) {
       bid > 0 &&
       ask > 0
     ) {
-      price =
-        Math.round(((bid + ask) / 2) * 100) / 100;
-
+      price = Math.round(((bid + ask) / 2) * 100) / 100;
       priceSource = "mid";
     } else if (
       Number.isFinite(ask) &&
@@ -183,16 +177,13 @@ function parseTwseItem(item) {
 
   const tickMs = Number(item.tlong);
 
-  const asOfDate =
-    Number.isFinite(tickMs)
-      ? new Date(tickMs).toISOString()
-      : null;
+  const asOfDate = Number.isFinite(tickMs)
+    ? new Date(tickMs).toISOString()
+    : null;
 
   return {
     prevClose,
-    price: Number.isFinite(price)
-      ? price
-      : null,
+    price: Number.isFinite(price) ? price : null,
     priceSource,
     asOfDate,
   };
@@ -222,15 +213,10 @@ async function fetchTwseBatch(symbols, debug = false) {
     const rawSymbol = String(item.c || "");
     const symbol = rawSymbol === "t00" ? "TAIEX" : rawSymbol;
 
-    if (!symbols.includes(symbol)) {
-      continue;
-    }
+    if (!symbols.includes(symbol)) continue;
 
     const parsed = parseTwseItem(item);
-
-    if (!parsed) {
-      continue;
-    }
+    if (!parsed) continue;
 
     quotes[symbol] = {
       price: parsed.price,
@@ -257,114 +243,41 @@ async function fetchTwseBatch(symbols, debug = false) {
   return quotes;
 }
 
-/**
- * Retry TWSE once.
- *
- * stable-8/9 change:
- * Temporary server errors such as
- * 500/502/503/504/522/524
- * are allowed one retry. 520 is excluded (see file header) — it has been
- * observed to fail identically on immediate retry against this endpoint.
- */
-async function fetchTwseWithRetry(
-  symbols,
-  debug = false
-) {
+async function fetchTwseWithRetry(symbols, debug = false) {
   try {
-    return await fetchTwseBatch(
-      symbols,
-      debug
-    );
+    return await fetchTwseBatch(symbols, debug);
   } catch (e1) {
-    const msg1 =
-      String(e1?.message || e1);
-
-    const httpMatch =
-      msg1.match(/^HTTP (\d+)$/);
-
-    const status =
-      httpMatch
-        ? Number(httpMatch[1])
-        : null;
-
-    const retryableHttp =
-      status != null &&
-      [
-        500,
-        502,
-        503,
-        504,
-        522,
-        524,
-      ].includes(status);
-
-    const nonRetryableHttp =
-      status != null &&
-      !retryableHttp;
+    const msg1 = String(e1?.message || e1);
+    const httpMatch = msg1.match(/^HTTP (\d+)$/);
+    const status = httpMatch ? Number(httpMatch[1]) : null;
+    const retryableHttp = status != null && [500, 502, 503, 504, 522, 524].includes(status);
+    const nonRetryableHttp = status != null && !retryableHttp;
 
     if (nonRetryableHttp) {
-      throw new Error(
-        `TWSE: ${msg1}`
-      );
+      throw new Error(`TWSE: ${msg1}`);
     }
 
-    await new Promise(
-      (resolve) =>
-        setTimeout(resolve, 250)
-    );
+    await new Promise((resolve) => setTimeout(resolve, 250));
 
     try {
-      return await fetchTwseBatch(
-        symbols,
-        debug
-      );
+      return await fetchTwseBatch(symbols, debug);
     } catch (e2) {
-      throw new Error(
-        `TWSE: ${msg1}; retry: ${
-          e2?.message || e2
-        }`
-      );
+      throw new Error(`TWSE: ${msg1}; retry: ${e2?.message || e2}`);
     }
   }
 }
 
-/**
- * Converts a Unix timestamp (seconds) to a "YYYY-MM-DD" string in Taipei
- * time (UTC+8, no DST) — used to match daily bars to real trading dates.
- */
 function taipeiDateStr(unixSeconds) {
   const d = new Date((unixSeconds + 8 * 3600) * 1000);
   return d.toISOString().slice(0, 10);
 }
 
-/**
- * Yahoo fallback.
- *
- * stable-8:
- * Yahoo may provide BOTH price and prevClose,
- * but its prevClose is only used if TWSE and
- * today's edge cache have no prevClose.
- *
- * stable-9: meta.regularMarketPreviousClose has been observed to be a full
- * trading day stale for some TW ETFs (0050/0056 on 2026-09-02 — it matched
- * two days back instead of yesterday, while it was correct for 2330 in the
- * same request). A cached field can't be "guessed" wrong the way a bar
- * anchored to a real calendar date can, so prevClose is derived from the
- * daily bars (matched to actual Taipei trading dates) instead of trusting
- * that field directly. Falls back to the meta field only if the bars don't
- * have enough history to do that (e.g. a very new listing).
- */
 async function fetchYahooPrice(symbol) {
   const yahooSymbol = symbol === "TAIEX" ? "^TWII" : `${symbol}.TW`;
   const encoded = encodeURIComponent(yahooSymbol);
 
-  const intradayUrl =
-    `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}` +
-    `?interval=1m&range=1d&_ts=${Date.now()}`;
-
-  const dailyUrl =
-    `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}` +
-    `?interval=1d&range=5d&_ts=${Date.now()}`;
+  const intradayUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?interval=1m&range=1d&_ts=${Date.now()}`;
+  const dailyUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?interval=1d&range=5d&_ts=${Date.now()}`;
 
   const [intradayResult, dailyResult] = await Promise.allSettled([
     fetchJson(intradayUrl, 6500),
@@ -385,7 +298,6 @@ async function fetchYahooPrice(symbol) {
       if (Number.isFinite(c) && c > 0) {
         price = c;
         priceAsOf = new Date(Number(timestamps[i]) * 1000).toISOString();
-
         const today = taiwanDateStr();
         const barDay = taipeiDateStr(Number(timestamps[i]));
         intradayFresh = barDay === today;
@@ -414,10 +326,7 @@ async function fetchYahooPrice(symbol) {
     for (let i = 0; i < Math.min(timestamps.length, closes.length); i++) {
       const c = Number(closes[i]);
       if (Number.isFinite(c) && c > 0) {
-        valid.push({
-          day: taipeiDateStr(Number(timestamps[i])),
-          close: c,
-        });
+        valid.push({ day: taipeiDateStr(Number(timestamps[i])), close: c });
       }
     }
 
@@ -454,67 +363,28 @@ async function fetchYahooPrice(symbol) {
   };
 }
 
-/**
- * Edge cache:
- * remember TWSE prevClose for Taiwan calendar day.
- */
-async function readPrevCloseCache(
-  symbol,
-  day
-) {
+async function readPrevCloseCache(symbol, day) {
   try {
-    const key =
-      new Request(
-        `https://quote-cache.local/prev/${day}/${symbol}`
-      );
-
-    const hit =
-      await caches.default.match(key);
-
-    if (!hit) {
-      return null;
-    }
-
-    const j =
-      await hit.json();
-
-    return Number.isFinite(
-      j?.prevClose
-    )
-      ? j.prevClose
-      : null;
+    const key = new Request(`https://quote-cache.local/prev/${day}/${symbol}`);
+    const hit = await caches.default.match(key);
+    if (!hit) return null;
+    const j = await hit.json();
+    return Number.isFinite(j?.prevClose) ? j.prevClose : null;
   } catch {
     return null;
   }
 }
 
-async function writePrevCloseCache(
-  symbol,
-  day,
-  prevClose
-) {
+async function writePrevCloseCache(symbol, day, prevClose) {
   try {
-    const key =
-      new Request(
-        `https://quote-cache.local/prev/${day}/${symbol}`
-      );
-
-    const body =
-      JSON.stringify({
-        prevClose,
-        day,
-        symbol,
-      });
-
+    const key = new Request(`https://quote-cache.local/prev/${day}/${symbol}`);
+    const body = JSON.stringify({ prevClose, day, symbol });
     await caches.default.put(
       key,
       new Response(body, {
         headers: {
-          "content-type":
-            "application/json",
-
-          "cache-control":
-            "public, max-age=72000",
+          "content-type": "application/json",
+          "cache-control": "public, max-age=72000",
         },
       })
     );
@@ -523,149 +393,64 @@ async function writePrevCloseCache(
   }
 }
 
-export async function onRequestGet(
-  context
-) {
+export async function onRequestGet(context) {
   try {
-    const url =
-      new URL(
-        context.request.url
-      );
+    const url = new URL(context.request.url);
+    const forceRefresh = isManualForceRefresh(url);
 
-    const requested =
-      (
-        url.searchParams.get(
-          "symbols"
-        ) ||
-        "0050,0056,2330"
-      )
-        .split(",")
-        .map((s) =>
-          s
-            .trim()
-            .toUpperCase()
-        )
-        .filter(Boolean);
+    const requested = (
+      url.searchParams.get("symbols") || "0050,0056,2330"
+    )
+      .split(",")
+      .map((s) => s.trim().toUpperCase())
+      .filter(Boolean);
 
-    const symbols =
-      [...new Set(requested)]
-        .filter(
-          isAllowedSymbol
-        );
+    const symbols = [...new Set(requested)].filter(isAllowedSymbol);
 
     if (!symbols.length) {
-      return jsonResponse(
-        {
-          error:
-            "沒有允許的股票代號",
-        },
-        400
-      );
+      return jsonResponse({ error: "沒有允許的股票代號" }, 400);
     }
 
-    const debug =
-      url.searchParams.get(
-        "debug"
-      ) === "1";
+    const debug = url.searchParams.get("debug") === "1";
+    const day = taiwanDateStr();
 
-    const day =
-      taiwanDateStr();
+    const cachedQuick = await readQuoteResponseCache(symbols, day);
+    if (cachedQuick && !forceRefresh && !shouldAutoStopQuoteRequests() && (Date.now() - new Date(cachedQuick.fetchedAt || 0).getTime()) < QUOTE_REFRESH_INTERVAL_MS) {
+      return jsonResponse({ ...cachedQuick, fromCache: true, version: QUOTE_VERSION });
+    }
 
-    if (shouldStopQuoteRequests()) {
-      const cached = await readQuoteResponseCache(symbols, day);
-      if (cached) {
-        return jsonResponse({
-          ...cached,
-          fromCache: true,
-          stale: true,
-          stoppedAt: "15:00",
-          version: QUOTE_VERSION,
-        });
+    if (!forceRefresh && shouldAutoStopQuoteRequests()) {
+      if (cachedQuick) {
+        return jsonResponse({ ...cachedQuick, fromCache: true, stale: true, autoStopped: true, version: QUOTE_VERSION });
       }
       return jsonResponse({
         ok: false,
-        error: "15:00 後已停止新查詢，且目前沒有可用快取資料",
-        stoppedAt: "15:00",
+        error: "已停用自動查詢，且目前沒有可用快取資料。請使用 ?force=1 手動查詢。",
+        autoStopped: true,
         day,
         version: QUOTE_VERSION,
       }, 200);
     }
 
-    const cachedQuick = await readQuoteResponseCache(symbols, day);
-    if (cachedQuick) {
-      const cacheAgeMs = Date.now() - new Date(cachedQuick.fetchedAt || 0).getTime();
-      if (cacheAgeMs < QUOTE_REFRESH_INTERVAL_MS) {
-        return jsonResponse({
-          ...cachedQuick,
-          fromCache: true,
-          version: QUOTE_VERSION,
-        });
-      }
-    }
-
     const quotes = {};
     const errors = [];
 
-    /*
-     * 1) TWSE first.
-     */
     try {
-      Object.assign(
-        quotes,
-        await fetchTwseWithRetry(
-          symbols,
-          debug
-        )
-      );
+      Object.assign(quotes, await fetchTwseWithRetry(symbols, debug));
     } catch (e) {
-      errors.push(
-        String(
-          e?.message || e
-        )
-      );
+      errors.push(String(e?.message || e));
     }
 
-    /*
-     * 2) Cache every successful
-     *    TWSE prevClose.
-     */
-    for (
-      const [sym, q]
-      of Object.entries(quotes)
-    ) {
-      if (
-        Number.isFinite(
-          q.prevClose
-        )
-      ) {
-        await writePrevCloseCache(
-          sym,
-          day,
-          q.prevClose
-        );
+    for (const [sym, q] of Object.entries(quotes)) {
+      if (Number.isFinite(q.prevClose)) {
+        await writePrevCloseCache(sym, day, q.prevClose);
       }
     }
 
-    /*
-     * 3) Restore missing prevClose
-     *    from today's cache.
-     */
     for (const sym of symbols) {
-      if (
-        quotes[sym] &&
-        Number.isFinite(
-          quotes[sym].prevClose
-        )
-      ) {
-        continue;
-      }
+      if (quotes[sym] && Number.isFinite(quotes[sym].prevClose)) continue;
 
-      const cached =
-        await readPrevCloseCache(
-          sym,
-          day
-        );
-
+      const cached = await readPrevCloseCache(sym, day);
       if (cached != null) {
         if (!quotes[sym]) {
           quotes[sym] = {
@@ -677,236 +462,77 @@ export async function onRequestGet(
             priceSource: null,
           };
         } else {
-          quotes[sym].prevClose =
-            cached;
-
-          if (
-            quotes[sym].source ===
-            "Yahoo"
-          ) {
-            quotes[sym].source =
-              "cache+Yahoo";
-          } else if (
-            !quotes[sym].source
-          ) {
-            quotes[sym].source =
-              "cache";
+          quotes[sym].prevClose = cached;
+          if (quotes[sym].source === "Yahoo") {
+            quotes[sym].source = "cache+Yahoo";
+          } else if (!quotes[sym].source) {
+            quotes[sym].source = "cache";
           }
         }
 
         if (debug) {
-          quotes[sym].debug = {
-            ...(
-              quotes[sym].debug ||
-              {}
-            ),
-
-            usedCachedPrevClose:
-              true,
-          };
+          quotes[sym].debug = { ...(quotes[sym].debug || {}), usedCachedPrevClose: true };
         }
       }
     }
 
-    /*
-     * 4) Any symbol without a usable
-     *    price goes to Yahoo.
-     *
-     * This also handles the
-     * post-close case where TWSE
-     * doesn't provide z/bid/ask.
-     */
-    const needPrice =
-      symbols.filter((s) => {
-        const q =
-          quotes[s];
-
-        return (
-          !q ||
-          q.price == null ||
-          !Number.isFinite(
-            q.price
-          )
-        );
-      });
+    const needPrice = symbols.filter((s) => !quotes[s] || quotes[s].price == null || !Number.isFinite(quotes[s].price));
 
     if (needPrice.length) {
-      const results =
-        await Promise.allSettled(
-          needPrice.map(
-            fetchYahooPrice
-          )
-        );
+      const results = await Promise.allSettled(needPrice.map(fetchYahooPrice));
 
-      results.forEach(
-        (result, i) => {
-          const symbol =
-            needPrice[i];
+      results.forEach((result, i) => {
+        const symbol = needPrice[i];
 
-          if (
-            result.status !==
-            "fulfilled"
-          ) {
-            errors.push(
-              `Yahoo ${symbol}: ${
-                result.reason
-                  ?.message ||
-                result.reason
-              }`
-            );
+        if (result.status !== "fulfilled") {
+          errors.push(`Yahoo ${symbol}: ${result.reason?.message || result.reason}`);
 
-            if (
-              quotes[symbol] &&
-              quotes[symbol]
-                .price == null &&
-              Number.isFinite(
-                quotes[symbol]
-                  .prevClose
-              )
-            ) {
-              quotes[symbol]
-                .price =
-                quotes[symbol]
-                  .prevClose;
-
-              quotes[symbol]
-                .priceSource =
-                "prev";
-
-              quotes[symbol]
-                .isStale =
-                true;
-            }
-
-            return;
+          if (quotes[symbol] && quotes[symbol].price == null && Number.isFinite(quotes[symbol].prevClose)) {
+            quotes[symbol].price = quotes[symbol].prevClose;
+            quotes[symbol].priceSource = "prev";
+            quotes[symbol].isStale = true;
           }
-
-          const yq =
-            result.value;
-
-          if (
-            quotes[symbol] &&
-            Number.isFinite(
-              quotes[symbol]
-                .prevClose
-            )
-          ) {
-            quotes[symbol] = {
-              price:
-                yq.price,
-
-              prevClose:
-                quotes[symbol]
-                  .prevClose,
-
-              isStale:
-                !yq.intradayFresh &&
-                isTaiwanTradingHours(),
-
-              asOfDate:
-                yq.asOfDate,
-
-              source:
-                quotes[symbol]
-                  .source ===
-                "cache"
-                  ? "cache+Yahoo"
-                  : "TWSE+Yahoo",
-
-              priceSource:
-                "yahoo",
-            };
-          } else {
-            const yahooPrev =
-              Number.isFinite(
-                yq.prevClose
-              ) &&
-              yq.prevClose > 0
-                ? yq.prevClose
-                : yq.price;
-
-            quotes[symbol] = {
-              price:
-                yq.price,
-
-              prevClose:
-                yahooPrev,
-
-              isStale:
-                (!yq.intradayFresh &&
-                 isTaiwanTradingHours()) ||
-                !Number.isFinite(
-                  yq.prevClose
-                ) ||
-                yq.prevClose <= 0,
-
-              asOfDate:
-                yq.asOfDate,
-
-              source:
-                "Yahoo",
-
-              priceSource:
-                "yahoo",
-
-              warning:
-                Number.isFinite(
-                  yq.prevClose
-                ) &&
-                yq.prevClose > 0
-                  ? undefined
-                  : "no_prevClose_available",
-            };
-          }
+          return;
         }
-      );
+
+        const yq = result.value;
+
+        if (quotes[symbol] && Number.isFinite(quotes[symbol].prevClose)) {
+          quotes[symbol] = {
+            price: yq.price,
+            prevClose: quotes[symbol].prevClose,
+            isStale: !yq.intradayFresh && isTaiwanTradingHours(),
+            asOfDate: yq.asOfDate,
+            source: quotes[symbol].source === "cache" ? "cache+Yahoo" : "TWSE+Yahoo",
+            priceSource: "yahoo",
+          };
+        } else {
+          const yahooPrev = Number.isFinite(yq.prevClose) && yq.prevClose > 0 ? yq.prevClose : yq.price;
+
+          quotes[symbol] = {
+            price: yq.price,
+            prevClose: yahooPrev,
+            isStale: (!yq.intradayFresh && isTaiwanTradingHours()) || !Number.isFinite(yq.prevClose) || yq.prevClose <= 0,
+            asOfDate: yq.asOfDate,
+            source: "Yahoo",
+            priceSource: "yahoo",
+            warning: Number.isFinite(yq.prevClose) && yq.prevClose > 0 ? undefined : "no_prevClose_available",
+          };
+        }
+      });
     }
 
-    for (
-      const s
-      of Object.keys(quotes)
-    ) {
-      if (
-        quotes[s].price == null ||
-        !Number.isFinite(
-          quotes[s].price
-        )
-      ) {
+    for (const s of Object.keys(quotes)) {
+      if (quotes[s].price == null || !Number.isFinite(quotes[s].price)) {
         delete quotes[s];
       }
     }
 
-    if (
-      !Object.keys(quotes)
-        .length
-    ) {
-      return jsonResponse(
-        {
-          error:
-            "所有報價來源皆失敗",
-
-          details:
-            errors,
-
-          version:
-            QUOTE_VERSION,
-        },
-        502
-      );
+    if (!Object.keys(quotes).length) {
+      return jsonResponse({ error: "所有報價來源皆失敗", details: errors, version: QUOTE_VERSION }, 502);
     }
 
-    const sources =
-      [
-        ...new Set(
-          Object
-            .values(quotes)
-            .map(
-              (q) =>
-                q.source
-            )
-        ),
-      ];
-
+    const sources = [...new Set(Object.values(quotes).map((q) => q.source))];
     const missing = symbols.filter((s) => !quotes[s]);
     const complete = missing.length === 0;
 
@@ -926,17 +552,8 @@ export async function onRequestGet(
     };
 
     await writeQuoteResponseCache(symbols, day, payload);
-
     return jsonResponse(payload);
   } catch (e) {
-    return jsonResponse(
-      {
-        error: "報價服務暫時無法使用",
-
-        version:
-          QUOTE_VERSION,
-      },
-      500
-    );
+    return jsonResponse({ error: "報價服務暫時無法使用", version: QUOTE_VERSION }, 500);
   }
 }
