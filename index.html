@@ -8,21 +8,39 @@
 // 這裡在顯示確認卡片前先擋一次，數字明顯不合理（股數/價格 <= 0）就不給按確定，
 // 不能只靠系統提示要求 AI 自律，光是文字指令對小模型來說不夠可靠。
 function validateToolCall(tc) {
-  const a = tc.arguments || {};
-  switch (tc.name) {
+  const a = tc?.arguments || {};
+  const symbol = String(a.symbol || "").trim().toUpperCase();
+  const finitePositive = (v) => Number.isFinite(Number(v)) && Number(v) > 0;
+  const validDate = (v) => {
+    if (v == null || v === "") return true;
+    const text = String(v);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return false;
+    const d = new Date(`function () { [native code] }T00:00:00Z`);
+    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === text;
+  };
+  const validSymbol = /^[A-Z0-9.-]{1,20}$/.test(symbol);
+  switch (tc?.name) {
     case "add_trade":
-      if (!(Number(a.shares) > 0)) return "股數不能是 0 或空白，麻煩跟 AI 重新描述完整的股數";
-      if (!(Number(a.price) > 0)) return "價格不能是 0 或空白，麻煩跟 AI 重新描述完整的單價";
-      if (!a.symbol) return "沒有股票代號";
+      if (!validSymbol) return "股票代號格式不正確";
+      if (a.action !== "buy" && a.action !== "sell") return "交易動作必須是買進或賣出";
+      if (!finitePositive(a.shares) || Number(a.shares) > 100000000) return "股數數值不合理";
+      if (!finitePositive(a.price) || Number(a.price) > 100000000) return "成交價數值不合理";
+      if (!Number.isFinite(Number(a.fee || 0)) || Number(a.fee || 0) < 0) return "手續費數值不合理";
+      if (!Number.isFinite(Number(a.tax || 0)) || Number(a.tax || 0) < 0) return "證交稅數值不合理";
+      if (!validDate(a.date)) return "交易日期格式不正確";
       return null;
     case "update_holding_target":
-      if (!(Number(a.target) > 0)) return "目標股數不能是 0 或空白";
+      if (!validSymbol) return "股票代號格式不正確";
+      if (!finitePositive(a.target) || Number(a.target) > 100000000) return "目標股數數值不合理";
       return null;
     case "update_manual_avg_cost":
-      if (!a.clear && !(Number(a.avgCost) > 0)) return "平均成本不能是 0 或空白";
+      if (!validSymbol) return "股票代號格式不正確";
+      if (!a.clear && (!finitePositive(a.avgCost) || Number(a.avgCost) > 100000000)) return "平均成本數值不合理";
       return null;
     case "update_goal":
       if (a.targetAmount == null && a.targetYear == null) return "沒有帶任何要修改的欄位";
+      if (a.targetAmount != null && (!finitePositive(a.targetAmount) || Number(a.targetAmount) > 1000000000000)) return "目標金額數值不合理";
+      if (a.targetYear != null && (!Number.isInteger(Number(a.targetYear)) || Number(a.targetYear) < 2020 || Number(a.targetYear) > 2200)) return "目標年份不合理";
       return null;
     default:
       return null;
