@@ -1,6 +1,5 @@
 {
   "name": "new-version-stack-app",
-  "type": "service",
   "compatibility_date": "2026-09-18",
   "main": "worker.js",
 
@@ -38,6 +37,23 @@
   ],
 
   // ============================================
+  // /ask 頻率限制 (Rate Limiting)
+  // ============================================
+  // functions/ask.js 會讀取 context.env.ASK_RATE_LIMITER；先前這裡沒有
+  // 對應的 binding，導致該檢查永遠被跳過，AI 問答端點對任何人都沒有
+  // 頻率限制。每個 key（device-id 或 IP）60 秒內最多 30 次請求。
+  "unsafe": {
+    "bindings": [
+      {
+        "name": "ASK_RATE_LIMITER",
+        "type": "ratelimit",
+        "namespace_id": "1001",
+        "simple": { "limit": 30, "period": 60 }
+      }
+    ]
+  },
+
+  // ============================================
   // 定時任務 (Cron Triggers)
   // ============================================
   // 每 30 分鐘自動跑一次健康檢查 (UTC 時間)
@@ -73,10 +89,19 @@
       "kv_namespaces": [
         { "binding": "health_kv", "id": "dac5ef4cc5414ad982cb1c135c8abe39" }
       ],
+      "unsafe": {
+        "bindings": [
+          {
+            "name": "ASK_RATE_LIMITER",
+            "type": "ratelimit",
+            "namespace_id": "1001",
+            "simple": { "limit": 30, "period": 60 }
+          }
+        ]
+      },
       "triggers": {
         "crons": ["*/30 * * * *"]  // 生產環境執行定時任務
       }
     }
   }
 }
-
