@@ -543,7 +543,7 @@ export async function onRequestPost(context) {
           searchRounds += 1;
         }
         if (toolCalls.length > 0 && toolCalls.some((tc) => tc.name === "web_search")) {
-          messages.push({ role: "user", content: "（系統提示：已達自動查詢次數上限，請直接根據目前已經查到的資料用文字回答，不要再要求呼叫任何工具。）」 });
+          messages.push({ role: "user", content: "（系統提示：已達自動查詢次數上限，請直接根據目前已經查到的資料用文字回答，不要再要求呼叫任何工具。）" });
           result = await ai.run(MODEL, { messages, max_tokens: MAX_TOKENS });
           toolCalls = parseToolCalls(result).filter((tc) => tc.name !== "web_search");
         }
