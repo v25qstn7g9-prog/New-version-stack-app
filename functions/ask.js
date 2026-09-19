@@ -444,8 +444,10 @@ export async function onRequestPost(context) {
 
     const limiter = context.env.ASK_RATE_LIMITER;
     const deviceId = String(context.request.headers.get("x-device-id") || "").slice(0, 80);
-    if (limiter && deviceId) {
-      const limited = await limiter.limit({ key: deviceId });
+    const clientIp = String(context.request.headers.get("cf-connecting-ip") || "").slice(0, 64);
+    const rateLimitKey = deviceId ? `device:${deviceId}` : (clientIp ? `ip:${clientIp}` : "anonymous");
+    if (limiter) {
+      const limited = await limiter.limit({ key: rateLimitKey });
       if (limited && limited.success === false) {
         return jsonResponse({ error: "AI 問答太頻繁了，請稍後再試。", version: ASK_VERSION }, 429);
       }
@@ -468,8 +470,11 @@ export async function onRequestPost(context) {
       .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_HISTORY_CONTENT) }));
     const contextText = typeof body?.context === "string" ? body.context.slice(0, MAX_CONTEXT_LEN) : "";
     const toolTurns = Array.isArray(body?.toolTurns) ? body.toolTurns : [];
-    const cacheKey = buildAskCacheKey(message, history, contextText, toolTurns);
-    const cached = readAskCache(cacheKey);
+    // 個人化資產 context 與工具結果不可進共享的記憶體快取，否則相同問題可能跨使用者命中舊答案。
+    // 只有沒有私人 context、也沒有 tool round 的一般閒聊才使用短 TTL 快取。
+    const cacheEnabled = !contextText.trim() && toolTurns.length === 0;
+    const cacheKey = cacheEnabled ? buildAskCacheKey(message, history, contextText, toolTurns) : null;
+    const cached = cacheEnabled ? readAskCache(cacheKey) : null;
     if (cached) {
       return jsonResponse({ ok: true, version: ASK_VERSION, ...cached, fromCache: true, provider: cached.provider || "cache" });
     }
@@ -544,14 +549,14 @@ export async function onRequestPost(context) {
         }
         if (toolCalls.length > 0) {
           const payload = { ok: true, version: ASK_VERSION, provider: "cloudflare", model: MODEL, toolCalls };
-          writeAskCache(cacheKey, payload);
+          if (cacheEnabled) writeAskCache(cacheKey, payload);
           return jsonResponse(payload);
         }
         let reply = String(result?.response || "").trim();
         if (!reply && Array.isArray(result?.choices)) reply = String(result.choices[0]?.message?.content || "").trim();
         if (!reply) throw new Error("AI 沒有回傳文字內容");
         const payload = { ok: true, version: ASK_VERSION, provider: "cloudflare", model: MODEL, reply };
-        writeAskCache(cacheKey, payload);
+        if (cacheEnabled) writeAskCache(cacheKey, payload);
         return jsonResponse(payload);
       } catch (e) {
         primaryError = e;
@@ -563,7 +568,7 @@ export async function onRequestPost(context) {
         message, history, contextText, toolTurns, allowPrivate: body?.allowGeminiPrivate === true,
       });
       const payload = { ok: true, version: ASK_VERSION, ...gemini, fallbackFrom: friendlyAiError(primaryError?.message) };
-      writeAskCache(cacheKey, payload);
+      if (cacheEnabled) writeAskCache(cacheKey, payload);
       return jsonResponse(payload);
     } catch (geminiError) {
       return jsonResponse({
