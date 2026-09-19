@@ -81,7 +81,10 @@ async function loadCards(env) {
     const raw = await env.health_kv.get(KV_KEY);
     const cards = raw ? JSON.parse(raw) : [];
     return Array.isArray(cards) ? cards : [];
-  } catch {
+  } catch (e) {
+    // 讀取失敗（例如 binding 設錯、KV 服務異常）跟「本來就沒有卡片」不該長得一樣，
+    // 至少留一行 log，不然設定錯誤會被誤以為是「一切正常，只是沒卡片」。
+    console.error("health_kv loadCards failed:", e?.message || e);
     return [];
   }
 }
