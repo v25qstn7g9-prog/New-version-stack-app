@@ -438,7 +438,7 @@ export async function onRequestGet(context) {
     try {
       Object.assign(quotes, await fetchTwseWithRetry(symbols, debug));
     } catch (e) {
-      errors.push(String(e?.message || e));
+      errors.push("TWSE 報價來源暫時失敗");
     }
 
     for (const [sym, q] of Object.entries(quotes)) {
