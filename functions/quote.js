@@ -1,5 +1,5 @@
 /**
- * quote.js — 4.6-quote-stable-12-taiex
+ * quote.js — 4.7-quote-cache-ttl-1
  *
  * Stability strategy for 漲跌幅:
  * 1. TWSE `y` is preferred prevClose (matches brokers); Yahoo is final fallback only.
@@ -11,13 +11,57 @@
  * 4. Retry TWSE once for 500/502/503/504/522/524 (520 excluded — observed to
  *    fail identically on retry, so it only adds latency for this endpoint).
  * 5. ?debug=1 surfaces raw TWSE fields + which fallback path was used.
+ * 6. Market requests are capped at 15s refresh cadence; after 15:00 Taiwan time,
+ *    the Worker stops issuing new fetches and serves the last cached snapshot instead.
  */
 
 const SYMBOL_PATTERN = /^[0-9]{4,6}[A-Z]?$/;
-const QUOTE_VERSION = "4.6-quote-stable-12-taiex";
+const QUOTE_VERSION = "4.7-quote-cache-ttl-1";
+const QUOTE_REFRESH_INTERVAL_MS = 15 * 1000;
+const QUOTE_STOP_HOUR = 15;
 
 function isAllowedSymbol(s) {
   return s === "TAIEX" || SYMBOL_PATTERN.test(s);
+}
+
+function shouldStopQuoteRequests(now = new Date()) {
+  const t = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+  return t.getUTCHours() >= QUOTE_STOP_HOUR;
+}
+
+function quoteCacheKey(symbols, day) {
+  const keySymbols = Array.isArray(symbols) ? [...new Set(symbols)].sort().join(",") : "";
+  return keySymbols ? `https://quote-cache.local/response/${day}/${encodeURIComponent(keySymbols)}` : null;
+}
+
+async function readQuoteResponseCache(symbols, day) {
+  const key = quoteCacheKey(symbols, day);
+  if (!key) return null;
+  try {
+    const hit = await caches.default.match(new Request(key));
+    if (!hit) return null;
+    return await hit.json();
+  } catch {
+    return null;
+  }
+}
+
+async function writeQuoteResponseCache(symbols, day, payload) {
+  const key = quoteCacheKey(symbols, day);
+  if (!key || !payload || typeof payload !== "object") return;
+  try {
+    await caches.default.put(
+      new Request(key),
+      new Response(JSON.stringify(payload), {
+        headers: {
+          "content-type": "application/json",
+          "cache-control": `public, max-age=${QUOTE_REFRESH_INTERVAL_MS / 1000}, s-maxage=${QUOTE_REFRESH_INTERVAL_MS / 1000}`,
+        },
+      })
+    );
+  } catch {
+    // Cache is optional.
+  }
 }
 
 function jsonResponse(data, status = 200) {
@@ -314,9 +358,6 @@ async function fetchYahooPrice(symbol) {
   const yahooSymbol = symbol === "TAIEX" ? "^TWII" : `${symbol}.TW`;
   const encoded = encodeURIComponent(yahooSymbol);
 
-  // Intraday bars are required during market hours. The old stable-9 path
-  // used only interval=1d, which can remain on yesterday's close early in
-  // the session and therefore look like a "live" 0.00% quote.
   const intradayUrl =
     `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}` +
     `?interval=1m&range=1d&_ts=${Date.now()}`;
@@ -345,9 +386,6 @@ async function fetchYahooPrice(symbol) {
         price = c;
         priceAsOf = new Date(Number(timestamps[i]) * 1000).toISOString();
 
-        // Consider the intraday quote fresh only if its last bar is from
-        // today's Taipei trading date. This prevents yesterday's last bar
-        // from masquerading as a current quote.
         const today = taiwanDateStr();
         const barDay = taipeiDateStr(Number(timestamps[i]));
         intradayFresh = barDay === today;
@@ -390,8 +428,6 @@ async function fetchYahooPrice(symbol) {
       dailyLatest = valid[todayIndex].close;
       if (todayIndex > 0) prevClose = valid[todayIndex - 1].close;
     } else if (valid.length) {
-      // No daily bar for today yet: the latest completed daily bar IS the
-      // previous close, not the current live price.
       prevClose = valid[valid.length - 1].close;
       dailyLatest = valid[valid.length - 1].close;
     }
@@ -400,8 +436,6 @@ async function fetchYahooPrice(symbol) {
       prevClose = Number(meta.regularMarketPreviousClose ?? meta.chartPreviousClose);
     }
 
-    // Outside intraday availability, a completed daily close is still useful
-    // after the market has closed.
     if (!Number.isFinite(price) && Number.isFinite(dailyLatest)) {
       price = dailyLatest;
     }
@@ -536,6 +570,38 @@ export async function onRequestGet(
 
     const day =
       taiwanDateStr();
+
+    if (shouldStopQuoteRequests()) {
+      const cached = await readQuoteResponseCache(symbols, day);
+      if (cached) {
+        return jsonResponse({
+          ...cached,
+          fromCache: true,
+          stale: true,
+          stoppedAt: "15:00",
+          version: QUOTE_VERSION,
+        });
+      }
+      return jsonResponse({
+        ok: false,
+        error: "15:00 後已停止新查詢，且目前沒有可用快取資料",
+        stoppedAt: "15:00",
+        day,
+        version: QUOTE_VERSION,
+      }, 200);
+    }
+
+    const cachedQuick = await readQuoteResponseCache(symbols, day);
+    if (cachedQuick) {
+      const cacheAgeMs = Date.now() - new Date(cachedQuick.fetchedAt || 0).getTime();
+      if (cacheAgeMs < QUOTE_REFRESH_INTERVAL_MS) {
+        return jsonResponse({
+          ...cachedQuick,
+          fromCache: true,
+          version: QUOTE_VERSION,
+        });
+      }
+    }
 
     const quotes = {};
     const errors = [];
@@ -718,12 +784,6 @@ export async function onRequestGet(
           const yq =
             result.value;
 
-          /*
-           * TWSE/cache already has
-           * trustworthy prevClose:
-           * keep it, only take
-           * Yahoo price.
-           */
           if (
             quotes[symbol] &&
             Number.isFinite(
@@ -757,15 +817,6 @@ export async function onRequestGet(
                 "yahoo",
             };
           } else {
-            /*
-             * Final fallback:
-             *
-             * TWSE failed AND today's
-             * cache has no prevClose.
-             *
-             * Yahoo's previous close is
-             * now allowed.
-             */
             const yahooPrev =
               Number.isFinite(
                 yq.prevClose
@@ -811,9 +862,6 @@ export async function onRequestGet(
       );
     }
 
-    /*
-     * 5) Final sanitize.
-     */
     for (
       const s
       of Object.keys(quotes)
@@ -862,7 +910,7 @@ export async function onRequestGet(
     const missing = symbols.filter((s) => !quotes[s]);
     const complete = missing.length === 0;
 
-    return jsonResponse({
+    const payload = {
       ok: true,
       version: QUOTE_VERSION,
       status: complete ? "complete" : "partial",
@@ -875,7 +923,11 @@ export async function onRequestGet(
       quotes,
       missing,
       warnings: errors.map((e) => String(e).startsWith("Yahoo") ? "Yahoo 報價來源暫時失敗" : "TWSE 報價來源暫時失敗"),
-    });
+    };
+
+    await writeQuoteResponseCache(symbols, day, payload);
+
+    return jsonResponse(payload);
   } catch (e) {
     return jsonResponse(
       {
