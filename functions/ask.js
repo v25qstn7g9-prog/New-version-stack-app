@@ -1,3 +1,30 @@
+/**
+ * ask.js — 4.7-personal-advisor-v2.29.1-gemini35-direct-fallback
+ *
+ * POST /ask
+ * body: {
+ *   message: string,
+ *   history?: [{ role: "user"|"assistant", content: string }, ...],
+ *   context?: string   // 持股摘要純文字；閒聊可不帶以省 neurons
+ * }
+ * 回傳: { ok: true, reply } 或 { ok: true, toolCalls: [{ name, arguments }] }
+ *
+ * Cloudflare AI Binding：Variable name = AI
+ * Cloudflare 為主模型；Cloudflare 失敗時由同一個 Worker 直接切 Gemini 3.5 Flash-Lite。
+ * 舊 fallback-vercel 仍保留作最後一道相容備援。
+ */
+const ASK_VERSION = "4.7-personal-advisor-v2.29.1-gemini35-direct-fallback";
+const GEMINI_MODEL_DEFAULT = "gemini-3.5-flash-lite";
+const GEMINI_MAX_OUTPUT_TOKENS = 1000;
+const MODEL = "@cf/openai/gpt-oss-20b";
+const MAX_HISTORY_TURNS = 6;
+const MAX_MESSAGE_LEN = 2000;
+const MAX_HISTORY_CONTENT = 3000;
+const MAX_CONTEXT_LEN = 4000;
+const MAX_TOKENS = 1000;
+const MAX_BODY_BYTES = 64 * 1024;
+const MAX_SERVER_SEARCH_ROUNDS = 2;
+
 const ASK_CACHE_TTL_MS = 5 * 60 * 1000;
 const ASK_CACHE = new Map();
 
@@ -39,5 +66,512 @@ function writeAskCache(key, value) {
   if (ASK_CACHE.size > 200) {
     const oldestKey = ASK_CACHE.keys().next().value;
     if (oldestKey) ASK_CACHE.delete(oldestKey);
+  }
+}
+
+function jsonResponse(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store, no-cache, must-revalidate",
+      "x-content-type-options": "nosniff",
+      "referrer-policy": "same-origin",
+    },
+  });
+}
+
+async function callTavily(apiKey, query) {
+  if (!apiKey) return "（尚未設定網路搜尋功能，請提醒使用者到 Cloudflare 加上 TAVILY_API_KEY。）";
+  try {
+    const res = await fetch("https://api.tavily.com/search", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        api_key: apiKey,
+        query: String(query || "").slice(0, 400),
+        max_results: 5,
+        include_answer: true,
+      }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data) {
+      const detail = data?.detail?.error || data?.error || data?.message || "";
+      return `網路搜尋失敗（HTTP ${res.status}${detail ? `：${detail}` : ""}）`;
+    }
+    const results = Array.isArray(data.results) ? data.results.slice(0, 5) : [];
+    const lines = results.map(
+      (r) => `- ${r.title || "（無標題）"}：${String(r.content || "").slice(0, 200)}（來源：${r.url}）`
+    );
+    const answer = data.answer ? `摘要：${data.answer}\n\n` : "";
+    return answer + (lines.length ? lines.join("\n") : "搜尋沒有找到相關結果");
+  } catch (e) {
+    return `網路搜尋發生錯誤：${e.message}`;
+  }
+}
+
+const SYSTEM_PROMPT_BASE = `你是內嵌在這個 App 裡的「使用者專用投資顧問助手」，用繁體中文回答。
+
+你的任務不是泛泛而談的財經聊天，而是以 App 裡「目前持股、成本、交易、配息、資產歷史、目標與計畫」為第一級資料來源，協助使用者做個人化投資分析。`;
+
+const WEEKDAY_ZH = ["日", "一", "二", "三", "四", "五", "六"];
+
+function taiwanNowLabel() {
+  const now = new Date();
+  const t = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+  const y = t.getUTCFullYear();
+  const m = String(t.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(t.getUTCDate()).padStart(2, "0");
+  const hh = String(t.getUTCHours()).padStart(2, "0");
+  const mm = String(t.getUTCMinutes()).padStart(2, "0");
+  const weekday = WEEKDAY_ZH[t.getUTCDay()];
+  return `${y}-${m}-${d}（星期${weekday}）${hh}:${mm}（台灣時間 UTC+8）`;
+}
+
+function taiwanTodayStr() {
+  const now = new Date();
+  const t = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+  return `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, "0")}-${String(t.getUTCDate()).padStart(2, "0")}`;
+}
+
+const TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "add_trade",
+      description: "新增一筆買進或賣出交易紀錄",
+      parameters: {
+        type: "object",
+        properties: {
+          symbol: { type: "string", description: "股票代號，例如 0050" },
+          action: { type: "string", enum: ["buy", "sell"], description: "buy=買進，sell=賣出" },
+          shares: { type: "number", description: "股數" },
+          price: { type: "number", description: "每股成交價" },
+          fee: { type: "number", description: "手續費，沒說填 0" },
+          tax: { type: "number", description: "證交稅（賣出），沒說填 0" },
+          date: { type: "string", description: `交易日期 YYYY-MM-DD，沒說用今天 ${taiwanTodayStr()}` },
+          note: { type: "string", description: "備註，沒有就空字串" },
+        },
+        required: ["symbol", "action", "shares", "price"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_holding_target",
+      description: "修改某檔股票的目標股數",
+      parameters: {
+        type: "object",
+        properties: {
+          symbol: { type: "string", description: "股票代號" },
+          target: { type: "number", description: "新的目標股數" },
+        },
+        required: ["symbol", "target"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_manual_avg_cost",
+      description: "手動設定平均成本，或清除改回自動計算",
+      parameters: {
+        type: "object",
+        properties: {
+          symbol: { type: "string", description: "股票代號" },
+          avgCost: { type: "number", description: "新均價；清除時可填 0" },
+          clear: { type: "boolean", description: "true=清除手動設定，改回自動計算" },
+        },
+        required: ["symbol"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_goal",
+      description: "修改總目標金額或目標年份",
+      parameters: {
+        type: "object",
+        properties: {
+          targetAmount: { type: "number", description: "新目標金額（TWD），不改就不要帶" },
+          targetYear: { type: "number", description: "新目標年份，不改就不要帶" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "query_app_data",
+      description: "唯讀查詢總入口。",
+      parameters: {
+        type: "object",
+        properties: {
+          source: { type: "string", enum: ["daily_records", "trades", "dividends", "holding_cost"], description: "資料來源" },
+          fromDate: { type: "string", description: "起始 YYYY-MM-DD" },
+          toDate: { type: "string", description: "結束 YYYY-MM-DD" },
+          asOfDate: { type: "string", description: "holding_cost：計算到此日（含）" },
+          symbol: { type: "string", description: "股票代號；holding_cost 必填" },
+          aggregation: {
+            type: "string",
+            enum: ["records", "start_end", "monthly", "min_max", "summary"],
+            description: "daily_records: records/start_end/monthly/min_max；trades/dividends: records 或 summary",
+          },
+          fields: {
+            type: "array",
+            items: { type: "string", enum: ["totalAsset", "totalCost", "totalGain", "twValue", "usValue", "twCost", "usCost", "twGain", "usGain"] },
+            description: "關注欄位；min_max 用第一個當比較鍵，預設 totalGain",
+          },
+          limit: { type: "number", description: "records 最多筆數，預設 120，上限 200" },
+        },
+        required: ["source"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_live_quotes",
+      description: "查詢特定股票／ETF 的即時／今日最新股價。",
+      parameters: {
+        type: "object",
+        properties: {
+          symbols: {
+            type: "array",
+            items: { type: "string" },
+            description: "要查詢的股票代號清單，例如 [\"0050\",\"0056\"]；沒指定就查使用者目前全部持股",
+          },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "web_search",
+      description: "上網搜尋一般性、公開的最新資訊。",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "搜尋關鍵字，簡短具體，中文或英文皆可" },
+        },
+        required: ["query"],
+      },
+    },
+  },
+];
+
+const ALLOWED_TOOL_NAMES = new Set([
+  "add_trade",
+  "update_holding_target",
+  "update_manual_avg_cost",
+  "update_goal",
+  "query_app_data",
+  "get_live_quotes",
+  "web_search",
+]);
+
+function geminiTypeSchema(schema) {
+  if (!schema || typeof schema !== "object") return schema;
+  const out = { ...schema };
+  if (typeof out.type === "string") out.type = out.type.toUpperCase();
+  if (out.properties && typeof out.properties === "object") {
+    out.properties = Object.fromEntries(Object.entries(out.properties).map(([k, v]) => [k, geminiTypeSchema(v)]));
+  }
+  if (out.items) out.items = geminiTypeSchema(out.items);
+  return out;
+}
+
+function geminiFunctionDeclarations(tools = TOOLS) {
+  return tools
+    .filter((t) => t?.type === "function" && t?.function?.name)
+    .map((t) => ({
+      name: t.function.name,
+      description: t.function.description || "",
+      parameters: geminiTypeSchema(t.function.parameters || { type: "OBJECT", properties: {} }),
+    }));
+}
+
+function parseGeminiParts(data) {
+  const parts = data?.candidates?.[0]?.content?.parts;
+  return Array.isArray(parts) ? parts : [];
+}
+
+function parseGeminiToolCalls(data) {
+  const calls = [];
+  for (const [idx, part] of parseGeminiParts(data).entries()) {
+    const fc = part?.functionCall;
+    if (!fc?.name || !ALLOWED_TOOL_NAMES.has(fc.name)) continue;
+    calls.push({
+      id: String(fc.id || `gemini_call_${idx}_${Date.now()}`),
+      name: fc.name,
+      arguments: fc.args && typeof fc.args === "object" ? fc.args : {},
+      ...(part.thoughtSignature ? { _geminiThoughtSignature: part.thoughtSignature } : {}),
+    });
+  }
+  return calls;
+}
+
+function geminiText(data) {
+  return parseGeminiParts(data)
+    .map((p) => (typeof p?.text === "string" ? p.text : ""))
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+async function callGemini(env, contents, systemInstruction, tools = true) {
+  const apiKey = String(env?.GEMINI_API_KEY || "").trim();
+  if (!apiKey) throw new Error("Gemini 備援未設定 GEMINI_API_KEY");
+  const model = String(env?.GEMINI_MODEL || GEMINI_MODEL_DEFAULT).trim() || GEMINI_MODEL_DEFAULT;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+  const body = {
+    systemInstruction: { parts: [{ text: systemInstruction }] },
+    contents,
+    generationConfig: {
+      maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS,
+      thinkingConfig: { thinkingLevel: "minimal" },
+    },
+  };
+  if (tools) {
+    body.tools = [{ functionDeclarations: geminiFunctionDeclarations(TOOLS) }];
+  }
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !data) {
+    const detail = data?.error?.message || data?.error?.status || `HTTP ${res.status}`;
+    throw new Error(`Gemini ${detail}`);
+  }
+  return { data, model };
+}
+
+function buildGeminiContents(history, message, toolTurns = []) {
+  const contents = [];
+  for (const m of history || []) {
+    const role = m?.role === "assistant" ? "model" : "user";
+    const text = String(m?.content || "").slice(0, MAX_HISTORY_CONTENT);
+    if (text) contents.push({ role, parts: [{ text }] });
+  }
+  for (const turn of toolTurns || []) {
+    const calls = Array.isArray(turn?.calls) ? turn.calls : [];
+    const results = Array.isArray(turn?.results) ? turn.results : [];
+    if (calls.length) {
+      contents.push({
+        role: "model",
+        parts: calls.map((tc) => ({ functionCall: {
+          name: String(tc?.name || ""),
+          args: tc?.arguments && typeof tc.arguments === "object" ? tc.arguments : {},
+          ...(tc?.id ? { id: String(tc.id) } : {}),
+          ...(tc?._geminiThoughtSignature ? { thoughtSignature: tc._geminiThoughtSignature } : {}),
+        }})).filter((p) => p.functionCall.name),
+      });
+    }
+    if (results.length) {
+      const callNames = new Map(calls.map((tc) => [String(tc?.id || ""), String(tc?.name || "query_app_data")]));
+      contents.push({
+        role: "user",
+        parts: results.map((tr) => ({ functionResponse: {
+          name: String(tr?.name || callNames.get(String(tr?.id || "")) || "query_app_data"),
+          ...(tr?.id ? { id: String(tr.id) } : {}),
+          response: { result: String(tr?.content || "").slice(0, MAX_CONTEXT_LEN) },
+        }})),
+      });
+    }
+  }
+  contents.push({ role: "user", parts: [{ text: message }] });
+  return contents;
+}
+
+async function runGeminiFallback(env, { message, history, contextText, toolTurns, allowPrivate = false }) {
+  const allowPrivateByEnv = String(env?.GEMINI_ALLOW_PRIVATE_CONTEXT || "false").toLowerCase() === "true";
+  allowPrivate = allowPrivate === true || allowPrivateByEnv;
+  const safeContext = allowPrivate ? contextText : "";
+  const dateLine = `現在的日期時間是：${taiwanNowLabel()}。問「今天」「現在」「幾天後」以此為準。`;
+  const systemPrompt = safeContext
+    ? `${SYSTEM_PROMPT_BASE}\n\n${dateLine}\n\n目前持股資料：\n${safeContext}`
+    : `${SYSTEM_PROMPT_BASE}\n\n${dateLine}\n\n這是 Cloudflare 主 AI 的 Gemini 備援。若問題需要私人資產資料但目前沒有提供持股 context，不要猜數字，改用 query_app_data / get_live_quotes 等工具。`;
+
+  let contents = buildGeminiContents(history, message, toolTurns);
+  let searchRounds = 0;
+  while (true) {
+    const { data, model } = await callGemini(env, contents, systemPrompt, true);
+    const toolCalls = parseGeminiToolCalls(data);
+    if (toolCalls.length > 0 && toolCalls.every((tc) => tc.name === "web_search") && searchRounds < MAX_SERVER_SEARCH_ROUNDS) {
+      const modelParts = parseGeminiParts(data).filter((p) => p?.functionCall || p?.text);
+      contents.push({ role: "model", parts: modelParts });
+      const responseParts = [];
+      for (const tc of toolCalls) {
+        const content = await callTavily(env.TAVILY_API_KEY, tc.arguments?.query);
+        responseParts.push({ functionResponse: { name: tc.name, ...(tc?.id ? { id: String(tc.id) } : {}), response: { result: content.slice(0, MAX_CONTEXT_LEN) } } });
+      }
+      contents.push({ role: "user", parts: responseParts });
+      searchRounds += 1;
+      continue;
+    }
+    if (toolCalls.length > 0) {
+      return { provider: "gemini-direct-fallback", model, toolCalls };
+    }
+    const reply = geminiText(data);
+    if (!reply) throw new Error("Gemini 沒有回傳文字內容");
+    return { provider: "gemini-direct-fallback", model, reply };
+  }
+}
+
+function friendlyAiError(message) {
+  const s = String(message || "");
+  if (/neuron|quota|limit|daily|exceeded|usage/i.test(s)) {
+    return "今日 AI 免費額度可能已用完，等額度重置後再試。";
+  }
+  if (/unauthorized|forbidden|401|403/i.test(s)) {
+    return "AI 服務授權失敗，請檢查 Cloudflare 設定。";
+  }
+  if (/binding|AI binding|env\.AI/i.test(s)) {
+    return "尚未設定 Cloudflare AI Binding（Variable name: AI）。";
+  }
+  return s || "ask function failed";
+}
+
+export async function onRequestPost(context) {
+  let primaryError = null;
+  try {
+    const ai = context.env.AI;
+
+    const limiter = context.env.ASK_RATE_LIMITER;
+    const deviceId = String(context.request.headers.get("x-device-id") || "").slice(0, 80);
+    if (limiter && deviceId) {
+      const limited = await limiter.limit({ key: deviceId });
+      if (limited && limited.success === false) {
+        return jsonResponse({ error: "AI 問答太頻繁了，請稍後再試。", version: ASK_VERSION }, 429);
+      }
+    }
+
+    const contentLength = Number(context.request.headers.get("content-length") || 0);
+    if (contentLength > MAX_BODY_BYTES) return jsonResponse({ error: "Request too large" }, 413);
+    const rawBody = await context.request.text();
+    if (new TextEncoder().encode(rawBody).byteLength > MAX_BODY_BYTES) return jsonResponse({ error: "Request too large" }, 413);
+    let body = null;
+    try { body = rawBody.trim() ? JSON.parse(rawBody) : null; } catch { return jsonResponse({ error: "Invalid JSON" }, 400); }
+    const message = String(body?.message || "").trim();
+    if (!message) return jsonResponse({ error: "沒有收到訊息內容", version: ASK_VERSION }, 400);
+    if (message.length > MAX_MESSAGE_LEN) return jsonResponse({ error: "訊息太長了，麻煩縮短一點", version: ASK_VERSION }, 400);
+
+    const rawHistory = Array.isArray(body?.history) ? body.history : [];
+    const history = rawHistory
+      .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
+      .slice(-MAX_HISTORY_TURNS * 2)
+      .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_HISTORY_CONTENT) }));
+    const contextText = typeof body?.context === "string" ? body.context.slice(0, MAX_CONTEXT_LEN) : "";
+    const toolTurns = Array.isArray(body?.toolTurns) ? body.toolTurns : [];
+    const cacheKey = buildAskCacheKey(message, history, contextText, toolTurns);
+    const cached = readAskCache(cacheKey);
+    if (cached) {
+      return jsonResponse({ ok: true, version: ASK_VERSION, ...cached, fromCache: true, provider: cached.provider || "cache" });
+    }
+
+    const dateLine = `現在的日期時間是：${taiwanNowLabel()}。問「今天」「現在」「幾天後」以此為準。`;
+    const systemPrompt = contextText
+      ? `${SYSTEM_PROMPT_BASE}\n\n${dateLine}\n\n目前持股資料：\n${contextText}`
+      : `${SYSTEM_PROMPT_BASE}\n\n${dateLine}`;
+
+    const messages = [
+      { role: "system", content: systemPrompt },
+      ...history,
+      { role: "user", content: message },
+    ];
+    toolTurns.forEach((turn) => {
+      const calls = Array.isArray(turn?.calls) ? turn.calls : [];
+      const results = Array.isArray(turn?.results) ? turn.results : [];
+      if (!calls.length) return;
+      messages.push({
+        role: "assistant",
+        content: "",
+        tool_calls: calls.map((tc) => ({ id: String(tc?.id || ""), type: "function", function: { name: String(tc?.name || ""), arguments: JSON.stringify(tc?.arguments || {}) } })),
+      });
+      results.forEach((tr) => messages.push({ role: "tool", tool_call_id: String(tr?.id || ""), content: String(tr?.content || "").slice(0, MAX_CONTEXT_LEN) }));
+    });
+
+    function parseToolCalls(result) {
+      const rawToolCalls = result?.tool_calls || result?.response?.tool_calls || result?.choices?.[0]?.message?.tool_calls || null;
+      if (!Array.isArray(rawToolCalls) || rawToolCalls.length === 0) return [];
+      return rawToolCalls.map((tc, idx) => {
+        const name = tc?.name || tc?.function?.name;
+        let args = tc?.arguments ?? tc?.function?.arguments;
+        if (typeof args === "string") {
+          try { args = JSON.parse(args.replace(/```json\n?/gi, "").replace(/```/g, "").trim()); } catch { args = {}; }
+        }
+        const id = String(tc?.id || tc?.tool_call_id || `call_${idx}`);
+        return name && ALLOWED_TOOL_NAMES.has(name) ? { id, name, arguments: args || {} } : null;
+      }).filter(Boolean);
+    }
+
+    if (!ai) throw new Error("尚未設定 Cloudflare AI Binding（AI）");
+
+    async function runModel() {
+      return await ai.run(MODEL, { messages, max_tokens: MAX_TOKENS, tools: TOOLS });
+    }
+
+    let result;
+    try {
+      result = await runModel();
+    } catch (e) {
+      primaryError = e;
+    }
+
+    if (!primaryError) {
+      try {
+        let toolCalls = parseToolCalls(result);
+        let searchRounds = 0;
+        while (toolCalls.length > 0 && toolCalls.every((tc) => tc.name === "web_search") && searchRounds < MAX_SERVER_SEARCH_ROUNDS) {
+          messages.push({ role: "assistant", content: "", tool_calls: toolCalls.map((tc) => ({ id: tc.id, type: "function", function: { name: tc.name, arguments: JSON.stringify(tc.arguments || {}) } })) });
+          for (const tc of toolCalls) {
+            const content = await callTavily(context.env.TAVILY_API_KEY, tc.arguments?.query);
+            messages.push({ role: "tool", tool_call_id: tc.id, content: content.slice(0, MAX_CONTEXT_LEN) });
+          }
+          result = await runModel();
+          toolCalls = parseToolCalls(result);
+          searchRounds += 1;
+        }
+        if (toolCalls.length > 0 && toolCalls.some((tc) => tc.name === "web_search")) {
+          messages.push({ role: "user", content: "（系統提示：已達自動查詢次數上限，請直接根據目前已經查到的資料用文字回答，不要再要求呼叫任何工具。）」 });
+          result = await ai.run(MODEL, { messages, max_tokens: MAX_TOKENS });
+          toolCalls = parseToolCalls(result).filter((tc) => tc.name !== "web_search");
+        }
+        if (toolCalls.length > 0) {
+          const payload = { ok: true, version: ASK_VERSION, provider: "cloudflare", model: MODEL, toolCalls };
+          writeAskCache(cacheKey, payload);
+          return jsonResponse(payload);
+        }
+        let reply = String(result?.response || "").trim();
+        if (!reply && Array.isArray(result?.choices)) reply = String(result.choices[0]?.message?.content || "").trim();
+        if (!reply) throw new Error("AI 沒有回傳文字內容");
+        const payload = { ok: true, version: ASK_VERSION, provider: "cloudflare", model: MODEL, reply };
+        writeAskCache(cacheKey, payload);
+        return jsonResponse(payload);
+      } catch (e) {
+        primaryError = e;
+      }
+    }
+
+    try {
+      const gemini = await runGeminiFallback(context.env, {
+        message, history, contextText, toolTurns, allowPrivate: body?.allowGeminiPrivate === true,
+      });
+      const payload = { ok: true, version: ASK_VERSION, ...gemini, fallbackFrom: friendlyAiError(primaryError?.message) };
+      writeAskCache(cacheKey, payload);
+      return jsonResponse(payload);
+    } catch (geminiError) {
+      return jsonResponse({
+        error: `Cloudflare AI：${friendlyAiError(primaryError?.message)}；Gemini 備援：${friendlyAiError(geminiError?.message || "失敗")}`,
+        version: ASK_VERSION,
+      }, 502);
+    }
+  } catch (e) {
+    return jsonResponse({ error: friendlyAiError(e?.message), version: ASK_VERSION }, 500);
   }
 }
