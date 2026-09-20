@@ -25,8 +25,9 @@ ASK_RATE_LIMITER=100:1800
 
 ## 2️⃣ 設定 Cloudflare Workers
 
-### 2-1: 安裝 Wrangler
+### 2-1: 安裝相依套件與 Wrangler
 ```bash
+npm install         # 前端現在用 Vite 建置，第一次要先裝相依套件
 npm install -g wrangler
 wrangler login  # 用瀏覽器登入
 ```
@@ -56,7 +57,7 @@ id = dac5ef4cc5414ad982cb1c135c8abe39
 
 ### 2-4: 本地測試
 ```bash
-wrangler dev
+npm run preview:worker   # 會先 npm run build 再 wrangler dev，別再單獨打 wrangler dev
 ```
 
 測試這些 URL：
@@ -66,7 +67,7 @@ wrangler dev
 
 ### 2-5: 部署
 ```bash
-wrangler deploy
+npm run deploy   # 會先 npm run build 再 wrangler deploy
 ```
 
 記下輸出的 URL，例如 `https://your-worker.your-domain.workers.dev`
@@ -115,7 +116,7 @@ FALLBACK_URL=https://stock-app-backup.vercel.app/api/ask
 
 重新部署：
 ```bash
-wrangler deploy
+npm run deploy
 ```
 
 ✅ **全部完成！**

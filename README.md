@@ -50,22 +50,42 @@
 
 ### 根目錄 (設定 & 文檔)
 ```
-├── 🟦 index.html                    # 前端主程式
-├── 🟦 manifest.webmanifest         # PWA 配置
+├── 🟦 index.html                    # Vite 進入頁（極簡殼層，掛載 src/main.jsx）
+├── 🟦 vite.config.js                # Vite 建置設定
+├── 🟦 tailwind.config.js            # Tailwind CLI 設定
+├── 🟦 postcss.config.js             # PostCSS 設定
+├── 🟦 eslint.config.js              # ESLint 設定（含 no-undef 檢查）
+├── 📁 src/                          # 前端原始碼（build 前）
+├── 📁 public/                       # 原樣複製進 dist/ 的靜態檔（manifest.webmanifest 等）
+├── 📁 test/                         # vitest 單元測試
+├── 📁 dist/                         # `npm run build` 產物，實際部署的靜態資源（gitignore）
 ├── 📝 README.md                    # 本檔案
-├── 📝 QUICKSTART.md                # 🆕 快速啟動指南
-├── 📝 DEPLOYMENT.md                # 🆕 完整部署檢查清單
+├── 📝 QUICKSTART.md                # 快速啟動指南
+├── 📝 DEPLOYMENT.md                # 完整部署檢查清單
 ├── 📋 VERSION.json                 # 版本資訊追蹤
-├── 🛡️ .assetsignore                 # Static Assets 公開檔案排除清單
-├── 📋 package.json                 # 🆕 專案設定 & 命令
-├── 🔑 .env.example                 # 🆕 環境變數範本 (Cloudflare)
-├── 🚫 .gitignore                   # 🆕 Git 忽略規則
-├── ⚙️  wrangler.jsonc              # 🆕 改進版 (支援 dev/prod)
+├── 📋 package.json                 # 專案設定 & 命令
+├── 🔑 .env.example                 # 環境變數範本 (Cloudflare)
+├── 🚫 .gitignore                   # Git 忽略規則
+├── ⚙️  wrangler.jsonc              # assets.directory 指向 dist/
 ├── ⚙️  _routes.json                # 路由配置
 ├── ⚙️  worker.js                   # Cloudflare Worker 進入點
 ├── 📁 functions/                   # Cloudflare 函式
+├── 📁 .github/workflows/           # CI（lint / test / build / check:version）
 └── 📁 fallback-vercel/            # Vercel 備援
 ```
+
+### src/ (前端，Vite 建置)
+```
+├── main.jsx                 # 掛載進入點（ReactDOM.createRoot）
+├── App.jsx                  # 根元件（原 AssetTracker）
+├── index.css                # Tailwind 指令
+├── components/               # 每個分頁/區塊各一個檔案
+└── lib/
+    ├── constants.js          # APP_VERSION、COLORS、TABS 等常數
+    ├── icons.jsx             # lucide-react 圖示別名
+    └── helpers.js             # 純函式（排程試算、備份驗證、AI 工具呼叫驗證…）
+```
+**部署前一定要先 `npm run build`**（`npm run deploy` / `deploy:prod` / `preview:worker` 已自動幫你串好這一步，直接打 `wrangler deploy` 會用到舊的或不存在的 dist/）。
 
 ### functions/ (Cloudflare Workers)
 ```

@@ -24,6 +24,7 @@ Cloudflare Dashboard → Worker → Settings → Variables and Secrets：
 ## Cloudflare Workers 部署
 
 ### 前置準備
+- [ ] 安裝專案相依套件: `npm install`（前端已改用 Vite 建置，第一次要先裝）
 - [ ] 安裝 Wrangler CLI: `npm install -g wrangler`
 - [ ] 登入 Cloudflare: `wrangler login`
 - [ ] 有 Cloudflare 帳號且設好域名或 Workers subdomain
@@ -66,8 +67,9 @@ cp .env.example .env.local
 
 ### 步驟 4：部署
 ```bash
-# 開發環境測試
-wrangler dev
+# 開發環境測試（會先 npm run build 再 wrangler dev，
+# 前端現在要編譯過的 dist/ 才是最新的，不要再單獨打 wrangler dev）
+npm run preview:worker
 
 # 測試 URL:
 # - http://localhost:8787/         (靜態首頁)
@@ -75,15 +77,15 @@ wrangler dev
 # - http://localhost:8787/ask      (POST AI 詢問)
 # - http://localhost:8787/health-check (健康檢查)
 
-# 驗證無誤後，部署到生產
-wrangler deploy --env production
+# 驗證無誤後，部署到生產（一樣會先 build 再 deploy）
+npm run deploy:prod
 
-# 或直接部署（不指定環境則用 default）
-wrangler deploy
+# 或部署到預設環境
+npm run deploy
 ```
 
-- [ ] `wrangler dev` 測試通過
-- [ ] `wrangler deploy` 成功
+- [ ] `npm run preview:worker` 測試通過
+- [ ] `npm run deploy` / `npm run deploy:prod` 成功
 - [ ] 訪問 Workers URL 確認可用
 
 ### 步驟 5：測試端點

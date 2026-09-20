@@ -64,7 +64,7 @@ sed -n '3770,3790p' index.html
 cd 存股App-v2.25.5-Gemini3.5完整升級版
 
 # 部署
-wrangler deploy
+npm run deploy   # 會先 build 再 wrangler deploy
 
 # 驗證部署成功
 curl https://your-worker-domain.workers.dev | grep "WebkitAppearance"
@@ -167,7 +167,7 @@ python3 -m http.server 8000
 cp index.html.backup index.html
 
 # 重新部署
-wrangler deploy
+npm run deploy   # 會先 build 再 wrangler deploy
 
 # 驗證回滾
 curl https://your-worker-domain.workers.dev | grep -c "WebkitAppearance"
