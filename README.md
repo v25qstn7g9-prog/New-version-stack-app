@@ -1,6 +1,6 @@
-# 存股 App v2.28.0 | Gemini 3.5 完整升級版 ✨
+# 存股 App v2.29.1 | Personal Advisor + Gemini 3.5 ✨
 
-**最後更新**: 2026年9月18日  
+**最後更新**: 2026年9月20日  
 **狀態**: ✅ 生產穩定版 | Gemini 內建 fallback  
 **架構**: Cloudflare Workers（主力）→ Gemini 3.5 Flash-Lite（同 Worker 內建備援）→ 舊 Vercel 備援（可選）
 
@@ -15,7 +15,7 @@
 ---
 
 ## 主 App
-- App：`4.6-personal-v2.28.0-gemini35`
+- App：`4.7-personal-advisor-v2.29.1-gemini35`
 - 左右滑頁與穩定化手勢保留
 - 持股頁沿用首頁即時報價
 - 加權指數 TAIEX 已恢復
@@ -23,10 +23,10 @@
 - 備份／匯入、交易、持股、配息、計畫、資產曲線保留
 
 ## Cloudflare
-- `functions/quote.js`：`4.6-quote-stable-12-taiex`
+- `functions/quote.js`：`4.7-quote-schedule-1`
 - 支援一般台股代號 + `TAIEX`
 - TAIEX 使用 TWSE `tse_t00.tw`，Yahoo fallback 使用 `^TWII`
-- `functions/ask.js`：`4.6-ask-free-23-gemini35-direct-fallback`（Cloudflare GPT-OSS 20B + Gemini 3.5 Flash-Lite fallback）
+- `functions/ask.js`：`4.7-personal-advisor-v2.29.1-gemini35-direct-fallback`（Cloudflare GPT-OSS 20B + Gemini 3.5 Flash-Lite fallback）
 - `functions/news.js`：`4.6-news-stable-6`
 - `functions/health-check.js`：`4.6-health-check-2`
 - Workers with Static Assets：`worker.js`
@@ -42,7 +42,7 @@
 - fallback package：`2.21.4`
 - `api/ask.js`：Gemini 3.5 Flash-Lite
 - `api/health.js`：Gemini 3.5 Flash-Lite 健康檢查
-- `lib/ask-core.js`：`4.6-ask-free-21.4-gemini35-stable-tools`
+- `lib/ask-core.js`：`4.7-personal-advisor-v2.29.0-gemini35-stable-tools`
 - thinking 關閉：`thinkingLevel: minimal`
 - 保留 function calling、App 資料查詢、即時股價與 Tavily web search
 
