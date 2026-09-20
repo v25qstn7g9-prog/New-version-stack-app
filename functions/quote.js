@@ -23,11 +23,11 @@ const QUOTE_REFRESH_INTERVAL_MS = 15 * 1000;
 const QUOTE_AUTO_STOP_HOUR = 13;
 const QUOTE_AUTO_STOP_MINUTE = 30;
 
-function isAllowedSymbol(s) {
+export function isAllowedSymbol(s) {
   return s === "TAIEX" || SYMBOL_PATTERN.test(s);
 }
 
-function shouldAutoStopQuoteRequests(now = new Date()) {
+export function shouldAutoStopQuoteRequests(now = new Date()) {
   const t = new Date(now.getTime() + 8 * 60 * 60 * 1000);
   const minutes = t.getUTCHours() * 60 + t.getUTCMinutes();
   return minutes >= QUOTE_AUTO_STOP_HOUR * 60 + QUOTE_AUTO_STOP_MINUTE;
@@ -89,7 +89,7 @@ function taiwanDateStr(d = new Date()) {
   return t.toISOString().slice(0, 10);
 }
 
-function isTaiwanTradingHours(d = new Date()) {
+export function isTaiwanTradingHours(d = new Date()) {
   const t = new Date(d.getTime() + 8 * 60 * 60 * 1000);
   const day = t.getUTCDay();
   if (day === 0 || day === 6) return false;
@@ -119,7 +119,7 @@ async function fetchJson(url, timeoutMs = 7000) {
   }
 }
 
-function firstNumber(s) {
+export function firstNumber(s) {
   if (!s || s === "-") return NaN;
 
   const part = String(s)
@@ -131,7 +131,7 @@ function firstNumber(s) {
   return Number.isFinite(n) ? n : NaN;
 }
 
-function parseTwseItem(item) {
+export function parseTwseItem(item) {
   const prevClose = Number(item.y);
 
   if (!Number.isFinite(prevClose) || prevClose <= 0) {

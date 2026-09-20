@@ -28,7 +28,7 @@ const MAX_SERVER_SEARCH_ROUNDS = 2;
 const ASK_CACHE_TTL_MS = 5 * 60 * 1000;
 const ASK_CACHE = new Map();
 
-function normalizeAskCacheHistory(history) {
+export function normalizeAskCacheHistory(history) {
   if (!Array.isArray(history)) return [];
   return history
     .slice(-2)
@@ -36,7 +36,7 @@ function normalizeAskCacheHistory(history) {
     .map((m) => ({ role: m.role, content: m.content.slice(0, 300).trim() }));
 }
 
-function buildAskCacheKey(message, history, contextText, toolTurns) {
+export function buildAskCacheKey(message, history, contextText, toolTurns) {
   const safeMessage = String(message || "").trim();
   const normalizedHistory = normalizeAskCacheHistory(history);
   const safeContextFlag = typeof contextText === "string" && contextText.trim() ? "private-context" : "no-context";
@@ -263,7 +263,7 @@ const TOOLS = [
   },
 ];
 
-const ALLOWED_TOOL_NAMES = new Set([
+export const ALLOWED_TOOL_NAMES = new Set([
   "add_trade",
   "update_holding_target",
   "update_manual_avg_cost",
@@ -272,6 +272,24 @@ const ALLOWED_TOOL_NAMES = new Set([
   "get_live_quotes",
   "web_search",
 ]);
+
+// Parses whatever shape the model's tool-call response took (Workers AI's
+// native format, or a wrapped `.response`/OpenAI-style `.choices[0]`) into a
+// normalized list, dropping anything not in ALLOWED_TOOL_NAMES — this is the
+// actual gate between "the model said do X" and "the app executes X".
+export function parseToolCalls(result) {
+  const rawToolCalls = result?.tool_calls || result?.response?.tool_calls || result?.choices?.[0]?.message?.tool_calls || null;
+  if (!Array.isArray(rawToolCalls) || rawToolCalls.length === 0) return [];
+  return rawToolCalls.map((tc, idx) => {
+    const name = tc?.name || tc?.function?.name;
+    let args = tc?.arguments ?? tc?.function?.arguments;
+    if (typeof args === "string") {
+      try { args = JSON.parse(args.replace(/```json\n?/gi, "").replace(/```/g, "").trim()); } catch { args = {}; }
+    }
+    const id = String(tc?.id || tc?.tool_call_id || `call_${idx}`);
+    return name && ALLOWED_TOOL_NAMES.has(name) ? { id, name, arguments: args || {} } : null;
+  }).filter(Boolean);
+}
 
 function geminiTypeSchema(schema) {
   if (!schema || typeof schema !== "object") return schema;
@@ -500,20 +518,6 @@ export async function onRequestPost(context) {
       });
       results.forEach((tr) => messages.push({ role: "tool", tool_call_id: String(tr?.id || ""), content: String(tr?.content || "").slice(0, MAX_CONTEXT_LEN) }));
     });
-
-    function parseToolCalls(result) {
-      const rawToolCalls = result?.tool_calls || result?.response?.tool_calls || result?.choices?.[0]?.message?.tool_calls || null;
-      if (!Array.isArray(rawToolCalls) || rawToolCalls.length === 0) return [];
-      return rawToolCalls.map((tc, idx) => {
-        const name = tc?.name || tc?.function?.name;
-        let args = tc?.arguments ?? tc?.function?.arguments;
-        if (typeof args === "string") {
-          try { args = JSON.parse(args.replace(/```json\n?/gi, "").replace(/```/g, "").trim()); } catch { args = {}; }
-        }
-        const id = String(tc?.id || tc?.tool_call_id || `call_${idx}`);
-        return name && ALLOWED_TOOL_NAMES.has(name) ? { id, name, arguments: args || {} } : null;
-      }).filter(Boolean);
-    }
 
     if (!ai) throw new Error("尚未設定 Cloudflare AI Binding（AI）");
 
