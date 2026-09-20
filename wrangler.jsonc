@@ -14,10 +14,12 @@
   // ============================================
   // 靜態資源 (Workers with Static Assets)
   // ============================================
-  // 把整個資料夾（包括 index.html）作為靜態資源
+  // 指向 `npm run build`（Vite）產生的 dist/ 資料夾，而不是整個 repo 根目錄。
+  // 部署前一定要先 build，否則 dist/ 是空的或是舊的——package.json 的
+  // deploy / deploy:prod / preview:worker 腳本已經自動串好 build 這一步。
   // 其他端點由 worker.js 的路由規則處理
   "assets": {
-    "directory": ".",
+    "directory": "dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application"
   },

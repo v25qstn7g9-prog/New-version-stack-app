@@ -10,7 +10,7 @@ function grab(text, re, label) {
 }
 
 const actual = {
-  app: grab(read("index.html"), /const APP_VERSION = "([^"]+)"/, "APP_VERSION"),
+  app: grab(read("src/lib/constants.js"), /const APP_VERSION = "([^"]+)"/, "APP_VERSION"),
   quote: grab(read("functions/quote.js"), /const QUOTE_VERSION = "([^"]+)"/, "QUOTE_VERSION"),
   ask: grab(read("functions/ask.js"), /const ASK_VERSION = "([^"]+)"/, "ASK_VERSION"),
   news: grab(read("functions/news.js"), /const NEWS_VERSION = "([^"]+)"/, "NEWS_VERSION"),

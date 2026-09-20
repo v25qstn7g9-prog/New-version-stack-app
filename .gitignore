@@ -14,10 +14,11 @@ wrangler.lock
 
 # Node.js
 node_modules/
-package-lock.json
 yarn.lock
 pnpm-lock.yaml
 npm-debug.log*
+# package-lock.json is committed on purpose now that the project has real
+# npm dependencies (Vite build pipeline) — keep installs reproducible.
 
 # IDE & 編輯器
 .vscode/
