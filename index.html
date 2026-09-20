@@ -38,19 +38,23 @@
   </style>
 
   <script>
-    window.addEventListener("error", function(e) {
+    function showBootError(title, detail) {
       var box=document.getElementById("boot-error");
-      if(box) {
-        box.style.display="block";
-        box.innerHTML="<h2>App 載入錯誤</h2><div>"+String(e.message||e.error||"未知錯誤")+"</div>";
-      }
+      if(!box) return;
+      box.style.display="block";
+      box.textContent="";
+      var h=document.createElement("h2");
+      h.textContent=title;
+      var d=document.createElement("div");
+      d.textContent=String(detail||"未知錯誤");
+      box.appendChild(h);
+      box.appendChild(d);
+    }
+    window.addEventListener("error", function(e) {
+      showBootError("App 載入錯誤", e.message||(e.error&&e.error.message)||"未知錯誤");
     });
     window.addEventListener("unhandledrejection", function(e) {
-      var box=document.getElementById("boot-error");
-      if(box) {
-        box.style.display="block";
-        box.innerHTML="<h2>App 執行錯誤</h2><div>"+String(e.reason||"未知錯誤")+"</div>";
-      }
+      showBootError("App 執行錯誤", (e.reason&&e.reason.message)||e.reason||"未知錯誤");
     });
   </script>
 
