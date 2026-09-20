@@ -1,11 +1,11 @@
 {
-  "app": "2.29.0",
-  "lastUpdated": "2026-09-18",
+  "app": "2.29.1",
+  "lastUpdated": "2026-09-20",
   "status": "personal-investment-advisor-gemini-direct-fallback",
   "cloudflare": {
     "index.html": "4.7-personal-advisor-v2.29.0-gemini35",
-    "quote.js": "4.6-quote-stable-12-taiex",
-    "ask.js": "4.7-personal-advisor-v2.29.0-gemini35-direct-fallback",
+    "quote.js": "4.7-quote-schedule-1",
+    "ask.js": "4.7-personal-advisor-v2.29.1-gemini35-direct-fallback",
     "news.js": "4.6-news-stable-6",
     "health-check.js": "4.6-health-check-2",
     "model": "@cf/openai/gpt-oss-20b"
@@ -24,5 +24,5 @@
     "health": "自動健康檢查卡片",
     "backup": "JSON 備份／匯入"
   },
-  "package": "2.29.0"
+  "package": "2.29.1"
 }
