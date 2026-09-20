@@ -4,7 +4,7 @@
   "status": "personal-investment-advisor-gemini-direct-fallback",
   "cloudflare": {
     "index.html": "4.7-personal-advisor-v2.29.1-gemini35",
-    "quote.js": "4.6-quote-stable-12-taiex",
+    "quote.js": "4.7-quote-schedule-1",
     "ask.js": "4.7-personal-advisor-v2.29.1-gemini35-direct-fallback",
     "news.js": "4.6-news-stable-6",
     "health-check.js": "4.6-health-check-2",
