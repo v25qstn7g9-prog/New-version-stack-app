@@ -128,13 +128,13 @@ const APP_VERSION = "4.7-personal-advisor-v2.29.1-gemini35";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
-  { id: "dashboard", label: "總覽", icon: Wallet },
-  { id: "holdings", label: "持股進度", icon: ListOrdered },
-  { id: "daily", label: "每日紀錄", icon: LineChartIcon },
-  { id: "trades", label: "交易紀錄", icon: Receipt },
-  { id: "dividends", label: "配息", icon: Coins },
-  { id: "progress", label: "計畫進度", icon: Target },
-  { id: "plan", label: "計畫設定", icon: Settings2 },
+  { id: "dashboard", label: "總覽", en: "Overview", icon: Wallet },
+  { id: "holdings", label: "持股進度", en: "Holdings", icon: ListOrdered },
+  { id: "daily", label: "每日紀錄", en: "Daily", icon: LineChartIcon },
+  { id: "trades", label: "交易紀錄", en: "Trades", icon: Receipt },
+  { id: "dividends", label: "配息", en: "Dividends", icon: Coins },
+  { id: "progress", label: "計畫進度", en: "Progress", icon: Target },
+  { id: "plan", label: "計畫設定", en: "Settings", icon: Settings2 },
 ];
 
 const COLORS = {
@@ -147,6 +147,80 @@ const COLORS = {
   loss: "#22C55E",   // 台股慣例：綠跌
   gold: "#C9A24B",
 };
+
+const UI_EN = {
+  "即時股價": "Live Quotes",
+  "新增每日紀錄": "Add Daily Record",
+  "區間查詢（精算，非AI）": "Period Analysis",
+  "週度損益": "Weekly P/L",
+  "月度損益": "Monthly P/L",
+  "年度損益": "Yearly P/L",
+  "持股進度": "Holdings Progress",
+  "新增持股標的": "Add Holding",
+  "成本追蹤": "Cost Tracking",
+  "新增交易": "Add Trade",
+  "近期除息": "Upcoming Ex-Dividends",
+  "配息歷史": "Dividend History",
+  "新增配息": "Add Dividend",
+  "退休目標設定": "Retirement Goal",
+  "新增定期定額項目": "Add Recurring Investment",
+  "系統健康": "System Health",
+  "AI 雙層備援（自動）": "AI Dual Fallback",
+  "資料備份與還原": "Backup & Restore",
+  "計畫進度追蹤": "Plan Progress",
+  "計畫參數設定": "Plan Settings",
+  "日期": "Date",
+  "台股市值": "TW Market Value",
+  "美股市值": "US Market Value",
+  "台股成本": "TW Cost",
+  "美股成本": "US Cost",
+  "起始日期": "Start Date",
+  "結束日期": "End Date",
+  "代號": "Symbol",
+  "名稱": "Name",
+  "期初股數": "Starting Shares",
+  "目標股數": "Target Shares",
+  "持有成本（直接輸入目前總成本，例如對照券商App的數字）": "Current Total Cost",
+  "2035目標股數": "2035 Target Shares",
+  "起始成本（期初股數對應的持有成本，留空=0）": "Starting Cost",
+  "起始成本（交易紀錄開始追蹤之前，已經投入的成本）": "Starting Cost Before Trade History",
+  "買賣": "Action",
+  "股數": "Shares",
+  "成交價": "Trade Price",
+  "手續費": "Fee",
+  "交易稅（賣出）": "Transaction Tax (Sell)",
+  "備註": "Note",
+  "除息日": "Ex-Dividend Date",
+  "股數（選了有持股的代號會自動帶入，可再手動調整）": "Shares",
+  "目標金額 (NTD)": "Target Amount (NTD)",
+  "目標年份": "Target Year",
+  "標的": "Asset",
+  "月投入金額": "Monthly Contribution",
+  "計畫開始日": "Plan Start Date",
+  "起始本金": "Starting Principal",
+  "起始資產": "Starting Assets",
+  "每月投入金額": "Monthly Contribution",
+  "假設年化報酬率(%)": "Assumed Annual Return (%)",
+  "推算年限(年)": "Projection Years",
+  "新增": "Add",
+  "儲存": "Save",
+  "更新": "Update",
+  "刪除": "Delete",
+  "新增交易紀錄": "Add Trade",
+  "新增配息紀錄": "Add Dividend"
+};
+
+function UiLabel({ zh, className = "", style = null, inline = false }) {
+  const en = UI_EN[zh];
+  if (!en) return <span className={className} style={style}>{zh}</span>;
+  if (inline) return <span className={className} style={style}>{zh} <span style={{ opacity: 0.72 }}>/ {en}</span></span>;
+  return (
+    <span className={className} style={style}>
+      <span className="block">{zh}</span>
+      <span className="block text-[9px] font-medium mt-0.5" style={{ opacity: 0.72 }}>{en}</span>
+    </span>
+  );
+}
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const taiwanDateParts = (date = new Date()) => {
@@ -1463,7 +1537,8 @@ function Header({ goal, totalToday, goalDate, backupOverdue, backupAgeDays }) {
       <div className="max-w-2xl mx-auto">
         <div className="flex items-baseline justify-between">
           <h1 className="text-lg font-black tracking-tight" style={{ color: COLORS.gold }}>
-            存股資產追蹤 <span className="text-[10px] font-medium" style={{ color: COLORS.sub }}>v{APP_VERSION}</span>
+            <span className="block">存股資產追蹤 <span className="text-[10px] font-medium" style={{ color: COLORS.sub }}>v{APP_VERSION}</span></span>
+            <span className="block text-[9px] font-medium mt-0.5" style={{ color: COLORS.sub }}>Stock Asset Tracker</span>
           </h1>
           <span className="text-xs mono" style={{ color: COLORS.sub }}>
             目標 {goal.targetYear} · {nf(goal.targetAmount)}
@@ -1739,7 +1814,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
   // during TWSE trading hours. Outside those hours the price wouldn't be
   // changing anyway, so this avoids hitting the price source for nothing
   // all evening/overnight/weekends — it falls back to fully manual then.
-  // The manual "抓取即時股價" button is unaffected by this — you can still
+  // The manual "抓取即時股價 / Refresh" button is unaffected by this — you can still
   // press it any time to check the last close. If we just loaded a cache
   // that's still fresh (e.g. you switched tabs and back within a few
   // seconds), skip the immediate refetch and just let the interval pick up
@@ -3569,7 +3644,7 @@ function Panel({ title, children }) {
       background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`,
       boxShadow: "0 4px 16px rgba(0,0,0,0.28)",
     }}>
-      <div className="text-xs font-bold mb-3" style={{ color: COLORS.sub }}>{title}</div>
+      <div className="text-xs font-bold mb-3" style={{ color: COLORS.sub }}><UiLabel zh={title} /></div>
       {children}
     </div>
   );
@@ -3577,7 +3652,7 @@ function Panel({ title, children }) {
 function Field({ label, children }) {
   return (
     <label className="block">
-      <div className="text-[10px] mb-1" style={{ color: COLORS.sub }}>{label}</div>
+      <div className="text-[10px] mb-1" style={{ color: COLORS.sub }}><UiLabel zh={label} /></div>
       {children}
       <style>{`
         .input {
@@ -3594,7 +3669,7 @@ function AddButton({ onClick, label }) {
   return (
     <button onClick={onClick} className="mt-3 w-full flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-bold"
       style={{ background: COLORS.gold, color: "#0A0F1C" }}>
-      <Plus size={16} /> {label}
+      <Plus size={16} /> <UiLabel zh={label} inline />
     </button>
   );
 }
@@ -4299,7 +4374,7 @@ function TabBar({ tab, setTab, rootRef }) {
         paddingBottom: "env(safe-area-inset-bottom, 4px)",
       }}>
       <div className="max-w-2xl mx-auto flex">
-        {TABS.map(({ id, label, icon: Icon }) => {
+        {TABS.map(({ id, label, en, icon: Icon }) => {
           const active = tab === id;
           return (
             <button key={id} onClick={() => setTab(id)}
@@ -4309,7 +4384,10 @@ function TabBar({ tab, setTab, rootRef }) {
                 borderTop: active ? `2px solid ${COLORS.gold}` : "2px solid transparent",
               }}>
               <Icon size={13} />
-              <span className="text-[8px] font-medium whitespace-nowrap leading-tight">{label}</span>
+              <span className="text-[8px] font-medium whitespace-nowrap leading-[1.05] text-center">
+                <span className="block">{label}</span>
+                <span className="block text-[6px] mt-0.5" style={{ opacity: 0.72 }}>{en}</span>
+              </span>
             </button>
           );
         })}
