@@ -3,8 +3,10 @@ import { ChevronLeft, ChevronRight, ExternalLink, Newspaper } from "../lib/icons
 import { COLORS } from "../lib/constants.js";
 import { fetchStockNews, relativeTimeLabel, loadKey, saveKey } from "../lib/helpers.js";
 import { Panel } from "./Panel.jsx";
+import { useLanguage } from "../lib/i18n.jsx";
 
 function NewsCarousel({ holdings }) {
+  const { t } = useLanguage();
   const [newsList, setNewsList] = useState([]);
   const [idx, setIdx] = useState(0);
   const [loaded, setLoaded] = useState(false);
@@ -82,7 +84,7 @@ function NewsCarousel({ holdings }) {
     }} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-1.5 text-xs" style={{ color: COLORS.sub }}>
-          <Newspaper size={13} /> 持股新聞
+          <Newspaper size={13} /> {t("持股新聞")}
         </div>
         {newsList.length > 1 && (
           <div className="flex items-center gap-2">
@@ -101,7 +103,7 @@ function NewsCarousel({ holdings }) {
       <a href={item.link} target="_blank" rel="noreferrer"
         className="inline-flex items-center gap-1 mt-2.5 text-xs font-bold rounded-lg px-3 py-1.5"
         style={{ background: COLORS.gold, color: COLORS.bg }}>
-        查看新聞 <ExternalLink size={12} />
+        {t("查看新聞")} <ExternalLink size={12} />
       </a>
 
       {newsList.length > 1 && (

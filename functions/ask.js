@@ -36,7 +36,7 @@ export function normalizeAskCacheHistory(history) {
     .map((m) => ({ role: m.role, content: m.content.slice(0, 300).trim() }));
 }
 
-export function buildAskCacheKey(message, history, contextText, toolTurns) {
+export function buildAskCacheKey(message, history, contextText, toolTurns, language = "zh") {
   const safeMessage = String(message || "").trim();
   const normalizedHistory = normalizeAskCacheHistory(history);
   const safeContextFlag = typeof contextText === "string" && contextText.trim() ? "private-context" : "no-context";
@@ -46,6 +46,9 @@ export function buildAskCacheKey(message, history, contextText, toolTurns) {
     history: normalizedHistory,
     context: safeContextFlag,
     toolTurns: toolCount,
+    // A cached reply in the wrong language is worse than no cache hit at
+    // all, so the reply language is part of the cache key too.
+    language: language === "en" ? "en" : "zh",
   });
 }
 
@@ -110,9 +113,20 @@ async function callTavily(apiKey, query) {
   }
 }
 
-const SYSTEM_PROMPT_BASE = `你是內嵌在這個 App 裡的「使用者專用投資顧問助手」，用繁體中文回答。
+const SYSTEM_PROMPT_BASE = `你是內嵌在這個 App 裡的「使用者專用投資顧問助手」。
 
 你的任務不是泛泛而談的財經聊天，而是以 App 裡「目前持股、成本、交易、配息、資產歷史、目標與計畫」為第一級資料來源，協助使用者做個人化投資分析。`;
+
+// App 介面的中/英切換鍵也決定 AI 回覆用哪個語言：前端在 /ask 的 body 帶
+// language: "zh" | "en"。系統提示本體維持中文（含 TOOLS 的 function-calling
+// schema description，那些是給模型看的內部設定，不是使用者會看到的畫面文字），
+// 靠這行明確指令控制模型「最終真的要回什麼語言」，比整份提示各準備一份中英文
+// 版本更不容易漏改、更好維護。
+function languageDirective(language) {
+  return language === "en"
+    ? "IMPORTANT: Always reply to the user in English, regardless of the language used elsewhere in these instructions."
+    : "重要：一律使用繁體中文回覆使用者，不論這份系統提示其他地方用的是什麼語言。";
+}
 
 const WEEKDAY_ZH = ["日", "一", "二", "三", "四", "五", "六"];
 
@@ -406,14 +420,15 @@ function buildGeminiContents(history, message, toolTurns = []) {
   return contents;
 }
 
-async function runGeminiFallback(env, { message, history, contextText, toolTurns, allowPrivate = false }) {
+async function runGeminiFallback(env, { message, history, contextText, toolTurns, allowPrivate = false, language = "zh" }) {
   const allowPrivateByEnv = String(env?.GEMINI_ALLOW_PRIVATE_CONTEXT || "false").toLowerCase() === "true";
   allowPrivate = allowPrivate === true || allowPrivateByEnv;
   const safeContext = allowPrivate ? contextText : "";
   const dateLine = `現在的日期時間是：${taiwanNowLabel()}。問「今天」「現在」「幾天後」以此為準。`;
-  const systemPrompt = safeContext
+  const systemPrompt = (safeContext
     ? `${SYSTEM_PROMPT_BASE}\n\n${dateLine}\n\n目前持股資料：\n${safeContext}`
-    : `${SYSTEM_PROMPT_BASE}\n\n${dateLine}\n\n這是 Cloudflare 主 AI 的 Gemini 備援。若問題需要私人資產資料但目前沒有提供持股 context，不要猜數字，改用 query_app_data / get_live_quotes 等工具。`;
+    : `${SYSTEM_PROMPT_BASE}\n\n${dateLine}\n\n這是 Cloudflare 主 AI 的 Gemini 備援。若問題需要私人資產資料但目前沒有提供持股 context，不要猜數字，改用 query_app_data / get_live_quotes 等工具。`)
+    + `\n\n${languageDirective(language)}`;
 
   let contents = buildGeminiContents(history, message, toolTurns);
   let searchRounds = 0;
@@ -488,19 +503,21 @@ export async function onRequestPost(context) {
       .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_HISTORY_CONTENT) }));
     const contextText = typeof body?.context === "string" ? body.context.slice(0, MAX_CONTEXT_LEN) : "";
     const toolTurns = Array.isArray(body?.toolTurns) ? body.toolTurns : [];
+    const language = body?.language === "en" ? "en" : "zh";
     // 個人化資產 context 與工具結果不可進共享的記憶體快取，否則相同問題可能跨使用者命中舊答案。
     // 只有沒有私人 context、也沒有 tool round 的一般閒聊才使用短 TTL 快取。
     const cacheEnabled = !contextText.trim() && toolTurns.length === 0;
-    const cacheKey = cacheEnabled ? buildAskCacheKey(message, history, contextText, toolTurns) : null;
+    const cacheKey = cacheEnabled ? buildAskCacheKey(message, history, contextText, toolTurns, language) : null;
     const cached = cacheEnabled ? readAskCache(cacheKey) : null;
     if (cached) {
       return jsonResponse({ ok: true, version: ASK_VERSION, ...cached, fromCache: true, provider: cached.provider || "cache" });
     }
 
     const dateLine = `現在的日期時間是：${taiwanNowLabel()}。問「今天」「現在」「幾天後」以此為準。`;
-    const systemPrompt = contextText
+    const systemPrompt = (contextText
       ? `${SYSTEM_PROMPT_BASE}\n\n${dateLine}\n\n目前持股資料：\n${contextText}`
-      : `${SYSTEM_PROMPT_BASE}\n\n${dateLine}`;
+      : `${SYSTEM_PROMPT_BASE}\n\n${dateLine}`)
+      + `\n\n${languageDirective(language)}`;
 
     const messages = [
       { role: "system", content: systemPrompt },
@@ -569,7 +586,7 @@ export async function onRequestPost(context) {
 
     try {
       const gemini = await runGeminiFallback(context.env, {
-        message, history, contextText, toolTurns, allowPrivate: body?.allowGeminiPrivate === true,
+        message, history, contextText, toolTurns, allowPrivate: body?.allowGeminiPrivate === true, language,
       });
       const payload = { ok: true, version: ASK_VERSION, ...gemini, fallbackFrom: friendlyAiError(primaryError?.message) };
       if (cacheEnabled) writeAskCache(cacheKey, payload);

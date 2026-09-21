@@ -7,10 +7,12 @@ import { AnimatedNumber } from "./AnimatedNumber.jsx";
 import { NewsCarousel } from "./NewsCarousel.jsx";
 import { LivePricePanel } from "./LivePricePanel.jsx";
 import { StatCard } from "./StatCard.jsx";
+import { useLanguage } from "../lib/i18n.jsx";
 
 function Dashboard({ totalToday, dailyChange, dailyChangePct, capitalGain, totalDividends,
   totalReturn, totalReturnPct, highPoint, drawdown, ytdGain, ytdPct, chartData, goal, totalInvested, holdings,
   yesterdayTwValue, onFillDailyTw }) {
+  const { t, lang } = useLanguage();
   const up = dailyChange >= 0;
   // Defaults to "1年" rather than "全部": with 3+ sparse years plotted
   // proportionally to real time (see pickEvenTimeTicks above), the last
@@ -37,12 +39,12 @@ function Dashboard({ totalToday, dailyChange, dailyChangePct, capitalGain, total
         background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`,
         boxShadow: "0 4px 16px rgba(0,0,0,0.28)",
       }}>
-        <div className="text-xs" style={{ color: COLORS.sub }}>目前總資產</div>
+        <div className="text-xs" style={{ color: COLORS.sub }}>{t("目前總資產")}</div>
         <div className="text-3xl font-black mono mt-1"><AnimatedNumber value={totalToday} prefix="NT$ " /></div>
         <div className="flex items-center gap-1 mt-1.5 text-sm mono"
           style={{ color: up ? COLORS.gain : COLORS.loss }}>
           {up ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
-          {nf(dailyChange)}（{pf(dailyChangePct)}）今日
+          {t("{change}（{pct}）今日", { change: nf(dailyChange), pct: pf(dailyChangePct) })}
         </div>
       </div>
 
@@ -54,7 +56,7 @@ function Dashboard({ totalToday, dailyChange, dailyChangePct, capitalGain, total
           boxShadow: "0 4px 16px rgba(0,0,0,0.28)",
         }}>
           <div className="flex items-center justify-between mb-2">
-            <div className="text-xs" style={{ color: COLORS.sub }}>資產曲線</div>
+            <div className="text-xs" style={{ color: COLORS.sub }}>{t("資產曲線")}</div>
             <div className="flex gap-1">
               {CHART_RANGES.map((r) => {
                 const active = chartRangeId === r.id;
@@ -66,7 +68,7 @@ function Dashboard({ totalToday, dailyChange, dailyChangePct, capitalGain, total
                       color: active ? "#0A0F1C" : COLORS.sub,
                       border: `1px solid ${active ? COLORS.gold : COLORS.panelBorder}`,
                     }}>
-                    {r.label}
+                    {t(r.label)}
                   </button>
                 );
               })}
@@ -80,11 +82,13 @@ function Dashboard({ totalToday, dailyChange, dailyChangePct, capitalGain, total
                   tick={{ fontSize: 9, fill: COLORS.sub }}
                   ticks={pickEvenTimeTicks(rangedChartData, "t", 6)} tickFormatter={formatTickDate} />
                 <YAxis tick={{ fontSize: 9, fill: COLORS.sub }}
-                  tickFormatter={(v) => `${(v / 10000).toFixed(0)}萬`} width={44} />
+                  tickFormatter={(v) => lang === "en"
+                    ? (Math.abs(v) >= 1000000 ? `${(v / 1000000).toFixed(1)}M` : `${(v / 1000).toFixed(0)}K`)
+                    : `${(v / 10000).toFixed(0)}萬`} width={44} />
                 <Tooltip
                   labelFormatter={formatTickDate}
                   contentStyle={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, fontSize: 12 }}
-                  formatter={(v) => [`NT$ ${nf(v)}`, "總資產"]} />
+                  formatter={(v) => [`NT$ ${nf(v)}`, t("總資產")]} />
                 <ReferenceLine y={goal.targetAmount} stroke={COLORS.gold} strokeDasharray="4 4" />
                 <Line type="monotone" dataKey="total" stroke={COLORS.gold} strokeWidth={2} dot={false} />
               </LineChart>
@@ -94,29 +98,28 @@ function Dashboard({ totalToday, dailyChange, dailyChangePct, capitalGain, total
       )}
 
       <div className="grid grid-cols-2 gap-3">
-        <StatCard label="持倉損益(估)" value={`NT$ ${nf(capitalGain)}`} tone={capitalGain >= 0 ? "gain" : "loss"} />
-        <StatCard label="累積股息" value={`NT$ ${nf(totalDividends)}`} tone="gold" />
-        <StatCard label="粗估總報酬" value={`NT$ ${nf(totalReturn)}`} tone={totalReturn >= 0 ? "gain" : "loss"} />
-        <StatCard label="粗估報酬率" value={pf(totalReturnPct)} tone={totalReturnPct >= 0 ? "gain" : "loss"} />
-        <StatCard label="今年資產變化(YTD)" value={`${nf(ytdGain)}（${pf(ytdPct)}）`} tone={ytdGain >= 0 ? "gain" : "loss"} className="col-span-2" />
+        <StatCard label={t("持倉損益(估)")} value={`NT$ ${nf(capitalGain)}`} tone={capitalGain >= 0 ? "gain" : "loss"} />
+        <StatCard label={t("累積股息")} value={`NT$ ${nf(totalDividends)}`} tone="gold" />
+        <StatCard label={t("粗估總報酬")} value={`NT$ ${nf(totalReturn)}`} tone={totalReturn >= 0 ? "gain" : "loss"} />
+        <StatCard label={t("粗估報酬率")} value={pf(totalReturnPct)} tone={totalReturnPct >= 0 ? "gain" : "loss"} />
+        <StatCard label={t("今年資產變化(YTD)")} value={`${nf(ytdGain)}（${pf(ytdPct)}）`} tone={ytdGain >= 0 ? "gain" : "loss"} className="col-span-2" />
       </div>
       <div className="text-[11px] px-1" style={{ color: COLORS.sub }}>
-        註：目前成本來自券商/每日紀錄的持倉成本；若曾賣出、換股或用股息再投入，
-        「粗估總報酬」不等同完整 XIRR 或全期間真實總報酬。
+        {t("註：目前成本來自券商/每日紀錄的持倉成本；若曾賣出、換股或用股息再投入，\n「粗估總報酬」不等同完整 XIRR 或全期間真實總報酬。")}
       </div>
 
       <div className="rounded-2xl p-4" style={{ background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}` }}>
-        <div className="text-xs mb-2" style={{ color: COLORS.sub }}>資產高點</div>
+        <div className="text-xs mb-2" style={{ color: COLORS.sub }}>{t("資產高點")}</div>
         <div className="flex justify-between text-sm mono">
           <span style={{ color: COLORS.sub }}>{highPoint.date || "—"}</span>
           <span>NT$ {nf(highPoint.value === -Infinity ? 0 : highPoint.value)}</span>
         </div>
         <div className="flex justify-between text-sm mono mt-1">
-          <span style={{ color: COLORS.sub }}>回撤率</span>
+          <span style={{ color: COLORS.sub }}>{t("回撤率")}</span>
           <span style={{ color: drawdown < 0 ? COLORS.loss : COLORS.text }}>{pf(drawdown)}</span>
         </div>
         <div className="flex justify-between text-sm mono mt-1">
-          <span style={{ color: COLORS.sub }}>目前持倉成本</span>
+          <span style={{ color: COLORS.sub }}>{t("目前持倉成本")}</span>
           <span>NT$ {nf(totalInvested)}</span>
         </div>
       </div>

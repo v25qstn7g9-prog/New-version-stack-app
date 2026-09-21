@@ -1,6 +1,8 @@
 import { TABS, COLORS } from "../lib/constants.js";
+import { useLanguage } from "../lib/i18n.jsx";
 
 function TabBar({ tab, setTab, rootRef }) {
+  const { t } = useLanguage();
   return (
     <div ref={rootRef} className="fixed bottom-0 left-0 right-0"
       style={{
@@ -18,7 +20,7 @@ function TabBar({ tab, setTab, rootRef }) {
                 borderTop: active ? `2px solid ${COLORS.gold}` : "2px solid transparent",
               }}>
               <Icon size={13} />
-              <span className="text-[8px] font-medium whitespace-nowrap leading-tight">{label}</span>
+              <span className="text-[8px] font-medium whitespace-nowrap leading-tight">{t(label)}</span>
             </button>
           );
         })}

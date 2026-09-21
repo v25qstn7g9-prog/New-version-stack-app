@@ -2,8 +2,10 @@ import { useState, useEffect } from "react";
 import { COLORS } from "../lib/constants.js";
 import { todayStr, fetchWithTimeout } from "../lib/helpers.js";
 import { Panel } from "./Panel.jsx";
+import { useLanguage } from "../lib/i18n.jsx";
 
 function UpcomingDividendReminder({ holdings }) {
+  const { t } = useLanguage();
   const symbols = [...new Set(
     holdings.filter((h) => Number(h.current || 0) > 0 && h.symbol).map((h) => h.symbol)
   )];
@@ -38,8 +40,8 @@ function UpcomingDividendReminder({ holdings }) {
   if (status === "idle" || status === "error") return null;
   if (status === "loading") {
     return (
-      <Panel title="近期除息">
-        <div className="text-xs" style={{ color: COLORS.sub }}>查詢中…</div>
+      <Panel title={t("近期除息")}>
+        <div className="text-xs" style={{ color: COLORS.sub }}>{t("查詢中…")}</div>
       </Panel>
     );
   }
@@ -51,7 +53,7 @@ function UpcomingDividendReminder({ holdings }) {
   };
 
   return (
-    <Panel title="近期除息">
+    <Panel title={t("近期除息")}>
       <div className="space-y-2">
         {items.map((r) => {
           const days = daysUntil(r.date);
@@ -61,7 +63,7 @@ function UpcomingDividendReminder({ holdings }) {
               <div className="text-right">
                 <span className="mono" style={{ color: COLORS.gold }}>{r.date}</span>
                 <span className="text-[11px] ml-1" style={{ color: COLORS.sub }}>
-                  {days === 0 ? "就是今天" : `還有 ${days} 天`}
+                  {days === 0 ? t("就是今天") : t("還有 {n} 天", { n: days })}
                 </span>
               </div>
             </div>

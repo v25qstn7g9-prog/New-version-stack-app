@@ -8,8 +8,10 @@ import { Field } from "./Field.jsx";
 import { AddButton } from "./AddButton.jsx";
 import { Row } from "./Row.jsx";
 import { Empty } from "./Empty.jsx";
+import { useLanguage } from "../lib/i18n.jsx";
 
 function DividendsPanel({ dividends, setDividends, holdings }) {
+  const { t } = useLanguage();
   const [form, setForm] = useState({ date: todayStr(), symbol: "", shares: "", perShare: "" });
   // Typing/selecting a symbol that matches a holding auto-fills 股數 with
   // that holding's current share count, so you don't have to look it up
@@ -68,13 +70,13 @@ function DividendsPanel({ dividends, setDividends, holdings }) {
   }, [form.symbol]);
 
   const scheduleHint = (() => {
-    if (scheduleStatus === "loading") return { text: "查詢最新除息公告中…", color: COLORS.sub };
+    if (scheduleStatus === "loading") return { text: t("查詢最新除息公告中…"), color: COLORS.sub };
     if (scheduleStatus === "found") {
-      const cash = scheduleInfo?.cashDividend != null ? `，每股 ${scheduleInfo.cashDividend}` : "";
-      return { text: `已抓到最新公告：${scheduleInfo.date} 除${scheduleInfo.type || "息"}${cash}`, color: COLORS.gold };
+      const cash = scheduleInfo?.cashDividend != null ? t("，每股 {amount}", { amount: scheduleInfo.cashDividend }) : "";
+      return { text: t("已抓到最新公告：{date} 除{type}{cash}", { date: scheduleInfo.date, type: t(scheduleInfo.type || "息"), cash }), color: COLORS.gold };
     }
-    if (scheduleStatus === "not-found") return { text: "尚未有除權息公告（可能還沒到公告時間，日期請自行填寫）", color: COLORS.sub };
-    if (scheduleStatus === "error") return { text: "查詢公告失敗，請自行填寫除息日", color: "#EF4444" };
+    if (scheduleStatus === "not-found") return { text: t("尚未有除權息公告（可能還沒到公告時間，日期請自行填寫）"), color: COLORS.sub };
+    if (scheduleStatus === "error") return { text: t("查詢公告失敗，請自行填寫除息日"), color: "#EF4444" };
     return null;
   })();
 
@@ -95,11 +97,11 @@ function DividendsPanel({ dividends, setDividends, holdings }) {
     <div className="space-y-4">
       <UpcomingDividendReminder holdings={holdings} />
 
-      <Panel title="新增配息">
+      <Panel title={t("新增配息")}>
         <div className="grid grid-cols-2 gap-2">
-          <Field label="除息日"><input type="date" value={form.date}
+          <Field label={t("除息日")}><input type="date" value={form.date}
             onChange={(e) => setForm({ ...form, date: e.target.value })} className="input" /></Field>
-          <Field label="代號">
+          <Field label={t("代號")}>
             <input value={form.symbol} onChange={(e) => handleSymbolChange(e.target.value)}
               placeholder="0056" list="symbols2" className="input" />
             <datalist id="symbols2">{holdings.map((h) => <option key={h.id} value={h.symbol} />)}</datalist>
@@ -107,28 +109,28 @@ function DividendsPanel({ dividends, setDividends, holdings }) {
               <div className="text-[11px] mt-1" style={{ color: scheduleHint.color }}>{scheduleHint.text}</div>
             )}
           </Field>
-          <Field label="股數（選了有持股的代號會自動帶入，可再手動調整）"><input type="number" value={form.shares}
+          <Field label={t("股數（選了有持股的代號會自動帶入，可再手動調整）")}><input type="number" value={form.shares}
             onChange={(e) => setForm({ ...form, shares: e.target.value })} className="input" /></Field>
           <Field label={
             scheduleStatus === "found" && scheduleInfo?.cashDividend != null
-              ? "每股配息（已用最新公告帶入，請確認後再送出）"
-              : "每股配息"
+              ? t("每股配息（已用最新公告帶入，請確認後再送出）")
+              : t("每股配息")
           }><input type="number" step="0.01" value={form.perShare}
             onChange={(e) => setForm({ ...form, perShare: e.target.value })} className="input" /></Field>
         </div>
-        <AddButton onClick={add} label="新增配息紀錄" />
+        <AddButton onClick={add} label={t("新增配息紀錄")} />
       </Panel>
 
       <DividendHistoryChart dividends={dividends} />
 
-      <Panel title={`累積股息：NT$ ${nf(total)}`}>
+      <Panel title={t("累積股息：NT$ {amount}", { amount: nf(total) })}>
         <div className="space-y-2 max-h-96 overflow-y-auto">
           {sorted.map((d) => (
             <Row key={d.id} onDelete={() => remove(d.id)}>
               <div className="flex-1">
                 <div className="text-sm mono">{d.date} · {d.symbol}</div>
                 <div className="text-[11px]" style={{ color: COLORS.sub }}>
-                  {nf(d.shares)}股 × {d.perShare}
+                  {t("{shares}股 × {perShare}", { shares: nf(d.shares), perShare: d.perShare })}
                 </div>
               </div>
               <div className="text-right mono text-sm font-bold" style={{ color: COLORS.gold }}>
@@ -136,7 +138,7 @@ function DividendsPanel({ dividends, setDividends, holdings }) {
               </div>
             </Row>
           ))}
-          {dividends.length === 0 && <Empty text="尚無配息紀錄" />}
+          {dividends.length === 0 && <Empty text={t("尚無配息紀錄")} />}
         </div>
       </Panel>
     </div>

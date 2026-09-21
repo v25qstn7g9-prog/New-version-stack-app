@@ -3,8 +3,10 @@ import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Ba
 import { COLORS } from "../lib/constants.js";
 import { nf, colorForSymbol } from "../lib/helpers.js";
 import { Panel } from "./Panel.jsx";
+import { useLanguage } from "../lib/i18n.jsx";
 
 function DividendHistoryChart({ dividends }) {
+  const { t } = useLanguage();
   const symbols = [...new Set(dividends.map((d) => d.symbol))].sort();
   const [filter, setFilter] = useState("all");
   if (!dividends.length) return null;
@@ -33,7 +35,7 @@ function DividendHistoryChart({ dividends }) {
   }
 
   return (
-    <Panel title="配息歷史">
+    <Panel title={t("配息歷史")}>
       <div className="flex gap-1.5 flex-wrap mb-3">
         {["all", ...symbols].map((s) => {
           const active = filter === s;
@@ -45,7 +47,7 @@ function DividendHistoryChart({ dividends }) {
                 color: active ? "#0A0F1C" : COLORS.sub,
                 border: `1px solid ${active ? COLORS.gold : COLORS.panelBorder}`,
               }}>
-              {s === "all" ? "全部" : s}
+              {s === "all" ? t("全部") : s}
             </button>
           );
         })}
@@ -60,7 +62,7 @@ function DividendHistoryChart({ dividends }) {
             <Tooltip
               cursor={false}
               contentStyle={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, fontSize: 12 }}
-              formatter={(v, name) => [`NT$ ${nf(v)}`, isAll ? name : "配息"]} />
+              formatter={(v, name) => [`NT$ ${nf(v)}`, isAll ? name : t("配息")]} />
             {isAll && (
               <Legend wrapperStyle={{ fontSize: 11 }}
                 formatter={(value) => <span style={{ color: COLORS.sub }}>{value}</span>} />

@@ -5,8 +5,10 @@ import { nf, isTwseTradingHours, fetchQuotesWithFallback, loadKey, saveKey } fro
 import { Dashboard } from "./Dashboard.jsx";
 import { Panel } from "./Panel.jsx";
 import { Empty } from "./Empty.jsx";
+import { useLanguage } from "../lib/i18n.jsx";
 
 function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
+  const { t, lang } = useLanguage();
   const [live, setLive] = useState({});      // symbol -> { price, prevClose, isUS, asOfDate, isStale }
   const [liveStatus, setLiveStatus] = useState("idle"); // idle | loading | done | error
   const [liveAt, setLiveAt] = useState(null);
@@ -191,22 +193,25 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
   const recordToday = () => {
     if (!onFillDailyTw) return;
     if (!quoteComplete) {
-      window.alert("目前報價只有部分成功或混有快取價格，為避免把不完整市值寫進每日紀錄，請先重新抓到全部持股報價。");
+      window.alert(t("目前報價只有部分成功或混有快取價格，為避免把不完整市值寫進每日紀錄，請先重新抓到全部持股報價。"));
       return;
     }
     onFillDailyTw(Math.round(totalValue));
   };
 
   return (
-    <Panel title="即時股價">
+    <Panel title={t("即時股價")}>
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="text-[11px]" style={{ color: COLORS.sub }}>
-          {liveStatus === "idle" && `自動抓取目前持有的 ${activeHoldings.length} 檔台股（開盤時間每 15 秒更新，收盤後改手動）`}
-          {liveStatus === "loading" && "更新中…"}
+          {liveStatus === "idle" && t("自動抓取目前持有的 {n} 檔台股（開盤時間每 15 秒更新，收盤後改手動）", { n: activeHoldings.length })}
+          {liveStatus === "loading" && t("更新中…")}
           {liveStatus === "done" && liveAt && (staleOne
-            ? `休市中，顯示 ${staleOne.asOfDate.getFullYear()}/${String(staleOne.asOfDate.getMonth()+1).padStart(2,"0")}/${String(staleOne.asOfDate.getDate()).padStart(2,"0")} 收盤價（查詢 ${liveAt.toLocaleTimeString("zh-TW", { hour12: false })}）`
-            : `已更新 ${liveAt.toLocaleTimeString("zh-TW", { hour12: false })}`)}
-          {liveStatus === "error" && "抓取失敗（來源可能暫時壅塞），稍後再試或改用券商 App 查詢"}
+            ? t("休市中，顯示 {date} 收盤價（查詢 {time}）", {
+                date: `${staleOne.asOfDate.getFullYear()}/${String(staleOne.asOfDate.getMonth()+1).padStart(2,"0")}/${String(staleOne.asOfDate.getDate()).padStart(2,"0")}`,
+                time: liveAt.toLocaleTimeString(lang === "en" ? "en-US" : "zh-TW", { hour12: false }),
+              })
+            : t("已更新 {time}", { time: liveAt.toLocaleTimeString(lang === "en" ? "en-US" : "zh-TW", { hour12: false }) }))}
+          {liveStatus === "error" && t("抓取失敗（來源可能暫時壅塞），稍後再試或改用券商 App 查詢")}
         </div>
         <button
           onClick={fetchAllLive}
@@ -215,17 +220,17 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
           style={{ background: COLORS.gold, color: COLORS.bg, opacity: (liveStatus === "loading" || !activeHoldings.length) ? 0.5 : 1 }}
         >
           {liveStatus === "loading" ? <Loader2 size={13} className="animate-spin" /> : null}
-          抓取即時股價
+          {t("抓取即時股價")}
         </button>
       </div>
 
       {hasLive && (
         <div>
           <div className="grid grid-cols-4 gap-1 text-[10px] pb-1.5 mb-1.5" style={{ color: COLORS.sub, borderBottom: `1px solid ${COLORS.panelBorder}` }}>
-            <span>代號</span>
-            <span className="text-right">股價</span>
-            <span className="text-right">漲跌幅</span>
-            <span className="text-right">市值</span>
+            <span>{t("代號")}</span>
+            <span className="text-right">{t("股價")}</span>
+            <span className="text-right">{t("漲跌幅")}</span>
+            <span className="text-right">{t("市值")}</span>
           </div>
           <div className="space-y-1.5 max-h-64 overflow-y-auto">
             {rows.map((r) => (
@@ -235,38 +240,40 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
                   <span className="text-right">{r.price.toFixed(2)}</span>
                   <span className="text-right" style={{ color: r.quoteIsStale ? COLORS.sub : (r.chg >= 0 ? COLORS.gain : COLORS.loss) }}>
                     {r.quoteIsStale && isTwseTradingHours()
-                      ? "待更新"
+                      ? t("待更新")
                       : <>{r.chg >= 0 ? "▲" : "▼"} {r.chgPct >= 0 ? "+" : ""}{r.chgPct.toFixed(2)}%</>}
                   </span>
                   <span className="text-right font-bold">{nf(r.value)}</span>
                 </div>
                 {!r.quoteIsStale && (
                   <div className="text-xs text-right mt-0.5" style={{ color: r.chg >= 0 ? COLORS.gain : COLORS.loss, opacity: 0.85 }}>
-                    今日損益 {r.chg >= 0 ? "+" : ""}{nf(Math.round(r.chg * r.current))}
+                    {t("今日損益 {sign}{amount}", { sign: r.chg >= 0 ? "+" : "", amount: nf(Math.round(r.chg * r.current)) })}
                   </div>
                 )}
                 {r.isFromCache && r.fetchedAt && (
                   <div className="text-[9px] text-right mt-0.5" style={{ color: COLORS.sub }}>
-                    這次抓取失敗，顯示上次成功價格（{new Date(r.fetchedAt).toLocaleString("zh-TW", {
-                      month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false,
-                    })}）
+                    {t("這次抓取失敗，顯示上次成功價格（{time}）", {
+                      time: new Date(r.fetchedAt).toLocaleString(lang === "en" ? "en-US" : "zh-TW", {
+                        month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false,
+                      }),
+                    })}
                   </div>
                 )}
               </div>
             ))}
           </div>
           <div className="flex justify-between text-xs mono pt-2 mt-2 font-bold" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
-            <span style={{ color: COLORS.sub }}>{quoteComplete ? "今日台股總市值" : "目前可得市值（部分）"}</span>
+            <span style={{ color: COLORS.sub }}>{quoteComplete ? t("今日台股總市值") : t("目前可得市值（部分）")}</span>
             <span style={{ color: COLORS.gold }}>NT$ {nf(totalValue)}</span>
           </div>
           {yesterdayTwValue != null && (
             <>
               <div className="flex justify-between text-xs mono mt-1">
-                <span style={{ color: COLORS.sub }}>昨日台股總市值</span>
+                <span style={{ color: COLORS.sub }}>{t("昨日台股總市值")}</span>
                 <span style={{ color: COLORS.sub }}>NT$ {nf(yesterdayTwValue)}</span>
               </div>
               <div className="flex justify-between text-xs mono mt-1 font-bold">
-                <span style={{ color: COLORS.sub }}>今/昨日盈虧</span>
+                <span style={{ color: COLORS.sub }}>{t("今/昨日盈虧")}</span>
                 {(() => {
                   const diff = totalValue - yesterdayTwValue;
                   const diffPct = yesterdayTwValue ? (diff / yesterdayTwValue) * 100 : 0;
@@ -283,16 +290,16 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
           {hasMarketIndex && (
             <>
               <div className="flex justify-between text-xs mono mt-1">
-                <span style={{ color: COLORS.sub }}>加權指數</span>
+                <span style={{ color: COLORS.sub }}>{t("加權指數")}</span>
                 <span style={{ color: indexChange >= 0 ? COLORS.gain : COLORS.loss }}>
                   {nf(Math.round(indexPrice))}　{indexChange >= 0 ? "▲" : "▼"} {indexChangePct >= 0 ? "+" : ""}{indexChangePct.toFixed(2)}%
                 </span>
               </div>
               {vsMarketPct != null && (
                 <div className="flex justify-between text-xs mono mt-1">
-                  <span style={{ color: COLORS.sub }}>今日 vs 大盤</span>
+                  <span style={{ color: COLORS.sub }}>{t("今日 vs 大盤")}</span>
                   <span style={{ color: vsMarketPct >= 0 ? COLORS.gain : COLORS.loss }}>
-                    {vsMarketPct >= 0 ? "贏大盤" : "輸大盤"} {vsMarketPct >= 0 ? "+" : ""}{vsMarketPct.toFixed(2)}%
+                    {vsMarketPct >= 0 ? t("贏大盤") : t("輸大盤")} {vsMarketPct >= 0 ? "+" : ""}{vsMarketPct.toFixed(2)}%
                   </span>
                 </div>
               )}
@@ -303,12 +310,12 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
               <button onClick={recordToday} disabled={!quoteComplete}
                 className="mt-2 w-full rounded-lg py-2 text-[11px] font-bold"
                 style={{ background: COLORS.bg, border: `1px solid ${quoteComplete ? COLORS.gold : COLORS.panelBorder}`, color: quoteComplete ? COLORS.gold : COLORS.sub, opacity: quoteComplete ? 1 : 0.6 }}>
-                帶入「每日紀錄」台股市值
+                {t("帶入「每日紀錄」台股市值")}
               </button>
               <div className="text-[10px] mt-1" style={{ color: COLORS.sub }}>
                 {quoteComplete
-                  ? "會跳到「每日紀錄」並自動填好台股市值，美股記得手動補上再儲存"
-                  : "目前報價不完整：已禁止把部分市值寫入每日紀錄"}
+                  ? t("會跳到「每日紀錄」並自動填好台股市值，美股記得手動補上再儲存")
+                  : t("目前報價不完整：已禁止把部分市值寫入每日紀錄")}
               </div>
             </>
           )}
@@ -316,10 +323,10 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
       )}
       {liveStatus === "done" && failedSymbols.length > 0 && (
         <div className="text-[11px] mt-2" style={{ color: COLORS.loss }}>
-          抓取失敗：{failedSymbols.join("、")}（來源暫時壅塞，可再按一次重試）
+          {t("抓取失敗：{list}（來源暫時壅塞，可再按一次重試）", { list: failedSymbols.join("、") })}
         </div>
       )}
-      {!activeHoldings.length && <Empty text="請先到「持股進度」新增持股並填入股數，才能抓取即時股價" />}
+      {!activeHoldings.length && <Empty text={t("請先到「持股進度」新增持股並填入股數，才能抓取即時股價")} />}
     </Panel>
   );
 }

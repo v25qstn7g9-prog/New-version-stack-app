@@ -7,8 +7,10 @@ import { Panel } from "./Panel.jsx";
 import { Field } from "./Field.jsx";
 import { AddButton } from "./AddButton.jsx";
 import { Empty } from "./Empty.jsx";
+import { useLanguage } from "../lib/i18n.jsx";
 
 function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
+  const { t } = useLanguage();
   const [form, setForm] = useState({ symbol: "", name: "", initialShares: "", target2035: "", costBasis: "" });
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState(null);
@@ -98,25 +100,25 @@ function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
 
   return (
     <div className="space-y-4">
-      <Panel title="持股進度">
+      <Panel title={t("持股進度")}>
         <div className="flex items-center justify-between rounded-xl p-3 mb-3"
           style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
           <div>
-            <div className="text-[11px]" style={{ color: COLORS.sub }}>總持有成本（所有標的合計）</div>
+            <div className="text-[11px]" style={{ color: COLORS.sub }}>{t("總持有成本（所有標的合計）")}</div>
             <div className="text-base font-bold mono" style={{ color: COLORS.gold }}>NT$ {nf(totalHoldingCost)}</div>
           </div>
           {onFillDailyCost && (
             <button onClick={() => onFillDailyCost(Math.round(totalHoldingCost))}
               className="text-[11px] px-2.5 py-1.5 rounded-lg font-bold"
               style={{ border: `1px solid ${COLORS.gold}`, color: COLORS.gold }}>
-              帶入「每日紀錄」台股成本
+              {t("帶入「每日紀錄」台股成本")}
             </button>
           )}
         </div>
 
         {allocationData.length > 0 && (
           <div className="rounded-xl p-3 mb-3" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
-            <div className="text-[11px] mb-1" style={{ color: COLORS.sub }}>資產配置（以市值計，抓不到報價時退回用成本）</div>
+            <div className="text-[11px] mb-1" style={{ color: COLORS.sub }}>{t("資產配置（以市值計，抓不到報價時退回用成本）")}</div>
             <div style={{ height: 180 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -143,7 +145,7 @@ function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
             </div>
             {hasCostFallback && (
               <div className="text-[10px] mt-1" style={{ color: COLORS.sub }}>
-                * 抓不到即時報價，暫時用持有成本計算佔比
+                {t("* 抓不到即時報價，暫時用持有成本計算佔比")}
               </div>
             )}
           </div>
@@ -155,33 +157,32 @@ function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
               {editingId === h.id ? (
                 <div className="space-y-2">
                   <div className="grid grid-cols-2 gap-2">
-                    <Field label="代號"><input value={editForm.symbol}
+                    <Field label={t("代號")}><input value={editForm.symbol}
                       onChange={(e) => setEditForm({ ...editForm, symbol: e.target.value })} className="input" /></Field>
-                    <Field label="名稱"><input value={editForm.name}
+                    <Field label={t("名稱")}><input value={editForm.name}
                       onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} className="input" /></Field>
-                    <Field label="期初股數"><input type="number" value={editForm.initialShares}
+                    <Field label={t("期初股數")}><input type="number" value={editForm.initialShares}
                       onChange={(e) => setEditForm({ ...editForm, initialShares: e.target.value })} className="input" /></Field>
-                    <Field label="目標股數"><input type="number" value={editForm.target2035}
+                    <Field label={t("目標股數")}><input type="number" value={editForm.target2035}
                       onChange={(e) => setEditForm({ ...editForm, target2035: e.target.value })} className="input" /></Field>
                     <div className="col-span-2">
-                      <Field label="持有成本（直接輸入目前總成本，例如對照券商App的數字）">
+                      <Field label={t("持有成本（直接輸入目前總成本，例如對照券商App的數字）")}>
                         <input type="number" value={editForm.costBasis} placeholder="0"
                           onChange={(e) => setEditForm({ ...editForm, costBasis: e.target.value })} className="input" />
                       </Field>
                       <div className="text-[10px] mt-1" style={{ color: COLORS.sub }}>
-                        平均成本會用「持有成本 ÷ 目前股數」自動倒算。儲存後會把這個數字當成「今天」的成本快照，
-                        之後新增的每一筆交易都會自動疊加上去；今天以前已經發生的交易不會被重複計算。
+                        {t("平均成本會用「持有成本 ÷ 目前股數」自動倒算。儲存後會把這個數字當成「今天」的成本快照，\n之後新增的每一筆交易都會自動疊加上去；今天以前已經發生的交易不會被重複計算。")}
                       </div>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <button onClick={cancelEdit} className="rounded-lg py-2 text-xs font-bold"
                       style={{ background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`, color: COLORS.sub }}>
-                      取消
+                      {t("取消")}
                     </button>
                     <button onClick={saveEdit} className="rounded-lg py-2 text-xs font-bold"
                       style={{ background: COLORS.gold, color: COLORS.bg }}>
-                      儲存
+                      {t("儲存")}
                     </button>
                   </div>
                 </div>
@@ -193,7 +194,7 @@ function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
                       <span className="text-[11px]" style={{ color: COLORS.sub }}>{h.name}</span>
                       {h.avgTradePrice != null && (
                         <span className="text-[11px] mono" style={{ color: COLORS.gold }}>
-                          均價 {h.avgTradePrice.toFixed(2)}
+                          {t("均價 {price}", { price: h.avgTradePrice.toFixed(2) })}
                         </span>
                       )}
                     </div>
@@ -204,16 +205,16 @@ function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
                   </div>
                   <div className="flex justify-between text-xs mono mt-2">
                     <span style={{ color: COLORS.sub }}>
-                      平均成本 <span style={{ color: COLORS.text }}>{h.avgCost != null ? `NT$ ${h.avgCost.toFixed(2)}` : "-"}</span>
-                      {h.isManualAvgCost && <span style={{ color: COLORS.gold }}> (手動)</span>}
+                      {t("平均成本")} <span style={{ color: COLORS.text }}>{h.avgCost != null ? `NT$ ${h.avgCost.toFixed(2)}` : "-"}</span>
+                      {h.isManualAvgCost && <span style={{ color: COLORS.gold }}> ({t("手動")})</span>}
                     </span>
                     <span style={{ color: COLORS.sub }}>
-                      持有成本 <span style={{ color: COLORS.text }}>{h.estCostBasis != null ? `NT$ ${nf(h.estCostBasis)}` : "-"}</span>
+                      {t("持有成本")} <span style={{ color: COLORS.text }}>{h.estCostBasis != null ? `NT$ ${nf(h.estCostBasis)}` : "-"}</span>
                     </span>
                   </div>
                   <div className="flex justify-between text-xs mono mt-2">
-                    <span style={{ color: COLORS.sub }}>目前 {nf(h.current)} 股</span>
-                    <span style={{ color: COLORS.sub }}>目標 {nf(h.target2035)} 股</span>
+                    <span style={{ color: COLORS.sub }}>{t("目前 {n} 股", { n: nf(h.current) })}</span>
+                    <span style={{ color: COLORS.sub }}>{t("目標 {n} 股", { n: nf(h.target2035) })}</span>
                   </div>
                   {(() => {
                     const q = holdingQuotes[h.symbol];
@@ -233,13 +234,13 @@ function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
                     return (
                       <div className="flex justify-between text-[11px] mono mt-1">
                         <span style={{ color: COLORS.sub }}>
-                          預估損益{" "}
+                          {t("預估損益")}{" "}
                           <span style={{ color: estimatedPnl == null ? COLORS.sub : (estimatedPnl >= 0 ? COLORS.gain : COLORS.loss) }}>
                             {estimatedPnl == null ? "--" : `${estimatedPnl >= 0 ? "+" : ""}${nf(estimatedPnl)}`}
                           </span>
                         </span>
                         <span style={{ color: COLORS.sub }}>
-                          累積獲利率{" "}
+                          {t("累積獲利率")}{" "}
                           <span style={{ color: cumulativePct == null ? COLORS.sub : (cumulativePct >= 0 ? COLORS.gain : COLORS.loss) }}>
                             {cumulativePct == null ? "--" : `${cumulativePct >= 0 ? "+" : ""}${cumulativePct.toFixed(1)}%`}
                           </span>
@@ -249,13 +250,13 @@ function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
                   })()}
                   <div className="flex justify-between text-[11px] mono mt-1" style={{ color: COLORS.sub }}>
                     <span>
-                      第 {h.quarterNum} 季增加 <span style={{ color: h.quarterSharesAdded >= 0 ? COLORS.text : COLORS.gain }}>
-                        {h.quarterSharesAdded > 0 ? "+" : ""}{nf(h.quarterSharesAdded)} 股
+                      {t("第 {n} 季增加", { n: h.quarterNum })} <span style={{ color: h.quarterSharesAdded >= 0 ? COLORS.text : COLORS.gain }}>
+                        {t("{sign}{n} 股", { sign: h.quarterSharesAdded > 0 ? "+" : "", n: nf(h.quarterSharesAdded) })}
                       </span>
                     </span>
                     <span>
-                      今年累計 <span style={{ color: h.yearSharesAdded >= 0 ? COLORS.text : COLORS.gain }}>
-                        {h.yearSharesAdded > 0 ? "+" : ""}{nf(h.yearSharesAdded)} 股
+                      {t("今年累計")} <span style={{ color: h.yearSharesAdded >= 0 ? COLORS.text : COLORS.gain }}>
+                        {t("{sign}{n} 股", { sign: h.yearSharesAdded > 0 ? "+" : "", n: nf(h.yearSharesAdded) })}
                       </span>
                     </span>
                   </div>
@@ -265,40 +266,40 @@ function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
                   <div className="flex justify-between items-baseline mt-1">
                     <span className="text-[11px] mono" style={{ color: COLORS.sub }}>{h.projectedLabel}</span>
                     <span className="text-[11px] mono" style={{ color: COLORS.gold }}>
-                      達成率 {h.pct.toFixed(1)}%
+                      {t("達成率 {pct}%", { pct: h.pct.toFixed(1) })}
                     </span>
                   </div>
                 </>
               )}
             </div>
           ))}
-          {holdings.length === 0 && <Empty text="尚未新增持股標的" />}
+          {holdings.length === 0 && <Empty text={t("尚未新增持股標的")} />}
         </div>
       </Panel>
 
-      <Panel title="新增持股標的">
+      <Panel title={t("新增持股標的")}>
         <div className="grid grid-cols-2 gap-2">
-          <Field label="代號"><input value={form.symbol}
+          <Field label={t("代號")}><input value={form.symbol}
             onChange={(e) => setForm({ ...form, symbol: e.target.value })}
             placeholder="0056" className="input" /></Field>
-          <Field label="名稱"><input value={form.name}
+          <Field label={t("名稱")}><input value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
-            placeholder="高股息ETF" className="input" /></Field>
-          <Field label="期初股數"><input type="number" value={form.initialShares}
+            placeholder={t("高股息ETF")} className="input" /></Field>
+          <Field label={t("期初股數")}><input type="number" value={form.initialShares}
             onChange={(e) => setForm({ ...form, initialShares: e.target.value })}
             placeholder="0" className="input" /></Field>
-          <Field label="2035目標股數"><input type="number" value={form.target2035}
+          <Field label={t("2035目標股數")}><input type="number" value={form.target2035}
             onChange={(e) => setForm({ ...form, target2035: e.target.value })}
             placeholder="0" className="input" /></Field>
           <div className="col-span-2">
-            <Field label="起始成本（期初股數對應的持有成本，留空=0）">
+            <Field label={t("起始成本（期初股數對應的持有成本，留空=0）")}>
               <input type="number" value={form.costBasis}
                 onChange={(e) => setForm({ ...form, costBasis: e.target.value })}
                 placeholder="0" className="input" />
             </Field>
           </div>
         </div>
-        <AddButton onClick={add} label="新增標的" />
+        <AddButton onClick={add} label={t("新增標的")} />
       </Panel>
     </div>
   );

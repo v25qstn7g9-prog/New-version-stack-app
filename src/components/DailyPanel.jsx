@@ -6,8 +6,10 @@ import { Field } from "./Field.jsx";
 import { AddButton } from "./AddButton.jsx";
 import { Row } from "./Row.jsx";
 import { Empty } from "./Empty.jsx";
+import { useLanguage } from "../lib/i18n.jsx";
 
 function DailyPanel({ records, setRecords, prefill, form, setForm }) {
+  const { t } = useLanguage();
   // When "帶入「每日紀錄」..." is pressed elsewhere in the app, prefill is
   // set to a fresh object each time — that reference change is what makes
   // this effect fire again even if the same value is sent twice. Only the
@@ -183,7 +185,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
   const rangeResult = (rangeFrom && rangeTo) ? (() => {
     const fromRec = findRecordAtOrBefore(rangeFrom);
     const toRec = findRecordAtOrBefore(rangeTo);
-    if (!fromRec || !toRec) return { error: "這個區間找不到對應的紀錄" };
+    if (!fromRec || !toRec) return { error: t("這個區間找不到對應的紀錄") };
     const fromValue = fromRec.twValue + fromRec.usValue;
     const toValue = toRec.twValue + toRec.usValue;
     const fromCost = (fromRec.twCost || 0) + (fromRec.usCost || 0);
@@ -202,36 +204,36 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
 
   return (
     <div className="space-y-4">
-      <Panel title="新增每日紀錄">
+      <Panel title={t("新增每日紀錄")}>
         <div className="grid grid-cols-2 gap-2">
-          <Field label="日期"><input type="date" value={form.date}
+          <Field label={t("日期")}><input type="date" value={form.date}
             onChange={(e) => setForm({ ...form, date: e.target.value })}
             className="input" /></Field>
           <div />
-          <Field label="台股市值"><input type="number" value={form.twValue}
+          <Field label={t("台股市值")}><input type="number" value={form.twValue}
             onChange={(e) => setForm({ ...form, twValue: e.target.value })}
             placeholder="0" className="input" /></Field>
-          <Field label="美股市值"><input type="number" value={form.usValue}
+          <Field label={t("美股市值")}><input type="number" value={form.usValue}
             onChange={(e) => setForm({ ...form, usValue: e.target.value })}
             placeholder="0" className="input" /></Field>
-          <Field label="台股成本"><input type="number" value={form.twCost}
+          <Field label={t("台股成本")}><input type="number" value={form.twCost}
             onChange={(e) => setForm({ ...form, twCost: e.target.value })}
             placeholder="0" className="input" /></Field>
-          <Field label="美股成本"><input type="number" value={form.usCost}
+          <Field label={t("美股成本")}><input type="number" value={form.usCost}
             onChange={(e) => setForm({ ...form, usCost: e.target.value })}
             placeholder="0" className="input" /></Field>
         </div>
-        <AddButton onClick={add} label="儲存紀錄" />
+        <AddButton onClick={add} label={t("儲存紀錄")} />
       </Panel>
 
-      <Panel title="區間查詢（精算，非AI）">
+      <Panel title={t("區間查詢（精算，非AI）")}>
         <div className="text-[11px] mb-2" style={{ color: COLORS.sub }}>
-          選兩個日期，直接用你的原始紀錄計算資產/本金/損益變化，數字保證準確
+          {t("選兩個日期，直接用你的原始紀錄計算資產/本金/損益變化，數字保證準確")}
         </div>
         <div className="grid grid-cols-2 gap-2">
-          <Field label="起始日期"><input type="date" value={rangeFrom}
+          <Field label={t("起始日期")}><input type="date" value={rangeFrom}
             onChange={(e) => setRangeFrom(e.target.value)} className="input" /></Field>
-          <Field label="結束日期"><input type="date" value={rangeTo}
+          <Field label={t("結束日期")}><input type="date" value={rangeTo}
             onChange={(e) => setRangeTo(e.target.value)} className="input" /></Field>
         </div>
         {rangeResult && rangeResult.error && (
@@ -241,49 +243,49 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
           <div className="mt-3 space-y-1.5 text-sm mono rounded-lg px-3 py-2.5"
             style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
             <div className="text-[10px]" style={{ color: COLORS.sub }}>
-              實際比對：{rangeResult.fromRec.date}（起）→ {rangeResult.toRec.date}（迄）
+              {t("實際比對：{from}（起）→ {to}（迄）", { from: rangeResult.fromRec.date, to: rangeResult.toRec.date })}
               {(rangeResult.fromRec.date !== rangeFrom || rangeResult.toRec.date !== rangeTo)
-                ? "（其中一天沒有剛好的紀錄，取最近一筆較早的紀錄代替）" : ""}
+                ? t("（其中一天沒有剛好的紀錄，取最近一筆較早的紀錄代替）") : ""}
             </div>
             <div className="flex justify-between">
-              <span style={{ color: COLORS.sub }}>總市值變化</span>
+              <span style={{ color: COLORS.sub }}>{t("總市值變化")}</span>
               <span className="font-bold" style={{ color: rangeResult.assetChange >= 0 ? COLORS.gain : COLORS.loss }}>
                 {rangeResult.assetChange >= 0 ? "+" : ""}{nf(rangeResult.assetChange)}
               </span>
             </div>
             <div className="flex justify-between">
-              <span style={{ color: COLORS.sub }}>總本金變化</span>
+              <span style={{ color: COLORS.sub }}>{t("總本金變化")}</span>
               <span className="font-bold" style={{ color: COLORS.gold }}>
                 {rangeResult.costChange >= 0 ? "+" : ""}{nf(rangeResult.costChange)}
               </span>
             </div>
             <div className="flex justify-between">
-              <span style={{ color: COLORS.sub }}>損益變化（市場報酬）</span>
+              <span style={{ color: COLORS.sub }}>{t("損益變化（市場報酬）")}</span>
               <span className="font-bold" style={{ color: rangeResult.gainChange >= 0 ? COLORS.gain : COLORS.loss }}>
                 {rangeResult.gainChange >= 0 ? "+" : ""}{nf(rangeResult.gainChange)}
               </span>
             </div>
             <div style={{ borderTop: `1px solid ${COLORS.panelBorder}`, margin: "6px 0" }} />
             <div className="flex justify-between">
-              <span style={{ color: COLORS.sub }}>台股市值變化</span>
+              <span style={{ color: COLORS.sub }}>{t("台股市值變化")}</span>
               <span className="font-bold" style={{ color: rangeResult.twValueChange >= 0 ? COLORS.gain : COLORS.loss }}>
                 {rangeResult.twValueChange >= 0 ? "+" : ""}{nf(rangeResult.twValueChange)}
               </span>
             </div>
             <div className="flex justify-between">
-              <span style={{ color: COLORS.sub }}>台股本金變化</span>
+              <span style={{ color: COLORS.sub }}>{t("台股本金變化")}</span>
               <span className="font-bold" style={{ color: COLORS.gold }}>
                 {rangeResult.twCostChange >= 0 ? "+" : ""}{nf(rangeResult.twCostChange)}
               </span>
             </div>
             <div className="flex justify-between">
-              <span style={{ color: COLORS.sub }}>美股市值變化</span>
+              <span style={{ color: COLORS.sub }}>{t("美股市值變化")}</span>
               <span className="font-bold" style={{ color: rangeResult.usValueChange >= 0 ? COLORS.gain : COLORS.loss }}>
                 {rangeResult.usValueChange >= 0 ? "+" : ""}{nf(rangeResult.usValueChange)}
               </span>
             </div>
             <div className="flex justify-between">
-              <span style={{ color: COLORS.sub }}>美股本金變化</span>
+              <span style={{ color: COLORS.sub }}>{t("美股本金變化")}</span>
               <span className="font-bold" style={{ color: COLORS.gold }}>
                 {rangeResult.usCostChange >= 0 ? "+" : ""}{nf(rangeResult.usCostChange)}
               </span>
@@ -293,10 +295,10 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
       </Panel>
 
       {weekKeys.length > 0 && (
-        <Panel title="週度損益">
+        <Panel title={t("週度損益")}>
           {weekKeys.some((wk) => weeklyStats[wk]?.approximate) && (
             <div className="text-[10px] mb-2" style={{ color: COLORS.sub }}>
-              * 成本資料不完整的週份，市場報酬與新增投入無法精準拆分，數字為粗估
+              {t("* 成本資料不完整的週份，市場報酬與新增投入無法精準拆分，數字為粗估")}
             </div>
           )}
           <div className="space-y-1.5 max-h-64 overflow-y-auto">
@@ -309,15 +311,15 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
                     <span style={{ color: COLORS.sub }}>{weekLabel(wk)}{stat?.approximate ? " *" : ""}</span>
                     {stat ? (
                       <span className="font-bold" style={{ color: stat.marketReturn >= 0 ? COLORS.gain : COLORS.loss }}>
-                        市場 {stat.marketReturn >= 0 ? "+" : ""}{nf(stat.marketReturn)}（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）
+                        {t("市場 {sign}{amount}（{pctSign}{pct}%）", { sign: stat.marketReturn >= 0 ? "+" : "", amount: nf(stat.marketReturn), pctSign: stat.pct >= 0 ? "+" : "", pct: stat.pct.toFixed(2) })}
                       </span>
                     ) : (
-                      <span style={{ color: COLORS.sub }}>最早紀錄，無前週可比較</span>
+                      <span style={{ color: COLORS.sub }}>{t("最早紀錄，無前週可比較")}</span>
                     )}
                   </div>
                   {stat && stat.contribution != null && stat.contribution !== 0 && (
                     <div className="text-right mt-0.5" style={{ color: COLORS.gold }}>
-                      新增投入 {stat.contribution >= 0 ? "+" : ""}{nf(stat.contribution)}
+                      {t("新增投入 {sign}{amount}", { sign: stat.contribution >= 0 ? "+" : "", amount: nf(stat.contribution) })}
                     </div>
                   )}
                 </div>
@@ -328,10 +330,10 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
       )}
 
       {monthKeys.length > 0 && (
-        <Panel title="月度損益">
+        <Panel title={t("月度損益")}>
           {monthKeys.some((mk) => monthlyStats[mk]?.approximate) && (
             <div className="text-[10px] mb-2" style={{ color: COLORS.sub }}>
-              * 成本資料不完整的月份，市場報酬與新增投入無法精準拆分，數字為粗估
+              {t("* 成本資料不完整的月份，市場報酬與新增投入無法精準拆分，數字為粗估")}
             </div>
           )}
           <div className="space-y-1.5 max-h-64 overflow-y-auto">
@@ -344,15 +346,15 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
                     <span style={{ color: COLORS.sub }}>{mk}{stat?.approximate ? " *" : ""}</span>
                     {stat ? (
                       <span className="font-bold" style={{ color: stat.marketReturn >= 0 ? COLORS.gain : COLORS.loss }}>
-                        市場 {stat.marketReturn >= 0 ? "+" : ""}{nf(stat.marketReturn)}（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）
+                        {t("市場 {sign}{amount}（{pctSign}{pct}%）", { sign: stat.marketReturn >= 0 ? "+" : "", amount: nf(stat.marketReturn), pctSign: stat.pct >= 0 ? "+" : "", pct: stat.pct.toFixed(2) })}
                       </span>
                     ) : (
-                      <span style={{ color: COLORS.sub }}>最早紀錄，無前月可比較</span>
+                      <span style={{ color: COLORS.sub }}>{t("最早紀錄，無前月可比較")}</span>
                     )}
                   </div>
                   {stat && stat.contribution != null && stat.contribution !== 0 && (
                     <div className="text-right mt-0.5" style={{ color: COLORS.gold }}>
-                      新增投入 {stat.contribution >= 0 ? "+" : ""}{nf(stat.contribution)}
+                      {t("新增投入 {sign}{amount}", { sign: stat.contribution >= 0 ? "+" : "", amount: nf(stat.contribution) })}
                     </div>
                   )}
                 </div>
@@ -363,10 +365,10 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
       )}
 
       {yearKeys.length > 0 && (
-        <Panel title="年度損益">
+        <Panel title={t("年度損益")}>
           {yearKeys.some((yk) => yearlyStats[yk]?.approximate) && (
             <div className="text-[10px] mb-2" style={{ color: COLORS.sub }}>
-              * 成本資料不完整的年份，市場報酬與新增投入無法精準拆分，數字為粗估
+              {t("* 成本資料不完整的年份，市場報酬與新增投入無法精準拆分，數字為粗估")}
             </div>
           )}
           <div className="space-y-1.5 max-h-64 overflow-y-auto">
@@ -379,15 +381,15 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
                     <span style={{ color: COLORS.sub }}>{yk}{stat?.approximate ? " *" : ""}</span>
                     {stat ? (
                       <span className="font-bold" style={{ color: stat.marketReturn >= 0 ? COLORS.gain : COLORS.loss }}>
-                        市場 {stat.marketReturn >= 0 ? "+" : ""}{nf(stat.marketReturn)}（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）
+                        {t("市場 {sign}{amount}（{pctSign}{pct}%）", { sign: stat.marketReturn >= 0 ? "+" : "", amount: nf(stat.marketReturn), pctSign: stat.pct >= 0 ? "+" : "", pct: stat.pct.toFixed(2) })}
                       </span>
                     ) : (
-                      <span style={{ color: COLORS.sub }}>最早紀錄，無前年可比較</span>
+                      <span style={{ color: COLORS.sub }}>{t("最早紀錄，無前年可比較")}</span>
                     )}
                   </div>
                   {stat && stat.contribution != null && stat.contribution !== 0 && (
                     <div className="text-right mt-0.5" style={{ color: COLORS.gold }}>
-                      新增投入 {stat.contribution >= 0 ? "+" : ""}{nf(stat.contribution)}
+                      {t("新增投入 {sign}{amount}", { sign: stat.contribution >= 0 ? "+" : "", amount: nf(stat.contribution) })}
                     </div>
                   )}
                 </div>
@@ -398,7 +400,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
       )}
 
 
-      <Panel title={`歷史紀錄（${records.length}）`}>
+      <Panel title={t("歷史紀錄（{n}）", { n: records.length })}>
         <div className="space-y-2 max-h-[30rem] overflow-y-auto">
           {(() => {
             let lastMonth = null;
@@ -420,15 +422,15 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
                         <span style={{ color: COLORS.gold }}>{mk}{stat?.approximate ? " *" : ""}</span>
                         {stat ? (
                           <span style={{ color: stat.marketReturn >= 0 ? COLORS.gain : COLORS.loss }}>
-                            市場 {stat.marketReturn >= 0 ? "+" : ""}{nf(stat.marketReturn)}（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）
+                            {t("市場 {sign}{amount}（{pctSign}{pct}%）", { sign: stat.marketReturn >= 0 ? "+" : "", amount: nf(stat.marketReturn), pctSign: stat.pct >= 0 ? "+" : "", pct: stat.pct.toFixed(2) })}
                           </span>
                         ) : (
-                          <span style={{ color: COLORS.sub, fontWeight: "normal" }}>最早紀錄，無前月可比較</span>
+                          <span style={{ color: COLORS.sub, fontWeight: "normal" }}>{t("最早紀錄，無前月可比較")}</span>
                         )}
                       </div>
                       {stat && stat.contribution != null && stat.contribution !== 0 && (
                         <div className="text-right font-normal" style={{ color: COLORS.gold }}>
-                          新增投入 {stat.contribution >= 0 ? "+" : ""}{nf(stat.contribution)}
+                          {t("新增投入 {sign}{amount}", { sign: stat.contribution >= 0 ? "+" : "", amount: nf(stat.contribution) })}
                         </div>
                       )}
                     </div>
@@ -437,11 +439,11 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
                     <div className="flex-1">
                       <div className="text-sm mono">{r.date}</div>
                       <div className="text-[11px]" style={{ color: COLORS.sub }}>
-                        台 {nf(r.twValue)} ／ 美 {nf(r.usValue)}
+                        {t("台 {tw} ／ 美 {us}", { tw: nf(r.twValue), us: nf(r.usValue) })}
                       </div>
                       {totalCost > 0 && (
                         <div className="text-[11px] mono" style={{ color: COLORS.sub }}>
-                          成本 台 {nf(r.twCost)} ／ 美 {nf(r.usCost)}
+                          {t("成本 台 {tw} ／ 美 {us}", { tw: nf(r.twCost), us: nf(r.usCost) })}
                         </div>
                       )}
                     </div>
@@ -454,7 +456,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
                       )}
                       {totalCost > 0 && (
                         <div className="text-[11px] mono" style={{ color: (total - totalCost) >= 0 ? COLORS.gain : COLORS.loss }}>
-                          損益 {(total - totalCost) >= 0 ? "+" : ""}{nf(total - totalCost)}
+                          {t("損益 {sign}{amount}", { sign: (total - totalCost) >= 0 ? "+" : "", amount: nf(total - totalCost) })}
                         </div>
                       )}
                     </div>
@@ -463,7 +465,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
               );
             });
           })()}
-          {records.length === 0 && <Empty text="尚無紀錄，新增第一筆吧" />}
+          {records.length === 0 && <Empty text={t("尚無紀錄，新增第一筆吧")} />}
         </div>
       </Panel>
     </div>

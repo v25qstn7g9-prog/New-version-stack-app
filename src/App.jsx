@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { Loader2 } from "./lib/icons.jsx";
 import { APP_VERSION, BACKUP_SCHEMA_VERSION, TABS, COLORS } from "./lib/constants.js";
 import { todayStr, loadXLSXLibrary, monthsBetween, addMonths, buildSchedule, findCrossing, loadKey, saveKey, isObject, inspectBackupPayload, defaultHoldings, defaultTrades, defaultDividends, defaultDailyRecords, defaultPlan, defaultPlanSchedule } from "./lib/helpers.js";
+import { useLanguage } from "./lib/i18n.jsx";
 import { Header } from "./components/Header.jsx";
 import { Dashboard } from "./components/Dashboard.jsx";
 import { DailyPanel } from "./components/DailyPanel.jsx";
@@ -14,6 +15,7 @@ import { AiChatWidget } from "./components/AiChatWidget.jsx";
 import { TabBar } from "./components/TabBar.jsx";
 
 function AssetTracker() {
+  const { t } = useLanguage();
   const [ready, setReady] = useState(false);
   const [tab, setTab] = useState("dashboard");
   // Set (with a fresh object each time so the effect in DailyPanel re-fires
@@ -222,7 +224,7 @@ function AssetTracker() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `存股資產追蹤_備份_${todayStr()}.json`;
+    a.download = `${t("存股資產追蹤")}_${t("備份")}_${todayStr()}.json`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -236,7 +238,7 @@ function AssetTracker() {
     try {
       XLSX = await loadXLSXLibrary();
     } catch (e) {
-      window.alert("Excel 匯出元件載入失敗，請確認網路後再試一次。");
+      window.alert(t("Excel 匯出元件載入失敗，請確認網路後再試一次。"));
       return;
     }
 
@@ -333,7 +335,7 @@ function AssetTracker() {
       }
     }
 
-    XLSX.writeFile(wb, `存股資產追蹤_${todayStr()}.xlsx`);
+    XLSX.writeFile(wb, `${t("存股資產追蹤")}_${todayStr()}.xlsx`);
   };
 
   const importBackup = async (file) => {
@@ -342,16 +344,16 @@ function AssetTracker() {
       const payload = JSON.parse(await file.text());
       const check = inspectBackupPayload(payload);
       if (!check.ok) {
-        const shown = check.errors.slice(0, 8).map((x) => `• ${x}`).join("\n");
-        const more = check.errors.length > 8 ? `\n…另有 ${check.errors.length - 8} 項` : "";
-        window.alert(`備份檔深度驗證失敗，資料未變更。\n\n${shown}${more}`);
+        const shown = check.errors.slice(0, 8).map((x) => `• ${t(x)}`).join("\n");
+        const more = check.errors.length > 8 ? t("\n…另有 {n} 項", { n: check.errors.length - 8 }) : "";
+        window.alert(t("備份檔深度驗證失敗，資料未變更。\n\n{shown}{more}", { shown, more }));
         return;
       }
       if (check.warnings.length) {
-        const shown = check.warnings.map((x) => `• ${x}`).join("\n");
-        if (!window.confirm(`備份檔可匯入，但有提醒：\n\n${shown}\n\n仍要繼續嗎？`)) return;
+        const shown = check.warnings.map((x) => `• ${t(x)}`).join("\n");
+        if (!window.confirm(t("備份檔可匯入，但有提醒：\n\n{shown}\n\n仍要繼續嗎？", { shown }))) return;
       }
-      if (!window.confirm("匯入會以備份內容取代目前 App 內的資料，確定要繼續嗎？")) return;
+      if (!window.confirm(t("匯入會以備份內容取代目前 App 內的資料，確定要繼續嗎？"))) return;
       const data = check.data;
       setDailyRecords(data.dailyRecords);
       setHoldings(data.holdings);
@@ -373,10 +375,10 @@ function AssetTracker() {
         setLastBackupAt(payload.exportedAt);
         saveKey("lastBackupAt", payload.exportedAt);
       }
-      window.alert(`備份已匯入完成（schema ${check.schemaVersion}）。建議重新整理一次頁面確認資料。`);
+      window.alert(t("備份已匯入完成（schema {v}）。建議重新整理一次頁面確認資料。", { v: check.schemaVersion }));
     } catch (e) {
       console.error("backup import failed", e);
-      window.alert("備份檔讀取失敗，資料未變更。");
+      window.alert(t("備份檔讀取失敗，資料未變更。"));
     }
   };
 
@@ -527,7 +529,7 @@ function AssetTracker() {
     let projectedLabel = null;
     if (h.target2035 > 0) {
       if (current >= h.target2035) {
-        projectedLabel = "已達成";
+        projectedLabel = t("已達成");
       } else if (symbolTrades.length > 0) {
         const firstTradeDate = new Date(symbolTrades[0].date);
         const daysSpan = Math.max(1, (now - firstTradeDate) / 86400000);
@@ -540,12 +542,12 @@ function AssetTracker() {
           const target = new Date(now.getTime() + monthsNeeded * 30.44 * 86400000);
           const y = target.getFullYear();
           const m = String(target.getMonth() + 1).padStart(2, "0");
-          projectedLabel = `預定 ${y}/${m}`;
+          projectedLabel = t("預定 {y}/{m}", { y, m });
         } else {
-          projectedLabel = "無法推估";
+          projectedLabel = t("無法推估");
         }
       } else {
-        projectedLabel = "無法推估";
+        projectedLabel = t("無法推估");
       }
     }
 
@@ -553,7 +555,7 @@ function AssetTracker() {
       ...h, bought, sold, current, pct, avgCost, estCostBasis, isManualAvgCost: hasManualAvgCost, avgTradePrice,
       quarterSharesAdded, quarterNum, yearSharesAdded, projectedLabel,
     };
-  }), [holdings, trades]);
+  }), [holdings, trades, t]);
 
   const planTotal = planItems.reduce((s, p) => s + Number(p.amount || 0), 0);
 
@@ -645,7 +647,7 @@ function AssetTracker() {
       <div style={{ background: COLORS.bg, color: COLORS.sub }}
         className="min-h-screen flex items-center justify-center gap-2 font-sans">
         <Loader2 className="animate-spin" size={20} />
-        <span>載入中…</span>
+        <span>{t("載入中…")}</span>
       </div>
     );
   }
@@ -670,7 +672,7 @@ function AssetTracker() {
             transform: "translateX(-50%)", background: COLORS.gold, color: COLORS.bg,
             boxShadow: "0 8px 24px rgba(0,0,0,0.4)", animation: "celebrate-in 0.35s ease-out",
           }}>
-          🎉 已達成目標 {celebration}%！
+          🎉 {t("已達成目標 {pct}%！", { pct: celebration })}
         </div>
       )}
 

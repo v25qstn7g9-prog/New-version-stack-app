@@ -6,8 +6,10 @@ import { Field } from "./Field.jsx";
 import { AddButton } from "./AddButton.jsx";
 import { Row } from "./Row.jsx";
 import { Empty } from "./Empty.jsx";
+import { useLanguage } from "../lib/i18n.jsx";
 
 function TradesPanel({ trades, setTrades, holdings, costBasis, setCostBasis, accumulatedCost, onFillDailyCost }) {
+  const { t } = useLanguage();
   const [form, setForm] = useState({
     date: todayStr(), symbol: "", action: "buy", shares: "", price: "", fee: "", tax: "", note: "",
   });
@@ -62,14 +64,14 @@ function TradesPanel({ trades, setTrades, holdings, costBasis, setCostBasis, acc
   return (
     <div className="space-y-4">
       {costBasis && (
-        <Panel title="成本追蹤">
-          <Field label="起始成本（交易紀錄開始追蹤之前，已經投入的成本）">
+        <Panel title={t("成本追蹤")}>
+          <Field label={t("起始成本（交易紀錄開始追蹤之前，已經投入的成本）")}>
             <input type="number" value={costBasis.startingCost}
               onChange={(e) => setCostBasis({ ...costBasis, startingCost: Number(e.target.value || 0) })}
               className="input" />
           </Field>
           <div className="flex justify-between items-baseline mt-3 text-sm mono">
-            <span style={{ color: COLORS.sub }}>目前累積成本（起始成本 + 全部買賣紀錄）</span>
+            <span style={{ color: COLORS.sub }}>{t("目前累積成本（起始成本 + 全部買賣紀錄）")}</span>
             <span className="font-bold" style={{ color: COLORS.gold }}>NT$ {nf(accumulatedCost)}</span>
           </div>
           {onFillDailyCost && (
@@ -77,90 +79,90 @@ function TradesPanel({ trades, setTrades, holdings, costBasis, setCostBasis, acc
               <button onClick={() => onFillDailyCost(Math.round(accumulatedCost))}
                 className="mt-3 w-full rounded-lg py-2 text-[11px] font-bold"
                 style={{ background: COLORS.bg, border: `1px solid ${COLORS.gold}`, color: COLORS.gold }}>
-                帶入「每日紀錄」台股成本
+                {t("帶入「每日紀錄」台股成本")}
               </button>
               <div className="text-[10px] mt-1" style={{ color: COLORS.sub }}>
-                會跳到「每日紀錄」並自動填好今天的台股成本，確認後按「儲存紀錄」即可
+                {t("會跳到「每日紀錄」並自動填好今天的台股成本，確認後按「儲存紀錄」即可")}
               </div>
             </>
           )}
         </Panel>
       )}
 
-      <Panel title="新增交易">
+      <Panel title={t("新增交易")}>
         <div className="grid grid-cols-2 gap-2">
-          <Field label="日期"><input type="date" value={form.date}
+          <Field label={t("日期")}><input type="date" value={form.date}
             onChange={(e) => setForm({ ...form, date: e.target.value })} className="input" /></Field>
-          <Field label="買賣">
+          <Field label={t("買賣")}>
             <select value={form.action} onChange={(e) => setForm({ ...form, action: e.target.value })} className="input">
-              <option value="buy">買</option>
-              <option value="sell">賣</option>
+              <option value="buy">{t("買")}</option>
+              <option value="sell">{t("賣")}</option>
             </select>
           </Field>
-          <Field label="代號">
+          <Field label={t("代號")}>
             <input value={form.symbol} onChange={(e) => setForm({ ...form, symbol: e.target.value })}
               placeholder="0050" list="symbols" className="input" />
             <datalist id="symbols">{holdings.map((h) => <option key={h.id} value={h.symbol} />)}</datalist>
           </Field>
-          <Field label="股數"><input type="number" value={form.shares}
+          <Field label={t("股數")}><input type="number" value={form.shares}
             onChange={(e) => setForm({ ...form, shares: e.target.value })} className="input" /></Field>
-          <Field label="成交價"><input type="number" value={form.price}
+          <Field label={t("成交價")}><input type="number" value={form.price}
             onChange={(e) => setForm({ ...form, price: e.target.value })} className="input" /></Field>
-          <Field label="手續費"><input type="number" value={form.fee}
+          <Field label={t("手續費")}><input type="number" value={form.fee}
             onChange={(e) => setForm({ ...form, fee: e.target.value })} placeholder="0" className="input" /></Field>
-          <Field label="交易稅（賣出）"><input type="number" value={form.tax}
+          <Field label={t("交易稅（賣出）")}><input type="number" value={form.tax}
             onChange={(e) => setForm({ ...form, tax: e.target.value })} placeholder="0" className="input" /></Field>
-          <Field label="備註"><input value={form.note}
+          <Field label={t("備註")}><input value={form.note}
             onChange={(e) => setForm({ ...form, note: e.target.value })} className="input" /></Field>
         </div>
-        <AddButton onClick={add} label="新增交易" />
+        <AddButton onClick={add} label={t("新增交易")} />
       </Panel>
 
-      <Panel title={`交易紀錄（${filtered.length}${q ? ` / 共${trades.length}` : ""}）`}>
+      <Panel title={q ? t("交易紀錄（{n} / 共{total}）", { n: filtered.length, total: trades.length }) : t("交易紀錄（{n}）", { n: filtered.length })}>
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="搜尋代號或名稱，例如 0050 或 元大台灣50"
+          placeholder={t("搜尋代號或名稱，例如 0050 或 元大台灣50")}
           className="input mb-3"
         />
         {singleSymbolSummary && (
           <div className="rounded-lg p-3 mb-3 text-[11px] mono" style={{ background: COLORS.bg, border: `1px solid ${COLORS.gold}` }}>
             <div style={{ color: COLORS.gold }} className="font-bold mb-1">
-              {singleSymbolSummary.symbol}{singleSymbolSummary.name ? `｜${singleSymbolSummary.name}` : ""} 核對
+              {singleSymbolSummary.symbol}{singleSymbolSummary.name ? `｜${singleSymbolSummary.name}` : ""} {t("核對")}
             </div>
-            <div style={{ color: COLORS.sub }}>買進共 {nf(singleSymbolSummary.bought)} 股、賣出共 {nf(singleSymbolSummary.sold)} 股，淨增加 {nf(singleSymbolSummary.net)} 股</div>
-            <div style={{ color: COLORS.sub }}>期初股數 {nf(singleSymbolSummary.initialShares)} + 淨增加 {nf(singleSymbolSummary.net)} = 目前應有 <span className="font-bold" style={{ color: COLORS.text }}>{nf(singleSymbolSummary.total)}</span> 股（跟「持股進度」頁顯示的股數對一下，兩邊算法一樣，如果對不起來代表持股進度那邊被手動改過）</div>
+            <div style={{ color: COLORS.sub }}>{t("買進共 {bought} 股、賣出共 {sold} 股，淨增加 {net} 股", { bought: nf(singleSymbolSummary.bought), sold: nf(singleSymbolSummary.sold), net: nf(singleSymbolSummary.net) })}</div>
+            <div style={{ color: COLORS.sub }}>{t("期初股數 {initial} + 淨增加 {net} = 目前應有", { initial: nf(singleSymbolSummary.initialShares), net: nf(singleSymbolSummary.net) })} <span className="font-bold" style={{ color: COLORS.text }}>{nf(singleSymbolSummary.total)}</span> {t("股（跟「持股進度」頁顯示的股數對一下，兩邊算法一樣，如果對不起來代表持股進度那邊被手動改過）")}</div>
           </div>
         )}
         {q && dupGroups.length > 0 && (
           <div className="rounded-lg p-3 mb-3 text-[11px]" style={{ background: "#3a1f1f", border: `1px solid ${COLORS.loss}` }}>
-            <div style={{ color: COLORS.loss }} className="font-bold mb-1">⚠️ 發現 {dupGroups.length} 組疑似重複輸入</div>
+            <div style={{ color: COLORS.loss }} className="font-bold mb-1">⚠️ {t("發現 {n} 組疑似重複輸入", { n: dupGroups.length })}</div>
             {dupGroups.map((g, i) => (
               <div key={i} style={{ color: COLORS.sub }} className="mono">
-                {g[0].symbol} {g[0].date} {g[0].action === "buy" ? "買" : "賣"} {g[0].shares}股@{g[0].price}（出現 {g.length} 次）
+                {g[0].symbol} {g[0].date} {g[0].action === "buy" ? t("買") : t("賣")} {t("{shares}股@{price}", { shares: g[0].shares, price: g[0].price })}（{t("出現 {n} 次", { n: g.length })}）
               </div>
             ))}
           </div>
         )}
         <div className="space-y-2 max-h-96 overflow-y-auto">
-          {filtered.map((t) => (
-            <Row key={t.id} onDelete={() => remove(t.id)}>
+          {filtered.map((t2) => (
+            <Row key={t2.id} onDelete={() => remove(t2.id)}>
               <div className="flex-1">
                 <div className="text-sm mono">
-                  {t.date} <span style={{ color: t.action === "buy" ? COLORS.gain : COLORS.loss }}>
-                    {t.action === "buy" ? "買" : "賣"}
-                  </span> {t.symbol}
+                  {t2.date} <span style={{ color: t2.action === "buy" ? COLORS.gain : COLORS.loss }}>
+                    {t2.action === "buy" ? t("買") : t("賣")}
+                  </span> {t2.symbol}
                 </div>
                 <div className="text-[11px]" style={{ color: COLORS.sub }}>
-                  {nf(t.shares)}股 @ {t.price}
+                  {t("{shares}股 @ {price}", { shares: nf(t2.shares), price: t2.price })}
                 </div>
               </div>
               <div className="text-right mono text-sm font-bold">
-                {t.action === "sell" ? "+" : "-"}{nf(t.amount)}
+                {t2.action === "sell" ? "+" : "-"}{nf(t2.amount)}
               </div>
             </Row>
           ))}
-          {filtered.length === 0 && <Empty text={q ? "查無符合的交易紀錄" : "尚無交易紀錄"} />}
+          {filtered.length === 0 && <Empty text={q ? t("查無符合的交易紀錄") : t("尚無交易紀錄")} />}
         </div>
       </Panel>
     </div>

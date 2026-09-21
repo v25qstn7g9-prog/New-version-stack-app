@@ -1,4 +1,5 @@
 import { BACKUP_SCHEMA_VERSION, DAILY_SEED, DIVIDEND_CHART_COLORS } from "./constants.js";
+import { translate as t } from "./i18n.jsx";
 
 export const uid = () => Math.random().toString(36).slice(2, 10);
 
@@ -243,11 +244,11 @@ export async function fetchStockNews(activeHoldings) {
 export function relativeTimeLabel(iso) {
   const diffMs = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diffMs / 60000);
-  if (mins < 60) return `${Math.max(1, mins)} 分鐘前`;
+  if (mins < 60) return t("{n} 分鐘前", { n: Math.max(1, mins) });
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs} 小時前`;
+  if (hrs < 24) return t("{n} 小時前", { n: hrs });
   const days = Math.floor(hrs / 24);
-  return `${days} 天前`;
+  return t("{n} 天前", { n: days });
 }
 
 // ---------- AI 問答用：把目前持股狀況整理成一段純文字，讓 Claude 直接讀 ----------
@@ -409,81 +410,81 @@ export function finiteNonNegative(v) {
 
 export function inspectBackupPayload(payload) {
   const errors = [], warnings = [];
-  if (!isObject(payload)) return { ok: false, errors: ["最外層不是有效物件"], warnings };
+  if (!isObject(payload)) return { ok: false, errors: [t("最外層不是有效物件")], warnings };
   const data = isObject(payload.data) ? payload.data : payload; // schema 1 相容
   const schemaVersion = Number(payload.schemaVersion || 1);
-  if (!Number.isFinite(schemaVersion) || schemaVersion < 1) errors.push("schemaVersion 不合法");
-  if (schemaVersion > BACKUP_SCHEMA_VERSION) errors.push(`備份 schema ${schemaVersion} 比目前 App 支援的 ${BACKUP_SCHEMA_VERSION} 新，為避免資料損壞不匯入`);
+  if (!Number.isFinite(schemaVersion) || schemaVersion < 1) errors.push(t("schemaVersion 不合法"));
+  if (schemaVersion > BACKUP_SCHEMA_VERSION) errors.push(t("備份 schema {found} 比目前 App 支援的 {max} 新，為避免資料損壞不匯入", { found: schemaVersion, max: BACKUP_SCHEMA_VERSION }));
 
   const requiredArrays = ["dailyRecords", "holdings", "trades", "dividends", "planItems"];
-  requiredArrays.forEach((k) => { if (!Array.isArray(data[k])) errors.push(`${k} 不是陣列`); });
-  if (!isObject(data.goal)) errors.push("goal 不存在或格式錯誤");
-  if (!isObject(data.planSchedule)) errors.push("planSchedule 不存在或格式錯誤");
+  requiredArrays.forEach((k) => { if (!Array.isArray(data[k])) errors.push(t("{key} 不是陣列", { key: k })); });
+  if (!isObject(data.goal)) errors.push(t("goal 不存在或格式錯誤"));
+  if (!isObject(data.planSchedule)) errors.push(t("planSchedule 不存在或格式錯誤"));
   if (errors.length) return { ok: false, errors, warnings, data, schemaVersion };
 
   data.dailyRecords.forEach((r, i) => {
-    if (!isObject(r) || !isValidDateStr(r.date)) errors.push(`每日紀錄第 ${i + 1} 筆日期不合法`);
+    if (!isObject(r) || !isValidDateStr(r.date)) errors.push(t("每日紀錄第 {n} 筆日期不合法", { n: i + 1 }));
     ["twValue", "usValue", "twCost", "usCost"].forEach((k) => {
-      if (!finiteNonNegative(r?.[k])) errors.push(`每日紀錄第 ${i + 1} 筆 ${k} 不是有效非負數字`);
+      if (!finiteNonNegative(r?.[k])) errors.push(t("每日紀錄第 {n} 筆 {key} 不是有效非負數字", { n: i + 1, key: k }));
     });
   });
   data.holdings.forEach((h, i) => {
-    if (!isObject(h) || !String(h.symbol || "").trim()) errors.push(`持股第 ${i + 1} 筆缺少股票代號`);
+    if (!isObject(h) || !String(h.symbol || "").trim()) errors.push(t("持股第 {n} 筆缺少股票代號", { n: i + 1 }));
     ["initialShares", "current", "target2035", "avgCost", "manualAvgCost"].forEach((k) => {
-      if (!finiteNonNegative(h?.[k])) errors.push(`持股第 ${i + 1} 筆 ${k} 不是有效非負數字`);
+      if (!finiteNonNegative(h?.[k])) errors.push(t("持股第 {n} 筆 {key} 不是有效非負數字", { n: i + 1, key: k }));
     });
     if (h?.costOverride != null && (!isObject(h.costOverride) || !finiteNonNegative(h.costOverride.amount) || !finiteNonNegative(h.costOverride.asOfShares))) {
-      errors.push(`持股第 ${i + 1} 筆 costOverride 格式不合法`);
+      errors.push(t("持股第 {n} 筆 costOverride 格式不合法", { n: i + 1 }));
     }
   });
-  data.trades.forEach((t, i) => {
-    if (!isObject(t) || !isValidDateStr(t.date)) errors.push(`交易第 ${i + 1} 筆日期不合法`);
-    if (!String(t?.symbol || "").trim()) errors.push(`交易第 ${i + 1} 筆缺少股票代號`);
-    if (!(["buy", "sell"].includes(t?.action))) errors.push(`交易第 ${i + 1} 筆買賣方向不合法`);
-    if (!(Number(t?.shares) > 0)) errors.push(`交易第 ${i + 1} 筆股數必須大於 0`);
-    if (!(Number(t?.price) > 0)) errors.push(`交易第 ${i + 1} 筆成交價必須大於 0`);
-    ["fee", "tax", "amount"].forEach((k) => { if (!finiteNonNegative(t?.[k])) errors.push(`交易第 ${i + 1} 筆 ${k} 不合法`); });
-    if (Number.isFinite(Number(t?.amount)) && Number(t?.shares) > 0 && Number(t?.price) > 0) {
-      const fee = Number(t?.fee || 0), tax = Number(t?.tax || 0);
-      const expected = t.action === "sell"
-        ? Number(t.shares) * Number(t.price) - fee - tax
-        : Number(t.shares) * Number(t.price) + fee;
-      if (Math.abs(Number(t.amount) - expected) > 1) warnings.push(`交易第 ${i + 1} 筆交易金額與股數×價格不一致`);
+  data.trades.forEach((tr, i) => {
+    if (!isObject(tr) || !isValidDateStr(tr.date)) errors.push(t("交易第 {n} 筆日期不合法", { n: i + 1 }));
+    if (!String(tr?.symbol || "").trim()) errors.push(t("交易第 {n} 筆缺少股票代號", { n: i + 1 }));
+    if (!(["buy", "sell"].includes(tr?.action))) errors.push(t("交易第 {n} 筆買賣方向不合法", { n: i + 1 }));
+    if (!(Number(tr?.shares) > 0)) errors.push(t("交易第 {n} 筆股數必須大於 0", { n: i + 1 }));
+    if (!(Number(tr?.price) > 0)) errors.push(t("交易第 {n} 筆成交價必須大於 0", { n: i + 1 }));
+    ["fee", "tax", "amount"].forEach((k) => { if (!finiteNonNegative(tr?.[k])) errors.push(t("交易第 {n} 筆 {key} 不合法", { n: i + 1, key: k })); });
+    if (Number.isFinite(Number(tr?.amount)) && Number(tr?.shares) > 0 && Number(tr?.price) > 0) {
+      const fee = Number(tr?.fee || 0), tax = Number(tr?.tax || 0);
+      const expected = tr.action === "sell"
+        ? Number(tr.shares) * Number(tr.price) - fee - tax
+        : Number(tr.shares) * Number(tr.price) + fee;
+      if (Math.abs(Number(tr.amount) - expected) > 1) warnings.push(t("交易第 {n} 筆交易金額與股數×價格不一致", { n: i + 1 }));
     }
   });
   data.dividends.forEach((d, i) => {
-    if (!isObject(d) || !isValidDateStr(d.date)) errors.push(`配息第 ${i + 1} 筆日期不合法`);
-    if (!String(d?.symbol || "").trim()) errors.push(`配息第 ${i + 1} 筆缺少股票代號`);
-    ["shares", "perShare", "amount"].forEach((k) => { if (!finiteNonNegative(d?.[k])) errors.push(`配息第 ${i + 1} 筆 ${k} 不合法`); });
+    if (!isObject(d) || !isValidDateStr(d.date)) errors.push(t("配息第 {n} 筆日期不合法", { n: i + 1 }));
+    if (!String(d?.symbol || "").trim()) errors.push(t("配息第 {n} 筆缺少股票代號", { n: i + 1 }));
+    ["shares", "perShare", "amount"].forEach((k) => { if (!finiteNonNegative(d?.[k])) errors.push(t("配息第 {n} 筆 {key} 不合法", { n: i + 1, key: k })); });
   });
   data.planItems.forEach((x, i) => {
-    if (!isObject(x) || !String(x.symbol || "").trim()) errors.push(`定期定額第 ${i + 1} 筆缺少標的`);
-    if (!finiteNonNegative(x?.amount)) errors.push(`定期定額第 ${i + 1} 筆金額不合法`);
+    if (!isObject(x) || !String(x.symbol || "").trim()) errors.push(t("定期定額第 {n} 筆缺少標的", { n: i + 1 }));
+    if (!finiteNonNegative(x?.amount)) errors.push(t("定期定額第 {n} 筆金額不合法", { n: i + 1 }));
   });
 
-  if (!(Number(data.goal?.targetAmount) > 0)) errors.push("目標金額必須大於 0");
-  if (!(Number(data.goal?.targetYear) >= 2000 && Number(data.goal?.targetYear) <= 2200)) errors.push("目標年份不合理");
-  if (!isValidDateStr(data.planSchedule?.startDate)) errors.push("計畫起始日不合法");
+  if (!(Number(data.goal?.targetAmount) > 0)) errors.push(t("目標金額必須大於 0"));
+  if (!(Number(data.goal?.targetYear) >= 2000 && Number(data.goal?.targetYear) <= 2200)) errors.push(t("目標年份不合理"));
+  if (!isValidDateStr(data.planSchedule?.startDate)) errors.push(t("計畫起始日不合法"));
   ["initialCapital", "initialPrincipal", "initialAssets", "monthlyAmount"].forEach((k) => {
-    if (data.planSchedule?.[k] != null && !finiteNonNegative(data.planSchedule[k])) errors.push(`planSchedule.${k} 不合法`);
+    if (data.planSchedule?.[k] != null && !finiteNonNegative(data.planSchedule[k])) errors.push(t("planSchedule.{key} 不合法", { key: k }));
   });
-  if (data.planSchedule?.annualReturn != null && !(Number(data.planSchedule.annualReturn) > -100 && Number.isFinite(Number(data.planSchedule.annualReturn)))) errors.push("年化報酬率不合法");
-  if (data.planSchedule?.horizonMonths != null && !(Number(data.planSchedule.horizonMonths) > 0)) errors.push("投影月數必須大於 0");
-  if (schemaVersion >= 2 && data.costBasis != null && (!isObject(data.costBasis) || !finiteNonNegative(data.costBasis.startingCost))) errors.push("costBasis 格式不合法");
+  if (data.planSchedule?.annualReturn != null && !(Number(data.planSchedule.annualReturn) > -100 && Number.isFinite(Number(data.planSchedule.annualReturn)))) errors.push(t("年化報酬率不合法"));
+  if (data.planSchedule?.horizonMonths != null && !(Number(data.planSchedule.horizonMonths) > 0)) errors.push(t("投影月數必須大於 0"));
+  if (schemaVersion >= 2 && data.costBasis != null && (!isObject(data.costBasis) || !finiteNonNegative(data.costBasis.startingCost))) errors.push(t("costBasis 格式不合法"));
 
   const duplicateIds = (arr, label) => {
     const seen = new Set(), dup = new Set();
     arr.forEach((x) => { const id = String(x?.id || "").trim(); if (id && seen.has(id)) dup.add(id); else if (id) seen.add(id); });
-    if (dup.size) warnings.push(`${label} 有 ${dup.size} 個重複 ID`);
+    if (dup.size) warnings.push(t("{label} 有 {n} 個重複 ID", { label: t(label), n: dup.size }));
   };
   duplicateIds(data.holdings, "持股");
   duplicateIds(data.trades, "交易");
   duplicateIds(data.dividends, "配息");
   duplicateIds(data.planItems, "定期定額");
   const holdingSymbols = data.holdings.map((h) => String(h?.symbol || "").trim()).filter(Boolean);
-  if (new Set(holdingSymbols).size !== holdingSymbols.length) warnings.push("持股清單有重複股票代號");
+  if (new Set(holdingSymbols).size !== holdingSymbols.length) warnings.push(t("持股清單有重複股票代號"));
   const dates = data.dailyRecords.map((r) => r?.date).filter(Boolean);
-  if (new Set(dates).size !== dates.length) warnings.push("每日紀錄有重複日期，匯入後請檢查是否為刻意保留");
+  if (new Set(dates).size !== dates.length) warnings.push(t("每日紀錄有重複日期，匯入後請檢查是否為刻意保留"));
 
   return { ok: errors.length === 0, errors, warnings, data, schemaVersion };
 }
@@ -499,25 +500,27 @@ export function describeToolCall(tc, holdings) {
   const a = tc.arguments || {};
   switch (tc.name) {
     case "add_trade": {
-      const actionLabel = a.action === "sell" ? "賣出" : "買進";
-      const feeStr = a.fee ? `，手續費 ${a.fee}` : "";
-      const taxStr = a.tax ? `，證交稅 ${a.tax}` : "";
-      return `新增交易：${a.date || "今天"} ${actionLabel} ${a.symbol} ${a.shares} 股 @NT$${a.price}${feeStr}${taxStr}`;
+      const actionLabel = a.action === "sell" ? t("賣出") : t("買進");
+      const feeStr = a.fee ? t("，手續費 {fee}", { fee: a.fee }) : "";
+      const taxStr = a.tax ? t("，證交稅 {tax}", { tax: a.tax }) : "";
+      return t("新增交易：{date} {action} {symbol} {shares} 股 @NT${price}{fee}{tax}", {
+        date: a.date || t("今天"), action: actionLabel, symbol: a.symbol, shares: a.shares, price: a.price, fee: feeStr, tax: taxStr,
+      });
     }
     case "update_holding_target":
-      return `把 ${a.symbol} 的目標股數改成 ${nf(a.target)} 股`;
+      return t("把 {symbol} 的目標股數改成 {target} 股", { symbol: a.symbol, target: nf(a.target) });
     case "update_manual_avg_cost":
       return a.clear
-        ? `清除 ${a.symbol} 手動設定的平均成本，改回自動計算`
-        : `把 ${a.symbol} 的平均成本手動設定為 NT$${a.avgCost}`;
+        ? t("清除 {symbol} 手動設定的平均成本，改回自動計算", { symbol: a.symbol })
+        : t("把 {symbol} 的平均成本手動設定為 NT${avgCost}", { symbol: a.symbol, avgCost: a.avgCost });
     case "update_goal": {
       const parts = [];
-      if (a.targetAmount != null) parts.push(`目標金額改成 NT$${nf(a.targetAmount)}`);
-      if (a.targetYear != null) parts.push(`目標年份改成 ${a.targetYear}`);
-      return parts.length ? parts.join("，") : "修改總目標（但沒有帶任何要改的欄位）";
+      if (a.targetAmount != null) parts.push(t("目標金額改成 NT${amount}", { amount: nf(a.targetAmount) }));
+      if (a.targetYear != null) parts.push(t("目標年份改成 {year}", { year: a.targetYear }));
+      return parts.length ? parts.join(t("，")) : t("修改總目標（但沒有帶任何要改的欄位）");
     }
     default:
-      return `執行未知動作：${tc.name}`;
+      return t("執行未知動作：{name}", { name: tc.name });
   }
 }
 
@@ -539,26 +542,26 @@ export function validateToolCall(tc) {
   const validSymbol = /^[A-Z0-9.-]{1,20}$/.test(symbol);
   switch (tc?.name) {
     case "add_trade":
-      if (!validSymbol) return "股票代號格式不正確";
-      if (a.action !== "buy" && a.action !== "sell") return "交易動作必須是買進或賣出";
-      if (!finitePositive(a.shares) || Number(a.shares) > 100000000) return "股數數值不合理";
-      if (!finitePositive(a.price) || Number(a.price) > 100000000) return "成交價數值不合理";
-      if (!Number.isFinite(Number(a.fee || 0)) || Number(a.fee || 0) < 0) return "手續費數值不合理";
-      if (!Number.isFinite(Number(a.tax || 0)) || Number(a.tax || 0) < 0) return "證交稅數值不合理";
-      if (!validDate(a.date)) return "交易日期格式不正確";
+      if (!validSymbol) return t("股票代號格式不正確");
+      if (a.action !== "buy" && a.action !== "sell") return t("交易動作必須是買進或賣出");
+      if (!finitePositive(a.shares) || Number(a.shares) > 100000000) return t("股數數值不合理");
+      if (!finitePositive(a.price) || Number(a.price) > 100000000) return t("成交價數值不合理");
+      if (!Number.isFinite(Number(a.fee || 0)) || Number(a.fee || 0) < 0) return t("手續費數值不合理");
+      if (!Number.isFinite(Number(a.tax || 0)) || Number(a.tax || 0) < 0) return t("證交稅數值不合理");
+      if (!validDate(a.date)) return t("交易日期格式不正確");
       return null;
     case "update_holding_target":
-      if (!validSymbol) return "股票代號格式不正確";
-      if (!finitePositive(a.target) || Number(a.target) > 100000000) return "目標股數數值不合理";
+      if (!validSymbol) return t("股票代號格式不正確");
+      if (!finitePositive(a.target) || Number(a.target) > 100000000) return t("目標股數數值不合理");
       return null;
     case "update_manual_avg_cost":
-      if (!validSymbol) return "股票代號格式不正確";
-      if (!a.clear && (!finitePositive(a.avgCost) || Number(a.avgCost) > 100000000)) return "平均成本數值不合理";
+      if (!validSymbol) return t("股票代號格式不正確");
+      if (!a.clear && (!finitePositive(a.avgCost) || Number(a.avgCost) > 100000000)) return t("平均成本數值不合理");
       return null;
     case "update_goal":
-      if (a.targetAmount == null && a.targetYear == null) return "沒有帶任何要修改的欄位";
-      if (a.targetAmount != null && (!finitePositive(a.targetAmount) || Number(a.targetAmount) > 1000000000000)) return "目標金額數值不合理";
-      if (a.targetYear != null && (!Number.isInteger(Number(a.targetYear)) || Number(a.targetYear) < 2020 || Number(a.targetYear) > 2200)) return "目標年份不合理";
+      if (a.targetAmount == null && a.targetYear == null) return t("沒有帶任何要修改的欄位");
+      if (a.targetAmount != null && (!finitePositive(a.targetAmount) || Number(a.targetAmount) > 1000000000000)) return t("目標金額數值不合理");
+      if (a.targetYear != null && (!Number.isInteger(Number(a.targetYear)) || Number(a.targetYear) < 2020 || Number(a.targetYear) > 2200)) return t("目標年份不合理");
       return null;
     default:
       return null;

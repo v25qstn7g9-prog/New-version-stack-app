@@ -2,8 +2,10 @@ import { useState, useEffect, useRef } from "react";
 import { X, MessageCircle, Send } from "../lib/icons.jsx";
 import { COLORS, READ_TOOL_NAMES } from "../lib/constants.js";
 import { uid, todayStr, fetchWithTimeout, normalizeExternalAiAskUrl, shouldUseExternalAiFallback, buildPortfolioContext, describeToolCall, validateToolCall, executeReadTool, executeLiveQuoteTool } from "../lib/helpers.js";
+import { useLanguage } from "../lib/i18n.jsx";
 
 function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTrades, setHoldings, setGoal, dailyRecords, dividends, planItems, planSchedule, goalDate, perf, aiFallbackConfig }) {
+  const { t, lang } = useLanguage();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([]); // {role, content} 一般訊息，或 {role:'assistant', toolCall, status} 確認卡片
   const [input, setInput] = useState("");
@@ -67,7 +69,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
     let deviceId = localStorage.getItem(deviceIdKey);
     if (!deviceId) { deviceId = `d_${uid()}_${uid()}`; localStorage.setItem(deviceIdKey, deviceId); }
 
-    const baseBody = { message, history, context, allowGeminiPrivate: aiFallbackConfig?.allowPrivate === true };
+    const baseBody = { message, history, context, allowGeminiPrivate: aiFallbackConfig?.allowPrivate === true, language: lang };
     if (Array.isArray(toolTurns) && toolTurns.length > 0) baseBody.toolTurns = toolTurns;
 
     const callAskEndpoint = async (url, body, { fallback = false } = {}) => {
@@ -79,13 +81,13 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
           method: "POST", headers, body: JSON.stringify(body), cache: "no-store",
         }, fallback ? 30000 : 20000);
       } catch (e) {
-        const err = new Error(e?.name === "AbortError" ? "連線逾時" : (e?.message || "網路連線失敗"));
+        const err = new Error(e?.name === "AbortError" ? t("連線逾時") : (e?.message || t("網路連線失敗")));
         err.status = 0;
         throw err;
       }
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.ok) {
-        const err = new Error(data?.error || `問答失敗（HTTP ${res.status}）`);
+        const err = new Error(data?.error || t("問答失敗（HTTP {status}）", { status: res.status }));
         err.status = res.status;
         err.data = data;
         throw err;
@@ -103,7 +105,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
         Array.isArray(turn?.calls) && turn.calls.some((tc) => tc?.name === "query_app_data")
       );
       if (containsPrivateToolResult && aiFallbackConfig?.allowPrivate !== true) {
-        throw new Error("Cloudflare AI 已失敗；獨立 Gemini 備援可用，但這一輪包含私人資產查詢結果。請到『計畫設定 → AI 獨立備援』開啟私人資料授權後再試。");
+        throw new Error(t("Cloudflare AI 已失敗；獨立 Gemini 備援可用，但這一輪包含私人資產查詢結果。請到『計畫設定 → AI 獨立備援』開啟私人資料授權後再試。"));
       }
 
       const fallbackBody = {
@@ -113,11 +115,11 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
       try {
         const data = await callAskEndpoint(fallbackUrl, fallbackBody, { fallback: true });
         if (aiFallbackConfig?.allowPrivate !== true && Array.isArray(data?.toolCalls) && data.toolCalls.some((tc) => tc?.name === "query_app_data")) {
-          throw new Error("這個問題需要讀取你的 App 私人資產資料；目前 Gemini 備援的私人資料授權是關閉的。請到『計畫設定 → AI 獨立備援』開啟後再試。");
+          throw new Error(t("這個問題需要讀取你的 App 私人資產資料；目前 Gemini 備援的私人資料授權是關閉的。請到『計畫設定 → AI 獨立備援』開啟後再試。"));
         }
         return { ...data, provider: data.provider || "gemini-external", fallbackFrom: primaryError.message };
       } catch (fallbackError) {
-        throw new Error(`Cloudflare AI：${primaryError.message}；獨立備援：${fallbackError.message}`);
+        throw new Error(t("Cloudflare AI：{primary}；獨立備援：{fallback}", { primary: primaryError.message, fallback: fallbackError.message }));
       }
     }
   };
@@ -174,13 +176,13 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
             ...actionCalls.map((tc) => ({ role: "assistant", toolCall: tc, status: "pending" })),
           ]);
         } else {
-          setMessages((m) => [...m, { role: "assistant", content: "AI 已取得查詢資料，但仍未完成回答。請直接重送同一個問題；不需要縮小日期範圍。" }]);
+          setMessages((m) => [...m, { role: "assistant", content: t("AI 已取得查詢資料，但仍未完成回答。請直接重送同一個問題；不需要縮小日期範圍。") }]);
         }
       } else {
         setMessages((m) => [...m, { role: "assistant", content: data.reply }]);
       }
     } catch (e) {
-      setError(e?.message || "問答失敗，請稍後再試");
+      setError(e?.message || t("問答失敗，請稍後再試"));
     } finally {
       setSending(false);
     }
@@ -208,7 +210,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
           if (h.symbol === a.symbol) { found = true; return { ...h, target2035: Number(a.target) }; }
           return h;
         }));
-        return found ? { ok: true } : { ok: false, message: `找不到 ${a.symbol} 這檔持股` };
+        return found ? { ok: true } : { ok: false, message: t("找不到 {symbol} 這檔持股", { symbol: a.symbol }) };
       }
       case "update_manual_avg_cost": {
         let found = false;
@@ -219,7 +221,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
           }
           return h;
         }));
-        return found ? { ok: true } : { ok: false, message: `找不到 ${a.symbol} 這檔持股` };
+        return found ? { ok: true } : { ok: false, message: t("找不到 {symbol} 這檔持股", { symbol: a.symbol }) };
       }
       case "update_goal": {
         setGoal((g) => ({
@@ -230,7 +232,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
         return { ok: true };
       }
       default:
-        return { ok: false, message: "不認得這個動作" };
+        return { ok: false, message: t("不認得這個動作") };
     }
   };
 
@@ -284,14 +286,14 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
             <div className="flex items-center justify-between px-4 py-3"
               style={{ borderBottom: `1px solid ${COLORS.panelBorder}`, paddingTop: "max(12px, env(safe-area-inset-top, 0px))" }}>
               <div className="flex items-center gap-2 min-w-0">
-                <div className="font-bold text-sm">專用投資顧問</div>
+                <div className="font-bold text-sm">{t("專用投資顧問")}</div>
                 {providerInfo && (() => {
                   const isGemini = String(providerInfo.provider || "").toLowerCase().includes("gemini");
                   return (
                     <div className="text-[9px] px-1.5 py-0.5 rounded-full truncate max-w-[170px]"
                       title={`${providerInfo.provider} · ${providerInfo.model}`}
                       style={{ color: isGemini ? COLORS.gold : COLORS.sub, border: `1px solid ${isGemini ? COLORS.gold : COLORS.panelBorder}` }}>
-                      {isGemini ? "Gemini 獨立備援" : "GPT-OSS"}
+                      {isGemini ? t("Gemini 獨立備援") : "GPT-OSS"}
                     </div>
                   );
                 })()}
@@ -303,7 +305,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
               className={`flex-1 min-h-0 overflow-y-auto px-4 py-3 ${messages.length === 0 ? "flex items-center justify-center" : "space-y-3"}`}>
               {messages.length === 0 && (
                 <div className="text-xs text-center" style={{ color: COLORS.sub }}>
-                  可以問我你的持股、資產、配息、目標與市場；我會優先用 App 裡的實際資料幫你分析，也可以幫你記交易與調整目標
+                  {t("可以問我你的持股、資產、配息、目標與市場；我會優先用 App 裡的實際資料幫你分析，也可以幫你記交易與調整目標")}
                 </div>
               )}
               {messages.map((m, i) => {
@@ -315,7 +317,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
                       <div className="max-w-[85%] rounded-2xl px-3 py-2.5 text-sm"
                         style={{ background: COLORS.panel, border: `1px solid ${invalidReason ? COLORS.gain : COLORS.gold}` }}>
                         <div className="text-[11px] mb-1" style={{ color: invalidReason ? COLORS.gain : COLORS.gold }}>
-                          {invalidReason ? "AI 想執行（資料看起來不完整）：" : "AI 想執行："}
+                          {invalidReason ? t("AI 想執行（資料看起來不完整）：") : t("AI 想執行：")}
                         </div>
                         <div className="leading-relaxed">{desc}</div>
                         {invalidReason && (
@@ -326,23 +328,23 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
                             <button onClick={() => cancelToolCall(i)}
                               className="flex-1 rounded-lg py-1.5 text-xs font-bold"
                               style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, color: COLORS.sub }}>
-                              取消
+                              {t("取消")}
                             </button>
                             <button onClick={() => confirmToolCall(i)} disabled={!!invalidReason}
                               className="flex-1 rounded-lg py-1.5 text-xs font-bold"
                               style={{ background: invalidReason ? COLORS.panelBorder : COLORS.gold, color: invalidReason ? COLORS.sub : COLORS.bg, opacity: invalidReason ? 0.6 : 1 }}>
-                              確定執行
+                              {t("確定執行")}
                             </button>
                           </div>
                         )}
                         {m.status === "done" && (
-                          <div className="text-[11px] mt-2" style={{ color: COLORS.gain }}>✓ 已完成</div>
+                          <div className="text-[11px] mt-2" style={{ color: COLORS.gain }}>✓ {t("已完成")}</div>
                         )}
                         {m.status === "failed" && (
-                          <div className="text-[11px] mt-2" style={{ color: COLORS.gain }}>✗ 失敗：{m.failMessage}</div>
+                          <div className="text-[11px] mt-2" style={{ color: COLORS.gain }}>✗ {t("失敗：{msg}", { msg: m.failMessage })}</div>
                         )}
                         {m.status === "cancelled" && (
-                          <div className="text-[11px] mt-2" style={{ color: COLORS.sub }}>已取消</div>
+                          <div className="text-[11px] mt-2" style={{ color: COLORS.sub }}>{t("已取消")}</div>
                         )}
                       </div>
                     </div>
@@ -364,7 +366,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
               {sending && (
                 <div className="flex justify-start">
                   <div className="rounded-2xl px-3 py-2 text-sm" style={{ background: COLORS.panel, color: COLORS.sub, border: `1px solid ${COLORS.panelBorder}` }}>
-                    思考中…
+                    {t("思考中…")}
                   </div>
                 </div>
               )}
@@ -374,7 +376,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
             <div className="px-3 py-3 flex items-end gap-2"
               style={{ borderTop: `1px solid ${COLORS.panelBorder}`, paddingBottom: "calc(12px + env(safe-area-inset-bottom, 4px))" }}>
               <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onKeyDown}
-                placeholder="輸入訊息…" rows={1}
+                placeholder={t("輸入訊息…")} rows={1}
                 className="flex-1 rounded-xl px-3 py-2 text-sm resize-none"
                 style={{ 
                   background: COLORS.panel, 

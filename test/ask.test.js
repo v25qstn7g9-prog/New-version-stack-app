@@ -66,4 +66,16 @@ describe("buildAskCacheKey", () => {
     const b = buildAskCacheKey("hi", [{ role: "user", content: "x" }], "", []);
     expect(a).toBe(b);
   });
+
+  it("produces different keys for zh vs en — a cached reply must never leak across languages", () => {
+    const zh = buildAskCacheKey("hi", [], "", [], "zh");
+    const en = buildAskCacheKey("hi", [], "", [], "en");
+    expect(zh).not.toBe(en);
+  });
+
+  it("defaults to zh when language is omitted", () => {
+    const omitted = buildAskCacheKey("hi", [], "", []);
+    const explicitZh = buildAskCacheKey("hi", [], "", [], "zh");
+    expect(omitted).toBe(explicitZh);
+  });
 });

@@ -1,7 +1,25 @@
 import { APP_VERSION, COLORS } from "../lib/constants.js";
 import { nf } from "../lib/helpers.js";
+import { useLanguage } from "../lib/i18n.jsx";
+
+function LanguageToggle() {
+  const { lang, setLang } = useLanguage();
+  return (
+    <button
+      type="button"
+      onClick={() => setLang(lang === "en" ? "zh" : "en")}
+      className="text-[10px] font-bold rounded-full px-2 py-0.5"
+      style={{ color: COLORS.sub, border: `1px solid ${COLORS.panelBorder}` }}
+      aria-label={lang === "en" ? "Switch to Chinese" : "切換為英文"}
+      title={lang === "en" ? "Switch to Chinese" : "切換為英文"}
+    >
+      {lang === "en" ? "中" : "EN"}
+    </button>
+  );
+}
 
 function Header({ goal, totalToday, goalDate, backupOverdue, backupAgeDays }) {
+  const { t } = useLanguage();
   const remain = Math.max(0, goal.targetAmount - totalToday);
   const pct = Math.min(100, (totalToday / goal.targetAmount) * 100);
   return (
@@ -23,23 +41,26 @@ function Header({ goal, totalToday, goalDate, backupOverdue, backupAgeDays }) {
       <div className="max-w-2xl mx-auto">
         <div className="flex items-baseline justify-between">
           <h1 className="text-lg font-black tracking-tight" style={{ color: COLORS.gold }}>
-            存股資產追蹤 <span className="text-[10px] font-medium" style={{ color: COLORS.sub }}>v{APP_VERSION}</span>
+            {t("存股資產追蹤")} <span className="text-[10px] font-medium" style={{ color: COLORS.sub }}>v{APP_VERSION}</span>
           </h1>
-          <span className="text-xs mono" style={{ color: COLORS.sub }}>
-            目標 {goal.targetYear} · {nf(goal.targetAmount)}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs mono" style={{ color: COLORS.sub }}>
+              {t("目標")} {goal.targetYear} · {nf(goal.targetAmount)}
+            </span>
+            <LanguageToggle />
+          </div>
         </div>
         <div className="mt-2 h-1.5 rounded-full overflow-hidden" style={{ background: COLORS.panel }}>
           <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: COLORS.gold }} />
         </div>
         <div className="mt-1 flex items-baseline justify-between text-[11px] mono" style={{ color: COLORS.sub }}>
-          <span>距目標 NT${nf(remain)}（已達成 {pct.toFixed(1)}%）</span>
-          {goalDate && <span style={{ color: COLORS.gold }}>預計 {goalDate} 達成</span>}
+          <span>{t("距目標 NT${amount}（已達成 {pct}%）", { amount: nf(remain), pct: pct.toFixed(1) })}</span>
+          {goalDate && <span style={{ color: COLORS.gold }}>{t("預計 {date} 達成", { date: goalDate })}</span>}
         </div>
         {backupOverdue && (
           <div className="mt-2 rounded-lg px-2.5 py-1.5 text-[10px] font-bold"
             style={{ color: COLORS.gold, background: COLORS.panel, border: `1px solid ${COLORS.gold}` }}>
-            🔐 備份提醒：{backupAgeDays == null ? "尚未記錄 JSON 備份" : `上次備份已 ${backupAgeDays} 天前`}，建議到「計畫設定」匯出一份。
+            🔐 {t("備份提醒")}：{backupAgeDays == null ? t("尚未記錄 JSON 備份") : t("上次備份已 {days} 天前", { days: backupAgeDays })}，{t("建議到「計畫設定」匯出一份。")}
           </div>
         )}
       </div>
