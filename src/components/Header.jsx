@@ -8,8 +8,8 @@ function LanguageToggle() {
     <button
       type="button"
       onClick={() => setLang(lang === "en" ? "zh" : "en")}
-      className="text-[10px] font-bold rounded-full px-2 py-0.5"
-      style={{ color: COLORS.sub, border: `1px solid ${COLORS.panelBorder}` }}
+      className="text-[11px] font-black rounded-full px-2.5 py-1 flex-shrink-0"
+      style={{ color: COLORS.bg, background: COLORS.gold }}
       aria-label={lang === "en" ? "Switch to Chinese" : "切換為英文"}
       title={lang === "en" ? "Switch to Chinese" : "切換為英文"}
     >
@@ -39,17 +39,18 @@ function Header({ goal, totalToday, goalDate, backupOverdue, backupAgeDays }) {
       }}
     >
       <div className="max-w-2xl mx-auto">
-        <div className="flex items-baseline justify-between">
-          <h1 className="text-lg font-black tracking-tight" style={{ color: COLORS.gold }}>
-            {t("存股資產追蹤")} <span className="text-[10px] font-medium" style={{ color: COLORS.sub }}>v{APP_VERSION}</span>
+        <div className="flex items-start justify-between gap-2">
+          <h1 className="text-lg font-black tracking-tight min-w-0" style={{ color: COLORS.gold }}>
+            {t("存股資產追蹤")}
           </h1>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-shrink-0">
             <span className="text-xs mono" style={{ color: COLORS.sub }}>
               {t("目標")} {goal.targetYear} · {nf(goal.targetAmount)}
             </span>
             <LanguageToggle />
           </div>
         </div>
+        <div className="text-[10px] font-medium" style={{ color: COLORS.sub }}>v{APP_VERSION}</div>
         <div className="mt-2 h-1.5 rounded-full overflow-hidden" style={{ background: COLORS.panel }}>
           <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: COLORS.gold }} />
         </div>
