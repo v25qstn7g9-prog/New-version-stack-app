@@ -278,7 +278,7 @@ function buildSchedule({ startDate, initialCapital, initialPrincipal, initialAss
   return rows;
 }
 // find the first schedule index whose `key` value reaches `target`, with linear interpolation
-// Whether it's currently within TWSE trading hours (weekdays 09:00–13:30,
+// Whether it's currently within TWSE trading hours (weekdays 09:00–13:45,
 // using the device's local time — fine since this app is used in Taiwan).
 // Only checks weekday + time window; it doesn't know about public holidays,
 // so a market holiday will still count as "open" here and the auto-refresh
@@ -288,7 +288,7 @@ function isTwseTradingHours(date = new Date()) {
   const day = tw.getDay(); // 0 = Sunday, 6 = Saturday
   if (day === 0 || day === 6) return false;
   const minutes = tw.getHours() * 60 + tw.getMinutes();
-  return minutes >= 9 * 60 && minutes <= 13 * 60 + 30;
+  return minutes >= 9 * 60 && minutes <= 13 * 60 + 45;
 }
 
 function findCrossing(schedule, key, target) {
@@ -356,10 +356,10 @@ function shouldUseExternalAiFallback(error) {
   return /neuron|quota|額度|limit|binding|AI 服務|timeout|逾時|temporar/i.test(msg);
 }
 
-async function fetchQuotesWithFallback(symbols) {
+async function fetchQuotesWithFallback(symbols, forceRefresh = false) {
   if (!Array.isArray(symbols) || !symbols.length) return { quotes: {}, missing: [], complete: true };
   const unique = [...new Set(symbols.map((s) => String(s).trim().toUpperCase()).filter(Boolean))];
-  const url = `/quote?symbols=${encodeURIComponent(unique.join(","))}&_ts=${Date.now()}`;
+  const url = `/quote?symbols=${encodeURIComponent(unique.join(","))}&force=${forceRefresh ? "1" : "0"}&_ts=${Date.now()}`;
   const res = await fetchWithTimeout(url, { cache: "no-store" }, 9000);
   let data = null;
   try {
@@ -1665,7 +1665,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
     return () => { cancelled = true; };
   }, []);
 
-  const fetchAllLive = async () => {
+  const fetchAllLive = async (forceRefresh = false) => {
     const targets = activeRef.current;
     if (!targets.length) return;
     // Guard against overlap: if a previous run (manual or auto) is still
@@ -1679,13 +1679,13 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
     let quotes = null;
     try {
       try {
-        quoteResult = await fetchQuotesWithFallback(requestSymbols);
+        quoteResult = await fetchQuotesWithFallback(requestSymbols, forceRefresh);
         quotes = quoteResult.quotes;
       } catch (e) {
         // One retry after a short pause — a brief TWSE/API hiccup
         // shouldn't fail the whole refresh.
         await new Promise((res) => setTimeout(res, 800));
-        quoteResult = await fetchQuotesWithFallback(requestSymbols);
+        quoteResult = await fetchQuotesWithFallback(requestSymbols, forceRefresh);
         quotes = quoteResult.quotes;
       }
     } catch (e) {
@@ -1800,7 +1800,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
     <Panel title="即時股價">
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="text-[11px]" style={{ color: COLORS.sub }}>
-          {liveStatus === "idle" && `自動抓取目前持有的 ${activeHoldings.length} 檔台股（開盤時間每 15 秒更新，收盤後改手動）`}
+          {liveStatus === "idle" && `自動抓取目前持有的 ${activeHoldings.length} 檔台股（09:00–13:45 每 15 秒更新，其他時間可手動更新）`}
           {liveStatus === "loading" && "更新中…"}
           {liveStatus === "done" && liveAt && (staleOne
             ? `休市中，顯示 ${staleOne.asOfDate.getFullYear()}/${String(staleOne.asOfDate.getMonth()+1).padStart(2,"0")}/${String(staleOne.asOfDate.getDate()).padStart(2,"0")} 收盤價（查詢 ${liveAt.toLocaleTimeString("zh-TW", { hour12: false })}）`
@@ -1808,7 +1808,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
           {liveStatus === "error" && "抓取失敗（來源可能暫時壅塞），稍後再試或改用券商 App 查詢"}
         </div>
         <button
-          onClick={fetchAllLive}
+          onClick={() => fetchAllLive(true)}
           disabled={liveStatus === "loading" || !activeHoldings.length}
           className="text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 flex-shrink-0"
           style={{ background: COLORS.gold, color: COLORS.bg, opacity: (liveStatus === "loading" || !activeHoldings.length) ? 0.5 : 1 }}
