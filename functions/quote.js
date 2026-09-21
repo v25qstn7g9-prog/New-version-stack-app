@@ -1,5 +1,5 @@
 /**
- * quote.js — 4.7-quote-schedule-1
+ * quote.js — 4.7-quote-schedule-2
  *
  * Stability strategy for 漲跌幅:
  * 1. TWSE `y` is preferred prevClose (matches brokers); Yahoo is final fallback only.
@@ -11,17 +11,17 @@
  * 4. Retry TWSE once for 500/502/503/504/522/524 (520 excluded — observed to
  *    fail identically on retry, so it only adds latency for this endpoint).
  * 5. ?debug=1 surfaces raw TWSE fields + which fallback path was used.
- * 6. Auto refresh is limited to 15s cadence during trading hours; after 13:30 Taiwan time,
+ * 6. Auto refresh is limited to 15s cadence during trading hours; after 13:45 Taiwan time,
  *    auto refresh stops. Manual refresh remains available via ?force=1.
  * 7. The most recent successful quote payload is kept as the final cached snapshot for
  *    manual reads after trading hours.
  */
 
 const SYMBOL_PATTERN = /^[0-9]{4,6}[A-Z]?$/;
-const QUOTE_VERSION = "4.7-quote-schedule-1";
+const QUOTE_VERSION = "4.7-quote-schedule-2";
 const QUOTE_REFRESH_INTERVAL_MS = 15 * 1000;
 const QUOTE_AUTO_STOP_HOUR = 13;
-const QUOTE_AUTO_STOP_MINUTE = 30;
+const QUOTE_AUTO_STOP_MINUTE = 45;
 
 function isAllowedSymbol(s) {
   return s === "TAIEX" || SYMBOL_PATTERN.test(s);
@@ -94,7 +94,7 @@ function isTaiwanTradingHours(d = new Date()) {
   const day = t.getUTCDay();
   if (day === 0 || day === 6) return false;
   const minutes = t.getUTCHours() * 60 + t.getUTCMinutes();
-  return minutes >= 9 * 60 && minutes <= 13 * 60 + 30;
+  return minutes >= 9 * 60 && minutes <= 13 * 60 + 45;
 }
 
 async function fetchJson(url, timeoutMs = 7000) {
