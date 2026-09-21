@@ -1,6 +1,6 @@
 import { Wallet, ListOrdered, LineChartIcon, Receipt, Coins, Target, Settings2 } from "./icons.jsx";
 
-export const APP_VERSION = "4.7-personal-advisor-v2.29.0-gemini35";
+export const APP_VERSION = "4.7-personal-advisor-v2.30.0-gemini35";
 
 export const BACKUP_SCHEMA_VERSION = 2;
 

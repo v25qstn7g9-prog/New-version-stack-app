@@ -1,11 +1,11 @@
 {
-  "app": "2.29.1",
-  "lastUpdated": "2026-09-20",
+  "app": "2.30.0",
+  "lastUpdated": "2026-09-21",
   "status": "personal-investment-advisor-gemini-direct-fallback",
   "cloudflare": {
-    "index.html": "4.7-personal-advisor-v2.29.0-gemini35",
+    "index.html": "4.7-personal-advisor-v2.30.0-gemini35",
     "quote.js": "4.7-quote-schedule-1",
-    "ask.js": "4.7-personal-advisor-v2.29.1-gemini35-direct-fallback",
+    "ask.js": "4.7-personal-advisor-v2.30.0-gemini35-direct-fallback",
     "news.js": "4.6-news-stable-6",
     "health-check.js": "4.6-health-check-2",
     "model": "@cf/openai/gpt-oss-20b"
@@ -22,7 +22,8 @@
     "fallback": "Cloudflare Worker 內建 Gemini 3.5 Flash-Lite 備援；舊 Vercel 備援可作最後一道相容備援",
     "news": "台股市場新聞",
     "health": "自動健康檢查卡片",
-    "backup": "JSON 備份／匯入"
+    "backup": "JSON 備份／匯入",
+    "i18n": "中/英文介面切換（Header 右上角），涵蓋所有分頁與 AI 助手回覆語言；僅限 Cloudflare 主線 /ask，舊版 Vercel 備援（fallback-vercel）尚未跟進"
   },
-  "package": "2.29.1"
+  "package": "2.30.0"
 }

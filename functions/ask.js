@@ -13,7 +13,7 @@
  * Cloudflare 為主模型；Cloudflare 失敗時由同一個 Worker 直接切 Gemini 3.5 Flash-Lite。
  * 舊 fallback-vercel 仍保留作最後一道相容備援。
  */
-const ASK_VERSION = "4.7-personal-advisor-v2.29.1-gemini35-direct-fallback";
+const ASK_VERSION = "4.7-personal-advisor-v2.30.0-gemini35-direct-fallback";
 const GEMINI_MODEL_DEFAULT = "gemini-3.5-flash-lite";
 const GEMINI_MAX_OUTPUT_TOKENS = 1000;
 const MODEL = "@cf/openai/gpt-oss-20b";
