@@ -1989,8 +1989,8 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
                     <span className="row-start-2 col-start-4 text-right whitespace-nowrap leading-none min-w-0" style={{ color: r.quoteIsStale ? COLORS.sub : (r.chg >= 0 ? COLORS.gain : COLORS.loss) }}>
                       {!r.quoteIsStale ? <>今日損益 {r.chg >= 0 ? "+" : ""}{nf(Math.round(r.chg * r.current))}</> : ""}
                     </span>
-                    <div className="row-start-3 col-start-2 col-span-3 h-[12px] opacity-80">
-                      <MiniSparkline values={sparkFor(r.symbol)} width={240} height={12} tone={r.chg>=0?COLORS.gain:COLORS.loss} />
+                    <div className="row-start-3 col-start-1 col-span-4 h-[14px] opacity-85">
+                      <MiniSparkline values={sparkFor(r.symbol)} width={320} height={14} tone={r.chg>=0?COLORS.gain:COLORS.loss} />
                     </div>
                   </div>
                 </div>
