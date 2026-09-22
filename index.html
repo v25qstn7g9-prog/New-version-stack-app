@@ -124,7 +124,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.40.14-price-pct-today-profit";
+const APP_VERSION = "4.7-personal-advisor-v2.41.0-time-decay-model";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -2116,6 +2116,12 @@ function TrendRadar({ holdings }) {
       const tapeCache = await loadKey("trendRadarTape", { points: [] });
       const tape = Array.isArray(tapeCache?.points) ? tapeCache.points : [];
       const now = new Date();
+      const sessionClock = now.getHours()*60 + now.getMinutes();
+      // Model correction #1: time-decay / close-proximity weighting.
+      // After 10:30, today's own price action and short intraday KD gradually
+      // gain importance; stale/slow factors (market beta, news, institutions,
+      // daily KD) fade as the close approaches.
+      const lateProgress = Math.max(0, Math.min(1, (sessionClock - 630) / 180)); // 10:30 -> 13:30
       const todayKey = now.toLocaleDateString("sv-SE");
       const kdFromBars=(bars)=>{
         if(!bars || bars.length<9) return null;
@@ -2226,7 +2232,17 @@ function TrendRadar({ holdings }) {
       const mf1=marketSum("foreign",1), mf3=marketSum("foreign",3), mf5=marketSum("foreign",5);
       const mt1=marketSum("trust",1), mt3=marketSum("trust",3), mt5=marketSum("trust",5);
       const marketInstScore=(signScore(mf1)*1.0+signScore(mf3)*1.5+signScore(mf5)*2.0)+(signScore(mt1)*0.6+signScore(mt3)*0.9+signScore(mt5)*1.2);
-      let marketScore=Math.max(-20,Math.min(20,indexPct*8))+Math.max(-6,Math.min(6,(breadth-0.5)*12))+Math.max(-6,Math.min(6,mkKdScore*2))+Math.max(-6,Math.min(6,marketInstScore));
+      const marketIndexW = 8 + 4*lateProgress;
+      const marketBreadthW = 12 - 4*lateProgress;
+      const marketInstW = 1 - 0.55*lateProgress;
+      const mkShortScore = (marketKd5?.bull||0)*(1+1.0*lateProgress)
+        + (marketKd15?.bull||0)*(1+0.75*lateProgress)
+        + (marketKd60?.bull||0)*(1-0.25*lateProgress)
+        + (marketKdDaily?.bull||0)*(1-0.5*lateProgress);
+      let marketScore=Math.max(-22,Math.min(22,indexPct*marketIndexW))
+        +Math.max(-6,Math.min(6,(breadth-0.5)*marketBreadthW))
+        +Math.max(-7,Math.min(7,mkShortScore*1.8))
+        +Math.max(-6,Math.min(6,marketInstScore*marketInstW));
       const marketProbability=Math.max(25,Math.min(75,50 + 25*Math.tanh(marketScore/22)));
       const marketDirection=marketProbability>=64?"明顯偏漲":marketProbability>=55?"稍偏漲":marketProbability<=36?"明顯偏跌":marketProbability<=45?"稍偏跌":"方向不明";
       setMarketRow({probability:marketProbability,direction:marketDirection,indexPct,breadth,kd5:marketKd5,kd15:marketKd15,kd60:marketKd60,kdDaily:marketKdDaily,kdMonthly:marketKdMonthly});
@@ -2252,7 +2268,19 @@ function TrendRadar({ holdings }) {
         const kdMonthly=monthlyKdFor(h.symbol);
         const kdSignals=[kd5,kd15,kd60,kdDaily].filter(Boolean);
         const kdScore=kdSignals.reduce((a,k)=>a+k.bull,0);
-        let score = Math.max(-18,Math.min(18,indexPct*7)) + Math.max(-14,Math.min(14,stockPct*4)) + Math.max(-8,Math.min(8,newsScore*4)) + Math.max(-8,Math.min(8,instScore*instWeight)) + Math.max(-5,Math.min(5,kdScore*1.5));
+        const timedKdScore=(kd5?.bull||0)*(1+1.0*lateProgress)
+          +(kd15?.bull||0)*(1+0.75*lateProgress)
+          +(kd60?.bull||0)*(1-0.25*lateProgress)
+          +(kdDaily?.bull||0)*(1-0.5*lateProgress);
+        const indexW=6-3*lateProgress;
+        const stockW=5+4*lateProgress;
+        const newsW=3-2*lateProgress;
+        const instTimeW=1-0.5*lateProgress;
+        let score = Math.max(-16,Math.min(16,indexPct*indexW))
+          + Math.max(-20,Math.min(20,stockPct*stockW))
+          + Math.max(-6,Math.min(6,newsScore*newsW))
+          + Math.max(-7,Math.min(7,instScore*instWeight*instTimeW))
+          + Math.max(-7,Math.min(7,timedKdScore*1.5));
         const probability = Math.max(25,Math.min(75,50 + 25*Math.tanh(score/22)));
         const direction = probability>=64 ? "明顯偏漲" : probability>=55 ? "稍偏漲" : probability<=36 ? "明顯偏跌" : probability<=45 ? "稍偏跌" : "方向不明";
         // Three tiers now instead of two: "高" needs both real depth of
@@ -2261,7 +2289,7 @@ function TrendRadar({ holdings }) {
         const conviction = Math.abs(probability-50);
         const confidence = (flows.length>=3 && conviction>=15 && kdSignals.length>=3) ? "高"
           : (flows.length>=1 && conviction>=8) ? "中" : "低";
-        return {symbol:h.symbol,name:h.name||"",probability,direction,confidence,indexPct,stockPct,newsScore,flows,f1,f3,f5,t1,t3,t5,d1,d3,d5,kd5,kd15,kd60,kdDaily,kdMonthly};
+        return {symbol:h.symbol,name:h.name||"",probability,direction,confidence,indexPct,stockPct,newsScore,flows,f1,f3,f5,t1,t3,t5,d1,d3,d5,kd5,kd15,kd60,kdDaily,kdMonthly,modelVersion:"2.41-time-decay",lateProgress,weights:{indexW,stockW,newsW,instTimeW},timedKdScore};
       });
       // Save one evaluation snapshot per symbol/day. This creates the training/
       // calibration history needed to replace hand-tuned weights with measured ones.
@@ -2307,7 +2335,7 @@ function TrendRadar({ holdings }) {
       // (it is the only input here that isn't already reflected in today's
       // own intraday score); today's own move is kept as a much smaller
       // secondary drift term rather than the main driver it used to be.
-      const clock=now.getHours()*60+now.getMinutes();
+      const clock=sessionClock;
       const toLabel=(p)=>p>=64?"明顯偏漲":p>=55?"稍偏漲":p<=36?"明顯偏跌":p<=45?"稍偏跌":"方向不明";
       const tomorrow={};
       if(clock>=720){
@@ -2403,7 +2431,7 @@ function TrendRadar({ holdings }) {
   return (
     <div className="rounded-2xl p-4" style={{background:COLORS.panel,border:"1px solid "+COLORS.panelBorder,boxShadow:"0 4px 16px rgba(0,0,0,0.28)"}}>
       <div className="flex items-center justify-between mb-2">
-        <div><div className="text-xs font-bold" style={{color:COLORS.gold}}>AI 今日／明日趨勢雷達</div><div className="text-[9px] mt-0.5" style={{color:COLORS.sub}}>學習版 · 每5分鐘重算 · 真實盤中OHLC＋日K＋法人＋隔夜訊號＋自動驗證</div></div>
+        <div><div className="text-xs font-bold" style={{color:COLORS.gold}}>AI 今日／明日趨勢雷達</div><div className="text-[9px] mt-0.5" style={{color:COLORS.sub}}>學習版 v2.41 · 時間自適應權重 · 每5分鐘重算 · OHLC＋KD＋法人＋隔夜訊號＋自動驗證</div></div>
         {asOf&&<div className="text-[9px] mono" style={{color:COLORS.sub}}>{asOf.toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit",hour12:false})}</div>}
       </div>
       <div className="space-y-2">
