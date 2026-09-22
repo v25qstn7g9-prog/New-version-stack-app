@@ -124,7 +124,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.40.8-normal-high-low-font";
+const APP_VERSION = "4.7-personal-advisor-v2.40.9-normal-profit-font";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -1938,7 +1938,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
                     <span></span><span></span><span></span>
                     <span className="text-right whitespace-nowrap" style={{ color: r.quoteIsStale ? COLORS.sub : (r.chg >= 0 ? COLORS.gain : COLORS.loss) }}>
                       {r.quoteIsStale && isTwseTradingHours() ? "待更新" : <>{r.chg >= 0 ? "▲" : "▼"}{r.chgPct >= 0 ? "+" : ""}{r.chgPct.toFixed(2)}%</>}
-                      {!r.quoteIsStale && <span className="ml-1" style={{opacity:0.82}}>損益 {r.chg >= 0 ? "+" : ""}{nf(Math.round(r.chg * r.current))}</span>}
+                      {!r.quoteIsStale && <span className="ml-1 text-xs" style={{opacity:0.82}}>損益 {r.chg >= 0 ? "+" : ""}{nf(Math.round(r.chg * r.current))}</span>}
                     </span>
                   </div>
                 </div>
