@@ -124,7 +124,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.41.0-quote-high-low-overnight-fix";
+const APP_VERSION = "4.7-personal-advisor-v2.40.6-stacked-high-low";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -1919,22 +1919,22 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
 
       {hasLive && (
         <div>
-          <div className="grid grid-cols-[44px_1fr_58px_104px] gap-1 text-[10px] pb-1.5 mb-1.5 items-center" style={{ color: COLORS.sub, borderBottom: `1px solid ${COLORS.panelBorder}` }}>
+          <div className="grid grid-cols-[44px_72px_58px_110px] gap-1 text-[10px] pb-1.5 mb-1.5 items-center" style={{ color: COLORS.sub, borderBottom: `1px solid ${COLORS.panelBorder}` }}>
             <span>代號</span><span>高／低價</span><span className="text-right">股價</span><span className="text-right">市值</span>
           </div>
           <div className="space-y-1.5 max-h-64 overflow-y-auto">
             {rows.map((r) => (
               <div key={r.id}>
                 <div className="py-1">
-                  <div className="grid grid-cols-[44px_1fr_58px_104px] gap-1 text-xs mono items-center">
+                  <div className="grid grid-cols-[44px_72px_58px_110px] gap-1 text-xs mono items-center">
                     <span style={{ color: COLORS.sub }}>{r.symbol}</span>
-                    <span className="text-[9px] whitespace-nowrap" style={{color:COLORS.sub}}>
-                      {Number.isFinite(Number(r.high))&&Number.isFinite(Number(r.low)) ? <>高 {Number(r.high).toFixed(2)}｜低 {Number(r.low).toFixed(2)}</> : "高 --｜低 --"}
+                    <span className="text-[9px] leading-4 whitespace-nowrap" style={{color:COLORS.sub}}>
+                      {Number.isFinite(Number(r.high))&&Number.isFinite(Number(r.low)) ? <><span className="block">高 {Number(r.high).toFixed(2)}</span><span className="block">低 {Number(r.low).toFixed(2)}</span></> : <><span className="block">高 --</span><span className="block">低 --</span></>}
                     </span>
                     <span className="text-right whitespace-nowrap">{r.price.toFixed(2)}</span>
                     <span className="text-right font-bold whitespace-nowrap">{nf(r.value)}</span>
                   </div>
-                  <div className="grid grid-cols-[44px_1fr_58px_104px] gap-1 text-[10px] mono items-center mt-0.5">
+                  <div className="grid grid-cols-[44px_72px_58px_110px] gap-1 text-[10px] mono items-center mt-0.5">
                     <span></span><span></span><span></span>
                     <span className="text-right whitespace-nowrap" style={{ color: r.quoteIsStale ? COLORS.sub : (r.chg >= 0 ? COLORS.gain : COLORS.loss) }}>
                       {r.quoteIsStale && isTwseTradingHours() ? "待更新" : <>{r.chg >= 0 ? "▲" : "▼"}{r.chgPct >= 0 ? "+" : ""}{r.chgPct.toFixed(2)}%</>}
