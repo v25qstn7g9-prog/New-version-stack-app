@@ -2105,7 +2105,9 @@ function Dashboard({ totalToday, dailyChange, dailyChangePct, capitalGain, total
         </div>
       </div>
 
-      <LivePricePanel holdings={holdings} onFillDailyTw={onFillDailyTw} yesterdayTwValue={yesterdayTwValue} />\n\n      <TrendRadar holdings={holdings} />
+      <LivePricePanel holdings={holdings} onFillDailyTw={onFillDailyTw} yesterdayTwValue={yesterdayTwValue} />
+
+      <TrendRadar holdings={holdings} />
 
       {chartData.length > 1 && (
         <div className="rounded-2xl p-4" style={{
