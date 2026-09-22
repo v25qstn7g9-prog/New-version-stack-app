@@ -124,7 +124,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.41.1-time-decay-calibrated";
+const APP_VERSION = "4.7-personal-advisor-v2.41.2-fast-radar-layout";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -1585,6 +1585,8 @@ function NewsCarousel({ holdings }) {
 
   useEffect(() => {
     let cancelled = false;
+    let recalcRunning = false;
+    let recalcQueued = false;
     (async () => {
       // 快取 3 小時內、且持股組合沒變就直接沿用，避免每次開 App 都重新打新聞來源。
       const cached = await loadKey("stockNews", null);
@@ -1919,14 +1921,14 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
 
       {hasLive && (
         <div>
-          <div className="grid grid-cols-[40px_76px_92px_minmax(0,1fr)] gap-1 text-[10px] pb-1.5 mb-1.5 items-center" style={{ color: COLORS.sub, borderBottom: `1px solid ${COLORS.panelBorder}` }}>
+          <div className="grid grid-cols-[36px_68px_92px_minmax(0,1fr)] gap-1 text-[10px] pb-1.5 mb-1.5 items-center" style={{ color: COLORS.sub, borderBottom: `1px solid ${COLORS.panelBorder}` }}>
             <span>代號</span><span>高／低價</span><span className="text-right">股價／漲跌幅</span><span className="text-right">市值／今日損益</span>
           </div>
           <div className="space-y-1 max-h-64 overflow-y-auto">
             {rows.map((r) => (
               <div key={r.id}>
                 <div className="py-0.5">
-                  <div className="grid grid-cols-[40px_76px_92px_minmax(0,1fr)] grid-rows-[18px_18px] gap-x-1 text-xs mono items-center">
+                  <div className="grid grid-cols-[36px_68px_92px_minmax(0,1fr)] grid-rows-[18px_18px] gap-x-1 text-xs mono items-center">
                     <span className="row-start-1 col-start-1" style={{ color: COLORS.sub }}>{r.symbol}</span>
 
                     <span className="row-start-1 col-start-2 whitespace-nowrap leading-none" style={{color:COLORS.sub}}>
@@ -2108,6 +2110,9 @@ function TrendRadar({ holdings }) {
       } catch(e) { return null; }
     };
     const recalc = async () => {
+      if (recalcRunning) { recalcQueued = true; return; }
+      recalcRunning = true;
+      try {
       const cached = await loadKey("livePrices", null);
       const newsCache = await loadKey("stockNews", null);
       if (cancelled) return;
@@ -2337,7 +2342,10 @@ function TrendRadar({ holdings }) {
       // forward-looking input available before TWSE opens the next session.
       let global=null;
       try{
-        global=await fetchGlobalSignal();
+        const gCache=await loadKey("trendRadarGlobalSignal",null);
+        const gFresh=gCache && (Date.now()-Number(gCache.at||0))<5*60*1000;
+        global=gFresh ? gCache.value : await fetchGlobalSignal();
+        if(!gFresh && global) await saveKey("trendRadarGlobalSignal",{at:Date.now(),value:global});
         setGlobalStatus(global?"ok":"unavailable");
         setGlobalRow(global);
       }catch(e){ setGlobalStatus("unavailable"); }
@@ -2399,6 +2407,13 @@ function TrendRadar({ holdings }) {
       }
       setTomorrowMap(tomorrow);
       setRows(next); setAsOf(new Date());
+      } finally {
+        recalcRunning = false;
+        if (recalcQueued && !cancelled) {
+          recalcQueued = false;
+          setTimeout(recalc, 0);
+        }
+      }
     };
     recalc();
     // Keep the full 5-minute safety recalculation, but also react immediately
@@ -2408,7 +2423,7 @@ function TrendRadar({ holdings }) {
     let liveSyncTimer=null;
     const onLivePricesUpdated=()=>{
       clearTimeout(liveSyncTimer);
-      liveSyncTimer=setTimeout(()=>{ if(!cancelled) recalc(); },150);
+      liveSyncTimer=setTimeout(()=>{ if(!cancelled) recalc(); },250);
     };
     window.addEventListener("livePricesUpdated",onLivePricesUpdated);
     const timer=setInterval(recalc,5*60*1000);
