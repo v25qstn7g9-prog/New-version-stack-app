@@ -124,7 +124,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.41.2-fast-radar-layout";
+const APP_VERSION = "4.7-personal-advisor-v2.41.3-recalc-scope-fix";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -1585,8 +1585,6 @@ function NewsCarousel({ holdings }) {
 
   useEffect(() => {
     let cancelled = false;
-    let recalcRunning = false;
-    let recalcQueued = false;
     (async () => {
       // 快取 3 小時內、且持股組合沒變就直接沿用，避免每次開 App 都重新打新聞來源。
       const cached = await loadKey("stockNews", null);
@@ -2045,6 +2043,8 @@ function TrendRadar({ holdings }) {
 
   useEffect(() => {
     let cancelled = false;
+    let recalcRunning = false;
+    let recalcQueued = false;
     const fmtDate = (d) => {
       const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,"0"), day=String(d.getDate()).padStart(2,"0");
       return `${y}${m}${day}`;
