@@ -2550,6 +2550,23 @@ function TrendRadar({ holdings }) {
           await saveKey("trendRadarTomorrowHistory",{records:tRecords,at:now.toISOString()});
         }catch(e){}
       }
+      try {
+        await saveKey("trendRadarCurrentSnapshot", {
+          at: new Date().toISOString(),
+          version: "v2.44",
+          market: computedMarketRow,
+          rows: next.map(r => ({
+            symbol:r.symbol,name:r.name,probability:r.probability,direction:r.direction,confidence:r.confidence,
+            indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,
+            kd5:r.kd5,kd15:r.kd15,kd60:r.kd60,kdDaily:r.kdDaily,kdMonthly:r.kdMonthly,
+            f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5,
+            closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,
+          })),
+          tomorrow,
+          global,
+          statuses:{institutional:instStatus,global:global?"ok":"unavailable"},
+        });
+      } catch(e) {}
       setTomorrowMap(tomorrow);
       setRows(next); setAsOf(new Date());
       } finally {
@@ -4553,7 +4570,7 @@ function validateToolCall(tc) {
   }
 }
 
-const READ_TOOL_NAMES = ["query_app_data", "get_live_quotes"];
+const READ_TOOL_NAMES = ["query_app_data", "get_live_quotes", "get_app_snapshot"];
 
 // 每日紀錄單筆算出所有欄位（總資產/總本金/損益 + 台美股個別），query_app_data 的
 // 每一種 daily_records 彙總方式都是拿這個函式的結果去加減比較，AI 完全不用自己算。
@@ -4765,6 +4782,65 @@ async function executeLiveQuoteTool(tc, holdings) {
   }
 }
 
+
+async function executeAppSnapshotTool(tc, baseContext) {
+  const section=String(tc?.arguments?.section||"all");
+  const lines=[];
+  const add=(title,body)=>{
+    if(body==null) return;
+    lines.push("\n["+title+"]");
+    lines.push(typeof body==="string"?body:JSON.stringify(body));
+  };
+  if(section==="all"||section==="portfolio"||section==="settings"){
+    add("投資組合與設定", baseContext || "目前沒有組合 context");
+  }
+  if(section==="all"||section==="market"){
+    const live=await loadKey("livePrices",null);
+    if(live){
+      const q=live.map||{};
+      const items=Object.entries(q).map(([sym,v])=>{
+        const p=Number(v?.price), prev=Number(v?.prevClose);
+        const pct=(Number.isFinite(p)&&Number.isFinite(prev)&&prev)?((p-prev)/prev*100):null;
+        return `${sym} ${Number.isFinite(p)?p:"—"}${pct!=null?` (${pct>=0?"+":""}${pct.toFixed(2)}%)`:""}`;
+      });
+      add("即時行情", items.join("\n"));
+      if(live.marketIndex) add("加權指數", live.marketIndex);
+    }
+    const tx=await loadKey("trendRadarGlobalSignal",null);
+    if(tx?.value) add("台指近月與隔夜訊號",tx.value);
+  }
+  if(section==="all"||section==="radar"){
+    const radar=await loadKey("trendRadarCurrentSnapshot",null);
+    if(radar) add("Trend Radar 最新快照",radar);
+    const news=await loadKey("stockNews",null);
+    if(news?.news){
+      const brief={};
+      Object.entries(news.news).forEach(([sym,arr])=>{
+        brief[sym]=(Array.isArray(arr)?arr:[]).slice(0,3).map(x=>x?.title).filter(Boolean);
+      });
+      add("持股新聞",brief);
+    }
+    const inst=await loadKey("institutionalFlow",null);
+    if(inst) add("法人資料狀態",{at:inst.at,days:Array.isArray(inst.days)?inst.days.length:0});
+  }
+  if(section==="all"||section==="validation"){
+    const h=await loadKey("trendRadarHistory",{records:[]});
+    const t=await loadKey("trendRadarTomorrowHistory",{records:[]});
+    const summarize=(records,phase=null)=>{
+      const done=(records||[]).filter(r=>r.actual&&typeof r.actual.hit==="boolean"&&(!phase||r.phase===phase)&&r.direction!=="方向不明");
+      const recent=done.slice(-60);
+      return {n:recent.length,hits:recent.filter(r=>r.actual.hit).length,accuracy:recent.length?Number((recent.filter(r=>r.actual.hit).length/recent.length*100).toFixed(1)):null};
+    };
+    add("模型驗證",{
+      morning:summarize(h.records,"morning"),
+      closeLock:summarize(h.records,"closeLock"),
+      tomorrow:summarize(t.records),
+    });
+  }
+  const out=lines.join("\n").trim();
+  return out || "這個區段目前沒有可用資料";
+}
+
 function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTrades, setHoldings, setGoal, dailyRecords, dividends, planItems, planSchedule, goalDate, perf, aiFallbackConfig }) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([]); // {role, content} 一般訊息，或 {role:'assistant', toolCall, status} 確認卡片
@@ -4862,7 +4938,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
       if (!fallbackUrl || !shouldUseExternalAiFallback(primaryError)) throw primaryError;
 
       const containsPrivateToolResult = Array.isArray(toolTurns) && toolTurns.some((turn) =>
-        Array.isArray(turn?.calls) && turn.calls.some((tc) => tc?.name === "query_app_data")
+        Array.isArray(turn?.calls) && turn.calls.some((tc) => tc?.name === "query_app_data" || tc?.name === "get_app_snapshot")
       );
       if (containsPrivateToolResult && aiFallbackConfig?.allowPrivate !== true) {
         throw new Error("Cloudflare AI 已失敗；獨立 Gemini 備援可用，但這一輪包含私人資產查詢結果。請到『計畫設定 → AI 獨立備援』開啟私人資料授權後再試。");
@@ -4874,7 +4950,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
       };
       try {
         const data = await callAskEndpoint(fallbackUrl, fallbackBody, { fallback: true });
-        if (aiFallbackConfig?.allowPrivate !== true && Array.isArray(data?.toolCalls) && data.toolCalls.some((tc) => tc?.name === "query_app_data")) {
+        if (aiFallbackConfig?.allowPrivate !== true && Array.isArray(data?.toolCalls) && data.toolCalls.some((tc) => tc?.name === "query_app_data" || tc?.name === "get_app_snapshot")) {
           throw new Error("這個問題需要讀取你的 App 私人資產資料；目前 Gemini 備援的私人資料授權是關閉的。請到『計畫設定 → AI 獨立備援』開啟後再試。");
         }
         return { ...data, provider: data.provider || "gemini-external", fallbackFrom: primaryError.message };
@@ -4894,7 +4970,16 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
     setSending(true);
 
     try {
-      const baseContext = buildPortfolioContext(holdings, goal, totalToday, totalInvested, trades, dailyRecords, dividends, planItems, planSchedule, goalDate, perf);
+      const portfolioContext = buildPortfolioContext(holdings, goal, totalToday, totalInvested, trades, dailyRecords, dividends, planItems, planSchedule, goalDate, perf);
+      const radarSnapshot = await loadKey("trendRadarCurrentSnapshot", null);
+      const liveSnapshot = await loadKey("livePrices", null);
+      const compactRuntime = [
+        "=== App 即時狀態 ===",
+        radarSnapshot ? `Trend Radar 更新：${radarSnapshot.at||"—"}；版本：${radarSnapshot.version||"—"}` : "Trend Radar：尚無快照",
+        liveSnapshot?.at ? `即時行情更新：${liveSnapshot.at}` : "即時行情：尚無快照",
+        "需要完整雷達/設定/驗證細節時，請使用 get_app_snapshot，不要自行猜測。",
+      ].join("\n");
+      const baseContext = `${compactRuntime}\n\n${portfolioContext}`;
       // 確認卡片不算「文字對話」，送給 AI 的歷史紀錄只留一般文字訊息，避免格式搞亂它。
       const history = nextMessages.slice(0, -1).filter((m) => typeof m.content === "string");
 
@@ -4919,7 +5004,9 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
           id: tc.id,
           content: tc.name === "get_live_quotes"
             ? await executeLiveQuoteTool(tc, holdings)
-            : executeReadTool(tc, { trades, dailyRecords, dividends, holdings }),
+            : tc.name === "get_app_snapshot"
+              ? await executeAppSnapshotTool(tc, baseContext)
+              : executeReadTool(tc, { trades, dailyRecords, dividends, holdings }),
         })));
         toolTurns.push({ calls: freshCalls, results });
         data = await askOnce(text, history, baseContext, toolTurns);
@@ -5046,7 +5133,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
             <div className="flex items-center justify-between px-4 py-3"
               style={{ borderBottom: `1px solid ${COLORS.panelBorder}`, paddingTop: "max(12px, env(safe-area-inset-top, 0px))" }}>
               <div className="flex items-center gap-2 min-w-0">
-                <div className="font-bold text-sm">專用投資顧問</div>
+                <div className="font-bold text-sm">存股助手 AI</div>
                 {providerInfo && (() => {
                   const isGemini = String(providerInfo.provider || "").toLowerCase().includes("gemini");
                   return (
@@ -5065,7 +5152,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
               className={`flex-1 min-h-0 overflow-y-auto px-4 py-3 ${messages.length === 0 ? "flex items-center justify-center" : "space-y-3"}`}>
               {messages.length === 0 && (
                 <div className="text-xs text-center" style={{ color: COLORS.sub }}>
-                  可以問我你的持股、資產、配息、目標與市場；我會優先用 App 裡的實際資料幫你分析，也可以幫你記交易與調整目標
+                  可以直接問我 App 裡的持股、設定、即時行情、雷達、KD、法人、新聞、台指近月、資產與計畫；我會先讀 App 資料再回答，不另外亂猜一套。
                 </div>
               )}
               {messages.map((m, i) => {
