@@ -124,7 +124,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.33.0-learning-radar";
+const APP_VERSION = "4.7-personal-advisor-v2.33.1-collapsible-radar";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -2005,6 +2005,7 @@ function TrendRadar({ holdings }) {
   const [asOf, setAsOf] = useState(null);
   const [instStatus, setInstStatus] = useState("loading");
   const [accuracy, setAccuracy] = useState(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -2180,11 +2181,12 @@ function TrendRadar({ holdings }) {
       </div>
       <div className="space-y-2">
         {rows.map((r)=>{
+
           const tone=r.direction==="偏多"?COLORS.gain:r.direction==="偏空"?COLORS.loss:COLORS.sub;
           return <div key={r.symbol} className="rounded-xl px-3 py-2" style={{background:COLORS.bg,border:"1px solid "+COLORS.panelBorder}}>
             <div className="flex items-center justify-between"><div className="text-xs font-bold mono">{r.symbol}<span className="ml-1 font-normal" style={{color:COLORS.sub}}>{r.name}</span></div><div className="text-xs font-black mono" style={{color:tone}}>{r.direction} {r.probability.toFixed(0)}%</div></div>
             <div className="flex justify-between mt-1 text-[9px]" style={{color:COLORS.sub}}><span>大盤 {r.indexPct>=0?"+":""}{r.indexPct.toFixed(2)}%</span><span>個股 {r.stockPct>=0?"+":""}{r.stockPct.toFixed(2)}%</span><span>新聞 {r.newsScore>0?"偏正":r.newsScore<0?"偏負":"中性"}</span><span>信心 {r.confidence}</span></div>
-            <div className="mt-1.5 pt-1.5 text-[9px] mono" style={{color:COLORS.sub,borderTop:"1px solid "+COLORS.panelBorder}}>
+            {detailsOpen&&<><div className="mt-1.5 pt-1.5 text-[9px] mono" style={{color:COLORS.sub,borderTop:"1px solid "+COLORS.panelBorder}}>
               <div className="flex justify-between"><span>KD 5分</span><span>{r.kd5?`${r.kd5.K.toFixed(0)}/${r.kd5.D.toFixed(0)} ${r.kd5.state}`:"累積中"}</span></div>
               <div className="flex justify-between"><span>KD 15分</span><span>{r.kd15?`${r.kd15.K.toFixed(0)}/${r.kd15.D.toFixed(0)} ${r.kd15.state}`:"累積中"}</span></div>
               <div className="flex justify-between"><span>KD 60分</span><span>{r.kd60?`${r.kd60.K.toFixed(0)}/${r.kd60.D.toFixed(0)} ${r.kd60.state}`:"累積中"}</span></div>
@@ -2194,10 +2196,13 @@ function TrendRadar({ holdings }) {
               <div className="flex justify-between"><span>外資 1/3/5日</span><span>{flowText(r.f1)} / {flowText(r.f3)} / {flowText(r.f5)}</span></div>
               <div className="flex justify-between"><span>投信 1/3/5日</span><span>{flowText(r.t1)} / {flowText(r.t3)} / {flowText(r.t5)}</span></div>
               <div className="flex justify-between"><span>自營 1/3/5日</span><span>{flowText(r.d1)} / {flowText(r.d3)} / {flowText(r.d5)}</span></div>
-            </div>}
+            </div>}</>}
           </div>;
         })}
       </div>
+      <button onClick={()=>setDetailsOpen(v=>!v)} className="w-full mt-2 rounded-lg py-1.5 text-[10px] font-bold" style={{background:COLORS.bg,color:COLORS.gold,border:"1px solid "+COLORS.panelBorder}}>
+        {detailsOpen?"收起判斷明細 ▲":"展開判斷明細 ▼"}
+      </button>
       {accuracy&&<div className="text-[9px] mt-2 mono" style={{color:COLORS.gold}}>近 {accuracy.n} 次已驗證預測：方向命中 {((accuracy.hits/accuracy.n)*100).toFixed(1)}%（僅統計，不代表未來）</div>}
       <div className="text-[9px] mt-2 leading-relaxed" style={{color:COLORS.sub}}>法人：證交所盤後公開資料；ETF 法人流量降低權重，自營商亦降低權重以減少避險/造市影響。{instStatus==="unavailable"?"目前法人來源暫不可用，雷達會自動退回原模型。":"法人資料快取6小時。"} 5/15/60分KD由App自行累積報價運算；日/月KD等待歷史K線來源，避免用不完整資料硬算。 每日上午預測會保存，收盤後自動核對方向，累積真實命中資料。</div>
     </div>
