@@ -124,7 +124,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.40.10-stacked-high-low";
+const APP_VERSION = "4.7-personal-advisor-v2.40.11-top-bottom-aligned";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -1919,26 +1919,31 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
 
       {hasLive && (
         <div>
-          <div className="grid grid-cols-[44px_72px_58px_110px] gap-1 text-[10px] pb-1.5 mb-1.5 items-center" style={{ color: COLORS.sub, borderBottom: `1px solid ${COLORS.panelBorder}` }}>
-            <span>代號</span><span>高／低價</span><span className="text-right">股價</span><span className="text-right">市值</span>
+          <div className="grid grid-cols-[44px_82px_64px_1fr] gap-2 text-[10px] pb-1.5 mb-1.5 items-center" style={{ color: COLORS.sub, borderBottom: `1px solid ${COLORS.panelBorder}` }}>
+            <span>代號</span><span>高／低價</span><span className="text-right">股價</span><span className="text-right">市值／損益</span>
           </div>
           <div className="space-y-1 max-h-64 overflow-y-auto">
             {rows.map((r) => (
               <div key={r.id}>
                 <div className="py-0.5">
-                  <div className="grid grid-cols-[44px_72px_58px_110px] gap-1 text-xs mono items-center">
-                    <span style={{ color: COLORS.sub }}>{r.symbol}</span>
-                    <span className="text-xs whitespace-nowrap" style={{color:COLORS.sub}}>
-                      {Number.isFinite(Number(r.high))&&Number.isFinite(Number(r.low)) ? <><span className="block leading-none">高 {Number(r.high).toFixed(2)}</span><span className="block leading-none mt-1">低 {Number(r.low).toFixed(2)}</span></> : <><span className="block leading-none">高 --</span><span className="block leading-none mt-1">低 --</span></>}
+                  <div className="grid grid-cols-[44px_82px_64px_1fr] gap-2 text-xs mono items-start">
+                    <span className="pt-[1px]" style={{ color: COLORS.sub }}>{r.symbol}</span>
+                    <span className="whitespace-nowrap" style={{color:COLORS.sub}}>
+                      {Number.isFinite(Number(r.high))&&Number.isFinite(Number(r.low)) ? <>
+                        <span className="block leading-tight">高 {Number(r.high).toFixed(2)}</span>
+                        <span className="block leading-tight mt-1">低 {Number(r.low).toFixed(2)}</span>
+                      </> : <>
+                        <span className="block leading-tight">高 --</span>
+                        <span className="block leading-tight mt-1">低 --</span>
+                      </>}
                     </span>
-                    <span className="text-right whitespace-nowrap">{r.price.toFixed(2)}</span>
-                    <span className="text-right font-bold whitespace-nowrap">{nf(r.value)}</span>
-                  </div>
-                  <div className="grid grid-cols-[44px_72px_58px_110px] gap-1 text-[10px] mono items-center mt-0">
-                    <span></span><span></span><span></span>
-                    <span className="text-right whitespace-nowrap" style={{ color: r.quoteIsStale ? COLORS.sub : (r.chg >= 0 ? COLORS.gain : COLORS.loss) }}>
-                      {r.quoteIsStale && isTwseTradingHours() ? "待更新" : <>{r.chg >= 0 ? "▲" : "▼"}{r.chgPct >= 0 ? "+" : ""}{r.chgPct.toFixed(2)}%</>}
-                      {!r.quoteIsStale && <span className="ml-1 text-xs" style={{opacity:0.82}}>損益 {r.chg >= 0 ? "+" : ""}{nf(Math.round(r.chg * r.current))}</span>}
+                    <span className="text-right whitespace-nowrap pt-[1px]">{r.price.toFixed(2)}</span>
+                    <span className="text-right whitespace-nowrap">
+                      <span className="block font-bold leading-tight">{nf(r.value)}</span>
+                      <span className="block leading-tight mt-1" style={{ color: r.quoteIsStale ? COLORS.sub : (r.chg >= 0 ? COLORS.gain : COLORS.loss) }}>
+                        {r.quoteIsStale && isTwseTradingHours() ? "待更新" : <>{r.chg >= 0 ? "▲" : "▼"}{r.chgPct >= 0 ? "+" : ""}{r.chgPct.toFixed(2)}%</>}
+                        {!r.quoteIsStale && <span className="ml-1">損益 {r.chg >= 0 ? "+" : ""}{nf(Math.round(r.chg * r.current))}</span>}
+                      </span>
                     </span>
                   </div>
                 </div>
