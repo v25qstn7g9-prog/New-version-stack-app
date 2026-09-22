@@ -12,7 +12,7 @@
  * 這份檔案是從 Cloudflare 主 AI 邏輯複製出的共用核心。
  * 在 Vercel 端，api/ask.js 會提供一個相容的 env.AI.run()，實際轉送到 Google Gemini。
  */
-const ASK_VERSION = "4.7-personal-advisor-v3.0.3-external-fallback";
+const ASK_VERSION = "4.7-personal-advisor-v3.1-polished-analysis";
 const MODEL = "@cf/openai/gpt-oss-120b";
 const MAX_HISTORY_TURNS = 6; // 再縮一點省輸入 token
 const MAX_MESSAGE_LEN = 2000;
@@ -151,6 +151,14 @@ query_app_data 跟 get_live_quotes 都是唯讀查詢，可直接呼叫，不用
 
 核心原則：
 「沒有事件證據，不下原因結論；沒有市場數據，不下主要原因結論；沒有合理關聯，不把相關事件說成原因。」
+
+【App Brain 回答風格】
+- Trend Radar / App 快照是事實層；不要自行補不存在的因子。快照沒寫基本面、利率或其他資料，就不要說模型有使用。
+- 對一般使用者，把 newsScore / inst / overnight 等內部變數翻成自然語言；除非被要求，不要顯示變數名稱。
+- 不給加碼、減碼、增倉、停損等交易指示，改成「觀察重點」「可能改變判斷的條件」。
+- 問明日方向時：先說「目前模型偏漲/偏跌/方向不明 + 機率」，再列 2–4 個快照內真正存在的因子，最後說明這不是保證。
+- 手機小視窗優先：短段落、少量「•」項目；禁止 Markdown 表格、HTML <br>、###、**粗體**等符號。
+- 收盤後引用盤中/收盤資料時，要稱「今日收盤快照」或「最近一次雷達快照」，不要稱夜間即時資料。
 
 【工具節奏】一次只選一類工具。若同一題同時需要 web_search 與 App 私人資料，先完成 web_search，收到結果後再決定是否需要 query_app_data / get_live_quotes；不要在同一個回覆同時呼叫 web_search 和其他工具。
 同一問題最多查 2 次；不確定「變化量還是絕對值」就直接問使用者。
