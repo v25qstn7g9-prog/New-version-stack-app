@@ -1386,7 +1386,7 @@ function AssetTracker() {
       </div>
 
       <main
-        className="relative px-2 pt-4 pb-24 max-w-2xl mx-auto overflow-x-hidden"
+        className="relative px-2 pt-4 pb-24 max-w-none mx-auto overflow-x-hidden"
         style={{ touchAction: "pan-y", ...(mainMinHeight != null ? { minHeight: `${mainMinHeight}px` } : {}) }}
         onTouchStart={onPageTouchStart}
         onTouchEnd={onPageTouchEnd}
@@ -1534,7 +1534,7 @@ function Header({ goal, totalToday, goalDate, backupOverdue, backupAgeDays }) {
         paddingTop: "max(4px, calc(env(safe-area-inset-top, 0px) - 20px))",
       }}
     >
-      <div className="max-w-2xl mx-auto">
+      <div className="max-w-none mx-auto px-2">
         <div className="flex items-baseline justify-between">
           <h1 className="text-lg font-black tracking-tight" style={{ color: COLORS.gold }}>
             <span className="block">存股資產追蹤 <span className="text-[10px] font-medium" style={{ color: COLORS.sub }}>v{APP_VERSION}</span></span>
@@ -5150,7 +5150,7 @@ function TabBar({ tab, setTab, rootRef }) {
         background: COLORS.panel, borderTop: `1px solid ${COLORS.panelBorder}`,
         paddingBottom: "env(safe-area-inset-bottom, 4px)",
       }}>
-      <div className="max-w-2xl mx-auto flex">
+      <div className="max-w-none mx-auto flex px-2">
         {TABS.map(({ id, label, en, icon: Icon }) => {
           const active = tab === id;
           return (
