@@ -2144,21 +2144,33 @@ function TrendRadar({ holdings }) {
     // stocks (US session closes hours before TWSE opens the next day).
     const fetchGlobalSignal = async () => {
       try {
-        const { quotes } = await fetchQuotesWithFallback(["SPX","SOX","USDTWD"]);
+        // Fetch global markets and official TAIFEX TX nearest month in parallel.
+        // TX is the closest official proxy we can use for vendor "*TXFF / 台指近全"
+        // without pretending a data-vendor continuous-contract symbol is TAIFEX native.
+        const [globalRes, txRes] = await Promise.allSettled([
+          fetchQuotesWithFallback(["SPX","SOX","USDTWD"]),
+          fetchWithTimeout(`/taifex-tx?_ts=${Date.now()}`, { cache:"no-store" }, 9000).then(r=>r.json()),
+        ]);
+        const quotes = globalRes.status==="fulfilled" ? (globalRes.value?.quotes||{}) : {};
         const pct=(q)=>{
           const price=Number(q?.price), prev=Number(q?.prevClose);
           return Number.isFinite(price)&&price>0&&Number.isFinite(prev)&&prev>0 ? ((price-prev)/prev)*100 : null;
         };
         const spxPct=pct(quotes.SPX), soxPct=pct(quotes.SOX), usdtwdPct=pct(quotes.USDTWD);
-        // Require at least one valid equity-market signal. FX alone is not
-        // enough to label the overnight market feed as successfully acquired.
-        if (spxPct==null && soxPct==null) return null;
-        // SOX weighted heaviest (electronics-heavy TWSE), SPX for broad risk
-        // sentiment, USD/TWD lightly (a weakening TWD mildly favours exporters).
-        // This is a blended macro proxy, not a per-stock beta — the app has no
-        // sector data to justify pretending otherwise.
-        const combined = (soxPct??0)*0.5 + (spxPct??0)*0.35 + (usdtwdPct??0)*0.15;
-        return { spxPct, soxPct, usdtwdPct, combined };
+        const txJson = txRes.status==="fulfilled" ? txRes.value : null;
+        const txfPct = Number.isFinite(Number(txJson?.quote?.changePct)) ? Number(txJson.quote.changePct) : null;
+        const txfPrice = Number.isFinite(Number(txJson?.quote?.price)) ? Number(txJson.quote.price) : null;
+        const txfExpiry = txJson?.quote?.expiry || null;
+        const txfSession = txJson?.session || null;
+
+        if (spxPct==null && soxPct==null && txfPct==null) return null;
+
+        // When TX is available it becomes the strongest Taiwan-specific leading
+        // signal. Otherwise preserve the original US/FX blend exactly.
+        const combined = txfPct!=null
+          ? txfPct*0.45 + (soxPct??0)*0.30 + (spxPct??0)*0.20 + (usdtwdPct??0)*0.05
+          : (soxPct??0)*0.50 + (spxPct??0)*0.35 + (usdtwdPct??0)*0.15;
+        return { spxPct, soxPct, usdtwdPct, txfPct, txfPrice, txfExpiry, txfSession, combined };
       } catch(e) { return null; }
     };
     const recalc = async () => {
@@ -2521,7 +2533,7 @@ function TrendRadar({ holdings }) {
             if(!pred) return;
             const key=targetDay+"|"+sym;
             if(!tRecords.some(x=>x.key===key)){
-              tRecords.push({key,targetDay,symbol:sym,predictedOn:todayKey,probability:pred.probability,direction:pred.direction,factors:pred.factors,global:global?{spxPct:global.spxPct,soxPct:global.soxPct,usdtwdPct:global.usdtwdPct,combined:global.combined}:null});
+              tRecords.push({key,targetDay,symbol:sym,predictedOn:todayKey,probability:pred.probability,direction:pred.direction,factors:pred.factors,global:global?{spxPct:global.spxPct,soxPct:global.soxPct,usdtwdPct:global.usdtwdPct,txfPct:global.txfPct,txfPrice:global.txfPrice,txfExpiry:global.txfExpiry,txfSession:global.txfSession,combined:global.combined}:null});
             }
           });
           // Validate any record whose target day has now actually happened.
@@ -2595,17 +2607,24 @@ function TrendRadar({ holdings }) {
   return (
     <div className="rounded-2xl p-4" style={{background:COLORS.panel,border:"1px solid "+COLORS.panelBorder,boxShadow:"0 4px 16px rgba(0,0,0,0.28)"}}>
       <div className="flex items-center justify-between mb-2">
-        <div><div className="text-xs font-bold" style={{color:COLORS.gold}}>AI 今日／明日趨勢雷達</div><div className="text-[9px] mt-0.5" style={{color:COLORS.sub}}>學習版 v2.41 · 時間自適應權重 · 每5分鐘重算 · OHLC＋KD＋法人＋隔夜訊號＋自動驗證</div></div>
+        <div><div className="text-xs font-bold" style={{color:COLORS.gold}}>AI 今日／明日趨勢雷達</div><div className="text-[9px] mt-0.5" style={{color:COLORS.sub}}>學習版 v2.44 · 時間自適應權重 · OHLC＋KD＋法人＋台指近月＋隔夜訊號＋自動驗證</div></div>
         {asOf&&<div className="text-[9px] mono" style={{color:COLORS.sub}}>{asOf.toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit",hour12:false})}</div>}
       </div>
       <div className="space-y-2">
         {globalRow&&<div className="rounded-xl px-3 py-2 text-[9px] mono" style={{background:COLORS.bg,border:"1px solid "+COLORS.panelBorder,color:COLORS.sub}}>
           <div className="flex justify-between"><span>隔夜訊號</span><span>{globalStatus==="ok"?"已取得":"暫不可用，明日預測退回原模型"}</span></div>
-          {globalStatus==="ok"&&<div className="flex justify-between mt-0.5">
-            <span>S&amp;P500 {globalRow.spxPct!=null?(globalRow.spxPct>=0?"+":"")+globalRow.spxPct.toFixed(2)+"%":"—"}</span>
-            <span>費半SOX {globalRow.soxPct!=null?(globalRow.soxPct>=0?"+":"")+globalRow.soxPct.toFixed(2)+"%":"—"}</span>
-            <span>美元/台幣 {globalRow.usdtwdPct!=null?(globalRow.usdtwdPct>=0?"+":"")+globalRow.usdtwdPct.toFixed(2)+"%":"—"}</span>
-          </div>}
+          {globalStatus==="ok"&&<>
+            <div className="flex justify-between mt-0.5">
+              <span>台指近月 {globalRow.txfPct!=null?(globalRow.txfPct>=0?"+":"")+globalRow.txfPct.toFixed(2)+"%":"—"}</span>
+              <span>{globalRow.txfPrice!=null?globalRow.txfPrice.toLocaleString("zh-TW"):"—"}{globalRow.txfExpiry?" · "+globalRow.txfExpiry:""}</span>
+              <span>{globalRow.txfSession==="after_hours"?"夜盤":"日盤"}</span>
+            </div>
+            <div className="flex justify-between mt-0.5">
+              <span>S&amp;P500 {globalRow.spxPct!=null?(globalRow.spxPct>=0?"+":"")+globalRow.spxPct.toFixed(2)+"%":"—"}</span>
+              <span>費半SOX {globalRow.soxPct!=null?(globalRow.soxPct>=0?"+":"")+globalRow.soxPct.toFixed(2)+"%":"—"}</span>
+              <span>美元/台幣 {globalRow.usdtwdPct!=null?(globalRow.usdtwdPct>=0?"+":"")+globalRow.usdtwdPct.toFixed(2)+"%":"—"}</span>
+            </div>
+          </>}
         </div>}
         {marketRow&&<div className="rounded-xl px-3 py-2" style={{background:COLORS.bg,border:"1px solid "+COLORS.gold}}>
           <div className="flex items-center justify-between"><div className="text-xs font-bold">加權指數 <span className="font-normal" style={{color:COLORS.sub}}>TAIEX</span></div><div className="text-[10px] font-black mono text-right" style={{color:marketRow.direction.includes("漲")?COLORS.gain:marketRow.direction.includes("跌")?COLORS.loss:COLORS.sub}}><span>今日 {marketRow.direction} {marketRow.probability.toFixed(0)}%</span><span className="ml-2" style={{color:tomorrowMap.TAIEX?.direction?.includes("漲")?COLORS.gain:tomorrowMap.TAIEX?.direction?.includes("跌")?COLORS.loss:COLORS.sub}}>明日 {tomorrowMap.TAIEX?tomorrowMap.TAIEX.direction+" "+tomorrowMap.TAIEX.probability.toFixed(0)+"%":"資料累積中"}</span></div></div>
@@ -2646,7 +2665,7 @@ function TrendRadar({ holdings }) {
       {accuracy&&<div className="text-[9px] mt-2 mono" style={{color:COLORS.gold}}>近 {accuracy.n} 次已驗證「上午」預測：方向命中 {((accuracy.hits/accuracy.n)*100).toFixed(1)}%（已排除方向不明，僅統計，不代表未來）</div>}
       {closeLockAccuracy&&<div className="text-[9px] mt-1 mono" style={{color:COLORS.gold}}>近 {closeLockAccuracy.n} 次已驗證「收盤前鎖定」預測：方向命中 {((closeLockAccuracy.hits/closeLockAccuracy.n)*100).toFixed(1)}%（13:25 才鎖定，難度遠低於上午，跟上面分開看）</div>}
       {tomorrowAccuracy&&<div className="text-[9px] mt-1 mono" style={{color:COLORS.gold}}>近 {tomorrowAccuracy.n} 次已驗證「明日」預測：方向命中 {((tomorrowAccuracy.hits/tomorrowAccuracy.n)*100).toFixed(1)}%（已排除方向不明，僅統計，不代表未來）</div>}
-      <div className="text-[9px] mt-2 leading-relaxed" style={{color:COLORS.sub}}>法人：證交所盤後公開資料；ETF 法人流量降低權重，自營商亦降低權重以減少避險/造市影響，大盤分數已納入全市場法人加總。{instStatus==="unavailable"?"目前法人來源暫不可用，雷達會自動退回原模型。":"法人資料快取6小時。"} 5/15/60分KD由15秒即時報價持續取樣、聚合OHLC後運算；日/月KD取自真實歷史K線。明日預測以美股/費半/匯率等隔夜訊號為主，{globalStatus==="unavailable"?"目前隔夜訊號暫不可用，明日預測退回今日動能外推。":"今日動能僅作次要修正。"} 每日上午預測會保存，收盤後自動核對方向；明日預測則以「目標交易日」為準，隔天核對，兩者準確率分開統計。</div>
+      <div className="text-[9px] mt-2 leading-relaxed" style={{color:COLORS.sub}}>法人：證交所盤後公開資料；ETF 法人流量降低權重，自營商亦降低權重以減少避險/造市影響，大盤分數已納入全市場法人加總。{instStatus==="unavailable"?"目前法人來源暫不可用，雷達會自動退回原模型。":"法人資料快取6小時。"} 5/15/60分KD由15秒即時報價持續取樣、聚合OHLC後運算；日/月KD取自真實歷史K線。明日預測以台指近月／美股／費半／匯率等隔夜訊號為主，{globalStatus==="unavailable"?"目前隔夜訊號暫不可用，明日預測退回今日動能外推。":"今日動能僅作次要修正。"} 每日上午預測會保存，收盤後自動核對方向；明日預測則以「目標交易日」為準，隔天核對，兩者準確率分開統計。</div>
     </div>
   );
 }
@@ -2724,6 +2743,7 @@ function FactorBacktest() {
     const recs = (tomorrow?.records || []).filter((r) => r.actual);
     return buildFactors(recs, [
       ["隔夜綜合訊號", (r) => r.factors?.overnight],
+      ["台指近月 %", (r) => r.global?.txfPct],
       ["S&P500 隔夜 %", (r) => r.global?.spxPct],
       ["費半SOX 隔夜 %", (r) => r.global?.soxPct],
       ["美元/台幣 隔夜 %", (r) => r.global?.usdtwdPct],
