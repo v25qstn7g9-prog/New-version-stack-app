@@ -12,12 +12,12 @@
  * 這份檔案是從 Cloudflare 主 AI 邏輯複製出的共用核心。
  * 在 Vercel 端，api/ask.js 會提供一個相容的 env.AI.run()，實際轉送到 Google Gemini。
  */
-const ASK_VERSION = "4.7-personal-advisor-v2.29.0-gemini35-stable-tools";
+const ASK_VERSION = "4.7-personal-advisor-v3.0.3-external-fallback";
 const MODEL = "@cf/openai/gpt-oss-120b";
 const MAX_HISTORY_TURNS = 6; // 再縮一點省輸入 token
 const MAX_MESSAGE_LEN = 2000;
 const MAX_HISTORY_CONTENT = 3000;
-const MAX_CONTEXT_LEN = 4000;
+const MAX_CONTEXT_LEN = 12000;
 const MAX_TOKENS = 1000;
 const MAX_SERVER_SEARCH_ROUNDS = 2; // 網路搜尋在伺服器端自動來回幾輪，避免無限查詢
 
@@ -284,6 +284,19 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "get_app_snapshot",
+      description: "讀取 App 最新完整狀態摘要，包括持股/設定、即時行情、Trend Radar 今日/明日、KD/法人/新聞、台指近月與隔夜訊號、模型驗證。當使用者問 App 現況、預測原因或全部設定時優先使用。",
+      parameters: {
+        type: "object",
+        properties: {
+          section: { type: "string", enum: ["all","portfolio","settings","market","radar","validation"], description: "要讀的區段；不確定時用 all" }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
       name: "get_live_quotes",
       description: "查詢特定股票／ETF 的即時／今日最新股價（來自證交所即時報價，不是歷史紀錄）。使用者問某檔股票『現在/今天股價多少』『收盤價是多少』『幫我算現在市值』時用這個。不要用它查台股加權指數／TAIEX／大盤點數，那種公開指數資料請用 web_search；也不要跟 query_app_data 搞混——query_app_data 只有 App 歷史紀錄。",
       parameters: {
@@ -320,6 +333,7 @@ const ALLOWED_TOOL_NAMES = new Set([
   "update_manual_avg_cost",
   "update_goal",
   "query_app_data",
+  "get_app_snapshot",
   "get_live_quotes",
   "web_search",
 ]);
@@ -372,11 +386,13 @@ export async function onRequestPost(context) {
 
     const activeTools = TOOLS;
     const contextText = typeof body?.context === "string" ? body.context.slice(0, MAX_CONTEXT_LEN) : "";
+    const forceAnswer = body?.forceAnswer === true;
 
     const dateLine = `現在的日期時間是：${taiwanNowLabel()}。問「今天」「現在」「幾天後」以此為準。`;
+    const finalizeLine = forceAnswer ? "\n\n【系統】App 唯讀工具資料已取得完成。請直接根據既有資料回答，不要再次呼叫任何工具。" : "";
     const systemPrompt = contextText
-      ? `${SYSTEM_PROMPT_BASE}\n\n${dateLine}\n\n目前持股資料：\n${contextText}`
-      : `${SYSTEM_PROMPT_BASE}\n\n${dateLine}`;
+      ? `${SYSTEM_PROMPT_BASE}\n\n${dateLine}\n\n目前持股資料：\n${contextText}${finalizeLine}`
+      : `${SYSTEM_PROMPT_BASE}\n\n${dateLine}${finalizeLine}`;
 
     const messages = [
       { role: "system", content: systemPrompt },
@@ -384,38 +400,21 @@ export async function onRequestPost(context) {
       { role: "user", content: message },
     ];
 
-    // 標準工具呼叫來回：把之前每一輪「AI 呼叫了什麼工具」+「實際查到的結果」
-    // 用正式的 assistant tool_calls + tool 訊息接回對話，而不是塞成一段文字。
-    // 這樣不管幾輪，模型都能正確判斷「工具已經回覆」，不會再重複呼叫同一個查詢。
-    // toolTurns: [{ calls: [{id,name,arguments}], results: [{id,content}] }, ...]（依發生順序）
+    // 外部 Gemini 備援可能接手 Cloudflare GPT-OSS 產生的工具呼叫。
+    // 那些呼叫沒有 Gemini 3.x 專屬 thought_signature；若重播成原生 functionCall
+    // 會被 Gemini 直接以 HTTP 400 拒絕。因此已完成的 App 唯讀工具結果一律當成
+    // 可信的文字資料餵回模型，不重播別家模型的 functionCall。
     const toolTurns = Array.isArray(body?.toolTurns) ? body.toolTurns : [];
     toolTurns.forEach((turn) => {
       const calls = Array.isArray(turn?.calls) ? turn.calls : [];
       const results = Array.isArray(turn?.results) ? turn.results : [];
-      if (!calls.length) return;
-      messages.push({
-        role: "assistant",
-        content: "",
-        tool_calls: calls.map((tc) => ({
-          id: String(tc?.id || ""),
-          type: "function",
-          function: {
-            name: String(tc?.name || ""),
-            arguments: JSON.stringify(tc?.arguments || {}),
-          },
-          // Gemini 3 的 thoughtSignature 必須跨 HTTP round-trip 原封不動帶回。
-          // 前端 toolTurns 會保留 data.toolCalls 上的這個欄位；這裡若漏掉，
-          // query_app_data / get_live_quotes 第二輪就會 400 missing thought_signature。
-          ...(tc?._geminiThoughtSignature ? { _geminiThoughtSignature: tc._geminiThoughtSignature } : {}),
-        })),
+      if (!results.length) return;
+      const callNames = new Map(calls.map((tc) => [String(tc?.id || ""), String(tc?.name || "app_tool")]));
+      const blocks = results.map((tr, idx) => {
+        const name = String(tr?.name || callNames.get(String(tr?.id || "")) || calls[idx]?.name || "app_tool");
+        return `【App 工具結果：${name}】\n${String(tr?.content || "").slice(0, MAX_CONTEXT_LEN)}`;
       });
-      results.forEach((tr) => {
-        messages.push({
-          role: "tool",
-          tool_call_id: String(tr?.id || ""),
-          content: String(tr?.content || "").slice(0, MAX_CONTEXT_LEN),
-        });
-      });
+      messages.push({ role: "user", content: blocks.join("\n\n") });
     });
 
     // 解析一次 ai.run() 回傳裡的 tool_calls，統一格式成 { id, name, arguments }
@@ -453,7 +452,9 @@ export async function onRequestPost(context) {
     }
 
     async function runModel(toolsForThisRun = activeTools) {
-      const options = { messages, max_tokens: MAX_TOKENS, tools: toolsForThisRun };
+      const options = forceAnswer
+        ? { messages, max_tokens: MAX_TOKENS }
+        : { messages, max_tokens: MAX_TOKENS, tools: toolsForThisRun };
       return await ai.run(MODEL, options);
     }
 
