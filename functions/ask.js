@@ -13,14 +13,14 @@
  * Cloudflare 為主模型；Cloudflare 失敗時由同一個 Worker 直接切 Gemini 3.5 Flash-Lite。
  * 舊 fallback-vercel 仍保留作最後一道相容備援。
  */
-const ASK_VERSION = "4.7-personal-advisor-v2.29.1-gemini35-direct-fallback";
+const ASK_VERSION = "4.7-personal-advisor-v3.0-app-brain";
 const GEMINI_MODEL_DEFAULT = "gemini-3.5-flash-lite";
 const GEMINI_MAX_OUTPUT_TOKENS = 1000;
 const MODEL = "@cf/openai/gpt-oss-20b";
 const MAX_HISTORY_TURNS = 6;
 const MAX_MESSAGE_LEN = 2000;
 const MAX_HISTORY_CONTENT = 3000;
-const MAX_CONTEXT_LEN = 4000;
+const MAX_CONTEXT_LEN = 12000;
 const MAX_TOKENS = 1000;
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_SERVER_SEARCH_ROUNDS = 2;
@@ -110,9 +110,18 @@ async function callTavily(apiKey, query) {
   }
 }
 
-const SYSTEM_PROMPT_BASE = `你是內嵌在這個 App 裡的「使用者專用投資顧問助手」，用繁體中文回答。
+const SYSTEM_PROMPT_BASE = `你是內嵌在這個 App 裡的「存股助手 AI」，用繁體中文回答。
 
-你的任務不是泛泛而談的財經聊天，而是以 App 裡「目前持股、成本、交易、配息、資產歷史、目標與計畫」為第一級資料來源，協助使用者做個人化投資分析。`;
+你是 App 的資料解讀層，不是另一套自行猜測的投資模型。回答任何與使用者資產、持股、設定、雷達或即時行情有關的問題時：
+1. App 內已計算的資料與 Trend Radar 結果是第一級事實來源；不要自行重算出一套互相衝突的機率。
+2. 若目前 context 不足，優先呼叫 get_app_snapshot、query_app_data 或 get_live_quotes，再回答；不要猜數字。
+3. 清楚區分「App 實際資料」「雷達模型輸出」「你的解釋/推論」。
+4. 雷達機率只代表模型訊號強弱，不是保證；不得把 58% 說成一定會漲。
+5. 對歷史資產、交易、配息等精確數字，使用工具結果，不憑記憶或自行估算。
+6. 使用者要求修改資料時才呼叫寫入工具；唯讀查詢可直接使用。
+7. 回答以簡潔、可操作、能解釋因子衝突為優先。若訊號互相矛盾，要直接指出哪些因子正向、哪些負向。
+
+你的任務不是泛泛而談的財經聊天，而是把 App 裡的「持股、成本、交易、配息、每日資產、計畫設定、即時行情、KD、法人、新聞、台指近月、隔夜訊號、Trend Radar、模型驗證」整合成可理解的個人化分析。`;
 
 const WEEKDAY_ZH = ["日", "一", "二", "三", "四", "五", "六"];
 
@@ -233,6 +242,23 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "get_app_snapshot",
+      description: "讀取 App 最新完整狀態摘要，包括持股/計畫設定、即時行情、Trend Radar 今日/明日預測、KD/法人/新聞狀態、台指近月與隔夜訊號、模型驗證。當使用者問『我的 App 現在怎麼判斷』『為什麼預測這樣』『讀全部設定』時優先用這個工具。",
+      parameters: {
+        type: "object",
+        properties: {
+          section: {
+            type: "string",
+            enum: ["all", "portfolio", "settings", "market", "radar", "validation"],
+            description: "要讀的區段；不確定時用 all",
+          },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_live_quotes",
       description: "查詢特定股票／ETF 的即時／今日最新股價。",
       parameters: {
@@ -269,6 +295,7 @@ const ALLOWED_TOOL_NAMES = new Set([
   "update_manual_avg_cost",
   "update_goal",
   "query_app_data",
+  "get_app_snapshot",
   "get_live_quotes",
   "web_search",
 ]);
