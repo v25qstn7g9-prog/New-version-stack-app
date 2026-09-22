@@ -4841,6 +4841,11 @@ async function executeAppSnapshotTool(tc, baseContext) {
   return out || "這個區段目前沒有可用資料";
 }
 
+function isFastAppAnalysisQuestion(text) {
+  const q=String(text||"").toLowerCase();
+  return /(明天|預測|走勢|雷達|trend\s*radar|為什麼.*(漲|跌|收紅|收黑|收盤)|今天.*(漲|跌|收紅|收黑)|kd|法人|台指|夜盤|0050|0056|2330)/i.test(q);
+}
+
 function cleanAiDisplayText(text) {
   let out=String(text||"");
   out=out.replace(/<br\s*\/?\s*>/gi,"\n");
@@ -4993,12 +4998,30 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
         liveSnapshot?.at ? `即時行情更新：${liveSnapshot.at}` : "即時行情：尚無快照",
         "需要完整雷達/設定/驗證細節時，請使用 get_app_snapshot，不要自行猜測。",
       ].join("\n");
-      const baseContext = `${compactRuntime}\n\n${portfolioContext}`;
+      let baseContext = `${compactRuntime}\n\n${portfolioContext}`;
       // 確認卡片不算「文字對話」，送給 AI 的歷史紀錄只留一般文字訊息，避免格式搞亂它。
       const history = nextMessages.slice(0, -1).filter((m) => typeof m.content === "string");
 
-      let data = await askOnce(text, history, baseContext);
+      // 快速路徑：日常的 0050/0056/2330、明日預測、Trend Radar、KD、法人、
+      // 台指/夜盤等問題，先把 App 已經算好的快照直接塞進 context，第一輪就關閉工具。
+      // 這樣不再經過「模型要求工具 → 前端查詢 → 再問模型」的多輪往返，
+      // 大幅降低免費 Cloudflare/Gemini 雙雙逾時的機率。
+      const fastMode = isFastAppAnalysisQuestion(text);
+      if (fastMode) {
+        const [marketCtx, radarCtx] = await Promise.all([
+          executeAppSnapshotTool({arguments:{section:"market"}}, baseContext),
+          executeAppSnapshotTool({arguments:{section:"radar"}}, baseContext),
+        ]);
+        baseContext += `\n\n=== 快速分析資料（App 已算好，請直接回答） ===\n${marketCtx}\n\n${radarCtx}\n\n禁止再次呼叫工具；資料不足就明說。`;
+      }
+
+      let data = await askOnce(text, history, baseContext, [], fastMode);
       if (data?.provider) setProviderInfo({ provider: data.provider, model: data.model || "", profile: data.profile || "" });
+
+      if (fastMode) {
+        setMessages((m) => [...m, { role: "assistant", content: data.reply || "目前 App 快照資料不足，暫時無法完成分析。" }]);
+        return;
+      }
 
       // 如果 AI 呼叫的是唯讀查詢工具，直接自動執行、把查到的結果用正式的 tool 訊息
       // 接回對話再幫它問一次，使用者完全不用介入；最多自動追問一輪，避免萬一 AI 一直
