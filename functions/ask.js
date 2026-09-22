@@ -13,7 +13,7 @@
  * Cloudflare 為主模型；Cloudflare 失敗時由同一個 Worker 直接切 Gemini 3.5 Flash-Lite。
  * 舊 fallback-vercel 仍保留作最後一道相容備援。
  */
-const ASK_VERSION = "4.7-personal-advisor-v3.0-app-brain";
+const ASK_VERSION = "4.7-personal-advisor-v3.0.1-tool-finalize";
 const GEMINI_MODEL_DEFAULT = "gemini-3.5-flash-lite";
 const GEMINI_MAX_OUTPUT_TOKENS = 1000;
 const MODEL = "@cf/openai/gpt-oss-20b";
@@ -415,19 +415,20 @@ function buildGeminiContents(history, message, toolTurns = []) {
   return contents;
 }
 
-async function runGeminiFallback(env, { message, history, contextText, toolTurns, allowPrivate = false }) {
+async function runGeminiFallback(env, { message, history, contextText, toolTurns, allowPrivate = false, forceAnswer = false }) {
   const allowPrivateByEnv = String(env?.GEMINI_ALLOW_PRIVATE_CONTEXT || "false").toLowerCase() === "true";
   allowPrivate = allowPrivate === true || allowPrivateByEnv;
   const safeContext = allowPrivate ? contextText : "";
   const dateLine = `現在的日期時間是：${taiwanNowLabel()}。問「今天」「現在」「幾天後」以此為準。`;
+  const finalizeLine = forceAnswer ? "\n\n【系統】工具資料已經取得完成。現在必須直接用既有資料回答使用者，不要再次呼叫任何工具。" : "";
   const systemPrompt = safeContext
-    ? `${SYSTEM_PROMPT_BASE}\n\n${dateLine}\n\n目前持股資料：\n${safeContext}`
-    : `${SYSTEM_PROMPT_BASE}\n\n${dateLine}\n\n這是 Cloudflare 主 AI 的 Gemini 備援。若問題需要私人資產資料但目前沒有提供持股 context，不要猜數字，改用 query_app_data / get_live_quotes 等工具。`;
+    ? `${SYSTEM_PROMPT_BASE}\n\n${dateLine}\n\n目前持股資料：\n${safeContext}${finalizeLine}`
+    : `${SYSTEM_PROMPT_BASE}\n\n${dateLine}\n\n這是 Cloudflare 主 AI 的 Gemini 備援。若問題需要私人資產資料但目前沒有提供持股 context，不要猜數字，改用 query_app_data / get_live_quotes 等工具。${finalizeLine}`;
 
   let contents = buildGeminiContents(history, message, toolTurns);
   let searchRounds = 0;
   while (true) {
-    const { data, model } = await callGemini(env, contents, systemPrompt, true);
+    const { data, model } = await callGemini(env, contents, systemPrompt, !forceAnswer);
     const toolCalls = parseGeminiToolCalls(data);
     if (toolCalls.length > 0 && toolCalls.every((tc) => tc.name === "web_search") && searchRounds < MAX_SERVER_SEARCH_ROUNDS) {
       const modelParts = parseGeminiParts(data).filter((p) => p?.functionCall || p?.text);
@@ -497,6 +498,7 @@ export async function onRequestPost(context) {
       .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_HISTORY_CONTENT) }));
     const contextText = typeof body?.context === "string" ? body.context.slice(0, MAX_CONTEXT_LEN) : "";
     const toolTurns = Array.isArray(body?.toolTurns) ? body.toolTurns : [];
+    const forceAnswer = body?.forceAnswer === true;
     // 個人化資產 context 與工具結果不可進共享的記憶體快取，否則相同問題可能跨使用者命中舊答案。
     // 只有沒有私人 context、也沒有 tool round 的一般閒聊才使用短 TTL 快取。
     const cacheEnabled = !contextText.trim() && toolTurns.length === 0;
@@ -507,9 +509,10 @@ export async function onRequestPost(context) {
     }
 
     const dateLine = `現在的日期時間是：${taiwanNowLabel()}。問「今天」「現在」「幾天後」以此為準。`;
+    const finalizeLine = forceAnswer ? "\n\n【系統】唯讀工具資料已經取得完成。請立刻根據上面的工具結果直接回答使用者；不要再次呼叫任何工具，也不要要求使用者重送問題。" : "";
     const systemPrompt = contextText
-      ? `${SYSTEM_PROMPT_BASE}\n\n${dateLine}\n\n目前持股資料：\n${contextText}`
-      : `${SYSTEM_PROMPT_BASE}\n\n${dateLine}`;
+      ? `${SYSTEM_PROMPT_BASE}\n\n${dateLine}\n\n目前持股資料：\n${contextText}${finalizeLine}`
+      : `${SYSTEM_PROMPT_BASE}\n\n${dateLine}${finalizeLine}`;
 
     const messages = [
       { role: "system", content: systemPrompt },
@@ -545,7 +548,9 @@ export async function onRequestPost(context) {
     if (!ai) throw new Error("尚未設定 Cloudflare AI Binding（AI）");
 
     async function runModel() {
-      return await ai.run(MODEL, { messages, max_tokens: MAX_TOKENS, tools: TOOLS });
+      return forceAnswer
+        ? await ai.run(MODEL, { messages, max_tokens: MAX_TOKENS })
+        : await ai.run(MODEL, { messages, max_tokens: MAX_TOKENS, tools: TOOLS });
     }
 
     let result;
@@ -592,7 +597,7 @@ export async function onRequestPost(context) {
 
     try {
       const gemini = await runGeminiFallback(context.env, {
-        message, history, contextText, toolTurns, allowPrivate: body?.allowGeminiPrivate === true,
+        message, history, contextText, toolTurns, allowPrivate: body?.allowGeminiPrivate === true, forceAnswer,
       });
       const payload = { ok: true, version: ASK_VERSION, ...gemini, fallbackFrom: friendlyAiError(primaryError?.message) };
       if (cacheEnabled) writeAskCache(cacheKey, payload);
