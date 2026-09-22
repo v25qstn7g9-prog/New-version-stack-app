@@ -124,7 +124,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.42.0-close-lock-reinforcement";
+const APP_VERSION = "4.7-personal-advisor-v2.42.1-split-backtest";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -2363,6 +2363,16 @@ function TrendRadar({ holdings }) {
             }
           });
         }
+        // Keep a dedicated close-lock snapshot (13:25+) so backtests can
+        // compare the morning model with the final pre-close model fairly.
+        if(mins>=805){
+          next.forEach(r=>{
+            const key=day+"|"+r.symbol+"|closeLock";
+            if(!records.some(x=>x.key===key)){
+              records.push({key,day,symbol:r.symbol,phase:"closeLock",ts:stamp.toISOString(),probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,modelVersion:r.modelVersion,lateProgress:r.lateProgress,closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,weights:r.weights,timedKdScore:r.timedKdScore,inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
+            }
+          });
+        }
         // At/after close, attach the actual close-vs-prev-close outcome when quote data is available.
         if(mins>=810){
           records=records.map(rec=>{
@@ -2595,22 +2605,29 @@ function FactorBacktest() {
     return { label, n: pairs.length, r: pairs.length >= MIN_N ? pearsonCorr(pairs) : null };
   });
 
-  const todayFactors = useMemo(() => {
-    const recs = (today?.records || []).filter((r) => r.actual);
-    return buildFactors(recs, [
-      ["大盤 %", (r) => r.indexPct],
-      ["個股 %", (r) => r.stockPct],
-      ["新聞分數", (r) => r.newsScore],
-      ["外資 1日", (r) => r.inst?.f1], ["外資 3日", (r) => r.inst?.f3], ["外資 5日", (r) => r.inst?.f5],
-      ["投信 1日", (r) => r.inst?.t1], ["投信 3日", (r) => r.inst?.t3], ["投信 5日", (r) => r.inst?.t5],
-      ["自營 1日", (r) => r.inst?.d1], ["自營 3日", (r) => r.inst?.d3], ["自營 5日", (r) => r.inst?.d5],
-      ["KD 5分 (K-D)", (r) => (r.kd?.k5 != null && r.kd?.d5 != null) ? r.kd.k5 - r.kd.d5 : null],
-      ["KD 15分 (K-D)", (r) => (r.kd?.k15 != null && r.kd?.d15 != null) ? r.kd.k15 - r.kd.d15 : null],
-      ["KD 60分 (K-D)", (r) => (r.kd?.k60 != null && r.kd?.d60 != null) ? r.kd.k60 - r.kd.d60 : null],
-      ["KD 日線 (K-D)", (r) => (r.kd?.kDaily != null && r.kd?.dDaily != null) ? r.kd.kDaily - r.kd.dDaily : null],
-      ["KD 月線 (K-D)", (r) => (r.kd?.kMonthly != null && r.kd?.dMonthly != null) ? r.kd.kMonthly - r.kd.dMonthly : null],
-    ]);
-  }, [today]);
+  const todayFactorDefs = useMemo(() => ([
+    ["大盤 %", (r) => r.indexPct],
+    ["個股 %", (r) => r.stockPct],
+    ["新聞分數", (r) => r.newsScore],
+    ["外資 1日", (r) => r.inst?.f1], ["外資 3日", (r) => r.inst?.f3], ["外資 5日", (r) => r.inst?.f5],
+    ["投信 1日", (r) => r.inst?.t1], ["投信 3日", (r) => r.inst?.t3], ["投信 5日", (r) => r.inst?.t5],
+    ["自營 1日", (r) => r.inst?.d1], ["自營 3日", (r) => r.inst?.d3], ["自營 5日", (r) => r.inst?.d5],
+    ["KD 5分 (K-D)", (r) => (r.kd?.k5 != null && r.kd?.d5 != null) ? r.kd.k5 - r.kd.d5 : null],
+    ["KD 15分 (K-D)", (r) => (r.kd?.k15 != null && r.kd?.d15 != null) ? r.kd.k15 - r.kd.d15 : null],
+    ["KD 60分 (K-D)", (r) => (r.kd?.k60 != null && r.kd?.d60 != null) ? r.kd.k60 - r.kd.d60 : null],
+    ["KD 日線 (K-D)", (r) => (r.kd?.kDaily != null && r.kd?.dDaily != null) ? r.kd.kDaily - r.kd.dDaily : null],
+    ["KD 月線 (K-D)", (r) => (r.kd?.kMonthly != null && r.kd?.dMonthly != null) ? r.kd.kMonthly - r.kd.dMonthly : null],
+  ]), []);
+
+  const morningFactors = useMemo(() => {
+    const recs = (today?.records || []).filter((r) => r.actual && r.phase === "morning");
+    return buildFactors(recs, todayFactorDefs);
+  }, [today, todayFactorDefs]);
+
+  const closeLockFactors = useMemo(() => {
+    const recs = (today?.records || []).filter((r) => r.actual && r.phase === "closeLock");
+    return buildFactors(recs, todayFactorDefs);
+  }, [today, todayFactorDefs]);
 
   const tomorrowFactors = useMemo(() => {
     const recs = (tomorrow?.records || []).filter((r) => r.actual);
@@ -2647,10 +2664,14 @@ function FactorBacktest() {
       {open && (
         <div className="mt-3">
           <div className="text-[9px] mb-2 leading-relaxed" style={{ color: COLORS.sub }}>
-            算每個因子跟「實際漲跌幅」的皮爾森相關係數（-1～1）；|r|≥0.3 才視為有意義的關聯，樣本數不到 {MIN_N} 筆時只顯示樣本數、不給係數，避免把噪音誤讀成訊號。這只是給你自己判斷「哪個因子真的有用」的參考，不會自動回頭改雷達的權重。
+            算每個因子跟「實際漲跌幅」的皮爾森相關係數（-1～1）；|r|≥0.3 才視為有意義的關聯，樣本數不到 {MIN_N} 筆時只顯示樣本數、不給係數，避免把噪音誤讀成訊號。上午模型與 13:25 鎖定模型分開統計，避免混在一起失真。這只是研究參考，不會自動回頭改雷達的權重。
           </div>
-          <div className="text-[10px] font-bold mb-1" style={{ color: COLORS.text }}>今日模型 vs 當日實際漲跌</div>
-          {todayFactors.every((f) => f.n === 0) ? <Empty text="還沒有已驗證的今日預測資料，累積幾週後再回來看" /> : todayFactors.map(renderRow)}
+          <div className="text-[10px] font-bold mb-1" style={{ color: COLORS.text }}>上午模型（09:00–10:00）vs 當日收盤</div>
+          {morningFactors.every((f) => f.n === 0) ? <Empty text="還沒有已驗證的上午預測資料，先持續累積" /> : morningFactors.map(renderRow)}
+
+          <div className="text-[10px] font-bold mb-1 mt-3" style={{ color: COLORS.text }}>收盤前模型（13:25 鎖定）vs 當日收盤</div>
+          {closeLockFactors.every((f) => f.n === 0) ? <Empty text="從 v2.42 起開始累積 13:25 鎖定樣本" /> : closeLockFactors.map(renderRow)}
+
           <div className="text-[10px] font-bold mb-1 mt-3" style={{ color: COLORS.text }}>明日模型 vs 隔天實際漲跌</div>
           {tomorrowFactors.every((f) => f.n === 0) ? <Empty text="還沒有已驗證的明日預測資料，累積幾週後再回來看" /> : tomorrowFactors.map(renderRow)}
         </div>
