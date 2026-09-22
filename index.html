@@ -124,7 +124,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.39.0-factor-backtest";
+const APP_VERSION = "4.7-personal-advisor-v2.40.0-live-sync-factor-backtest";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -2086,9 +2086,14 @@ function TrendRadar({ holdings }) {
     const fetchGlobalSignal = async () => {
       try {
         const { quotes } = await fetchQuotesWithFallback(["SPX","SOX","USDTWD"]);
-        const pct=(q)=>q && Number(q.prevClose) ? ((Number(q.price)-Number(q.prevClose))/Number(q.prevClose))*100 : null;
+        const pct=(q)=>{
+          const price=Number(q?.price), prev=Number(q?.prevClose);
+          return Number.isFinite(price)&&price>0&&Number.isFinite(prev)&&prev>0 ? ((price-prev)/prev)*100 : null;
+        };
         const spxPct=pct(quotes.SPX), soxPct=pct(quotes.SOX), usdtwdPct=pct(quotes.USDTWD);
-        if (spxPct==null && soxPct==null && usdtwdPct==null) return null;
+        // Require at least one valid equity-market signal. FX alone is not
+        // enough to label the overnight market feed as successfully acquired.
+        if (spxPct==null && soxPct==null) return null;
         // SOX weighted heaviest (electronics-heavy TWSE), SPX for broad risk
         // sentiment, USD/TWD lightly (a weakening TWD mildly favours exporters).
         // This is a blended macro proxy, not a per-stock beta — the app has no
@@ -2353,8 +2358,18 @@ function TrendRadar({ holdings }) {
       setRows(next); setAsOf(new Date());
     };
     recalc();
+    // Keep the full 5-minute safety recalculation, but also react immediately
+    // whenever LivePricePanel publishes a fresh 15-second quote batch.
+    // recalc() reads the already-cached livePrices, so this does NOT add
+    // another quote API request.
+    let liveSyncTimer=null;
+    const onLivePricesUpdated=()=>{
+      clearTimeout(liveSyncTimer);
+      liveSyncTimer=setTimeout(()=>{ if(!cancelled) recalc(); },150);
+    };
+    window.addEventListener("livePricesUpdated",onLivePricesUpdated);
     const timer=setInterval(recalc,5*60*1000);
-    return()=>{cancelled=true;clearInterval(timer);};
+    return()=>{cancelled=true;clearTimeout(liveSyncTimer);window.removeEventListener("livePricesUpdated",onLivePricesUpdated);clearInterval(timer);};
   },[holdings]);
 
   useEffect(()=>{
