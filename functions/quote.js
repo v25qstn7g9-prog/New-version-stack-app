@@ -15,16 +15,30 @@
  *    auto refresh stops. Manual refresh remains available via ?force=1.
  * 7. The most recent successful quote payload is kept as the final cached snapshot for
  *    manual reads after trading hours.
+ * 8. A small set of global symbols (US indices / FX) is also served, purely
+ *    via Yahoo (TWSE has no such data) — used by the Trend Radar as an
+ *    overnight leading signal ahead of the next TWSE session.
  */
 
 const SYMBOL_PATTERN = /^[0-9]{4,6}[A-Z]?$/;
-const QUOTE_VERSION = "4.7-quote-schedule-2";
+const QUOTE_VERSION = "4.7-quote-schedule-3";
 const QUOTE_REFRESH_INTERVAL_MS = 15 * 1000;
 const QUOTE_AUTO_STOP_HOUR = 13;
 const QUOTE_AUTO_STOP_MINUTE = 45;
 
+// Overnight/global signals: not on TWSE, served straight from Yahoo Finance.
+const GLOBAL_SYMBOLS = {
+  SPX: "^GSPC",     // S&P 500 — 美股隔夜動能
+  SOX: "^SOX",      // 費城半導體指數 — 台股電子權值股的傳統領先指標
+  USDTWD: "TWD=X",  // 美元／新台幣匯率
+};
+
+function isGlobalSymbol(s) {
+  return Object.prototype.hasOwnProperty.call(GLOBAL_SYMBOLS, s);
+}
+
 function isAllowedSymbol(s) {
-  return s === "TAIEX" || SYMBOL_PATTERN.test(s);
+  return s === "TAIEX" || isGlobalSymbol(s) || SYMBOL_PATTERN.test(s);
 }
 
 function shouldAutoStopQuoteRequests(now = new Date()) {
@@ -273,7 +287,9 @@ function taipeiDateStr(unixSeconds) {
 }
 
 async function fetchYahooPrice(symbol) {
-  const yahooSymbol = symbol === "TAIEX" ? "^TWII" : `${symbol}.TW`;
+  const yahooSymbol = symbol === "TAIEX"
+    ? "^TWII"
+    : GLOBAL_SYMBOLS[symbol] || `${symbol}.TW`;
   const encoded = encodeURIComponent(yahooSymbol);
 
   const intradayUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?interval=1m&range=1d&_ts=${Date.now()}`;
@@ -434,11 +450,14 @@ export async function onRequestGet(context) {
 
     const quotes = {};
     const errors = [];
+    const twseSymbols = symbols.filter((s) => !isGlobalSymbol(s));
 
-    try {
-      Object.assign(quotes, await fetchTwseWithRetry(symbols, debug));
-    } catch (e) {
-      errors.push("TWSE 報價來源暫時失敗");
+    if (twseSymbols.length) {
+      try {
+        Object.assign(quotes, await fetchTwseWithRetry(twseSymbols, debug));
+      } catch (e) {
+        errors.push("TWSE 報價來源暫時失敗");
+      }
     }
 
     for (const [sym, q] of Object.entries(quotes)) {

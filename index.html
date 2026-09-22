@@ -124,7 +124,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.37.0-today-tomorrow-radar";
+const APP_VERSION = "4.7-personal-advisor-v2.38.0-precision-radar";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -2028,10 +2028,13 @@ function TrendRadar({ holdings }) {
   const [rows, setRows] = useState([]);
   const [asOf, setAsOf] = useState(null);
   const [instStatus, setInstStatus] = useState("loading");
+  const [globalStatus, setGlobalStatus] = useState("loading");
   const [accuracy, setAccuracy] = useState(null);
+  const [tomorrowAccuracy, setTomorrowAccuracy] = useState(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [marketRow, setMarketRow] = useState(null);
   const [tomorrowMap, setTomorrowMap] = useState({});
+  const [globalRow, setGlobalRow] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -2039,6 +2042,10 @@ function TrendRadar({ holdings }) {
       const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,"0"), day=String(d.getDate()).padStart(2,"0");
       return `${y}${m}${day}`;
     };
+    // Sums institutional net-buy/sell both per-symbol (for individual holdings)
+    // AND across the entire TWSE tape that day (for the market-wide TAIEX score) —
+    // the market total used to be left on the table even though the same T86
+    // response already contains every listed stock's row.
     const fetchInstitutional = async (symbols) => {
       const days=[]; const d=new Date();
       for(let tries=0; tries<14 && days.length<5; tries++){
@@ -2057,11 +2064,38 @@ function TrendRadar({ holdings }) {
           const dealerI=fields.findIndex(v=>String(v)==="自營商買賣超股數");
           const clean=(v)=>Number(String(v??"0").replace(/,/g,""))||0;
           const map={};
-          data.forEach(r=>{const sym=String(r[symI]||"").trim(); if(symbols.includes(sym)) map[sym]={foreign:clean(r[foreignI]),trust:clean(r[trustI]),dealer:clean(r[dealerI])};});
-          if(Object.keys(map).length) days.push({date:fmtDate(x),map});
+          const marketTotal={foreign:0,trust:0,dealer:0};
+          data.forEach(r=>{
+            const sym=String(r[symI]||"").trim();
+            const row={foreign:clean(r[foreignI]),trust:clean(r[trustI]),dealer:clean(r[dealerI])};
+            marketTotal.foreign+=row.foreign; marketTotal.trust+=row.trust; marketTotal.dealer+=row.dealer;
+            if(symbols.includes(sym)) map[sym]=row;
+          });
+          days.push({date:fmtDate(x),map,marketTotal});
         }catch(e){}
       }
       return days;
+    };
+    // Global overnight signal: S&P500 + 費城半導體指數(SOX) + 美元/台幣匯率.
+    // This is the one thing "明日預測" was structurally missing — every input
+    // it used to have (今日動能/KD/新聞/法人) is information that is already
+    // baked into *today's* intraday price action, so extrapolating it forward
+    // was really just "today, but softer", not a real look at tomorrow. SOX in
+    // particular is a well-known leading indicator for TW electronics weight
+    // stocks (US session closes hours before TWSE opens the next day).
+    const fetchGlobalSignal = async () => {
+      try {
+        const { quotes } = await fetchQuotesWithFallback(["SPX","SOX","USDTWD"]);
+        const pct=(q)=>q && Number(q.prevClose) ? ((Number(q.price)-Number(q.prevClose))/Number(q.prevClose))*100 : null;
+        const spxPct=pct(quotes.SPX), soxPct=pct(quotes.SOX), usdtwdPct=pct(quotes.USDTWD);
+        if (spxPct==null && soxPct==null && usdtwdPct==null) return null;
+        // SOX weighted heaviest (electronics-heavy TWSE), SPX for broad risk
+        // sentiment, USD/TWD lightly (a weakening TWD mildly favours exporters).
+        // This is a blended macro proxy, not a per-stock beta — the app has no
+        // sector data to justify pretending otherwise.
+        const combined = (soxPct??0)*0.5 + (spxPct??0)*0.35 + (usdtwdPct??0)*0.15;
+        return { spxPct, soxPct, usdtwdPct, combined };
+      } catch(e) { return null; }
     };
     const recalc = async () => {
       const cached = await loadKey("livePrices", null);
@@ -2100,25 +2134,75 @@ function TrendRadar({ holdings }) {
         });
         return [...buckets.values()].sort((a,b)=>a.ts-b.ts);
       };
+      // Real daily/monthly KD, built from actual TWSE-listed daily OHLC (via
+      // /daily-history, itself Yahoo daily bars — same trusted source quote.js
+      // already falls back to). Cached once per calendar day client-side since
+      // daily bars only change after close.
+      const active = holdings.filter((h) => Number(h.current || 0) > 0 && h.symbol);
+      let dailyBarsMap = {};
+      try {
+        const dhCache = await loadKey("trendRadarDailyHistory", { day: null, bars: {} });
+        if (dhCache?.day === todayKey && dhCache.bars && Object.keys(dhCache.bars).length) {
+          dailyBarsMap = dhCache.bars;
+        } else {
+          const wanted = [...new Set(["TAIEX", ...active.map(h => String(h.symbol))])];
+          const res = await fetchWithTimeout(`/daily-history?symbols=${encodeURIComponent(wanted.join(","))}&_ts=${Date.now()}`, { cache: "no-store" }, 12000);
+          const json = await res.json();
+          if (json?.ok && json.bars) {
+            dailyBarsMap = json.bars;
+            await saveKey("trendRadarDailyHistory", { day: todayKey, bars: dailyBarsMap, at: now.toISOString() });
+          }
+        }
+      } catch (e) {}
+      const monthlyFromDaily = (bars) => {
+        if (!bars || !bars.length) return [];
+        const map = new Map();
+        bars.forEach((b) => {
+          const mk = String(b.day).slice(0, 7);
+          const cur = map.get(mk);
+          if (!cur) map.set(mk, { key: mk, day: b.day, open: b.open, high: b.high, low: b.low, close: b.close });
+          else { cur.high = Math.max(cur.high, b.high); cur.low = Math.min(cur.low, b.low); cur.close = b.close; cur.day = b.day; }
+        });
+        return [...map.values()].sort((a, b) => a.day.localeCompare(b.day));
+      };
+      const dailyKdFor = (sym) => kdFromBars(dailyBarsMap[sym]);
+      const monthlyKdFor = (sym) => kdFromBars(monthlyFromDaily(dailyBarsMap[sym]));
+
       const idx = cached?.marketIndex || null;
       const indexPct = idx && Number(idx.prevClose) ? ((Number(idx.price)-Number(idx.prevClose))/Number(idx.prevClose))*100 : 0;
-      const positiveWords = /利多|成長|上修|創高|增加|獲利|旺|擴產|突破|優於|買超/i;
-      const negativeWords = /利空|下修|衰退|減少|虧損|疲弱|跌破|不如|賣超|警示/i;
+      // Negation-aware keyword scoring: a headline like "並未衰退" used to
+      // register as flatly negative because the old scorer only checked
+      // whether the keyword appeared anywhere in the title. Now a positive/
+      // negative keyword preceded within a few characters by a negation
+      // marker (不/未/無/非/沒) flips its contribution instead.
+      const positiveWords = /利多|成長|上修|創高|增加|獲利|旺|擴產|突破|優於|買超/gi;
+      const negativeWords = /利空|下修|衰退|減少|虧損|疲弱|跌破|不如|賣超|警示/gi;
+      const NEGATION = /[不未無非沒]/;
+      const scoreHeadline = (title) => {
+        let score = 0;
+        for (const m of title.matchAll(positiveWords)) {
+          const before = title.slice(Math.max(0, m.index - 6), m.index);
+          score += NEGATION.test(before) ? -1 : 1;
+        }
+        for (const m of title.matchAll(negativeWords)) {
+          const before = title.slice(Math.max(0, m.index - 6), m.index);
+          score += NEGATION.test(before) ? 1 : -1;
+        }
+        return score;
+      };
       // Market forecast: use the index's own intraday momentum as the base,
-      // then enrich it with broad holding breadth and the index tape when available.
+      // then enrich it with broad holding breadth, intraday KD, and now the
+      // whole-market institutional net flow (previously only applied to
+      // individual holdings even though the same T86 payload has it).
       const marketBars5=bucketBars("TAIEX",5);
       const marketBars15=bucketBars("TAIEX",15);
       const marketBars60=bucketBars("TAIEX",60);
       const marketKd5=kdFromBars(marketBars5), marketKd15=kdFromBars(marketBars15), marketKd60=kdFromBars(marketBars60);
+      const marketKdDaily=dailyKdFor("TAIEX"), marketKdMonthly=monthlyKdFor("TAIEX");
       const holdingPcts=Object.values(quoteMap).map(q=>Number(q?.prevClose)?((Number(q.price)-Number(q.prevClose))/Number(q.prevClose))*100:null).filter(v=>Number.isFinite(v));
       const breadth=holdingPcts.length?holdingPcts.filter(v=>v>0).length/holdingPcts.length:0.5;
-      const mkKd=[marketKd5,marketKd15,marketKd60].filter(Boolean);
+      const mkKd=[marketKd5,marketKd15,marketKd60,marketKdDaily].filter(Boolean);
       const mkKdScore=mkKd.reduce((a,k)=>a+k.bull,0);
-      let marketScore=Math.max(-20,Math.min(20,indexPct*8))+Math.max(-6,Math.min(6,(breadth-0.5)*12))+Math.max(-6,Math.min(6,mkKdScore*2));
-      const marketProbability=Math.max(25,Math.min(75,50 + 25*Math.tanh(marketScore/22)));
-      const marketDirection=marketProbability>=64?"明顯偏漲":marketProbability>=55?"稍偏漲":marketProbability<=36?"明顯偏跌":marketProbability<=45?"稍偏跌":"方向不明";
-      setMarketRow({probability:marketProbability,direction:marketDirection,indexPct,breadth,kd5:marketKd5,kd15:marketKd15,kd60:marketKd60});
-      const active = holdings.filter((h) => Number(h.current || 0) > 0 && h.symbol);
       let instDays=[];
       try{
         const instCache=await loadKey("institutionalFlow",null);
@@ -2127,35 +2211,47 @@ function TrendRadar({ holdings }) {
         if(!fresh && instDays.length) await saveKey("institutionalFlow",{at:new Date().toISOString(),days:instDays});
         setInstStatus(instDays.length?"ok":"unavailable");
       }catch(e){setInstStatus("unavailable");}
+      const signScore=(v)=>v>0?1:v<0?-1:0;
+      const marketSum=(key,n)=>instDays.slice(0,n).reduce((a,d)=>a+(Number(d?.marketTotal?.[key])||0),0);
+      const mf1=marketSum("foreign",1), mf3=marketSum("foreign",3), mf5=marketSum("foreign",5);
+      const mt1=marketSum("trust",1), mt3=marketSum("trust",3), mt5=marketSum("trust",5);
+      const marketInstScore=(signScore(mf1)*1.0+signScore(mf3)*1.5+signScore(mf5)*2.0)+(signScore(mt1)*0.6+signScore(mt3)*0.9+signScore(mt5)*1.2);
+      let marketScore=Math.max(-20,Math.min(20,indexPct*8))+Math.max(-6,Math.min(6,(breadth-0.5)*12))+Math.max(-6,Math.min(6,mkKdScore*2))+Math.max(-6,Math.min(6,marketInstScore));
+      const marketProbability=Math.max(25,Math.min(75,50 + 25*Math.tanh(marketScore/22)));
+      const marketDirection=marketProbability>=64?"明顯偏漲":marketProbability>=55?"稍偏漲":marketProbability<=36?"明顯偏跌":marketProbability<=45?"稍偏跌":"方向不明";
+      setMarketRow({probability:marketProbability,direction:marketDirection,indexPct,breadth,kd5:marketKd5,kd15:marketKd15,kd60:marketKd60,kdDaily:marketKdDaily,kdMonthly:marketKdMonthly});
       if(cancelled) return;
       const next = active.map((h) => {
         const q = quoteMap[h.symbol] || {};
         const stockPct = Number(q.prevClose) ? ((Number(q.price)-Number(q.prevClose))/Number(q.prevClose))*100 : 0;
         const news = (newsCache?.news?.[h.symbol] || []).slice(0,5);
         let newsScore = 0;
-        news.forEach((n) => { const t=String(n.title||""); if(positiveWords.test(t)) newsScore++; if(negativeWords.test(t)) newsScore--; });
+        news.forEach((n) => { newsScore += scoreHeadline(String(n.title||"")); });
         const flows=instDays.map(d=>d.map?.[h.symbol]).filter(Boolean);
         const sum=(key,n)=>flows.slice(0,n).reduce((a,v)=>a+(Number(v?.[key])||0),0);
         const f1=sum("foreign",1), f3=sum("foreign",3), f5=sum("foreign",5);
         const t1=sum("trust",1), t3=sum("trust",3), t5=sum("trust",5);
         const d1=sum("dealer",1), d3=sum("dealer",3), d5=sum("dealer",5);
-        const signScore=(v)=>v>0?1:v<0?-1:0;
         const isETF=/^00/.test(String(h.symbol));
         const instScore=(signScore(f1)*1.0+signScore(f3)*1.5+signScore(f5)*2.0)+(signScore(t1)*0.7+signScore(t3)*1.0+signScore(t5)*1.3)+(signScore(d1)*0.25+signScore(d3)*0.35+signScore(d5)*0.45);
         const instWeight=isETF?0.65:1;
         const kd5=kdFromBars(bucketBars(h.symbol,5));
         const kd15=kdFromBars(bucketBars(h.symbol,15));
         const kd60=kdFromBars(bucketBars(h.symbol,60));
-        // Intraday KD is computed locally from the app's accumulated snapshots.
-        // Daily/monthly KD stays pending until enough true historical OHLC is available;
-        // we do not fabricate it from sparse intraday samples.
-        const kdSignals=[kd5,kd15,kd60].filter(Boolean);
+        const kdDaily=dailyKdFor(h.symbol);
+        const kdMonthly=monthlyKdFor(h.symbol);
+        const kdSignals=[kd5,kd15,kd60,kdDaily].filter(Boolean);
         const kdScore=kdSignals.reduce((a,k)=>a+k.bull,0);
         let score = Math.max(-18,Math.min(18,indexPct*7)) + Math.max(-14,Math.min(14,stockPct*4)) + Math.max(-8,Math.min(8,newsScore*4)) + Math.max(-8,Math.min(8,instScore*instWeight)) + Math.max(-5,Math.min(5,kdScore*1.5));
         const probability = Math.max(25,Math.min(75,50 + 25*Math.tanh(score/22)));
         const direction = probability>=64 ? "明顯偏漲" : probability>=55 ? "稍偏漲" : probability<=36 ? "明顯偏跌" : probability<=45 ? "稍偏跌" : "方向不明";
-        const confidence = flows.length>=3 && Math.abs(probability-50)>=10 ? "中" : "低";
-        return {symbol:h.symbol,name:h.name||"",probability,direction,confidence,indexPct,stockPct,newsScore,flows,f1,f3,f5,t1,t3,t5,d1,d3,d5,kd5,kd15,kd60};
+        // Three tiers now instead of two: "高" needs both real depth of
+        // institutional history AND agreement across several KD timeframes,
+        // not just a probability that happens to be far from 50%.
+        const conviction = Math.abs(probability-50);
+        const confidence = (flows.length>=3 && conviction>=15 && kdSignals.length>=3) ? "高"
+          : (flows.length>=1 && conviction>=8) ? "中" : "低";
+        return {symbol:h.symbol,name:h.name||"",probability,direction,confidence,indexPct,stockPct,newsScore,flows,f1,f3,f5,t1,t3,t5,d1,d3,d5,kd5,kd15,kd60,kdDaily,kdMonthly};
       });
       // Save one evaluation snapshot per symbol/day. This creates the training/
       // calibration history needed to replace hand-tuned weights with measured ones.
@@ -2189,23 +2285,66 @@ function TrendRadar({ holdings }) {
         records=records.slice(-1500);
         await saveKey("trendRadarHistory",{records,at:stamp.toISOString()});
       }catch(e){}
-      // Separate next-session preview.  It deliberately uses a softer score
-      // than today's intraday model and is shown as "資料累積中" before noon.
+      // Overnight global signal (S&P500 / SOX / USD-TWD) — the one genuinely
+      // forward-looking input available before TWSE opens the next session.
+      let global=null;
+      try{
+        global=await fetchGlobalSignal();
+        setGlobalStatus(global?"ok":"unavailable");
+        setGlobalRow(global);
+      }catch(e){ setGlobalStatus("unavailable"); }
+      // Next-session preview. Overnight momentum is now the dominant driver
+      // (it is the only input here that isn't already reflected in today's
+      // own intraday score); today's own move is kept as a much smaller
+      // secondary drift term rather than the main driver it used to be.
       const clock=now.getHours()*60+now.getMinutes();
       const toLabel=(p)=>p>=64?"明顯偏漲":p>=55?"稍偏漲":p<=36?"明顯偏跌":p<=45?"稍偏跌":"方向不明";
       const tomorrow={};
       if(clock>=720){
         const calcTomorrow=(pct,kds,news=0,inst=0)=>{
           const ks=(kds||[]).filter(Boolean).reduce((a,k)=>a+k.bull,0);
-          const raw=Math.max(-12,Math.min(12,pct*4))+Math.max(-5,Math.min(5,ks*1.5))+Math.max(-4,Math.min(4,news*1.5))+Math.max(-4,Math.min(4,inst));
+          const overnight = global ? Math.max(-10,Math.min(10,global.combined*1.1)) : 0;
+          const raw=overnight+Math.max(-6,Math.min(6,pct*2))+Math.max(-5,Math.min(5,ks*1.5))+Math.max(-4,Math.min(4,news*1.5))+Math.max(-4,Math.min(4,inst));
           const p=Math.max(30,Math.min(70,50+20*Math.tanh(raw/16)));
           return {probability:p,direction:toLabel(p)};
         };
-        tomorrow.TAIEX=calcTomorrow(indexPct,[marketKd15,marketKd60]);
+        tomorrow.TAIEX=calcTomorrow(indexPct,[marketKd15,marketKd60,marketKdDaily]);
         next.forEach(r=>{
           const inst=(Math.sign(r.f3||0)*1.5+Math.sign(r.t3||0));
-          tomorrow[r.symbol]=calcTomorrow(r.stockPct,[r.kd15,r.kd60],r.newsScore,inst);
+          tomorrow[r.symbol]=calcTomorrow(r.stockPct,[r.kd15,r.kd60,r.kdDaily],r.newsScore,inst);
         });
+        // Snapshot each symbol's "tomorrow" call exactly once per target
+        // trading day, keyed by the date it's actually about — so it can be
+        // checked against that day's real close instead of never being
+        // checked at all (the old version only ever validated "today").
+        try{
+          const tCache=await loadKey("trendRadarTomorrowHistory",{records:[]});
+          let tRecords=Array.isArray(tCache?.records)?tCache.records:[];
+          const target=new Date(now);
+          target.setDate(target.getDate()+1);
+          while(target.getDay()===0||target.getDay()===6) target.setDate(target.getDate()+1);
+          const targetDay=target.toLocaleDateString("sv-SE");
+          const entries=[["TAIEX",tomorrow.TAIEX], ...next.map(r=>[r.symbol,tomorrow[r.symbol]])];
+          entries.forEach(([sym,pred])=>{
+            if(!pred) return;
+            const key=targetDay+"|"+sym;
+            if(!tRecords.some(x=>x.key===key)){
+              tRecords.push({key,targetDay,symbol:sym,predictedOn:todayKey,probability:pred.probability,direction:pred.direction});
+            }
+          });
+          // Validate any record whose target day has now actually happened.
+          tRecords=tRecords.map(rec=>{
+            if(rec.actual || rec.targetDay!==todayKey) return rec;
+            const q=rec.symbol==="TAIEX"?idx:quoteMap[rec.symbol];
+            if(!q || !Number(q.prevClose) || !Number(q.price) || clock<810) return rec;
+            const actualPct=((Number(q.price)-Number(q.prevClose))/Number(q.prevClose))*100;
+            const actualUp=actualPct>0;
+            const predictedUp=rec.probability>=50;
+            return {...rec,actual:{pct:actualPct,up:actualUp,hit:predictedUp===actualUp,checkedAt:now.toISOString()}};
+          });
+          tRecords=tRecords.slice(-1500);
+          await saveKey("trendRadarTomorrowHistory",{records:tRecords,at:now.toISOString()});
+        }catch(e){}
       }
       setTomorrowMap(tomorrow);
       setRows(next); setAsOf(new Date());
@@ -2220,30 +2359,48 @@ function TrendRadar({ holdings }) {
     (async()=>{
       try{
         const h=await loadKey("trendRadarHistory",{records:[]});
-        const done=(h?.records||[]).filter(r=>r.actual && typeof r.actual.hit==="boolean");
+        // 排除「方向不明」（機率貼近50%，形同亂猜）的預測，避免拉低/虛增準確率的意義。
+        const done=(h?.records||[]).filter(r=>r.actual && typeof r.actual.hit==="boolean" && r.direction!=="方向不明");
         const recent=done.slice(-60);
         if(!dead) setAccuracy(recent.length?{n:recent.length,hits:recent.filter(r=>r.actual.hit).length}:null);
+      }catch(e){}
+      try{
+        const th=await loadKey("trendRadarTomorrowHistory",{records:[]});
+        const doneT=(th?.records||[]).filter(r=>r.actual && typeof r.actual.hit==="boolean" && r.direction!=="方向不明");
+        const recentT=doneT.slice(-60);
+        if(!dead) setTomorrowAccuracy(recentT.length?{n:recentT.length,hits:recentT.filter(r=>r.actual.hit).length}:null);
       }catch(e){}
     })();
     return()=>{dead=true;};
   },[asOf]);
 
   const flowText=(v)=>{const n=Number(v)||0; if(!n)return "0"; const abs=Math.abs(n); const x=abs>=1000000?(abs/1000000).toFixed(1)+"M":abs>=1000?(abs/1000).toFixed(0)+"K":abs.toFixed(0); return (n>0?"+":"-")+x;};
+  const kdCell=(kd)=>kd?`${kd.K.toFixed(0)}/${kd.D.toFixed(0)} ${kd.state}`:"累積中";
   if(!rows.length)return null;
   return (
     <div className="rounded-2xl p-4" style={{background:COLORS.panel,border:"1px solid "+COLORS.panelBorder,boxShadow:"0 4px 16px rgba(0,0,0,0.28)"}}>
       <div className="flex items-center justify-between mb-2">
-        <div><div className="text-xs font-bold" style={{color:COLORS.gold}}>AI 今日／明日趨勢雷達</div><div className="text-[9px] mt-0.5" style={{color:COLORS.sub}}>學習版 · 每5分鐘重算 · 真實盤中OHLC＋法人＋自動驗證</div></div>
+        <div><div className="text-xs font-bold" style={{color:COLORS.gold}}>AI 今日／明日趨勢雷達</div><div className="text-[9px] mt-0.5" style={{color:COLORS.sub}}>學習版 · 每5分鐘重算 · 真實盤中OHLC＋日K＋法人＋隔夜訊號＋自動驗證</div></div>
         {asOf&&<div className="text-[9px] mono" style={{color:COLORS.sub}}>{asOf.toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit",hour12:false})}</div>}
       </div>
       <div className="space-y-2">
+        {globalRow&&<div className="rounded-xl px-3 py-2 text-[9px] mono" style={{background:COLORS.bg,border:"1px solid "+COLORS.panelBorder,color:COLORS.sub}}>
+          <div className="flex justify-between"><span>隔夜訊號</span><span>{globalStatus==="ok"?"已取得":"暫不可用，明日預測退回原模型"}</span></div>
+          {globalStatus==="ok"&&<div className="flex justify-between mt-0.5">
+            <span>S&amp;P500 {globalRow.spxPct!=null?(globalRow.spxPct>=0?"+":"")+globalRow.spxPct.toFixed(2)+"%":"—"}</span>
+            <span>費半SOX {globalRow.soxPct!=null?(globalRow.soxPct>=0?"+":"")+globalRow.soxPct.toFixed(2)+"%":"—"}</span>
+            <span>美元/台幣 {globalRow.usdtwdPct!=null?(globalRow.usdtwdPct>=0?"+":"")+globalRow.usdtwdPct.toFixed(2)+"%":"—"}</span>
+          </div>}
+        </div>}
         {marketRow&&<div className="rounded-xl px-3 py-2" style={{background:COLORS.bg,border:"1px solid "+COLORS.gold}}>
           <div className="flex items-center justify-between"><div className="text-xs font-bold">加權指數 <span className="font-normal" style={{color:COLORS.sub}}>TAIEX</span></div><div className="text-[10px] font-black mono text-right" style={{color:marketRow.direction.includes("漲")?COLORS.gain:marketRow.direction.includes("跌")?COLORS.loss:COLORS.sub}}><span>今日 {marketRow.direction} {marketRow.probability.toFixed(0)}%</span><span className="ml-2" style={{color:tomorrowMap.TAIEX?.direction?.includes("漲")?COLORS.gain:tomorrowMap.TAIEX?.direction?.includes("跌")?COLORS.loss:COLORS.sub}}>明日 {tomorrowMap.TAIEX?tomorrowMap.TAIEX.direction+" "+tomorrowMap.TAIEX.probability.toFixed(0)+"%":"資料累積中"}</span></div></div>
           <div className="flex justify-between mt-1 text-[9px]" style={{color:COLORS.sub}}><span>目前 {marketRow.indexPct>=0?"+":""}{marketRow.indexPct.toFixed(2)}%</span><span>持股上漲廣度 {(marketRow.breadth*100).toFixed(0)}%</span><span>盤中趨勢</span></div>
           {detailsOpen&&<div className="mt-1.5 pt-1.5 text-[9px] mono" style={{color:COLORS.sub,borderTop:"1px solid "+COLORS.panelBorder}}>
-            <div className="flex justify-between"><span>大盤 KD 5分</span><span>{marketRow.kd5?marketRow.kd5.K.toFixed(0)+"/"+marketRow.kd5.D.toFixed(0)+" "+marketRow.kd5.state:"累積中"}</span></div>
-            <div className="flex justify-between"><span>大盤 KD 15分</span><span>{marketRow.kd15?marketRow.kd15.K.toFixed(0)+"/"+marketRow.kd15.D.toFixed(0)+" "+marketRow.kd15.state:"累積中"}</span></div>
-            <div className="flex justify-between"><span>大盤 KD 60分</span><span>{marketRow.kd60?marketRow.kd60.K.toFixed(0)+"/"+marketRow.kd60.D.toFixed(0)+" "+marketRow.kd60.state:"累積中"}</span></div>
+            <div className="flex justify-between"><span>大盤 KD 5分</span><span>{kdCell(marketRow.kd5)}</span></div>
+            <div className="flex justify-between"><span>大盤 KD 15分</span><span>{kdCell(marketRow.kd15)}</span></div>
+            <div className="flex justify-between"><span>大盤 KD 60分</span><span>{kdCell(marketRow.kd60)}</span></div>
+            <div className="flex justify-between"><span>大盤 KD 日線</span><span>{kdCell(marketRow.kdDaily)}</span></div>
+            <div className="flex justify-between"><span>大盤 KD 月線</span><span>{kdCell(marketRow.kdMonthly)}</span></div>
           </div>}
         </div>}
         {rows.map((r)=>{
@@ -2253,10 +2410,11 @@ function TrendRadar({ holdings }) {
             <div className="flex items-center justify-between"><div className="text-xs font-bold mono">{r.symbol}<span className="ml-1 font-normal" style={{color:COLORS.sub}}>{r.name}</span></div><div className="text-[10px] font-black mono text-right"><span style={{color:tone}}>今日 {r.direction} {r.probability.toFixed(0)}%</span><span className="ml-2" style={{color:tomorrowMap[r.symbol]?.direction?.includes("漲")?COLORS.gain:tomorrowMap[r.symbol]?.direction?.includes("跌")?COLORS.loss:COLORS.sub}}>明日 {tomorrowMap[r.symbol]?tomorrowMap[r.symbol].direction+" "+tomorrowMap[r.symbol].probability.toFixed(0)+"%":"資料累積中"}</span></div></div>
             <div className="flex justify-between mt-1 text-[9px]" style={{color:COLORS.sub}}><span>大盤 {r.indexPct>=0?"+":""}{r.indexPct.toFixed(2)}%</span><span>個股 {r.stockPct>=0?"+":""}{r.stockPct.toFixed(2)}%</span><span>新聞 {r.newsScore>0?"偏正":r.newsScore<0?"偏負":"中性"}</span><span>信心 {r.confidence}</span></div>
             {detailsOpen&&<><div className="mt-1.5 pt-1.5 text-[9px] mono" style={{color:COLORS.sub,borderTop:"1px solid "+COLORS.panelBorder}}>
-              <div className="flex justify-between"><span>KD 5分</span><span>{r.kd5?`${r.kd5.K.toFixed(0)}/${r.kd5.D.toFixed(0)} ${r.kd5.state}`:"累積中"}</span></div>
-              <div className="flex justify-between"><span>KD 15分</span><span>{r.kd15?`${r.kd15.K.toFixed(0)}/${r.kd15.D.toFixed(0)} ${r.kd15.state}`:"累積中"}</span></div>
-              <div className="flex justify-between"><span>KD 60分</span><span>{r.kd60?`${r.kd60.K.toFixed(0)}/${r.kd60.D.toFixed(0)} ${r.kd60.state}`:"累積中"}</span></div>
-              <div className="flex justify-between"><span>KD 日/月</span><span>等待歷史K線</span></div>
+              <div className="flex justify-between"><span>KD 5分</span><span>{kdCell(r.kd5)}</span></div>
+              <div className="flex justify-between"><span>KD 15分</span><span>{kdCell(r.kd15)}</span></div>
+              <div className="flex justify-between"><span>KD 60分</span><span>{kdCell(r.kd60)}</span></div>
+              <div className="flex justify-between"><span>KD 日線</span><span>{kdCell(r.kdDaily)}</span></div>
+              <div className="flex justify-between"><span>KD 月線</span><span>{kdCell(r.kdMonthly)}</span></div>
             </div>
             {r.flows.length>0&&<div className="mt-1.5 pt-1.5 text-[9px] mono" style={{color:COLORS.sub,borderTop:"1px solid "+COLORS.panelBorder}}>
               <div className="flex justify-between"><span>外資 1/3/5日</span><span>{flowText(r.f1)} / {flowText(r.f3)} / {flowText(r.f5)}</span></div>
@@ -2269,8 +2427,9 @@ function TrendRadar({ holdings }) {
       <button onClick={()=>setDetailsOpen(v=>!v)} className="w-full mt-2 rounded-lg py-1.5 text-[10px] font-bold" style={{background:COLORS.bg,color:COLORS.gold,border:"1px solid "+COLORS.panelBorder}}>
         {detailsOpen?"收起判斷明細 ▲":"展開判斷明細 ▼"}
       </button>
-      {accuracy&&<div className="text-[9px] mt-2 mono" style={{color:COLORS.gold}}>近 {accuracy.n} 次已驗證預測：方向命中 {((accuracy.hits/accuracy.n)*100).toFixed(1)}%（僅統計，不代表未來）</div>}
-      <div className="text-[9px] mt-2 leading-relaxed" style={{color:COLORS.sub}}>法人：證交所盤後公開資料；ETF 法人流量降低權重，自營商亦降低權重以減少避險/造市影響。{instStatus==="unavailable"?"目前法人來源暫不可用，雷達會自動退回原模型。":"法人資料快取6小時。"} 5/15/60分KD由15秒即時報價持續取樣、聚合OHLC後運算；雷達每5分鐘重算。日/月KD等待歷史K線來源。 每日上午預測會保存，收盤後自動核對方向，累積真實命中資料。</div>
+      {accuracy&&<div className="text-[9px] mt-2 mono" style={{color:COLORS.gold}}>近 {accuracy.n} 次已驗證「今日」預測：方向命中 {((accuracy.hits/accuracy.n)*100).toFixed(1)}%（已排除方向不明，僅統計，不代表未來）</div>}
+      {tomorrowAccuracy&&<div className="text-[9px] mt-1 mono" style={{color:COLORS.gold}}>近 {tomorrowAccuracy.n} 次已驗證「明日」預測：方向命中 {((tomorrowAccuracy.hits/tomorrowAccuracy.n)*100).toFixed(1)}%（已排除方向不明，僅統計，不代表未來）</div>}
+      <div className="text-[9px] mt-2 leading-relaxed" style={{color:COLORS.sub}}>法人：證交所盤後公開資料；ETF 法人流量降低權重，自營商亦降低權重以減少避險/造市影響，大盤分數已納入全市場法人加總。{instStatus==="unavailable"?"目前法人來源暫不可用，雷達會自動退回原模型。":"法人資料快取6小時。"} 5/15/60分KD由15秒即時報價持續取樣、聚合OHLC後運算；日/月KD取自真實歷史K線。明日預測以美股/費半/匯率等隔夜訊號為主，{globalStatus==="unavailable"?"目前隔夜訊號暫不可用，明日預測退回今日動能外推。":"今日動能僅作次要修正。"} 每日上午預測會保存，收盤後自動核對方向；明日預測則以「目標交易日」為準，隔天核對，兩者準確率分開統計。</div>
     </div>
   );
 }
