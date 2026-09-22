@@ -124,7 +124,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.30.1-trend-radar-15m";
+const APP_VERSION = "4.7-personal-advisor-v2.31.0-institutional-radar";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -2003,8 +2003,38 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
 function TrendRadar({ holdings }) {
   const [rows, setRows] = useState([]);
   const [asOf, setAsOf] = useState(null);
+  const [instStatus, setInstStatus] = useState("loading");
+
   useEffect(() => {
     let cancelled = false;
+    const fmtDate = (d) => {
+      const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,"0"), day=String(d.getDate()).padStart(2,"0");
+      return `${y}${m}${day}`;
+    };
+    const fetchInstitutional = async (symbols) => {
+      const days=[]; const d=new Date();
+      for(let tries=0; tries<14 && days.length<5; tries++){
+        const x=new Date(d); x.setDate(d.getDate()-tries);
+        if(x.getDay()===0 || x.getDay()===6) continue;
+        try{
+          const url=`https://www.twse.com.tw/rwd/zh/fund/T86?date=${fmtDate(x)}&selectType=ALLBUT0999&response=json`;
+          const res=await fetch(url,{cache:"no-store"});
+          if(!res.ok) continue;
+          const json=await res.json();
+          const fields=json?.fields||[]; const data=json?.data||[];
+          if(!data.length) continue;
+          const symI=fields.findIndex(v=>String(v).includes("證券代號"));
+          const foreignI=fields.findIndex(v=>String(v).includes("外陸資買賣超股數") || String(v).includes("外資買賣超股數"));
+          const trustI=fields.findIndex(v=>String(v).includes("投信買賣超股數"));
+          const dealerI=fields.findIndex(v=>String(v)==="自營商買賣超股數");
+          const clean=(v)=>Number(String(v??"0").replace(/,/g,""))||0;
+          const map={};
+          data.forEach(r=>{const sym=String(r[symI]||"").trim(); if(symbols.includes(sym)) map[sym]={foreign:clean(r[foreignI]),trust:clean(r[trustI]),dealer:clean(r[dealerI])};});
+          if(Object.keys(map).length) days.push({date:fmtDate(x),map});
+        }catch(e){}
+      }
+      return days;
+    };
     const recalc = async () => {
       const cached = await loadKey("livePrices", null);
       const newsCache = await loadKey("stockNews", null);
@@ -2015,42 +2045,66 @@ function TrendRadar({ holdings }) {
       const positiveWords = /利多|成長|上修|創高|增加|獲利|旺|擴產|突破|優於|買超/i;
       const negativeWords = /利空|下修|衰退|減少|虧損|疲弱|跌破|不如|賣超|警示/i;
       const active = holdings.filter((h) => Number(h.current || 0) > 0 && h.symbol);
+      let instDays=[];
+      try{
+        const instCache=await loadKey("institutionalFlow",null);
+        const fresh=instCache && (Date.now()-new Date(instCache.at).getTime())<6*3600*1000;
+        instDays=fresh?instCache.days:await fetchInstitutional(active.map(h=>String(h.symbol)));
+        if(!fresh && instDays.length) await saveKey("institutionalFlow",{at:new Date().toISOString(),days:instDays});
+        setInstStatus(instDays.length?"ok":"unavailable");
+      }catch(e){setInstStatus("unavailable");}
+      if(cancelled) return;
       const next = active.map((h) => {
         const q = quoteMap[h.symbol] || {};
         const stockPct = Number(q.prevClose) ? ((Number(q.price)-Number(q.prevClose))/Number(q.prevClose))*100 : 0;
         const news = (newsCache?.news?.[h.symbol] || []).slice(0,5);
         let newsScore = 0;
         news.forEach((n) => { const t=String(n.title||""); if(positiveWords.test(t)) newsScore++; if(negativeWords.test(t)) newsScore--; });
-        let score = Math.max(-18,Math.min(18,indexPct*7)) + Math.max(-14,Math.min(14,stockPct*4)) + Math.max(-8,Math.min(8,newsScore*4));
+        const flows=instDays.map(d=>d.map?.[h.symbol]).filter(Boolean);
+        const sum=(key,n)=>flows.slice(0,n).reduce((a,v)=>a+(Number(v?.[key])||0),0);
+        const f1=sum("foreign",1), f3=sum("foreign",3), f5=sum("foreign",5);
+        const t1=sum("trust",1), t3=sum("trust",3), t5=sum("trust",5);
+        const d1=sum("dealer",1), d3=sum("dealer",3), d5=sum("dealer",5);
+        const signScore=(v)=>v>0?1:v<0?-1:0;
+        const isETF=/^00/.test(String(h.symbol));
+        const instScore=(signScore(f1)*1.0+signScore(f3)*1.5+signScore(f5)*2.0)+(signScore(t1)*0.7+signScore(t3)*1.0+signScore(t5)*1.3)+(signScore(d1)*0.25+signScore(d3)*0.35+signScore(d5)*0.45);
+        const instWeight=isETF?0.65:1;
+        let score = Math.max(-18,Math.min(18,indexPct*7)) + Math.max(-14,Math.min(14,stockPct*4)) + Math.max(-8,Math.min(8,newsScore*4)) + Math.max(-8,Math.min(8,instScore*instWeight));
         const probability = Math.max(35,Math.min(65,50+score));
         const direction = probability>=58 ? "偏多" : probability<=42 ? "偏空" : "中性";
-        const confidence = Math.abs(probability-50)>=12 ? "中" : "低";
-        return {symbol:h.symbol,name:h.name||"",probability,direction,confidence,indexPct,stockPct,newsScore};
+        const confidence = flows.length>=3 && Math.abs(probability-50)>=10 ? "中" : "低";
+        return {symbol:h.symbol,name:h.name||"",probability,direction,confidence,indexPct,stockPct,newsScore,flows,f1,f3,f5,t1,t3,t5,d1,d3,d5};
       });
-      setRows(next);
-      setAsOf(new Date());
+      setRows(next); setAsOf(new Date());
     };
     recalc();
-    const timer = setInterval(recalc, 15 * 60 * 1000);
-    return () => { cancelled=true; clearInterval(timer); };
-  }, [holdings]);
-  if (!rows.length) return null;
+    const timer=setInterval(recalc,15*60*1000);
+    return()=>{cancelled=true;clearInterval(timer);};
+  },[holdings]);
+
+  const flowText=(v)=>{const n=Number(v)||0; if(!n)return "0"; const abs=Math.abs(n); const x=abs>=1000000?(abs/1000000).toFixed(1)+"M":abs>=1000?(abs/1000).toFixed(0)+"K":abs.toFixed(0); return (n>0?"+":"-")+x;};
+  if(!rows.length)return null;
   return (
     <div className="rounded-2xl p-4" style={{background:COLORS.panel,border:"1px solid "+COLORS.panelBorder,boxShadow:"0 4px 16px rgba(0,0,0,0.28)"}}>
       <div className="flex items-center justify-between mb-2">
-        <div><div className="text-xs font-bold" style={{color:COLORS.gold}}>AI 今日趨勢雷達</div><div className="text-[9px] mt-0.5" style={{color:COLORS.sub}}>實驗版 · 每15分鐘重算 · 觀察用，不作為買賣訊號</div></div>
-        {asOf && <div className="text-[9px] mono" style={{color:COLORS.sub}}>{asOf.toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit",hour12:false})}</div>}
+        <div><div className="text-xs font-bold" style={{color:COLORS.gold}}>AI 今日趨勢雷達</div><div className="text-[9px] mt-0.5" style={{color:COLORS.sub}}>實驗版 · 每15分鐘重算 · 已納入三大法人1/3/5日趨勢</div></div>
+        {asOf&&<div className="text-[9px] mono" style={{color:COLORS.sub}}>{asOf.toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit",hour12:false})}</div>}
       </div>
       <div className="space-y-2">
-        {rows.map((r) => {
+        {rows.map((r)=>{
           const tone=r.direction==="偏多"?COLORS.gain:r.direction==="偏空"?COLORS.loss:COLORS.sub;
           return <div key={r.symbol} className="rounded-xl px-3 py-2" style={{background:COLORS.bg,border:"1px solid "+COLORS.panelBorder}}>
             <div className="flex items-center justify-between"><div className="text-xs font-bold mono">{r.symbol}<span className="ml-1 font-normal" style={{color:COLORS.sub}}>{r.name}</span></div><div className="text-xs font-black mono" style={{color:tone}}>{r.direction} {r.probability.toFixed(0)}%</div></div>
             <div className="flex justify-between mt-1 text-[9px]" style={{color:COLORS.sub}}><span>大盤 {r.indexPct>=0?"+":""}{r.indexPct.toFixed(2)}%</span><span>個股 {r.stockPct>=0?"+":""}{r.stockPct.toFixed(2)}%</span><span>新聞 {r.newsScore>0?"偏正":r.newsScore<0?"偏負":"中性"}</span><span>信心 {r.confidence}</span></div>
+            {r.flows.length>0&&<div className="mt-1.5 pt-1.5 text-[9px] mono" style={{color:COLORS.sub,borderTop:"1px solid "+COLORS.panelBorder}}>
+              <div className="flex justify-between"><span>外資 1/3/5日</span><span>{flowText(r.f1)} / {flowText(r.f3)} / {flowText(r.f5)}</span></div>
+              <div className="flex justify-between"><span>投信 1/3/5日</span><span>{flowText(r.t1)} / {flowText(r.t3)} / {flowText(r.t5)}</span></div>
+              <div className="flex justify-between"><span>自營 1/3/5日</span><span>{flowText(r.d1)} / {flowText(r.d3)} / {flowText(r.d5)}</span></div>
+            </div>}
           </div>;
         })}
       </div>
-      <div className="text-[9px] mt-2 leading-relaxed" style={{color:COLORS.sub}}>第一版先用 App 已有的大盤、個股價量代理訊號與持股新聞；隔夜美股、費半、ADR、台指夜盤、法人資料尚未接入，因此信心上限刻意壓低。後續接齊資料後再升級完整模型。</div>
+      <div className="text-[9px] mt-2 leading-relaxed" style={{color:COLORS.sub}}>法人：證交所盤後公開資料；ETF 法人流量降低權重，自營商亦降低權重以減少避險/造市影響。{instStatus==="unavailable"?"目前法人來源暫不可用，雷達會自動退回原模型。":"法人資料快取6小時。"} 隔夜美股、費半、ADR、台指夜盤仍待接入。</div>
     </div>
   );
 }
