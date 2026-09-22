@@ -124,7 +124,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.33.1-collapsible-radar";
+const APP_VERSION = "4.7-personal-advisor-v2.34.0-ohlc-kd-radar";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -1805,6 +1805,29 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
         marketIndex: indexForCache || null,
         at: now.toISOString(),
       });
+      // Feed Trend Radar from the real 15-second quote stream.  Store at most
+      // one snapshot per minute and keep several trading days, so 5/15/60m
+      // OHLC bars are built from actual intraday observations rather than the
+      // radar's old 15-minute sampling timer.
+      try {
+        const tapeCache = await loadKey("trendRadarTape", { points: [] });
+        let points = Array.isArray(tapeCache?.points) ? tapeCache.points : [];
+        const day = now.toLocaleDateString("sv-SE");
+        const last = points[points.length - 1];
+        if (!last || now.getTime() - Number(last.ts || 0) >= 55 * 1000) {
+          const point = { day, ts: now.getTime(), quotes: {} };
+          Object.entries(mergedMap).forEach(([sym,q]) => {
+            const px = Number(q?.price);
+            if (px > 0 && !failed.includes(sym)) point.quotes[sym] = px;
+          });
+          if (Object.keys(point.quotes).length) {
+            points.push(point);
+            const cutoff = now.getTime() - 10 * 24 * 3600 * 1000;
+            points = points.filter(p => Number(p.ts) >= cutoff).slice(-3500);
+            await saveKey("trendRadarTape", { points, at: now.toISOString() });
+          }
+        }
+      } catch(e) {}
       window.dispatchEvent(new CustomEvent("livePricesUpdated", { detail: { map: mergedMap } }));
     }
     isFetchingRef.current = false;
@@ -2042,28 +2065,16 @@ function TrendRadar({ holdings }) {
       const newsCache = await loadKey("stockNews", null);
       if (cancelled) return;
       const quoteMap = cached?.map || {};
-      // Build our own intraday tape from the existing live-price cache.
-      // It works offline from the quote provider after each quote has already
-      // reached the app, and is intentionally capped to keep local storage small.
+      // Intraday tape is captured by LivePricePanel from the 15-second quote stream.
       const tapeCache = await loadKey("trendRadarTape", { points: [] });
+      const tape = Array.isArray(tapeCache?.points) ? tapeCache.points : [];
       const now = new Date();
       const todayKey = now.toLocaleDateString("sv-SE");
-      let tape = Array.isArray(tapeCache?.points) ? tapeCache.points.filter(p => p.day === todayKey) : [];
-      const minute = now.getHours()*60 + now.getMinutes();
-      const inSession = now.getDay()>0 && now.getDay()<6 && minute>=540 && minute<=825;
-      if(inSession){
-        const point={day:todayKey,ts:now.getTime(),quotes:{}};
-        Object.entries(quoteMap).forEach(([sym,q])=>{const px=Number(q?.price); if(px>0) point.quotes[sym]=px;});
-        if(Object.keys(point.quotes).length && (!tape.length || point.ts-tape[tape.length-1].ts>=4*60*1000)){
-          tape=[...tape,point].slice(-90);
-          await saveKey("trendRadarTape",{points:tape,at:now.toISOString()});
-        }
-      }
-      const kdFromCloses=(vals)=>{
-        if(!vals || vals.length<9) return null;
+      const kdFromBars=(bars)=>{
+        if(!bars || bars.length<9) return null;
         let K=50,D=50,prevK=50,prevD=50;
-        for(let i=8;i<vals.length;i++){
-          const w=vals.slice(i-8,i+1), hi=Math.max(...w), lo=Math.min(...w), c=vals[i];
+        for(let i=8;i<bars.length;i++){
+          const w=bars.slice(i-8,i+1), hi=Math.max(...w.map(x=>x.high)), lo=Math.min(...w.map(x=>x.low)), c=bars[i].close;
           const rsv=hi===lo?50:((c-lo)/(hi-lo))*100;
           prevK=K; prevD=D; K=(2*K+rsv)/3; D=(2*D+K)/3;
         }
@@ -2071,10 +2082,20 @@ function TrendRadar({ holdings }) {
         const state=K>=80&&D>=80?"高檔":K<=20&&D<=20?"低檔":cross;
         return {K,D,state,bull:K>D?1:-1};
       };
-      const bucketCloses=(sym,mins)=>{
+      const bucketBars=(sym,mins)=>{
         const buckets=new Map();
-        tape.forEach(p=>{const px=Number(p.quotes?.[sym]); if(!px)return; const key=Math.floor(p.ts/(mins*60000)); buckets.set(key,px);});
-        return [...buckets.entries()].sort((a,b)=>a[0]-b[0]).map(x=>x[1]);
+        tape.forEach(p=>{
+          const px=Number(p.quotes?.[sym]); if(!px)return;
+          const d=new Date(Number(p.ts)); const minute=d.getHours()*60+d.getMinutes();
+          if(d.getDay()===0||d.getDay()===6||minute<540||minute>825) return;
+          const sessionMinute=minute-540;
+          const slot=Math.floor(sessionMinute/mins);
+          const key=p.day+"|"+slot;
+          const b=buckets.get(key);
+          if(!b) buckets.set(key,{key,ts:Number(p.ts),open:px,high:px,low:px,close:px});
+          else {b.high=Math.max(b.high,px);b.low=Math.min(b.low,px);b.close=px;b.ts=Number(p.ts);}
+        });
+        return [...buckets.values()].sort((a,b)=>a.ts-b.ts);
       };
       const idx = cached?.marketIndex || null;
       const indexPct = idx && Number(idx.prevClose) ? ((Number(idx.price)-Number(idx.prevClose))/Number(idx.prevClose))*100 : 0;
@@ -2105,9 +2126,9 @@ function TrendRadar({ holdings }) {
         const isETF=/^00/.test(String(h.symbol));
         const instScore=(signScore(f1)*1.0+signScore(f3)*1.5+signScore(f5)*2.0)+(signScore(t1)*0.7+signScore(t3)*1.0+signScore(t5)*1.3)+(signScore(d1)*0.25+signScore(d3)*0.35+signScore(d5)*0.45);
         const instWeight=isETF?0.65:1;
-        const kd5=kdFromCloses(bucketCloses(h.symbol,5));
-        const kd15=kdFromCloses(bucketCloses(h.symbol,15));
-        const kd60=kdFromCloses(bucketCloses(h.symbol,60));
+        const kd5=kdFromBars(bucketBars(h.symbol,5));
+        const kd15=kdFromBars(bucketBars(h.symbol,15));
+        const kd60=kdFromBars(bucketBars(h.symbol,60));
         // Intraday KD is computed locally from the app's accumulated snapshots.
         // Daily/monthly KD stays pending until enough true historical OHLC is available;
         // we do not fabricate it from sparse intraday samples.
@@ -2154,7 +2175,7 @@ function TrendRadar({ holdings }) {
       setRows(next); setAsOf(new Date());
     };
     recalc();
-    const timer=setInterval(recalc,15*60*1000);
+    const timer=setInterval(recalc,5*60*1000);
     return()=>{cancelled=true;clearInterval(timer);};
   },[holdings]);
 
@@ -2176,7 +2197,7 @@ function TrendRadar({ holdings }) {
   return (
     <div className="rounded-2xl p-4" style={{background:COLORS.panel,border:"1px solid "+COLORS.panelBorder,boxShadow:"0 4px 16px rgba(0,0,0,0.28)"}}>
       <div className="flex items-center justify-between mb-2">
-        <div><div className="text-xs font-bold" style={{color:COLORS.gold}}>AI 今日趨勢雷達</div><div className="text-[9px] mt-0.5" style={{color:COLORS.sub}}>學習版 · 每15分鐘重算 · 法人＋多週期KD＋自動驗證</div></div>
+        <div><div className="text-xs font-bold" style={{color:COLORS.gold}}>AI 今日趨勢雷達</div><div className="text-[9px] mt-0.5" style={{color:COLORS.sub}}>學習版 · 每5分鐘重算 · 真實盤中OHLC＋法人＋自動驗證</div></div>
         {asOf&&<div className="text-[9px] mono" style={{color:COLORS.sub}}>{asOf.toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit",hour12:false})}</div>}
       </div>
       <div className="space-y-2">
@@ -2204,7 +2225,7 @@ function TrendRadar({ holdings }) {
         {detailsOpen?"收起判斷明細 ▲":"展開判斷明細 ▼"}
       </button>
       {accuracy&&<div className="text-[9px] mt-2 mono" style={{color:COLORS.gold}}>近 {accuracy.n} 次已驗證預測：方向命中 {((accuracy.hits/accuracy.n)*100).toFixed(1)}%（僅統計，不代表未來）</div>}
-      <div className="text-[9px] mt-2 leading-relaxed" style={{color:COLORS.sub}}>法人：證交所盤後公開資料；ETF 法人流量降低權重，自營商亦降低權重以減少避險/造市影響。{instStatus==="unavailable"?"目前法人來源暫不可用，雷達會自動退回原模型。":"法人資料快取6小時。"} 5/15/60分KD由App自行累積報價運算；日/月KD等待歷史K線來源，避免用不完整資料硬算。 每日上午預測會保存，收盤後自動核對方向，累積真實命中資料。</div>
+      <div className="text-[9px] mt-2 leading-relaxed" style={{color:COLORS.sub}}>法人：證交所盤後公開資料；ETF 法人流量降低權重，自營商亦降低權重以減少避險/造市影響。{instStatus==="unavailable"?"目前法人來源暫不可用，雷達會自動退回原模型。":"法人資料快取6小時。"} 5/15/60分KD由15秒即時報價持續取樣、聚合OHLC後運算；雷達每5分鐘重算。日/月KD等待歷史K線來源。 每日上午預測會保存，收盤後自動核對方向，累積真實命中資料。</div>
     </div>
   );
 }
