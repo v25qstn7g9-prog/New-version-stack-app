@@ -1863,7 +1863,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
     const value = l.price * h.current;
     const isFromCache = failedSymbols.includes(h.symbol);
     const quoteIsStale = Boolean(l.isStale);
-    return { ...h, price: l.price, chg, chgPct, value, isUS: l.isUS, fetchedAt: l.fetchedAt, isFromCache, quoteIsStale };
+    return { ...h, price: l.price, high: l.high, low: l.low, chg, chgPct, value, isUS: l.isUS, fetchedAt: l.fetchedAt, isFromCache, quoteIsStale };
   }).filter(Boolean);
 
   const totalValue = rows.reduce((s, r) => s + r.value, 0);
@@ -1930,7 +1930,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
               <div key={r.id}>
                 <div className="grid grid-cols-4 gap-1 text-xs mono items-center">
                   <span style={{ color: COLORS.sub }}>{r.symbol}</span>
-                  <span className="text-right">{r.price.toFixed(2)}</span>
+                  <span className="text-right"><span>{r.price.toFixed(2)}</span>{Number.isFinite(Number(r.high))&&Number.isFinite(Number(r.low))&&<span className="block text-[9px] mt-0.5" style={{color:COLORS.sub}}>高 {Number(r.high).toFixed(2)}｜低 {Number(r.low).toFixed(2)}</span>}</span>
                   <span className="text-right" style={{ color: r.quoteIsStale ? COLORS.sub : (r.chg >= 0 ? COLORS.gain : COLORS.loss) }}>
                     {r.quoteIsStale && isTwseTradingHours()
                       ? "待更新"
@@ -1983,7 +1983,8 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
               <div className="flex justify-between text-xs mono mt-1">
                 <span style={{ color: COLORS.sub }}>加權指數</span>
                 <span style={{ color: indexChange >= 0 ? COLORS.gain : COLORS.loss }}>
-                  {nf(Math.round(indexPrice))}　{indexChange >= 0 ? "▲" : "▼"} {indexChangePct >= 0 ? "+" : ""}{indexChangePct.toFixed(2)}%
+                  <span>{nf(Math.round(indexPrice))}　{indexChange >= 0 ? "▲" : "▼"} {indexChangePct >= 0 ? "+" : ""}{indexChangePct.toFixed(2)}%</span>
+                  {Number.isFinite(Number(marketIndex?.high))&&Number.isFinite(Number(marketIndex?.low))&&<span className="block text-[9px] mt-0.5" style={{color:COLORS.sub}}>高 {nf(Math.round(Number(marketIndex.high)))}｜低 {nf(Math.round(Number(marketIndex.low)))}</span>}
                 </span>
               </div>
               {vsMarketPct != null && (
