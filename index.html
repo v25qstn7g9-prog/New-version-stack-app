@@ -124,7 +124,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.32.0-mtf-kd-radar";
+const APP_VERSION = "4.7-personal-advisor-v2.33.0-learning-radar";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -2004,6 +2004,7 @@ function TrendRadar({ holdings }) {
   const [rows, setRows] = useState([]);
   const [asOf, setAsOf] = useState(null);
   const [instStatus, setInstStatus] = useState("loading");
+  const [accuracy, setAccuracy] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -2117,6 +2118,38 @@ function TrendRadar({ holdings }) {
         const confidence = flows.length>=3 && Math.abs(probability-50)>=10 ? "中" : "低";
         return {symbol:h.symbol,name:h.name||"",probability,direction,confidence,indexPct,stockPct,newsScore,flows,f1,f3,f5,t1,t3,t5,d1,d3,d5,kd5,kd15,kd60};
       });
+      // Save one evaluation snapshot per symbol/day. This creates the training/
+      // calibration history needed to replace hand-tuned weights with measured ones.
+      try{
+        const historyCache=await loadKey("trendRadarHistory",{records:[]});
+        let records=Array.isArray(historyCache?.records)?historyCache.records:[];
+        const stamp=new Date();
+        const day=stamp.toLocaleDateString("sv-SE");
+        const mins=stamp.getHours()*60+stamp.getMinutes();
+        // Keep a representative morning forecast (first one from 09:00-10:00).
+        if(mins>=540 && mins<=600){
+          next.forEach(r=>{
+            const key=day+"|"+r.symbol+"|morning";
+            if(!records.some(x=>x.key===key)){
+              records.push({key,day,symbol:r.symbol,phase:"morning",ts:stamp.toISOString(),probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null}});
+            }
+          });
+        }
+        // At/after close, attach the actual close-vs-prev-close outcome when quote data is available.
+        if(mins>=810){
+          records=records.map(rec=>{
+            if(rec.day!==day || rec.actual) return rec;
+            const q=quoteMap[rec.symbol]||{};
+            if(!Number(q.prevClose)||!Number(q.price)) return rec;
+            const actualPct=((Number(q.price)-Number(q.prevClose))/Number(q.prevClose))*100;
+            const actualUp=actualPct>0;
+            const predictedUp=rec.probability>=50;
+            return {...rec,actual:{pct:actualPct,up:actualUp,hit:predictedUp===actualUp,closedAt:stamp.toISOString()}};
+          });
+        }
+        records=records.slice(-1500);
+        await saveKey("trendRadarHistory",{records,at:stamp.toISOString()});
+      }catch(e){}
       setRows(next); setAsOf(new Date());
     };
     recalc();
@@ -2124,12 +2157,25 @@ function TrendRadar({ holdings }) {
     return()=>{cancelled=true;clearInterval(timer);};
   },[holdings]);
 
+  useEffect(()=>{
+    let dead=false;
+    (async()=>{
+      try{
+        const h=await loadKey("trendRadarHistory",{records:[]});
+        const done=(h?.records||[]).filter(r=>r.actual && typeof r.actual.hit==="boolean");
+        const recent=done.slice(-60);
+        if(!dead) setAccuracy(recent.length?{n:recent.length,hits:recent.filter(r=>r.actual.hit).length}:null);
+      }catch(e){}
+    })();
+    return()=>{dead=true;};
+  },[asOf]);
+
   const flowText=(v)=>{const n=Number(v)||0; if(!n)return "0"; const abs=Math.abs(n); const x=abs>=1000000?(abs/1000000).toFixed(1)+"M":abs>=1000?(abs/1000).toFixed(0)+"K":abs.toFixed(0); return (n>0?"+":"-")+x;};
   if(!rows.length)return null;
   return (
     <div className="rounded-2xl p-4" style={{background:COLORS.panel,border:"1px solid "+COLORS.panelBorder,boxShadow:"0 4px 16px rgba(0,0,0,0.28)"}}>
       <div className="flex items-center justify-between mb-2">
-        <div><div className="text-xs font-bold" style={{color:COLORS.gold}}>AI 今日趨勢雷達</div><div className="text-[9px] mt-0.5" style={{color:COLORS.sub}}>實驗版 · 每15分鐘重算 · 法人＋多週期KD</div></div>
+        <div><div className="text-xs font-bold" style={{color:COLORS.gold}}>AI 今日趨勢雷達</div><div className="text-[9px] mt-0.5" style={{color:COLORS.sub}}>學習版 · 每15分鐘重算 · 法人＋多週期KD＋自動驗證</div></div>
         {asOf&&<div className="text-[9px] mono" style={{color:COLORS.sub}}>{asOf.toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit",hour12:false})}</div>}
       </div>
       <div className="space-y-2">
@@ -2152,7 +2198,8 @@ function TrendRadar({ holdings }) {
           </div>;
         })}
       </div>
-      <div className="text-[9px] mt-2 leading-relaxed" style={{color:COLORS.sub}}>法人：證交所盤後公開資料；ETF 法人流量降低權重，自營商亦降低權重以減少避險/造市影響。{instStatus==="unavailable"?"目前法人來源暫不可用，雷達會自動退回原模型。":"法人資料快取6小時。"} 5/15/60分KD由App自行累積報價運算；日/月KD等待歷史K線來源，避免用不完整資料硬算。</div>
+      {accuracy&&<div className="text-[9px] mt-2 mono" style={{color:COLORS.gold}}>近 {accuracy.n} 次已驗證預測：方向命中 {((accuracy.hits/accuracy.n)*100).toFixed(1)}%（僅統計，不代表未來）</div>}
+      <div className="text-[9px] mt-2 leading-relaxed" style={{color:COLORS.sub}}>法人：證交所盤後公開資料；ETF 法人流量降低權重，自營商亦降低權重以減少避險/造市影響。{instStatus==="unavailable"?"目前法人來源暫不可用，雷達會自動退回原模型。":"法人資料快取6小時。"} 5/15/60分KD由App自行累積報價運算；日/月KD等待歷史K線來源，避免用不完整資料硬算。 每日上午預測會保存，收盤後自動核對方向，累積真實命中資料。</div>
     </div>
   );
 }
