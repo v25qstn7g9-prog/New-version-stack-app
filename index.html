@@ -124,7 +124,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.36.0-graded-radar";
+const APP_VERSION = "4.7-personal-advisor-v2.37.0-today-tomorrow-radar";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -2031,6 +2031,7 @@ function TrendRadar({ holdings }) {
   const [accuracy, setAccuracy] = useState(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [marketRow, setMarketRow] = useState(null);
+  const [tomorrowMap, setTomorrowMap] = useState({});
 
   useEffect(() => {
     let cancelled = false;
@@ -2188,6 +2189,25 @@ function TrendRadar({ holdings }) {
         records=records.slice(-1500);
         await saveKey("trendRadarHistory",{records,at:stamp.toISOString()});
       }catch(e){}
+      // Separate next-session preview.  It deliberately uses a softer score
+      // than today's intraday model and is shown as "資料累積中" before noon.
+      const clock=now.getHours()*60+now.getMinutes();
+      const toLabel=(p)=>p>=64?"明顯偏漲":p>=55?"稍偏漲":p<=36?"明顯偏跌":p<=45?"稍偏跌":"方向不明";
+      const tomorrow={};
+      if(clock>=720){
+        const calcTomorrow=(pct,kds,news=0,inst=0)=>{
+          const ks=(kds||[]).filter(Boolean).reduce((a,k)=>a+k.bull,0);
+          const raw=Math.max(-12,Math.min(12,pct*4))+Math.max(-5,Math.min(5,ks*1.5))+Math.max(-4,Math.min(4,news*1.5))+Math.max(-4,Math.min(4,inst));
+          const p=Math.max(30,Math.min(70,50+20*Math.tanh(raw/16)));
+          return {probability:p,direction:toLabel(p)};
+        };
+        tomorrow.TAIEX=calcTomorrow(indexPct,[marketKd15,marketKd60]);
+        next.forEach(r=>{
+          const inst=(Math.sign(r.f3||0)*1.5+Math.sign(r.t3||0));
+          tomorrow[r.symbol]=calcTomorrow(r.stockPct,[r.kd15,r.kd60],r.newsScore,inst);
+        });
+      }
+      setTomorrowMap(tomorrow);
       setRows(next); setAsOf(new Date());
     };
     recalc();
@@ -2213,12 +2233,12 @@ function TrendRadar({ holdings }) {
   return (
     <div className="rounded-2xl p-4" style={{background:COLORS.panel,border:"1px solid "+COLORS.panelBorder,boxShadow:"0 4px 16px rgba(0,0,0,0.28)"}}>
       <div className="flex items-center justify-between mb-2">
-        <div><div className="text-xs font-bold" style={{color:COLORS.gold}}>AI 今日趨勢雷達</div><div className="text-[9px] mt-0.5" style={{color:COLORS.sub}}>學習版 · 每5分鐘重算 · 真實盤中OHLC＋法人＋自動驗證</div></div>
+        <div><div className="text-xs font-bold" style={{color:COLORS.gold}}>AI 今日／明日趨勢雷達</div><div className="text-[9px] mt-0.5" style={{color:COLORS.sub}}>學習版 · 每5分鐘重算 · 真實盤中OHLC＋法人＋自動驗證</div></div>
         {asOf&&<div className="text-[9px] mono" style={{color:COLORS.sub}}>{asOf.toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit",hour12:false})}</div>}
       </div>
       <div className="space-y-2">
         {marketRow&&<div className="rounded-xl px-3 py-2" style={{background:COLORS.bg,border:"1px solid "+COLORS.gold}}>
-          <div className="flex items-center justify-between"><div className="text-xs font-bold">加權指數 <span className="font-normal" style={{color:COLORS.sub}}>TAIEX</span></div><div className="text-xs font-black mono" style={{color:marketRow.direction.includes("漲")?COLORS.gain:marketRow.direction.includes("跌")?COLORS.loss:COLORS.sub}}>{marketRow.direction} {marketRow.probability.toFixed(0)}%</div></div>
+          <div className="flex items-center justify-between"><div className="text-xs font-bold">加權指數 <span className="font-normal" style={{color:COLORS.sub}}>TAIEX</span></div><div className="text-[10px] font-black mono text-right" style={{color:marketRow.direction.includes("漲")?COLORS.gain:marketRow.direction.includes("跌")?COLORS.loss:COLORS.sub}}><span>今日 {marketRow.direction} {marketRow.probability.toFixed(0)}%</span><span className="ml-2" style={{color:tomorrowMap.TAIEX?.direction?.includes("漲")?COLORS.gain:tomorrowMap.TAIEX?.direction?.includes("跌")?COLORS.loss:COLORS.sub}}>明日 {tomorrowMap.TAIEX?tomorrowMap.TAIEX.direction+" "+tomorrowMap.TAIEX.probability.toFixed(0)+"%":"資料累積中"}</span></div></div>
           <div className="flex justify-between mt-1 text-[9px]" style={{color:COLORS.sub}}><span>目前 {marketRow.indexPct>=0?"+":""}{marketRow.indexPct.toFixed(2)}%</span><span>持股上漲廣度 {(marketRow.breadth*100).toFixed(0)}%</span><span>盤中趨勢</span></div>
           {detailsOpen&&<div className="mt-1.5 pt-1.5 text-[9px] mono" style={{color:COLORS.sub,borderTop:"1px solid "+COLORS.panelBorder}}>
             <div className="flex justify-between"><span>大盤 KD 5分</span><span>{marketRow.kd5?marketRow.kd5.K.toFixed(0)+"/"+marketRow.kd5.D.toFixed(0)+" "+marketRow.kd5.state:"累積中"}</span></div>
@@ -2230,7 +2250,7 @@ function TrendRadar({ holdings }) {
 
           const tone=r.direction.includes("漲")?COLORS.gain:r.direction.includes("跌")?COLORS.loss:COLORS.sub;
           return <div key={r.symbol} className="rounded-xl px-3 py-2" style={{background:COLORS.bg,border:"1px solid "+COLORS.panelBorder}}>
-            <div className="flex items-center justify-between"><div className="text-xs font-bold mono">{r.symbol}<span className="ml-1 font-normal" style={{color:COLORS.sub}}>{r.name}</span></div><div className="text-xs font-black mono" style={{color:tone}}>{r.direction} {r.probability.toFixed(0)}%</div></div>
+            <div className="flex items-center justify-between"><div className="text-xs font-bold mono">{r.symbol}<span className="ml-1 font-normal" style={{color:COLORS.sub}}>{r.name}</span></div><div className="text-[10px] font-black mono text-right"><span style={{color:tone}}>今日 {r.direction} {r.probability.toFixed(0)}%</span><span className="ml-2" style={{color:tomorrowMap[r.symbol]?.direction?.includes("漲")?COLORS.gain:tomorrowMap[r.symbol]?.direction?.includes("跌")?COLORS.loss:COLORS.sub}}>明日 {tomorrowMap[r.symbol]?tomorrowMap[r.symbol].direction+" "+tomorrowMap[r.symbol].probability.toFixed(0)+"%":"資料累積中"}</span></div></div>
             <div className="flex justify-between mt-1 text-[9px]" style={{color:COLORS.sub}}><span>大盤 {r.indexPct>=0?"+":""}{r.indexPct.toFixed(2)}%</span><span>個股 {r.stockPct>=0?"+":""}{r.stockPct.toFixed(2)}%</span><span>新聞 {r.newsScore>0?"偏正":r.newsScore<0?"偏負":"中性"}</span><span>信心 {r.confidence}</span></div>
             {detailsOpen&&<><div className="mt-1.5 pt-1.5 text-[9px] mono" style={{color:COLORS.sub,borderTop:"1px solid "+COLORS.panelBorder}}>
               <div className="flex justify-between"><span>KD 5分</span><span>{r.kd5?`${r.kd5.K.toFixed(0)}/${r.kd5.D.toFixed(0)} ${r.kd5.state}`:"累積中"}</span></div>
