@@ -124,7 +124,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.30.0-trend-radar";
+const APP_VERSION = "4.7-personal-advisor-v2.30.1-trend-radar-15m";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -2005,7 +2005,7 @@ function TrendRadar({ holdings }) {
   const [asOf, setAsOf] = useState(null);
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    const recalc = async () => {
       const cached = await loadKey("livePrices", null);
       const newsCache = await loadKey("stockNews", null);
       if (cancelled) return;
@@ -2027,15 +2027,18 @@ function TrendRadar({ holdings }) {
         const confidence = Math.abs(probability-50)>=12 ? "中" : "低";
         return {symbol:h.symbol,name:h.name||"",probability,direction,confidence,indexPct,stockPct,newsScore};
       });
-      setRows(next); setAsOf(cached?.at ? new Date(cached.at) : null);
-    })();
-    return () => { cancelled=true; };
+      setRows(next);
+      setAsOf(new Date());
+    };
+    recalc();
+    const timer = setInterval(recalc, 15 * 60 * 1000);
+    return () => { cancelled=true; clearInterval(timer); };
   }, [holdings]);
   if (!rows.length) return null;
   return (
     <div className="rounded-2xl p-4" style={{background:COLORS.panel,border:"1px solid "+COLORS.panelBorder,boxShadow:"0 4px 16px rgba(0,0,0,0.28)"}}>
       <div className="flex items-center justify-between mb-2">
-        <div><div className="text-xs font-bold" style={{color:COLORS.gold}}>AI 今日趨勢雷達</div><div className="text-[9px] mt-0.5" style={{color:COLORS.sub}}>實驗版 · 觀察用，不作為買賣訊號</div></div>
+        <div><div className="text-xs font-bold" style={{color:COLORS.gold}}>AI 今日趨勢雷達</div><div className="text-[9px] mt-0.5" style={{color:COLORS.sub}}>實驗版 · 每15分鐘重算 · 觀察用，不作為買賣訊號</div></div>
         {asOf && <div className="text-[9px] mono" style={{color:COLORS.sub}}>{asOf.toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit",hour12:false})}</div>}
       </div>
       <div className="space-y-2">
