@@ -124,7 +124,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.38.0-precision-radar";
+const APP_VERSION = "4.7-personal-advisor-v2.39.0-factor-backtest";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -2266,7 +2266,7 @@ function TrendRadar({ holdings }) {
           next.forEach(r=>{
             const key=day+"|"+r.symbol+"|morning";
             if(!records.some(x=>x.key===key)){
-              records.push({key,day,symbol:r.symbol,phase:"morning",ts:stamp.toISOString(),probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null}});
+              records.push({key,day,symbol:r.symbol,phase:"morning",ts:stamp.toISOString(),probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
             }
           });
         }
@@ -2306,7 +2306,10 @@ function TrendRadar({ holdings }) {
           const overnight = global ? Math.max(-10,Math.min(10,global.combined*1.1)) : 0;
           const raw=overnight+Math.max(-6,Math.min(6,pct*2))+Math.max(-5,Math.min(5,ks*1.5))+Math.max(-4,Math.min(4,news*1.5))+Math.max(-4,Math.min(4,inst));
           const p=Math.max(30,Math.min(70,50+20*Math.tanh(raw/16)));
-          return {probability:p,direction:toLabel(p)};
+          // Keep the raw inputs (not just the blended probability) so a future
+          // factor backtest can tell which of these actually carries signal,
+          // instead of trusting these hand-picked weights forever.
+          return {probability:p,direction:toLabel(p),factors:{overnight,pct,ks,news,inst}};
         };
         tomorrow.TAIEX=calcTomorrow(indexPct,[marketKd15,marketKd60,marketKdDaily]);
         next.forEach(r=>{
@@ -2329,7 +2332,7 @@ function TrendRadar({ holdings }) {
             if(!pred) return;
             const key=targetDay+"|"+sym;
             if(!tRecords.some(x=>x.key===key)){
-              tRecords.push({key,targetDay,symbol:sym,predictedOn:todayKey,probability:pred.probability,direction:pred.direction});
+              tRecords.push({key,targetDay,symbol:sym,predictedOn:todayKey,probability:pred.probability,direction:pred.direction,factors:pred.factors,global:global?{spxPct:global.spxPct,soxPct:global.soxPct,usdtwdPct:global.usdtwdPct,combined:global.combined}:null});
             }
           });
           // Validate any record whose target day has now actually happened.
@@ -2434,6 +2437,114 @@ function TrendRadar({ holdings }) {
   );
 }
 
+
+// ---------------- Factor Backtest (research tool) ----------------
+// Correlates each raw input the Trend Radar uses (大盤/個股動能、KD、法人、
+// 新聞、隔夜訊號…) against what actually happened afterward, instead of just
+// trusting the hand-picked weights baked into TrendRadar's scoring formula.
+// Purely descriptive (Pearson r) — it never touches the live scoring model.
+function pearsonCorr(pairs) {
+  const n = pairs.length;
+  if (n < 3) return null;
+  const mx = pairs.reduce((a, [x]) => a + x, 0) / n;
+  const my = pairs.reduce((a, [, y]) => a + y, 0) / n;
+  let sxy = 0, sxx = 0, syy = 0;
+  pairs.forEach(([x, y]) => {
+    const dx = x - mx, dy = y - my;
+    sxy += dx * dy; sxx += dx * dx; syy += dy * dy;
+  });
+  if (sxx === 0 || syy === 0) return null;
+  return sxy / Math.sqrt(sxx * syy);
+}
+
+function FactorBacktest() {
+  const [open, setOpen] = useState(false);
+  const [today, setToday] = useState({ records: [] });
+  const [tomorrow, setTomorrow] = useState({ records: [] });
+
+  useEffect(() => {
+    if (!open) return;
+    let dead = false;
+    (async () => {
+      const h = await loadKey("trendRadarHistory", { records: [] });
+      const th = await loadKey("trendRadarTomorrowHistory", { records: [] });
+      if (!dead) { setToday(h); setTomorrow(th); }
+    })();
+    return () => { dead = true; };
+  }, [open]);
+
+  const MIN_N = 20;
+
+  const buildFactors = (records, defs) => defs.map(([label, fn]) => {
+    const pairs = records
+      .map((r) => [fn(r), r.actual?.pct])
+      .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
+    return { label, n: pairs.length, r: pairs.length >= MIN_N ? pearsonCorr(pairs) : null };
+  });
+
+  const todayFactors = useMemo(() => {
+    const recs = (today?.records || []).filter((r) => r.actual);
+    return buildFactors(recs, [
+      ["大盤 %", (r) => r.indexPct],
+      ["個股 %", (r) => r.stockPct],
+      ["新聞分數", (r) => r.newsScore],
+      ["外資 1日", (r) => r.inst?.f1], ["外資 3日", (r) => r.inst?.f3], ["外資 5日", (r) => r.inst?.f5],
+      ["投信 1日", (r) => r.inst?.t1], ["投信 3日", (r) => r.inst?.t3], ["投信 5日", (r) => r.inst?.t5],
+      ["自營 1日", (r) => r.inst?.d1], ["自營 3日", (r) => r.inst?.d3], ["自營 5日", (r) => r.inst?.d5],
+      ["KD 5分 (K-D)", (r) => (r.kd?.k5 != null && r.kd?.d5 != null) ? r.kd.k5 - r.kd.d5 : null],
+      ["KD 15分 (K-D)", (r) => (r.kd?.k15 != null && r.kd?.d15 != null) ? r.kd.k15 - r.kd.d15 : null],
+      ["KD 60分 (K-D)", (r) => (r.kd?.k60 != null && r.kd?.d60 != null) ? r.kd.k60 - r.kd.d60 : null],
+      ["KD 日線 (K-D)", (r) => (r.kd?.kDaily != null && r.kd?.dDaily != null) ? r.kd.kDaily - r.kd.dDaily : null],
+      ["KD 月線 (K-D)", (r) => (r.kd?.kMonthly != null && r.kd?.dMonthly != null) ? r.kd.kMonthly - r.kd.dMonthly : null],
+    ]);
+  }, [today]);
+
+  const tomorrowFactors = useMemo(() => {
+    const recs = (tomorrow?.records || []).filter((r) => r.actual);
+    return buildFactors(recs, [
+      ["隔夜綜合訊號", (r) => r.factors?.overnight],
+      ["S&P500 隔夜 %", (r) => r.global?.spxPct],
+      ["費半SOX 隔夜 %", (r) => r.global?.soxPct],
+      ["美元/台幣 隔夜 %", (r) => r.global?.usdtwdPct],
+      ["今日動能（次要項）", (r) => r.factors?.pct],
+      ["KD 綜合分數", (r) => r.factors?.ks],
+      ["新聞分數", (r) => r.factors?.news],
+      ["法人訊號", (r) => r.factors?.inst],
+    ]);
+  }, [tomorrow]);
+
+  const renderRow = (f) => {
+    const strength = f.r == null ? null : Math.abs(f.r);
+    const tone = f.r == null ? COLORS.sub : strength >= 0.3 ? (f.r > 0 ? COLORS.gain : COLORS.loss) : COLORS.sub;
+    const readLabel = f.r == null ? `樣本不足（${f.n}/${MIN_N}）` : strength >= 0.3 ? (f.r > 0 ? "正相關" : "負相關") : "幾乎無關聯";
+    return (
+      <div key={f.label} className="flex items-center justify-between text-[10px] mono py-1" style={{ borderBottom: "1px solid " + COLORS.panelBorder }}>
+        <span style={{ color: COLORS.sub }}>{f.label}</span>
+        <span style={{ color: tone }}>{f.r != null ? f.r.toFixed(2) : "—"}　{readLabel}（n={f.n}）</span>
+      </div>
+    );
+  };
+
+  return (
+    <div className="rounded-2xl p-4" style={{ background: COLORS.panel, border: "1px solid " + COLORS.panelBorder }}>
+      <button onClick={() => setOpen((v) => !v)} className="w-full flex items-center justify-between text-xs font-bold" style={{ color: COLORS.gold }}>
+        <span>因子回測（研究用）</span>
+        <span>{open ? "收起 ▲" : "展開 ▼"}</span>
+      </button>
+      {open && (
+        <div className="mt-3">
+          <div className="text-[9px] mb-2 leading-relaxed" style={{ color: COLORS.sub }}>
+            算每個因子跟「實際漲跌幅」的皮爾森相關係數（-1～1）；|r|≥0.3 才視為有意義的關聯，樣本數不到 {MIN_N} 筆時只顯示樣本數、不給係數，避免把噪音誤讀成訊號。這只是給你自己判斷「哪個因子真的有用」的參考，不會自動回頭改雷達的權重。
+          </div>
+          <div className="text-[10px] font-bold mb-1" style={{ color: COLORS.text }}>今日模型 vs 當日實際漲跌</div>
+          {todayFactors.every((f) => f.n === 0) ? <Empty text="還沒有已驗證的今日預測資料，累積幾週後再回來看" /> : todayFactors.map(renderRow)}
+          <div className="text-[10px] font-bold mb-1 mt-3" style={{ color: COLORS.text }}>明日模型 vs 隔天實際漲跌</div>
+          {tomorrowFactors.every((f) => f.n === 0) ? <Empty text="還沒有已驗證的明日預測資料，累積幾週後再回來看" /> : tomorrowFactors.map(renderRow)}
+        </div>
+      )}
+    </div>
+  );
+}
 // ---------------- Dashboard ----------------
 // Range options for the asset-curve chart. "days: null" means show
 // everything. Kept outside the component so the array identity is stable
@@ -2487,6 +2598,8 @@ function Dashboard({ totalToday, dailyChange, dailyChangePct, capitalGain, total
       <LivePricePanel holdings={holdings} onFillDailyTw={onFillDailyTw} yesterdayTwValue={yesterdayTwValue} />
 
       <TrendRadar holdings={holdings} />
+
+      <FactorBacktest />
 
       {chartData.length > 1 && (
         <div className="rounded-2xl p-4" style={{
