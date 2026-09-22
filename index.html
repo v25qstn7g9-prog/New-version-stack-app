@@ -1928,21 +1928,22 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
           <div className="space-y-1.5 max-h-64 overflow-y-auto">
             {rows.map((r) => (
               <div key={r.id}>
-                <div className="grid grid-cols-4 gap-1 text-xs mono items-center">
+                <div className="grid grid-cols-[52px_1fr_72px] gap-2 text-xs mono items-center">
                   <span style={{ color: COLORS.sub }}>{r.symbol}</span>
-                  <span className="text-right"><span>{r.price.toFixed(2)}</span>{Number.isFinite(Number(r.high))&&Number.isFinite(Number(r.low))&&<span className="block text-[9px] mt-0.5" style={{color:COLORS.sub}}>高 {Number(r.high).toFixed(2)}｜低 {Number(r.low).toFixed(2)}</span>}</span>
-                  <span className="text-right" style={{ color: r.quoteIsStale ? COLORS.sub : (r.chg >= 0 ? COLORS.gain : COLORS.loss) }}>
+                  <span className="text-[9px] whitespace-nowrap" style={{color:COLORS.sub}}>
+                    {Number.isFinite(Number(r.high))&&Number.isFinite(Number(r.low)) ? <>高 {Number(r.high).toFixed(2)}｜低 {Number(r.low).toFixed(2)}</> : "高低價 --"}
+                  </span>
+                  <span className="text-right">{r.price.toFixed(2)}</span>
+                </div>
+                <div className="grid grid-cols-[52px_1fr_auto] gap-2 text-xs mono items-center mt-0.5">
+                  <span></span>
+                  <span style={{ color: r.quoteIsStale ? COLORS.sub : (r.chg >= 0 ? COLORS.gain : COLORS.loss) }}>
                     {r.quoteIsStale && isTwseTradingHours()
                       ? "待更新"
                       : <>{r.chg >= 0 ? "▲" : "▼"} {r.chgPct >= 0 ? "+" : ""}{r.chgPct.toFixed(2)}%</>}
                   </span>
-                  <span className="text-right font-bold">{nf(r.value)}</span>
+                  <span className="text-right"><span className="font-bold">{nf(r.value)}</span>{!r.quoteIsStale && <span className="ml-2" style={{ color: r.chg >= 0 ? COLORS.gain : COLORS.loss, opacity: 0.85 }}>今日損益 {r.chg >= 0 ? "+" : ""}{nf(Math.round(r.chg * r.current))}</span>}</span>
                 </div>
-                {!r.quoteIsStale && (
-                  <div className="text-xs text-right mt-0.5" style={{ color: r.chg >= 0 ? COLORS.gain : COLORS.loss, opacity: 0.85 }}>
-                    今日損益 {r.chg >= 0 ? "+" : ""}{nf(Math.round(r.chg * r.current))}
-                  </div>
-                )}
                 {r.isFromCache && r.fetchedAt && (
                   <div className="text-[9px] text-right mt-0.5" style={{ color: COLORS.sub }}>
                     這次抓取失敗，顯示上次成功價格（{new Date(r.fetchedAt).toLocaleString("zh-TW", {
@@ -1980,12 +1981,10 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
           )}
           {hasMarketIndex && (
             <>
-              <div className="flex justify-between text-xs mono mt-1">
+              <div className="grid grid-cols-[72px_1fr_auto] gap-2 text-xs mono mt-1 items-center">
                 <span style={{ color: COLORS.sub }}>加權指數</span>
-                <span style={{ color: indexChange >= 0 ? COLORS.gain : COLORS.loss }}>
-                  <span>{nf(Math.round(indexPrice))}　{indexChange >= 0 ? "▲" : "▼"} {indexChangePct >= 0 ? "+" : ""}{indexChangePct.toFixed(2)}%</span>
-                  {Number.isFinite(Number(marketIndex?.high))&&Number.isFinite(Number(marketIndex?.low))&&<span className="block text-[9px] mt-0.5" style={{color:COLORS.sub}}>高 {nf(Math.round(Number(marketIndex.high)))}｜低 {nf(Math.round(Number(marketIndex.low)))}</span>}
-                </span>
+                <span className="text-[9px] whitespace-nowrap" style={{color:COLORS.sub}}>{Number.isFinite(Number(marketIndex?.high))&&Number.isFinite(Number(marketIndex?.low)) ? <>高 {nf(Math.round(Number(marketIndex.high)))}｜低 {nf(Math.round(Number(marketIndex.low)))}</> : "高低點 --"}</span>
+                <span style={{ color: indexChange >= 0 ? COLORS.gain : COLORS.loss }}>{nf(Math.round(indexPrice))}　{indexChange >= 0 ? "▲" : "▼"} {indexChangePct >= 0 ? "+" : ""}{indexChangePct.toFixed(2)}%</span>
               </div>
               {vsMarketPct != null && (
                 <div className="flex justify-between text-xs mono mt-1">
