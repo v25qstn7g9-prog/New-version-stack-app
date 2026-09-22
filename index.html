@@ -124,7 +124,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.34.0-ohlc-kd-radar";
+const APP_VERSION = "4.7-personal-advisor-v2.35.0-market-radar";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -1816,6 +1816,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
         const last = points[points.length - 1];
         if (!last || now.getTime() - Number(last.ts || 0) >= 55 * 1000) {
           const point = { day, ts: now.getTime(), quotes: {} };
+          if (freshIndex && Number(freshIndex.price)>0) point.quotes.TAIEX=Number(freshIndex.price);
           Object.entries(mergedMap).forEach(([sym,q]) => {
             const px = Number(q?.price);
             if (px > 0 && !failed.includes(sym)) point.quotes[sym] = px;
@@ -2029,6 +2030,7 @@ function TrendRadar({ holdings }) {
   const [instStatus, setInstStatus] = useState("loading");
   const [accuracy, setAccuracy] = useState(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [marketRow, setMarketRow] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -2101,6 +2103,20 @@ function TrendRadar({ holdings }) {
       const indexPct = idx && Number(idx.prevClose) ? ((Number(idx.price)-Number(idx.prevClose))/Number(idx.prevClose))*100 : 0;
       const positiveWords = /利多|成長|上修|創高|增加|獲利|旺|擴產|突破|優於|買超/i;
       const negativeWords = /利空|下修|衰退|減少|虧損|疲弱|跌破|不如|賣超|警示/i;
+      // Market forecast: use the index's own intraday momentum as the base,
+      // then enrich it with broad holding breadth and the index tape when available.
+      const marketBars5=bucketBars("TAIEX",5);
+      const marketBars15=bucketBars("TAIEX",15);
+      const marketBars60=bucketBars("TAIEX",60);
+      const marketKd5=kdFromBars(marketBars5), marketKd15=kdFromBars(marketBars15), marketKd60=kdFromBars(marketBars60);
+      const holdingPcts=Object.values(quoteMap).map(q=>Number(q?.prevClose)?((Number(q.price)-Number(q.prevClose))/Number(q.prevClose))*100:null).filter(v=>Number.isFinite(v));
+      const breadth=holdingPcts.length?holdingPcts.filter(v=>v>0).length/holdingPcts.length:0.5;
+      const mkKd=[marketKd5,marketKd15,marketKd60].filter(Boolean);
+      const mkKdScore=mkKd.reduce((a,k)=>a+k.bull,0);
+      let marketScore=Math.max(-20,Math.min(20,indexPct*8))+Math.max(-6,Math.min(6,(breadth-0.5)*12))+Math.max(-6,Math.min(6,mkKdScore*2));
+      const marketProbability=Math.max(35,Math.min(65,50+marketScore));
+      const marketDirection=marketProbability>=58?"偏多":marketProbability<=42?"偏空":"中性";
+      setMarketRow({probability:marketProbability,direction:marketDirection,indexPct,breadth,kd5:marketKd5,kd15:marketKd15,kd60:marketKd60});
       const active = holdings.filter((h) => Number(h.current || 0) > 0 && h.symbol);
       let instDays=[];
       try{
@@ -2201,6 +2217,15 @@ function TrendRadar({ holdings }) {
         {asOf&&<div className="text-[9px] mono" style={{color:COLORS.sub}}>{asOf.toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit",hour12:false})}</div>}
       </div>
       <div className="space-y-2">
+        {marketRow&&<div className="rounded-xl px-3 py-2" style={{background:COLORS.bg,border:"1px solid "+COLORS.gold}}>
+          <div className="flex items-center justify-between"><div className="text-xs font-bold">加權指數 <span className="font-normal" style={{color:COLORS.sub}}>TAIEX</span></div><div className="text-xs font-black mono" style={{color:marketRow.direction==="偏多"?COLORS.gain:marketRow.direction==="偏空"?COLORS.loss:COLORS.sub}}>{marketRow.direction} {marketRow.probability.toFixed(0)}%</div></div>
+          <div className="flex justify-between mt-1 text-[9px]" style={{color:COLORS.sub}}><span>目前 {marketRow.indexPct>=0?"+":""}{marketRow.indexPct.toFixed(2)}%</span><span>持股上漲廣度 {(marketRow.breadth*100).toFixed(0)}%</span><span>盤中趨勢</span></div>
+          {detailsOpen&&<div className="mt-1.5 pt-1.5 text-[9px] mono" style={{color:COLORS.sub,borderTop:"1px solid "+COLORS.panelBorder}}>
+            <div className="flex justify-between"><span>大盤 KD 5分</span><span>{marketRow.kd5?marketRow.kd5.K.toFixed(0)+"/"+marketRow.kd5.D.toFixed(0)+" "+marketRow.kd5.state:"累積中"}</span></div>
+            <div className="flex justify-between"><span>大盤 KD 15分</span><span>{marketRow.kd15?marketRow.kd15.K.toFixed(0)+"/"+marketRow.kd15.D.toFixed(0)+" "+marketRow.kd15.state:"累積中"}</span></div>
+            <div className="flex justify-between"><span>大盤 KD 60分</span><span>{marketRow.kd60?marketRow.kd60.K.toFixed(0)+"/"+marketRow.kd60.D.toFixed(0)+" "+marketRow.kd60.state:"累積中"}</span></div>
+          </div>}
+        </div>}
         {rows.map((r)=>{
 
           const tone=r.direction==="偏多"?COLORS.gain:r.direction==="偏空"?COLORS.loss:COLORS.sub;
