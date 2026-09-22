@@ -124,7 +124,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.29.1-gemini35";
+const APP_VERSION = "4.7-personal-advisor-v2.30.0-trend-radar";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -1998,6 +1998,60 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
   );
 }
 
+
+// ---------------- Today Trend Radar (dashboard) ----------------
+function TrendRadar({ holdings }) {
+  const [rows, setRows] = useState([]);
+  const [asOf, setAsOf] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const cached = await loadKey("livePrices", null);
+      const newsCache = await loadKey("stockNews", null);
+      if (cancelled) return;
+      const quoteMap = cached?.map || {};
+      const idx = cached?.marketIndex || null;
+      const indexPct = idx && Number(idx.prevClose) ? ((Number(idx.price)-Number(idx.prevClose))/Number(idx.prevClose))*100 : 0;
+      const positiveWords = /利多|成長|上修|創高|增加|獲利|旺|擴產|突破|優於|買超/i;
+      const negativeWords = /利空|下修|衰退|減少|虧損|疲弱|跌破|不如|賣超|警示/i;
+      const active = holdings.filter((h) => Number(h.current || 0) > 0 && h.symbol);
+      const next = active.map((h) => {
+        const q = quoteMap[h.symbol] || {};
+        const stockPct = Number(q.prevClose) ? ((Number(q.price)-Number(q.prevClose))/Number(q.prevClose))*100 : 0;
+        const news = (newsCache?.news?.[h.symbol] || []).slice(0,5);
+        let newsScore = 0;
+        news.forEach((n) => { const t=String(n.title||""); if(positiveWords.test(t)) newsScore++; if(negativeWords.test(t)) newsScore--; });
+        let score = Math.max(-18,Math.min(18,indexPct*7)) + Math.max(-14,Math.min(14,stockPct*4)) + Math.max(-8,Math.min(8,newsScore*4));
+        const probability = Math.max(35,Math.min(65,50+score));
+        const direction = probability>=58 ? "偏多" : probability<=42 ? "偏空" : "中性";
+        const confidence = Math.abs(probability-50)>=12 ? "中" : "低";
+        return {symbol:h.symbol,name:h.name||"",probability,direction,confidence,indexPct,stockPct,newsScore};
+      });
+      setRows(next); setAsOf(cached?.at ? new Date(cached.at) : null);
+    })();
+    return () => { cancelled=true; };
+  }, [holdings]);
+  if (!rows.length) return null;
+  return (
+    <div className="rounded-2xl p-4" style={{background:COLORS.panel,border:"1px solid "+COLORS.panelBorder,boxShadow:"0 4px 16px rgba(0,0,0,0.28)"}}>
+      <div className="flex items-center justify-between mb-2">
+        <div><div className="text-xs font-bold" style={{color:COLORS.gold}}>AI 今日趨勢雷達</div><div className="text-[9px] mt-0.5" style={{color:COLORS.sub}}>實驗版 · 觀察用，不作為買賣訊號</div></div>
+        {asOf && <div className="text-[9px] mono" style={{color:COLORS.sub}}>{asOf.toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit",hour12:false})}</div>}
+      </div>
+      <div className="space-y-2">
+        {rows.map((r) => {
+          const tone=r.direction==="偏多"?COLORS.gain:r.direction==="偏空"?COLORS.loss:COLORS.sub;
+          return <div key={r.symbol} className="rounded-xl px-3 py-2" style={{background:COLORS.bg,border:"1px solid "+COLORS.panelBorder}}>
+            <div className="flex items-center justify-between"><div className="text-xs font-bold mono">{r.symbol}<span className="ml-1 font-normal" style={{color:COLORS.sub}}>{r.name}</span></div><div className="text-xs font-black mono" style={{color:tone}}>{r.direction} {r.probability.toFixed(0)}%</div></div>
+            <div className="flex justify-between mt-1 text-[9px]" style={{color:COLORS.sub}}><span>大盤 {r.indexPct>=0?"+":""}{r.indexPct.toFixed(2)}%</span><span>個股 {r.stockPct>=0?"+":""}{r.stockPct.toFixed(2)}%</span><span>新聞 {r.newsScore>0?"偏正":r.newsScore<0?"偏負":"中性"}</span><span>信心 {r.confidence}</span></div>
+          </div>;
+        })}
+      </div>
+      <div className="text-[9px] mt-2 leading-relaxed" style={{color:COLORS.sub}}>第一版先用 App 已有的大盤、個股價量代理訊號與持股新聞；隔夜美股、費半、ADR、台指夜盤、法人資料尚未接入，因此信心上限刻意壓低。後續接齊資料後再升級完整模型。</div>
+    </div>
+  );
+}
+
 // ---------------- Dashboard ----------------
 // Range options for the asset-curve chart. "days: null" means show
 // everything. Kept outside the component so the array identity is stable
@@ -2048,7 +2102,7 @@ function Dashboard({ totalToday, dailyChange, dailyChangePct, capitalGain, total
         </div>
       </div>
 
-      <LivePricePanel holdings={holdings} onFillDailyTw={onFillDailyTw} yesterdayTwValue={yesterdayTwValue} />
+      <LivePricePanel holdings={holdings} onFillDailyTw={onFillDailyTw} yesterdayTwValue={yesterdayTwValue} />\n\n      <TrendRadar holdings={holdings} />
 
       {chartData.length > 1 && (
         <div className="rounded-2xl p-4" style={{
