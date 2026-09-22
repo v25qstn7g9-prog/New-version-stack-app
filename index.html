@@ -4841,6 +4841,20 @@ async function executeAppSnapshotTool(tc, baseContext) {
   return out || "這個區段目前沒有可用資料";
 }
 
+function cleanAiDisplayText(text) {
+  let out=String(text||"");
+  out=out.replace(/<br\s*\/?\s*>/gi,"\n");
+  out=out.replace(/^#{1,6}\s*/gm,"");
+  out=out.replace(/\*\*(.*?)\*\*/g,"$1");
+  out=out.replace(/__(.*?)__/g,"$1");
+  out=out.replace(/^\s*>\s?/gm,"");
+  out=out.replace(/^\s*[-*]\s+/gm,"• ");
+  out=out.replace(/^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/gm,"");
+  out=out.replace(/^\s*\|(.+)\|\s*$/gm,(_,row)=>row.split("|").map(x=>x.trim()).filter(Boolean).join(" ｜ "));
+  out=out.replace(/\n{3,}/g,"\n\n").trim();
+  return out;
+}
+
 function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTrades, setHoldings, setGoal, dailyRecords, dividends, planItems, planSchedule, goalDate, perf, aiFallbackConfig }) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([]); // {role, content} 一般訊息，或 {role:'assistant', toolCall, status} 確認卡片
@@ -5212,7 +5226,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
                         color: m.role === "user" ? COLORS.bg : COLORS.text,
                         border: m.role === "user" ? "none" : `1px solid ${COLORS.panelBorder}`,
                       }}>
-                      {m.content}
+                      {m.role === "assistant" ? cleanAiDisplayText(m.content) : m.content}
                     </div>
                   </div>
                 );
