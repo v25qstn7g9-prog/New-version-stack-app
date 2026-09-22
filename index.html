@@ -4900,12 +4900,12 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
   // 呼叫一次 /ask，回傳解析後的資料；共用給第一次發問跟「自動查詢後再問一次」用。
   // toolTurns（選填）：之前每一輪「AI 呼叫了什麼工具＋查到的結果」，用正式的
   // assistant/tool 訊息格式接回對話，讓模型判斷「工具已經回覆過了」，不要再塞成文字。
-  const askOnce = async (message, history, context, toolTurns) => {
+  const askOnce = async (message, history, context, toolTurns, forceAnswer = false) => {
     const deviceIdKey = "stockTrackerDeviceId";
     let deviceId = localStorage.getItem(deviceIdKey);
     if (!deviceId) { deviceId = `d_${uid()}_${uid()}`; localStorage.setItem(deviceIdKey, deviceId); }
 
-    const baseBody = { message, history, context, allowGeminiPrivate: aiFallbackConfig?.allowPrivate === true };
+    const baseBody = { message, history, context, allowGeminiPrivate: aiFallbackConfig?.allowPrivate === true, forceAnswer };
     if (Array.isArray(toolTurns) && toolTurns.length > 0) baseBody.toolTurns = toolTurns;
 
     const callAskEndpoint = async (url, body, { fallback = false } = {}) => {
@@ -4999,7 +4999,11 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
           seenReadCalls.add(key);
           return true;
         });
-        if (!freshCalls.length) break;
+        if (!freshCalls.length) {
+          data = await askOnce(text, history, baseContext, toolTurns, true);
+          if (data?.provider) setProviderInfo({ provider: data.provider, model: data.model || "", profile: data.profile || "" });
+          break;
+        }
         const results = await Promise.all(freshCalls.map(async (tc) => ({
           id: tc.id,
           content: tc.name === "get_live_quotes"
@@ -5015,7 +5019,8 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
       }
 
       if (Array.isArray(data.toolCalls) && data.toolCalls.length > 0) {
-        // 混到動作型工具（或自動查詢用完額度還是要查）的話，剩下的動作型工具照舊跳確認卡片。
+        // 混到動作型工具的話照舊跳確認卡片；如果只剩唯讀工具，代表模型卡在重複查詢，
+        // 直接關閉工具模式做最後一次回答，不再叫使用者重送問題。
         const actionCalls = data.toolCalls.filter((tc) => !READ_TOOL_NAMES.includes(tc.name));
         if (actionCalls.length > 0) {
           setMessages((m) => [
@@ -5023,7 +5028,9 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
             ...actionCalls.map((tc) => ({ role: "assistant", toolCall: tc, status: "pending" })),
           ]);
         } else {
-          setMessages((m) => [...m, { role: "assistant", content: "AI 已取得查詢資料，但仍未完成回答。請直接重送同一個問題；不需要縮小日期範圍。" }]);
+          const finalData = await askOnce(text, history, baseContext, toolTurns, true);
+          if (finalData?.provider) setProviderInfo({ provider: finalData.provider, model: finalData.model || "", profile: finalData.profile || "" });
+          setMessages((m) => [...m, { role: "assistant", content: finalData.reply || "已取得資料，但這次模型沒有產生文字回答。" }]);
         }
       } else {
         setMessages((m) => [...m, { role: "assistant", content: data.reply }]);
