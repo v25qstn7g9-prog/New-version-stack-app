@@ -124,7 +124,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.41.0-time-decay-model";
+const APP_VERSION = "4.7-personal-advisor-v2.41.1-time-decay-calibrated";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -2281,6 +2281,16 @@ function TrendRadar({ holdings }) {
           + Math.max(-6,Math.min(6,newsScore*newsW))
           + Math.max(-7,Math.min(7,instScore*instWeight*instTimeW))
           + Math.max(-7,Math.min(7,timedKdScore*1.5));
+
+        // Late-session contradiction guard (model correction #1b).
+        // After 12:30, if a stock is already >=0.30% away from flat, slow
+        // historical factors may soften the call but cannot create a strong
+        // opposite-direction forecast. Near the close, today's realised move
+        // must dominate a same-day close-direction forecast.
+        if (sessionClock >= 750 && Math.abs(stockPct) >= 0.30) {
+          if (stockPct < 0 && score > 1.5) score = 1.5;
+          if (stockPct > 0 && score < -1.5) score = -1.5;
+        }
         const probability = Math.max(25,Math.min(75,50 + 25*Math.tanh(score/22)));
         const direction = probability>=64 ? "明顯偏漲" : probability>=55 ? "稍偏漲" : probability<=36 ? "明顯偏跌" : probability<=45 ? "稍偏跌" : "方向不明";
         // Three tiers now instead of two: "高" needs both real depth of
@@ -2304,7 +2314,7 @@ function TrendRadar({ holdings }) {
           next.forEach(r=>{
             const key=day+"|"+r.symbol+"|morning";
             if(!records.some(x=>x.key===key)){
-              records.push({key,day,symbol:r.symbol,phase:"morning",ts:stamp.toISOString(),probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
+              records.push({key,day,symbol:r.symbol,phase:"morning",ts:stamp.toISOString(),probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,modelVersion:r.modelVersion,lateProgress:r.lateProgress,weights:r.weights,timedKdScore:r.timedKdScore,inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
             }
           });
         }
