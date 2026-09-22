@@ -21,7 +21,7 @@
  */
 
 const SYMBOL_PATTERN = /^[0-9]{4,6}[A-Z]?$/;
-const QUOTE_VERSION = "4.7-quote-schedule-3";
+const QUOTE_VERSION = "4.7-quote-schedule-4";
 const QUOTE_REFRESH_INTERVAL_MS = 15 * 1000;
 const QUOTE_AUTO_STOP_HOUR = 13;
 const QUOTE_AUTO_STOP_MINUTE = 45;
@@ -286,10 +286,44 @@ function taipeiDateStr(unixSeconds) {
   return d.toISOString().slice(0, 10);
 }
 
+// Global symbols (SPX/SOX/USDTWD) need "last completed session vs the one
+// before it" — not the TW-stock logic below, which decides whether a daily
+// bar is "today's" by matching it against taiwanDateStr(). That match is
+// designed for TW-listed stocks (whose trading day IS the TW calendar day)
+// and during TWSE's own 09:00–13:30 session it can never match a foreign
+// index's bar (the US session for "today" in Taipei hasn't started yet), so
+// the fallback branch it takes ends up setting *both* price and prevClose to
+// the same latest close — a hard-coded 0.00% every single time, which is
+// exactly what was showing up in the Trend Radar's overnight-signal card.
+async function fetchGlobalDailyQuote(symbol) {
+  const yahooSymbol = GLOBAL_SYMBOLS[symbol];
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=1d&range=5d&_ts=${Date.now()}`;
+  const json = await fetchJson(url, 6500);
+  const r = json?.chart?.result?.[0];
+  const timestamps = Array.isArray(r?.timestamp) ? r.timestamp : [];
+  const closes = r?.indicators?.quote?.[0]?.close || [];
+  const valid = [];
+  for (let i = 0; i < Math.min(timestamps.length, closes.length); i++) {
+    const c = Number(closes[i]);
+    if (Number.isFinite(c) && c > 0) valid.push({ ts: Number(timestamps[i]), close: c });
+  }
+  if (valid.length < 2) throw new Error("Yahoo global: insufficient daily bars");
+  const last = valid[valid.length - 1];
+  const prev = valid[valid.length - 2];
+  return {
+    price: last.close,
+    prevClose: prev.close,
+    asOfDate: new Date(last.ts * 1000).toISOString(),
+    source: "Yahoo-daily",
+    intradayFresh: false,
+  };
+}
+
 async function fetchYahooPrice(symbol) {
+  if (isGlobalSymbol(symbol)) return fetchGlobalDailyQuote(symbol);
   const yahooSymbol = symbol === "TAIEX"
     ? "^TWII"
-    : GLOBAL_SYMBOLS[symbol] || `${symbol}.TW`;
+    : `${symbol}.TW`;
   const encoded = encodeURIComponent(yahooSymbol);
 
   const intradayUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?interval=1m&range=1d&_ts=${Date.now()}`;
