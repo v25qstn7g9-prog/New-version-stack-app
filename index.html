@@ -124,7 +124,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.41.4-stacked-price-pct";
+const APP_VERSION = "4.7-personal-advisor-v2.42.0-close-lock-reinforcement";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -2127,6 +2127,7 @@ function TrendRadar({ holdings }) {
       // gain importance; stale/slow factors (market beta, news, institutions,
       // daily KD) fade as the close approaches.
       const lateProgress = Math.max(0, Math.min(1, (sessionClock - 630) / 180)); // 10:30 -> 13:30
+      const closeProgress = Math.max(0, Math.min(1, (sessionClock - 750) / 60)); // 12:30 -> 13:30
       const todayKey = now.toLocaleDateString("sv-SE");
       const kdFromBars=(bars)=>{
         if(!bars || bars.length<9) return null;
@@ -2248,11 +2249,15 @@ function TrendRadar({ holdings }) {
         +Math.max(-6,Math.min(6,(breadth-0.5)*marketBreadthW))
         +Math.max(-7,Math.min(7,mkShortScore*1.8))
         +Math.max(-6,Math.min(6,marketInstScore*marketInstW));
+      const marketCloseBoost = Math.abs(indexPct)>=0.10
+        ? Math.sign(indexPct)*Math.min(6, 2 + Math.abs(indexPct)*8)*closeProgress
+        : 0;
+      marketScore += marketCloseBoost;
       const marketProbability=Math.max(25,Math.min(75,50 + 25*Math.tanh(marketScore/22)));
       const marketDirection=marketProbability>=64?"明顯偏漲":marketProbability>=55?"稍偏漲":marketProbability<=36?"明顯偏跌":marketProbability<=45?"稍偏跌":"方向不明";
-      setMarketRow({probability:marketProbability,direction:marketDirection,indexPct,breadth,kd5:marketKd5,kd15:marketKd15,kd60:marketKd60,kdDaily:marketKdDaily,kdMonthly:marketKdMonthly});
+      let computedMarketRow={probability:marketProbability,direction:marketDirection,indexPct,breadth,kd5:marketKd5,kd15:marketKd15,kd60:marketKd60,kdDaily:marketKdDaily,kdMonthly:marketKdMonthly,marketCloseBoost,modelVersion:"2.42-close-lock"};
       if(cancelled) return;
-      const next = active.map((h) => {
+      let next = active.map((h) => {
         const q = quoteMap[h.symbol] || {};
         const stockPct = Number(q.prevClose) ? ((Number(q.price)-Number(q.prevClose))/Number(q.prevClose))*100 : 0;
         const news = (newsCache?.news?.[h.symbol] || []).slice(0,5);
@@ -2287,6 +2292,15 @@ function TrendRadar({ holdings }) {
           + Math.max(-7,Math.min(7,instScore*instWeight*instTimeW))
           + Math.max(-7,Math.min(7,timedKdScore*1.5));
 
+        // Model correction #2: close-proximity direction reinforcement.
+        // From 12:30 onward, a move that is already meaningfully away from flat
+        // earns progressively more weight in the same direction. This prevents
+        // correction #1 from collapsing too many late-session calls back to 50%.
+        const closeDirectionBoost = Math.abs(stockPct)>=0.15
+          ? Math.sign(stockPct)*Math.min(8, 2 + Math.abs(stockPct)*8)*closeProgress
+          : 0;
+        score += closeDirectionBoost;
+
         // Late-session contradiction guard (model correction #1b).
         // After 12:30, if a stock is already >=0.30% away from flat, slow
         // historical factors may soften the call but cannot create a strong
@@ -2304,8 +2318,34 @@ function TrendRadar({ holdings }) {
         const conviction = Math.abs(probability-50);
         const confidence = (flows.length>=3 && conviction>=15 && kdSignals.length>=3) ? "高"
           : (flows.length>=1 && conviction>=8) ? "中" : "低";
-        return {symbol:h.symbol,name:h.name||"",probability,direction,confidence,indexPct,stockPct,newsScore,flows,f1,f3,f5,t1,t3,t5,d1,d3,d5,kd5,kd15,kd60,kdDaily,kdMonthly,modelVersion:"2.41-time-decay",lateProgress,weights:{indexW,stockW,newsW,instTimeW},timedKdScore};
+        return {symbol:h.symbol,name:h.name||"",probability,direction,confidence,indexPct,stockPct,newsScore,flows,f1,f3,f5,t1,t3,t5,d1,d3,d5,kd5,kd15,kd60,kdDaily,kdMonthly,modelVersion:"2.42-close-lock",lateProgress,closeProgress,closeDirectionBoost,weights:{indexW,stockW,newsW,instTimeW},timedKdScore};
       });
+
+      // Model correction #2: freeze today's forecast at/after 13:25.
+      // Once a close-lock exists for the day, later quote updates cannot rewrite
+      // the answer after the market has effectively finished. This creates a
+      // genuinely auditable prediction for post-close validation.
+      try {
+        if (sessionClock >= 805) {
+          const lock = await loadKey("trendRadarCloseLock", null);
+          if (lock?.day === todayKey && lock.market && Array.isArray(lock.rows)) {
+            computedMarketRow = {...computedMarketRow, probability:lock.market.probability, direction:lock.market.direction, lockedAt:lock.at};
+            const bySym = Object.fromEntries(lock.rows.map(x=>[x.symbol,x]));
+            next = next.map(r => bySym[r.symbol]
+              ? {...r, probability:bySym[r.symbol].probability, direction:bySym[r.symbol].direction, confidence:bySym[r.symbol].confidence, lockedAt:lock.at}
+              : r);
+          } else {
+            await saveKey("trendRadarCloseLock", {
+              day: todayKey,
+              at: now.toISOString(),
+              market: {probability:computedMarketRow.probability,direction:computedMarketRow.direction},
+              rows: next.map(r=>({symbol:r.symbol,probability:r.probability,direction:r.direction,confidence:r.confidence}))
+            });
+          }
+        }
+      } catch(e) {}
+
+      setMarketRow(computedMarketRow);
       // Save one evaluation snapshot per symbol/day. This creates the training/
       // calibration history needed to replace hand-tuned weights with measured ones.
       try{
@@ -2319,7 +2359,7 @@ function TrendRadar({ holdings }) {
           next.forEach(r=>{
             const key=day+"|"+r.symbol+"|morning";
             if(!records.some(x=>x.key===key)){
-              records.push({key,day,symbol:r.symbol,phase:"morning",ts:stamp.toISOString(),probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,modelVersion:r.modelVersion,lateProgress:r.lateProgress,weights:r.weights,timedKdScore:r.timedKdScore,inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
+              records.push({key,day,symbol:r.symbol,phase:"morning",ts:stamp.toISOString(),probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,modelVersion:r.modelVersion,lateProgress:r.lateProgress,closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,weights:r.weights,timedKdScore:r.timedKdScore,inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
             }
           });
         }
