@@ -1935,14 +1935,14 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
                   </span>
                   <span className="text-right">{r.price.toFixed(2)}</span>
                 </div>
-                <div className="grid grid-cols-[52px_1fr_auto] gap-2 text-xs mono items-center mt-0.5">
+                <div className="grid grid-cols-[52px_1fr_72px] gap-2 text-xs mono items-center mt-0.5">
                   <span></span>
                   <span style={{ color: r.quoteIsStale ? COLORS.sub : (r.chg >= 0 ? COLORS.gain : COLORS.loss) }}>
                     {r.quoteIsStale && isTwseTradingHours()
                       ? "待更新"
                       : <>{r.chg >= 0 ? "▲" : "▼"} {r.chgPct >= 0 ? "+" : ""}{r.chgPct.toFixed(2)}%</>}
                   </span>
-                  <span className="text-right"><span className="font-bold">{nf(r.value)}</span>{!r.quoteIsStale && <span className="ml-2" style={{ color: r.chg >= 0 ? COLORS.gain : COLORS.loss, opacity: 0.85 }}>今日損益 {r.chg >= 0 ? "+" : ""}{nf(Math.round(r.chg * r.current))}</span>}</span>
+                  <span className="text-right whitespace-nowrap">{!r.quoteIsStale && <span style={{ color: r.chg >= 0 ? COLORS.gain : COLORS.loss, opacity: 0.85 }}>損益 {r.chg >= 0 ? "+" : ""}{nf(Math.round(r.chg * r.current))}</span>}</span>
                 </div>
                 {r.isFromCache && r.fetchedAt && (
                   <div className="text-[9px] text-right mt-0.5" style={{ color: COLORS.sub }}>
