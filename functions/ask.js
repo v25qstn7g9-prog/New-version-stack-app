@@ -13,7 +13,7 @@
  * Cloudflare 為主模型；Cloudflare 失敗時由同一個 Worker 直接切 Gemini 3.5 Flash-Lite。
  * 舊 fallback-vercel 仍保留作最後一道相容備援。
  */
-const ASK_VERSION = "4.7-personal-advisor-v3.0.1-tool-finalize";
+const ASK_VERSION = "4.7-personal-advisor-v3.0.2-gemini-toolturn-compat";
 const GEMINI_MODEL_DEFAULT = "gemini-3.5-flash-lite";
 const GEMINI_MAX_OUTPUT_TOKENS = 1000;
 const MODEL = "@cf/openai/gpt-oss-20b";
@@ -385,32 +385,26 @@ function buildGeminiContents(history, message, toolTurns = []) {
     const text = String(m?.content || "").slice(0, MAX_HISTORY_CONTENT);
     if (text) contents.push({ role, parts: [{ text }] });
   }
+
+  // IMPORTANT: toolTurns can originate from Cloudflare GPT-OSS, not Gemini.
+  // Gemini 3.x requires a model-generated thought_signature when replaying
+  // functionCall parts. Cloudflare-originated tool calls do not have that
+  // signature, so replaying them as functionCall/functionResponse causes HTTP 400.
+  // Feed already-resolved local App tool results back to Gemini as plain text
+  // evidence instead. Gemini's own tool calls created later in this request still
+  // use native functionCall parts and preserve their thought signatures.
   for (const turn of toolTurns || []) {
     const calls = Array.isArray(turn?.calls) ? turn.calls : [];
     const results = Array.isArray(turn?.results) ? turn.results : [];
-    if (calls.length) {
-      contents.push({
-        role: "model",
-        parts: calls.map((tc) => ({ functionCall: {
-          name: String(tc?.name || ""),
-          args: tc?.arguments && typeof tc.arguments === "object" ? tc.arguments : {},
-          ...(tc?.id ? { id: String(tc.id) } : {}),
-          ...(tc?._geminiThoughtSignature ? { thoughtSignature: tc._geminiThoughtSignature } : {}),
-        }})).filter((p) => p.functionCall.name),
-      });
-    }
-    if (results.length) {
-      const callNames = new Map(calls.map((tc) => [String(tc?.id || ""), String(tc?.name || "query_app_data")]));
-      contents.push({
-        role: "user",
-        parts: results.map((tr) => ({ functionResponse: {
-          name: String(tr?.name || callNames.get(String(tr?.id || "")) || "query_app_data"),
-          ...(tr?.id ? { id: String(tr.id) } : {}),
-          response: { result: String(tr?.content || "").slice(0, MAX_CONTEXT_LEN) },
-        }})),
-      });
-    }
+    if (!results.length) continue;
+    const callNames = new Map(calls.map((tc) => [String(tc?.id || ""), String(tc?.name || "app_tool")]));
+    const blocks = results.map((tr, idx) => {
+      const name = String(tr?.name || callNames.get(String(tr?.id || "")) || calls[idx]?.name || "app_tool");
+      return `【App 工具結果：${name}】\n${String(tr?.content || "").slice(0, MAX_CONTEXT_LEN)}`;
+    });
+    contents.push({ role: "user", parts: [{ text: blocks.join("\n\n") }] });
   }
+
   contents.push({ role: "user", parts: [{ text: message }] });
   return contents;
 }
