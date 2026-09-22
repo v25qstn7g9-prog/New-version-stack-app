@@ -124,7 +124,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.31.0-institutional-radar";
+const APP_VERSION = "4.7-personal-advisor-v2.32.0-mtf-kd-radar";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -2040,6 +2040,40 @@ function TrendRadar({ holdings }) {
       const newsCache = await loadKey("stockNews", null);
       if (cancelled) return;
       const quoteMap = cached?.map || {};
+      // Build our own intraday tape from the existing live-price cache.
+      // It works offline from the quote provider after each quote has already
+      // reached the app, and is intentionally capped to keep local storage small.
+      const tapeCache = await loadKey("trendRadarTape", { points: [] });
+      const now = new Date();
+      const todayKey = now.toLocaleDateString("sv-SE");
+      let tape = Array.isArray(tapeCache?.points) ? tapeCache.points.filter(p => p.day === todayKey) : [];
+      const minute = now.getHours()*60 + now.getMinutes();
+      const inSession = now.getDay()>0 && now.getDay()<6 && minute>=540 && minute<=825;
+      if(inSession){
+        const point={day:todayKey,ts:now.getTime(),quotes:{}};
+        Object.entries(quoteMap).forEach(([sym,q])=>{const px=Number(q?.price); if(px>0) point.quotes[sym]=px;});
+        if(Object.keys(point.quotes).length && (!tape.length || point.ts-tape[tape.length-1].ts>=4*60*1000)){
+          tape=[...tape,point].slice(-90);
+          await saveKey("trendRadarTape",{points:tape,at:now.toISOString()});
+        }
+      }
+      const kdFromCloses=(vals)=>{
+        if(!vals || vals.length<9) return null;
+        let K=50,D=50,prevK=50,prevD=50;
+        for(let i=8;i<vals.length;i++){
+          const w=vals.slice(i-8,i+1), hi=Math.max(...w), lo=Math.min(...w), c=vals[i];
+          const rsv=hi===lo?50:((c-lo)/(hi-lo))*100;
+          prevK=K; prevD=D; K=(2*K+rsv)/3; D=(2*D+K)/3;
+        }
+        const cross=prevK<=prevD&&K>D?"黃金交叉":prevK>=prevD&&K<D?"死亡交叉":K>D?"K>D":"K<D";
+        const state=K>=80&&D>=80?"高檔":K<=20&&D<=20?"低檔":cross;
+        return {K,D,state,bull:K>D?1:-1};
+      };
+      const bucketCloses=(sym,mins)=>{
+        const buckets=new Map();
+        tape.forEach(p=>{const px=Number(p.quotes?.[sym]); if(!px)return; const key=Math.floor(p.ts/(mins*60000)); buckets.set(key,px);});
+        return [...buckets.entries()].sort((a,b)=>a[0]-b[0]).map(x=>x[1]);
+      };
       const idx = cached?.marketIndex || null;
       const indexPct = idx && Number(idx.prevClose) ? ((Number(idx.price)-Number(idx.prevClose))/Number(idx.prevClose))*100 : 0;
       const positiveWords = /利多|成長|上修|創高|增加|獲利|旺|擴產|突破|優於|買超/i;
@@ -2069,11 +2103,19 @@ function TrendRadar({ holdings }) {
         const isETF=/^00/.test(String(h.symbol));
         const instScore=(signScore(f1)*1.0+signScore(f3)*1.5+signScore(f5)*2.0)+(signScore(t1)*0.7+signScore(t3)*1.0+signScore(t5)*1.3)+(signScore(d1)*0.25+signScore(d3)*0.35+signScore(d5)*0.45);
         const instWeight=isETF?0.65:1;
-        let score = Math.max(-18,Math.min(18,indexPct*7)) + Math.max(-14,Math.min(14,stockPct*4)) + Math.max(-8,Math.min(8,newsScore*4)) + Math.max(-8,Math.min(8,instScore*instWeight));
+        const kd5=kdFromCloses(bucketCloses(h.symbol,5));
+        const kd15=kdFromCloses(bucketCloses(h.symbol,15));
+        const kd60=kdFromCloses(bucketCloses(h.symbol,60));
+        // Intraday KD is computed locally from the app's accumulated snapshots.
+        // Daily/monthly KD stays pending until enough true historical OHLC is available;
+        // we do not fabricate it from sparse intraday samples.
+        const kdSignals=[kd5,kd15,kd60].filter(Boolean);
+        const kdScore=kdSignals.reduce((a,k)=>a+k.bull,0);
+        let score = Math.max(-18,Math.min(18,indexPct*7)) + Math.max(-14,Math.min(14,stockPct*4)) + Math.max(-8,Math.min(8,newsScore*4)) + Math.max(-8,Math.min(8,instScore*instWeight)) + Math.max(-5,Math.min(5,kdScore*1.5));
         const probability = Math.max(35,Math.min(65,50+score));
         const direction = probability>=58 ? "偏多" : probability<=42 ? "偏空" : "中性";
         const confidence = flows.length>=3 && Math.abs(probability-50)>=10 ? "中" : "低";
-        return {symbol:h.symbol,name:h.name||"",probability,direction,confidence,indexPct,stockPct,newsScore,flows,f1,f3,f5,t1,t3,t5,d1,d3,d5};
+        return {symbol:h.symbol,name:h.name||"",probability,direction,confidence,indexPct,stockPct,newsScore,flows,f1,f3,f5,t1,t3,t5,d1,d3,d5,kd5,kd15,kd60};
       });
       setRows(next); setAsOf(new Date());
     };
@@ -2087,7 +2129,7 @@ function TrendRadar({ holdings }) {
   return (
     <div className="rounded-2xl p-4" style={{background:COLORS.panel,border:"1px solid "+COLORS.panelBorder,boxShadow:"0 4px 16px rgba(0,0,0,0.28)"}}>
       <div className="flex items-center justify-between mb-2">
-        <div><div className="text-xs font-bold" style={{color:COLORS.gold}}>AI 今日趨勢雷達</div><div className="text-[9px] mt-0.5" style={{color:COLORS.sub}}>實驗版 · 每15分鐘重算 · 已納入三大法人1/3/5日趨勢</div></div>
+        <div><div className="text-xs font-bold" style={{color:COLORS.gold}}>AI 今日趨勢雷達</div><div className="text-[9px] mt-0.5" style={{color:COLORS.sub}}>實驗版 · 每15分鐘重算 · 法人＋多週期KD</div></div>
         {asOf&&<div className="text-[9px] mono" style={{color:COLORS.sub}}>{asOf.toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit",hour12:false})}</div>}
       </div>
       <div className="space-y-2">
@@ -2096,6 +2138,12 @@ function TrendRadar({ holdings }) {
           return <div key={r.symbol} className="rounded-xl px-3 py-2" style={{background:COLORS.bg,border:"1px solid "+COLORS.panelBorder}}>
             <div className="flex items-center justify-between"><div className="text-xs font-bold mono">{r.symbol}<span className="ml-1 font-normal" style={{color:COLORS.sub}}>{r.name}</span></div><div className="text-xs font-black mono" style={{color:tone}}>{r.direction} {r.probability.toFixed(0)}%</div></div>
             <div className="flex justify-between mt-1 text-[9px]" style={{color:COLORS.sub}}><span>大盤 {r.indexPct>=0?"+":""}{r.indexPct.toFixed(2)}%</span><span>個股 {r.stockPct>=0?"+":""}{r.stockPct.toFixed(2)}%</span><span>新聞 {r.newsScore>0?"偏正":r.newsScore<0?"偏負":"中性"}</span><span>信心 {r.confidence}</span></div>
+            <div className="mt-1.5 pt-1.5 text-[9px] mono" style={{color:COLORS.sub,borderTop:"1px solid "+COLORS.panelBorder}}>
+              <div className="flex justify-between"><span>KD 5分</span><span>{r.kd5?`${r.kd5.K.toFixed(0)}/${r.kd5.D.toFixed(0)} ${r.kd5.state}`:"累積中"}</span></div>
+              <div className="flex justify-between"><span>KD 15分</span><span>{r.kd15?`${r.kd15.K.toFixed(0)}/${r.kd15.D.toFixed(0)} ${r.kd15.state}`:"累積中"}</span></div>
+              <div className="flex justify-between"><span>KD 60分</span><span>{r.kd60?`${r.kd60.K.toFixed(0)}/${r.kd60.D.toFixed(0)} ${r.kd60.state}`:"累積中"}</span></div>
+              <div className="flex justify-between"><span>KD 日/月</span><span>等待歷史K線</span></div>
+            </div>
             {r.flows.length>0&&<div className="mt-1.5 pt-1.5 text-[9px] mono" style={{color:COLORS.sub,borderTop:"1px solid "+COLORS.panelBorder}}>
               <div className="flex justify-between"><span>外資 1/3/5日</span><span>{flowText(r.f1)} / {flowText(r.f3)} / {flowText(r.f5)}</span></div>
               <div className="flex justify-between"><span>投信 1/3/5日</span><span>{flowText(r.t1)} / {flowText(r.t3)} / {flowText(r.t5)}</span></div>
@@ -2104,7 +2152,7 @@ function TrendRadar({ holdings }) {
           </div>;
         })}
       </div>
-      <div className="text-[9px] mt-2 leading-relaxed" style={{color:COLORS.sub}}>法人：證交所盤後公開資料；ETF 法人流量降低權重，自營商亦降低權重以減少避險/造市影響。{instStatus==="unavailable"?"目前法人來源暫不可用，雷達會自動退回原模型。":"法人資料快取6小時。"} 隔夜美股、費半、ADR、台指夜盤仍待接入。</div>
+      <div className="text-[9px] mt-2 leading-relaxed" style={{color:COLORS.sub}}>法人：證交所盤後公開資料；ETF 法人流量降低權重，自營商亦降低權重以減少避險/造市影響。{instStatus==="unavailable"?"目前法人來源暫不可用，雷達會自動退回原模型。":"法人資料快取6小時。"} 5/15/60分KD由App自行累積報價運算；日/月KD等待歷史K線來源，避免用不完整資料硬算。</div>
     </div>
   );
 }
