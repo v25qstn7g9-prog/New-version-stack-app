@@ -21,7 +21,7 @@
  */
 
 const SYMBOL_PATTERN = /^[0-9]{4,6}[A-Z]?$/;
-const QUOTE_VERSION = "4.7-quote-schedule-3";
+const QUOTE_VERSION = "4.7-quote-schedule-4-high-low";
 const QUOTE_REFRESH_INTERVAL_MS = 15 * 1000;
 const QUOTE_AUTO_STOP_HOUR = 13;
 const QUOTE_AUTO_STOP_MINUTE = 45;
@@ -195,9 +195,13 @@ function parseTwseItem(item) {
     ? new Date(tickMs).toISOString()
     : null;
 
+  const high = Number(item.h);
+  const low = Number(item.l);
   return {
     prevClose,
     price: Number.isFinite(price) ? price : null,
+    high: Number.isFinite(high) && high > 0 ? high : null,
+    low: Number.isFinite(low) && low > 0 ? low : null,
     priceSource,
     asOfDate,
   };
@@ -235,6 +239,8 @@ async function fetchTwseBatch(symbols, debug = false) {
     quotes[symbol] = {
       price: parsed.price,
       prevClose: parsed.prevClose,
+      high: parsed.high,
+      low: parsed.low,
       isStale: parsed.price == null,
       asOfDate: parsed.asOfDate,
       source: "TWSE",
@@ -249,6 +255,8 @@ async function fetchTwseBatch(symbols, debug = false) {
         rawA: item.a,
         rawB: item.b,
         rawO: item.o,
+        rawH: item.h,
+        rawL: item.l,
         rawN: item.n,
       };
     }
@@ -301,6 +309,8 @@ async function fetchYahooPrice(symbol) {
   ]);
 
   let price = null;
+  let high = null;
+  let low = null;
   let priceAsOf = null;
   let intradayFresh = false;
 
@@ -308,6 +318,12 @@ async function fetchYahooPrice(symbol) {
     const r = intradayResult.value?.chart?.result?.[0];
     const timestamps = Array.isArray(r?.timestamp) ? r.timestamp : [];
     const closes = r?.indicators?.quote?.[0]?.close || [];
+    const highs = r?.indicators?.quote?.[0]?.high || [];
+    const lows = r?.indicators?.quote?.[0]?.low || [];
+    const validHighs = highs.map(Number).filter(v=>Number.isFinite(v)&&v>0);
+    const validLows = lows.map(Number).filter(v=>Number.isFinite(v)&&v>0);
+    if(validHighs.length) high=Math.max(...validHighs);
+    if(validLows.length) low=Math.min(...validLows);
 
     for (let i = Math.min(timestamps.length, closes.length) - 1; i >= 0; i--) {
       const c = Number(closes[i]);
@@ -373,6 +389,8 @@ async function fetchYahooPrice(symbol) {
   return {
     price,
     prevClose: Number.isFinite(prevClose) && prevClose > 0 ? prevClose : null,
+    high: Number.isFinite(high) ? high : null,
+    low: Number.isFinite(low) ? low : null,
     asOfDate: priceAsOf,
     source: "Yahoo",
     intradayFresh,
