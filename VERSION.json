@@ -1,9 +1,9 @@
 {
-  "app": "2.41.0",
+  "app": "2.43.0",
   "lastUpdated": "2026-09-22",
   "status": "personal-investment-advisor-gemini-direct-fallback",
   "cloudflare": {
-    "index.html": "4.7-personal-advisor-v2.41.0-quote-high-low-overnight-fix",
+    "index.html": "4.7-personal-advisor-v2.43.0-overnight-beta-and-phase-split-accuracy",
     "quote.js": "4.7-quote-schedule-5-high-low-overnight-fix",
     "ask.js": "4.7-personal-advisor-v2.29.1-gemini35-direct-fallback",
     "news.js": "4.6-news-stable-6",
@@ -23,8 +23,8 @@
     "news": "台股市場新聞",
     "health": "自動健康檢查卡片",
     "backup": "JSON 備份／匯入",
-    "trendRadar": "AI 今日／明日趨勢雷達：真實日/月KD（歷史K線）＋盤中5/15/60分KD＋全市場三大法人＋新聞情緒（含否定語氣判斷）＋S&P500/費半SOX/美元台幣隔夜訊號；今日與明日預測分開驗證命中率，並排除方向不明的預測",
+    "trendRadar": "AI 今日／明日趨勢雷達：時間自適應權重＋13:25收盤前鎖定＋真實日/月KD（歷史K線）＋盤中5/15/60分KD＋全市場三大法人＋新聞情緒（含否定語氣判斷）＋S&P500/費半SOX/美元台幣隔夜訊號（依各持股對TAIEX的實測beta縮放曝險）；上午／收盤前鎖定／明日 三種預測分開驗證命中率，並排除方向不明的預測",
     "factorBacktest": "研究用因子回測（總覽頁，雷達卡片下方）：把雷達用到的每個原始因子跟實際漲跌幅算皮爾森相關係數，樣本數不足時不顯示係數，用來判斷哪些因子真的有解釋力"
   },
-  "package": "2.41.0"
+  "package": "2.43.0"
 }

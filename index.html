@@ -124,7 +124,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.42.1-split-backtest";
+const APP_VERSION = "4.7-personal-advisor-v2.43.0-overnight-beta-and-phase-split-accuracy";
 const BACKUP_SCHEMA_VERSION = 2;
 
 const TABS = [
@@ -2035,6 +2035,7 @@ function TrendRadar({ holdings }) {
   const [instStatus, setInstStatus] = useState("loading");
   const [globalStatus, setGlobalStatus] = useState("loading");
   const [accuracy, setAccuracy] = useState(null);
+  const [closeLockAccuracy, setCloseLockAccuracy] = useState(null);
   const [tomorrowAccuracy, setTomorrowAccuracy] = useState(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [marketRow, setMarketRow] = useState(null);
@@ -2189,6 +2190,37 @@ function TrendRadar({ holdings }) {
       };
       const dailyKdFor = (sym) => kdFromBars(dailyBarsMap[sym]);
       const monthlyKdFor = (sym) => kdFromBars(monthlyFromDaily(dailyBarsMap[sym]));
+      // How exposed is this specific holding to the SOX/SPX overnight move?
+      // The overnight term applies the exact same weight to every symbol, so
+      // a broad dividend ETF (低半導體權重) gets pulled by a SOX rally just
+      // as hard as a pure semiconductor name — visible in real data once the
+      // overnight-signal bug was fixed (SOX +4.29% pulled every holding's
+      // "明日" bullish alike, dividend ETF included). Rather than hand-typing
+      // a sector guess, use each stock's own measured beta to TAIEX from the
+      // daily bars already fetched: a stock that historically moves more
+      // than the index is more growth/semiconductor-like and gets more
+      // overnight exposure; one that moves less gets less. Falls back to
+      // neutral (1) when there isn't enough daily history yet.
+      const betaVs = (bars, marketBars) => {
+        if (!bars || !marketBars || bars.length < 15 || marketBars.length < 15) return 1;
+        const mClose = new Map(marketBars.map((b) => [b.day, b.close]));
+        const rets = [];
+        for (let i = 1; i < bars.length; i++) {
+          const prevClose = bars[i - 1].close, day = bars[i].day, prevDay = bars[i - 1].day;
+          const mPrev = mClose.get(prevDay), mNow = mClose.get(day);
+          if (!(prevClose > 0) || mPrev == null || mNow == null || !(mPrev > 0)) continue;
+          rets.push([(mNow - mPrev) / mPrev, (bars[i].close - prevClose) / prevClose]);
+        }
+        const recent = rets.slice(-60);
+        if (recent.length < 15) return 1;
+        const mx = recent.reduce((a, [x]) => a + x, 0) / recent.length;
+        const my = recent.reduce((a, [, y]) => a + y, 0) / recent.length;
+        let cov = 0, varx = 0;
+        recent.forEach(([x, y]) => { const dx = x - mx; cov += dx * (y - my); varx += dx * dx; });
+        if (varx === 0) return 1;
+        return Math.max(0.4, Math.min(1.8, cov / varx));
+      };
+      const betaFor = (sym) => betaVs(dailyBarsMap[sym], dailyBarsMap.TAIEX);
 
       const idx = cached?.marketIndex || null;
       const indexPct = idx && Number(idx.prevClose) ? ((Number(idx.price)-Number(idx.prevClose))/Number(idx.prevClose))*100 : 0;
@@ -2407,20 +2439,20 @@ function TrendRadar({ holdings }) {
       const toLabel=(p)=>p>=64?"明顯偏漲":p>=55?"稍偏漲":p<=36?"明顯偏跌":p<=45?"稍偏跌":"方向不明";
       const tomorrow={};
       if(clock>=720){
-        const calcTomorrow=(pct,kds,news=0,inst=0)=>{
+        const calcTomorrow=(pct,kds,news=0,inst=0,beta=1)=>{
           const ks=(kds||[]).filter(Boolean).reduce((a,k)=>a+k.bull,0);
-          const overnight = global ? Math.max(-10,Math.min(10,global.combined*1.1)) : 0;
+          const overnight = global ? Math.max(-10,Math.min(10,global.combined*1.1*beta)) : 0;
           const raw=overnight+Math.max(-6,Math.min(6,pct*2))+Math.max(-5,Math.min(5,ks*1.5))+Math.max(-4,Math.min(4,news*1.5))+Math.max(-4,Math.min(4,inst));
           const p=Math.max(30,Math.min(70,50+20*Math.tanh(raw/16)));
           // Keep the raw inputs (not just the blended probability) so a future
           // factor backtest can tell which of these actually carries signal,
           // instead of trusting these hand-picked weights forever.
-          return {probability:p,direction:toLabel(p),factors:{overnight,pct,ks,news,inst}};
+          return {probability:p,direction:toLabel(p),factors:{overnight,pct,ks,news,inst,beta}};
         };
         tomorrow.TAIEX=calcTomorrow(indexPct,[marketKd15,marketKd60,marketKdDaily]);
         next.forEach(r=>{
           const inst=(Math.sign(r.f3||0)*1.5+Math.sign(r.t3||0));
-          tomorrow[r.symbol]=calcTomorrow(r.stockPct,[r.kd15,r.kd60,r.kdDaily],r.newsScore,inst);
+          tomorrow[r.symbol]=calcTomorrow(r.stockPct,[r.kd15,r.kd60,r.kdDaily],r.newsScore,inst,betaFor(r.symbol));
         });
         // Snapshot each symbol's "tomorrow" call exactly once per target
         // trading day, keyed by the date it's actually about — so it can be
@@ -2486,9 +2518,15 @@ function TrendRadar({ holdings }) {
       try{
         const h=await loadKey("trendRadarHistory",{records:[]});
         // 排除「方向不明」（機率貼近50%，形同亂猜）的預測，避免拉低/虛增準確率的意義。
-        const done=(h?.records||[]).filter(r=>r.actual && typeof r.actual.hit==="boolean" && r.direction!=="方向不明");
-        const recent=done.slice(-60);
+        // 「上午」(09:00 剛開盤猜) 跟「收盤前鎖定」(13:25，市場已經走完大半天) 難度天差地遠，
+        // 混在一起算命中率毫無意義——之前這裡沒分開統計，數字看起來會失真。
+        const validRecords=(h?.records||[]).filter(r=>r.actual && typeof r.actual.hit==="boolean" && r.direction!=="方向不明");
+        const morningDone=validRecords.filter(r=>r.phase==="morning");
+        const closeLockDone=validRecords.filter(r=>r.phase==="closeLock");
+        const recent=morningDone.slice(-60);
+        const recentClose=closeLockDone.slice(-60);
         if(!dead) setAccuracy(recent.length?{n:recent.length,hits:recent.filter(r=>r.actual.hit).length}:null);
+        if(!dead) setCloseLockAccuracy(recentClose.length?{n:recentClose.length,hits:recentClose.filter(r=>r.actual.hit).length}:null);
       }catch(e){}
       try{
         const th=await loadKey("trendRadarTomorrowHistory",{records:[]});
@@ -2541,6 +2579,7 @@ function TrendRadar({ holdings }) {
               <div className="flex justify-between"><span>KD 60分</span><span>{kdCell(r.kd60)}</span></div>
               <div className="flex justify-between"><span>KD 日線</span><span>{kdCell(r.kdDaily)}</span></div>
               <div className="flex justify-between"><span>KD 月線</span><span>{kdCell(r.kdMonthly)}</span></div>
+              <div className="flex justify-between"><span>隔夜曝險係數（對TAIEX的beta）</span><span>{tomorrowMap[r.symbol]?.factors?.beta!=null?tomorrowMap[r.symbol].factors.beta.toFixed(2):"—"}</span></div>
             </div>
             {r.flows.length>0&&<div className="mt-1.5 pt-1.5 text-[9px] mono" style={{color:COLORS.sub,borderTop:"1px solid "+COLORS.panelBorder}}>
               <div className="flex justify-between"><span>外資 1/3/5日</span><span>{flowText(r.f1)} / {flowText(r.f3)} / {flowText(r.f5)}</span></div>
@@ -2553,7 +2592,8 @@ function TrendRadar({ holdings }) {
       <button onClick={()=>setDetailsOpen(v=>!v)} className="w-full mt-2 rounded-lg py-1.5 text-[10px] font-bold" style={{background:COLORS.bg,color:COLORS.gold,border:"1px solid "+COLORS.panelBorder}}>
         {detailsOpen?"收起判斷明細 ▲":"展開判斷明細 ▼"}
       </button>
-      {accuracy&&<div className="text-[9px] mt-2 mono" style={{color:COLORS.gold}}>近 {accuracy.n} 次已驗證「今日」預測：方向命中 {((accuracy.hits/accuracy.n)*100).toFixed(1)}%（已排除方向不明，僅統計，不代表未來）</div>}
+      {accuracy&&<div className="text-[9px] mt-2 mono" style={{color:COLORS.gold}}>近 {accuracy.n} 次已驗證「上午」預測：方向命中 {((accuracy.hits/accuracy.n)*100).toFixed(1)}%（已排除方向不明，僅統計，不代表未來）</div>}
+      {closeLockAccuracy&&<div className="text-[9px] mt-1 mono" style={{color:COLORS.gold}}>近 {closeLockAccuracy.n} 次已驗證「收盤前鎖定」預測：方向命中 {((closeLockAccuracy.hits/closeLockAccuracy.n)*100).toFixed(1)}%（13:25 才鎖定，難度遠低於上午，跟上面分開看）</div>}
       {tomorrowAccuracy&&<div className="text-[9px] mt-1 mono" style={{color:COLORS.gold}}>近 {tomorrowAccuracy.n} 次已驗證「明日」預測：方向命中 {((tomorrowAccuracy.hits/tomorrowAccuracy.n)*100).toFixed(1)}%（已排除方向不明，僅統計，不代表未來）</div>}
       <div className="text-[9px] mt-2 leading-relaxed" style={{color:COLORS.sub}}>法人：證交所盤後公開資料；ETF 法人流量降低權重，自營商亦降低權重以減少避險/造市影響，大盤分數已納入全市場法人加總。{instStatus==="unavailable"?"目前法人來源暫不可用，雷達會自動退回原模型。":"法人資料快取6小時。"} 5/15/60分KD由15秒即時報價持續取樣、聚合OHLC後運算；日/月KD取自真實歷史K線。明日預測以美股/費半/匯率等隔夜訊號為主，{globalStatus==="unavailable"?"目前隔夜訊號暫不可用，明日預測退回今日動能外推。":"今日動能僅作次要修正。"} 每日上午預測會保存，收盤後自動核對方向；明日預測則以「目標交易日」為準，隔天核對，兩者準確率分開統計。</div>
     </div>
@@ -2640,6 +2680,7 @@ function FactorBacktest() {
       ["KD 綜合分數", (r) => r.factors?.ks],
       ["新聞分數", (r) => r.factors?.news],
       ["法人訊號", (r) => r.factors?.inst],
+      ["隔夜曝險係數 beta", (r) => r.factors?.beta],
     ]);
   }, [tomorrow]);
 
