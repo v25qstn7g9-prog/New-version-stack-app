@@ -1,10 +1,10 @@
 {
-  "app": "2.40.1",
+  "app": "2.41.0",
   "lastUpdated": "2026-09-22",
   "status": "personal-investment-advisor-gemini-direct-fallback",
   "cloudflare": {
-    "index.html": "4.7-personal-advisor-v2.40.1-overnight-signal-fix",
-    "quote.js": "4.7-quote-schedule-4",
+    "index.html": "4.7-personal-advisor-v2.41.0-quote-high-low-overnight-fix",
+    "quote.js": "4.7-quote-schedule-5-high-low-overnight-fix",
     "ask.js": "4.7-personal-advisor-v2.29.1-gemini35-direct-fallback",
     "news.js": "4.6-news-stable-6",
     "health-check.js": "4.6-health-check-2",
@@ -17,7 +17,7 @@
     "thinkingLevel": "minimal"
   },
   "features": {
-    "quote": "TAIEX + 台股即時報價 + S&P500/費半SOX/美元台幣等海外隔夜訊號",
+    "quote": "TAIEX + 台股即時報價（含盤中最高/最低）+ S&P500/費半SOX/美元台幣等海外隔夜訊號",
     "ask": "使用者專用投資顧問助手：以 App 個人資產資料為優先，支援即時行情、歷史分析、新聞與情境比較；Cloudflare GPT-OSS 主 AI + Gemini 3.5 備援",
     "fallback": "Cloudflare Worker 內建 Gemini 3.5 Flash-Lite 備援；舊 Vercel 備援可作最後一道相容備援",
     "news": "台股市場新聞",
@@ -26,5 +26,5 @@
     "trendRadar": "AI 今日／明日趨勢雷達：真實日/月KD（歷史K線）＋盤中5/15/60分KD＋全市場三大法人＋新聞情緒（含否定語氣判斷）＋S&P500/費半SOX/美元台幣隔夜訊號；今日與明日預測分開驗證命中率，並排除方向不明的預測",
     "factorBacktest": "研究用因子回測（總覽頁，雷達卡片下方）：把雷達用到的每個原始因子跟實際漲跌幅算皮爾森相關係數，樣本數不足時不顯示係數，用來判斷哪些因子真的有解釋力"
   },
-  "package": "2.40.1"
+  "package": "2.41.0"
 }
