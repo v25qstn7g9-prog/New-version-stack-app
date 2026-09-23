@@ -2092,6 +2092,8 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
 
 
 // ---------------- Today Trend Radar (dashboard) ----------------
+const TREND_RADAR_VERSION = "2.44";
+const TREND_MODEL_VERSION = "2.44-taifex-tx";
 function TrendRadar({ holdings }) {
   const [rows, setRows] = useState([]);
   const [asOf, setAsOf] = useState(null);
@@ -2362,7 +2364,7 @@ function TrendRadar({ holdings }) {
       marketScore += marketCloseBoost;
       const marketProbability=Math.max(25,Math.min(75,50 + 25*Math.tanh(marketScore/22)));
       const marketDirection=marketProbability>=64?"明顯偏漲":marketProbability>=55?"稍偏漲":marketProbability<=36?"明顯偏跌":marketProbability<=45?"稍偏跌":"方向不明";
-      let computedMarketRow={probability:marketProbability,direction:marketDirection,indexPct,breadth,kd5:marketKd5,kd15:marketKd15,kd60:marketKd60,kdDaily:marketKdDaily,kdMonthly:marketKdMonthly,marketCloseBoost,modelVersion:"2.42-close-lock"};
+      let computedMarketRow={probability:marketProbability,direction:marketDirection,indexPct,breadth,kd5:marketKd5,kd15:marketKd15,kd60:marketKd60,kdDaily:marketKdDaily,kdMonthly:marketKdMonthly,marketCloseBoost,modelVersion:TREND_MODEL_VERSION};
       if(cancelled) return;
       let next = active.map((h) => {
         const q = quoteMap[h.symbol] || {};
@@ -2425,7 +2427,7 @@ function TrendRadar({ holdings }) {
         const conviction = Math.abs(probability-50);
         const confidence = (flows.length>=3 && conviction>=15 && kdSignals.length>=3) ? "高"
           : (flows.length>=1 && conviction>=8) ? "中" : "低";
-        return {symbol:h.symbol,name:h.name||"",probability,direction,confidence,indexPct,stockPct,newsScore,flows,f1,f3,f5,t1,t3,t5,d1,d3,d5,kd5,kd15,kd60,kdDaily,kdMonthly,modelVersion:"2.42-close-lock",lateProgress,closeProgress,closeDirectionBoost,weights:{indexW,stockW,newsW,instTimeW},timedKdScore};
+        return {symbol:h.symbol,name:h.name||"",probability,direction,confidence,indexPct,stockPct,newsScore,flows,f1,f3,f5,t1,t3,t5,d1,d3,d5,kd5,kd15,kd60,kdDaily,kdMonthly,modelVersion:TREND_MODEL_VERSION,lateProgress,closeProgress,closeDirectionBoost,weights:{indexW,stockW,newsW,instTimeW},timedKdScore};
       });
 
       // Model correction #2: freeze today's forecast at/after 13:25.
@@ -2565,7 +2567,7 @@ function TrendRadar({ holdings }) {
       try {
         await saveKey("trendRadarCurrentSnapshot", {
           at: new Date().toISOString(),
-          version: "v2.44",
+          version: `v${TREND_RADAR_VERSION}`,
           market: computedMarketRow,
           rows: next.map(r => ({
             symbol:r.symbol,name:r.name,probability:r.probability,direction:r.direction,confidence:r.confidence,
@@ -2636,7 +2638,7 @@ function TrendRadar({ holdings }) {
   return (
     <div className="rounded-2xl p-4" style={{background:COLORS.panel,border:"1px solid "+COLORS.panelBorder,boxShadow:"0 4px 16px rgba(0,0,0,0.28)"}}>
       <div className="flex items-center justify-between mb-2">
-        <div><div className="text-xs font-bold" style={{color:COLORS.gold}}>AI 今日／明日趨勢雷達</div><div className="text-[9px] mt-0.5" style={{color:COLORS.sub}}>學習版 v2.44 · 時間自適應權重 · OHLC＋KD＋法人＋台指近月＋隔夜訊號＋自動驗證</div></div>
+        <div><div className="text-xs font-bold" style={{color:COLORS.gold}}>AI 今日／明日趨勢雷達</div><div className="text-[9px] mt-0.5" style={{color:COLORS.sub}}>{`學習版 v${TREND_RADAR_VERSION} · 時間自適應權重 · OHLC＋KD＋法人＋台指近月＋隔夜訊號＋自動驗證`}</div></div>
         {asOf&&<div className="text-[9px] mono" style={{color:COLORS.sub}}>{asOf.toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit",hour12:false})}</div>}
       </div>
       <div className="space-y-2">
