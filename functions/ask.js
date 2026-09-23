@@ -14,7 +14,7 @@
  * 舊 fallback-vercel 仍保留作最後一道相容備援。
  */
 const ASK_VERSION = "4.7-personal-advisor-v3.1-polished-analysis";
-const GEMINI_MODEL_DEFAULT = "gemini-3.5-flash-lite";
+const GEMINI_MODEL_DEFAULT = "gemini-3.5-flash";
 const GEMINI_MAX_OUTPUT_TOKENS = 1000;
 const MODEL = "@cf/openai/gpt-oss-20b";
 const MAX_HISTORY_TURNS = 6;
