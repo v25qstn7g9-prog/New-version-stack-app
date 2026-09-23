@@ -1,9 +1,9 @@
 {
-  "app": "2.45.0",
+  "app": "2.46.0",
   "lastUpdated": "2026-09-23",
   "status": "personal-investment-advisor-gemini-direct-fallback",
   "cloudflare": {
-    "index.html": "4.7-personal-advisor-v2.45.0-bilingual-coverage-pass",
+    "index.html": "4.7-personal-advisor-v2.46.0-bilingual-full-coverage",
     "quote.js": "4.7-quote-schedule-5-high-low-overnight-fix",
     "ask.js": "4.7-personal-advisor-v3.1-polished-analysis",
     "news.js": "4.6-news-stable-6",
@@ -26,5 +26,5 @@
     "trendRadar": "AI 今日／明日趨勢雷達：時間自適應權重＋13:25收盤前鎖定＋真實日/月KD（歷史K線）＋盤中5/15/60分KD＋全市場三大法人＋新聞情緒（含否定語氣判斷）＋S&P500/費半SOX/美元台幣隔夜訊號（依各持股對TAIEX的實測beta縮放曝險）；上午／收盤前鎖定／明日 三種預測分開驗證命中率，並排除方向不明的預測",
     "factorBacktest": "研究用因子回測（總覽頁，雷達卡片下方）：把雷達用到的每個原始因子跟實際漲跌幅算皮爾森相關係數，樣本數不足時不顯示係數，用來判斷哪些因子真的有解釋力"
   },
-  "package": "2.45.0"
+  "package": "2.46.0"
 }

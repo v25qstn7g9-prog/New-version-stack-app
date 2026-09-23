@@ -124,7 +124,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.45.0-bilingual-coverage-pass";
+const APP_VERSION = "4.7-personal-advisor-v2.46.0-bilingual-full-coverage";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -404,6 +404,15 @@ const UI_EN = {
   "目前 App 快照資料不足，暫時無法完成分析。": "The app snapshot doesn't have enough data yet to complete this analysis.",
   "已取得資料，但這次模型沒有產生文字回答。": "Data was retrieved, but the model didn't produce a text answer this time.",
   "問答失敗，請稍後再試": "Something went wrong. Please try again later.",
+  "均價": "Avg. Trade",
+  "達成率": "Progress",
+  "高股息ETF": "High-Dividend ETF",
+  "帶入「每日紀錄」台股成本": "Send TW Cost to Daily Record",
+  "(手動)": "(Manual)",
+  "會跳到「每日紀錄」並自動填好今天的台股成本，確認後按「儲存紀錄」即可": "This jumps to Daily Record and fills in today's TW cost automatically — just confirm and press \"Save Record\".",
+  "建議：不用做什麼，等它自動恢復即可。": "Suggestion: no action needed — it should recover on its own.",
+  "建議：這個需要改程式碼重新部署，按「確定」只會把這張卡片標記為已處理，不會自動改程式。": "Suggestion: this needs a code change and redeploy. Pressing \"OK\" only marks this card as handled — it won't change any code automatically.",
+  "已超出目前推算年限，請拉長下方「推算年限」以看到精確月份。": "This is beyond the current projection horizon — extend \"Projection Years\" below to see the exact month.",
   "Cloudflare AI 已失敗；獨立 Gemini 備援可用，但這一輪包含私人資產查詢結果。請到『計畫設定 → AI 獨立備援』開啟私人資料授權後再試。": "Cloudflare AI failed; the independent Gemini fallback is available, but this turn includes private asset query results. Please enable private data access under \"Settings → AI Fallback\" and try again.",
   "這個問題需要讀取你的 App 私人資產資料；目前 Gemini 備援的私人資料授權是關閉的。請到『計畫設定 → AI 獨立備援』開啟後再試。": "This question needs to read your app's private asset data, but the Gemini fallback's private data access is currently off. Please enable it under \"Settings → AI Fallback\" and try again.",
   "賣出": "Sell",
@@ -875,81 +884,82 @@ function finiteNonNegative(v) {
 
 function inspectBackupPayload(payload) {
   const errors = [], warnings = [];
-  if (!isObject(payload)) return { ok: false, errors: ["最外層不是有效物件"], warnings };
+  const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
+  if (!isObject(payload)) return { ok: false, errors: [M("The outer value is not a valid object", "最外層不是有效物件")], warnings };
   const data = isObject(payload.data) ? payload.data : payload; // schema 1 相容
   const schemaVersion = Number(payload.schemaVersion || 1);
-  if (!Number.isFinite(schemaVersion) || schemaVersion < 1) errors.push("schemaVersion 不合法");
-  if (schemaVersion > BACKUP_SCHEMA_VERSION) errors.push(`備份 schema ${schemaVersion} 比目前 App 支援的 ${BACKUP_SCHEMA_VERSION} 新，為避免資料損壞不匯入`);
+  if (!Number.isFinite(schemaVersion) || schemaVersion < 1) errors.push(M("Invalid schemaVersion", "schemaVersion 不合法"));
+  if (schemaVersion > BACKUP_SCHEMA_VERSION) errors.push(M(`Backup schema ${schemaVersion} is newer than this app's supported ${BACKUP_SCHEMA_VERSION}; not importing to avoid data corruption`, `備份 schema ${schemaVersion} 比目前 App 支援的 ${BACKUP_SCHEMA_VERSION} 新，為避免資料損壞不匯入`));
 
   const requiredArrays = ["dailyRecords", "holdings", "trades", "dividends", "planItems"];
-  requiredArrays.forEach((k) => { if (!Array.isArray(data[k])) errors.push(`${k} 不是陣列`); });
-  if (!isObject(data.goal)) errors.push("goal 不存在或格式錯誤");
-  if (!isObject(data.planSchedule)) errors.push("planSchedule 不存在或格式錯誤");
+  requiredArrays.forEach((k) => { if (!Array.isArray(data[k])) errors.push(M(`${k} is not an array`, `${k} 不是陣列`)); });
+  if (!isObject(data.goal)) errors.push(M("goal is missing or malformed", "goal 不存在或格式錯誤"));
+  if (!isObject(data.planSchedule)) errors.push(M("planSchedule is missing or malformed", "planSchedule 不存在或格式錯誤"));
   if (errors.length) return { ok: false, errors, warnings, data, schemaVersion };
 
   data.dailyRecords.forEach((r, i) => {
-    if (!isObject(r) || !isValidDateStr(r.date)) errors.push(`每日紀錄第 ${i + 1} 筆日期不合法`);
+    if (!isObject(r) || !isValidDateStr(r.date)) errors.push(M(`Daily record #${i + 1} has an invalid date`, `每日紀錄第 ${i + 1} 筆日期不合法`));
     ["twValue", "usValue", "twCost", "usCost"].forEach((k) => {
-      if (!finiteNonNegative(r?.[k])) errors.push(`每日紀錄第 ${i + 1} 筆 ${k} 不是有效非負數字`);
+      if (!finiteNonNegative(r?.[k])) errors.push(M(`Daily record #${i + 1}: ${k} is not a valid non-negative number`, `每日紀錄第 ${i + 1} 筆 ${k} 不是有效非負數字`));
     });
   });
   data.holdings.forEach((h, i) => {
-    if (!isObject(h) || !String(h.symbol || "").trim()) errors.push(`持股第 ${i + 1} 筆缺少股票代號`);
+    if (!isObject(h) || !String(h.symbol || "").trim()) errors.push(M(`Holding #${i + 1} is missing a symbol`, `持股第 ${i + 1} 筆缺少股票代號`));
     ["initialShares", "current", "target2035", "avgCost", "manualAvgCost"].forEach((k) => {
-      if (!finiteNonNegative(h?.[k])) errors.push(`持股第 ${i + 1} 筆 ${k} 不是有效非負數字`);
+      if (!finiteNonNegative(h?.[k])) errors.push(M(`Holding #${i + 1}: ${k} is not a valid non-negative number`, `持股第 ${i + 1} 筆 ${k} 不是有效非負數字`));
     });
     if (h?.costOverride != null && (!isObject(h.costOverride) || !finiteNonNegative(h.costOverride.amount) || !finiteNonNegative(h.costOverride.asOfShares))) {
-      errors.push(`持股第 ${i + 1} 筆 costOverride 格式不合法`);
+      errors.push(M(`Holding #${i + 1} has an invalid costOverride`, `持股第 ${i + 1} 筆 costOverride 格式不合法`));
     }
   });
   data.trades.forEach((t, i) => {
-    if (!isObject(t) || !isValidDateStr(t.date)) errors.push(`交易第 ${i + 1} 筆日期不合法`);
-    if (!String(t?.symbol || "").trim()) errors.push(`交易第 ${i + 1} 筆缺少股票代號`);
-    if (!(["buy", "sell"].includes(t?.action))) errors.push(`交易第 ${i + 1} 筆買賣方向不合法`);
-    if (!(Number(t?.shares) > 0)) errors.push(`交易第 ${i + 1} 筆股數必須大於 0`);
-    if (!(Number(t?.price) > 0)) errors.push(`交易第 ${i + 1} 筆成交價必須大於 0`);
-    ["fee", "tax", "amount"].forEach((k) => { if (!finiteNonNegative(t?.[k])) errors.push(`交易第 ${i + 1} 筆 ${k} 不合法`); });
+    if (!isObject(t) || !isValidDateStr(t.date)) errors.push(M(`Trade #${i + 1} has an invalid date`, `交易第 ${i + 1} 筆日期不合法`));
+    if (!String(t?.symbol || "").trim()) errors.push(M(`Trade #${i + 1} is missing a symbol`, `交易第 ${i + 1} 筆缺少股票代號`));
+    if (!(["buy", "sell"].includes(t?.action))) errors.push(M(`Trade #${i + 1} has an invalid action`, `交易第 ${i + 1} 筆買賣方向不合法`));
+    if (!(Number(t?.shares) > 0)) errors.push(M(`Trade #${i + 1}: shares must be greater than 0`, `交易第 ${i + 1} 筆股數必須大於 0`));
+    if (!(Number(t?.price) > 0)) errors.push(M(`Trade #${i + 1}: price must be greater than 0`, `交易第 ${i + 1} 筆成交價必須大於 0`));
+    ["fee", "tax", "amount"].forEach((k) => { if (!finiteNonNegative(t?.[k])) errors.push(M(`Trade #${i + 1}: ${k} is invalid`, `交易第 ${i + 1} 筆 ${k} 不合法`)); });
     if (Number.isFinite(Number(t?.amount)) && Number(t?.shares) > 0 && Number(t?.price) > 0) {
       const fee = Number(t?.fee || 0), tax = Number(t?.tax || 0);
       const expected = t.action === "sell"
         ? Number(t.shares) * Number(t.price) - fee - tax
         : Number(t.shares) * Number(t.price) + fee;
-      if (Math.abs(Number(t.amount) - expected) > 1) warnings.push(`交易第 ${i + 1} 筆交易金額與股數×價格不一致`);
+      if (Math.abs(Number(t.amount) - expected) > 1) warnings.push(M(`Trade #${i + 1}: amount doesn't match shares x price`, `交易第 ${i + 1} 筆交易金額與股數×價格不一致`));
     }
   });
   data.dividends.forEach((d, i) => {
-    if (!isObject(d) || !isValidDateStr(d.date)) errors.push(`配息第 ${i + 1} 筆日期不合法`);
-    if (!String(d?.symbol || "").trim()) errors.push(`配息第 ${i + 1} 筆缺少股票代號`);
-    ["shares", "perShare", "amount"].forEach((k) => { if (!finiteNonNegative(d?.[k])) errors.push(`配息第 ${i + 1} 筆 ${k} 不合法`); });
+    if (!isObject(d) || !isValidDateStr(d.date)) errors.push(M(`Dividend #${i + 1} has an invalid date`, `配息第 ${i + 1} 筆日期不合法`));
+    if (!String(d?.symbol || "").trim()) errors.push(M(`Dividend #${i + 1} is missing a symbol`, `配息第 ${i + 1} 筆缺少股票代號`));
+    ["shares", "perShare", "amount"].forEach((k) => { if (!finiteNonNegative(d?.[k])) errors.push(M(`Dividend #${i + 1}: ${k} is invalid`, `配息第 ${i + 1} 筆 ${k} 不合法`)); });
   });
   data.planItems.forEach((x, i) => {
-    if (!isObject(x) || !String(x.symbol || "").trim()) errors.push(`定期定額第 ${i + 1} 筆缺少標的`);
-    if (!finiteNonNegative(x?.amount)) errors.push(`定期定額第 ${i + 1} 筆金額不合法`);
+    if (!isObject(x) || !String(x.symbol || "").trim()) errors.push(M(`Recurring investment #${i + 1} is missing a symbol`, `定期定額第 ${i + 1} 筆缺少標的`));
+    if (!finiteNonNegative(x?.amount)) errors.push(M(`Recurring investment #${i + 1}: amount is invalid`, `定期定額第 ${i + 1} 筆金額不合法`));
   });
 
-  if (!(Number(data.goal?.targetAmount) > 0)) errors.push("目標金額必須大於 0");
-  if (!(Number(data.goal?.targetYear) >= 2000 && Number(data.goal?.targetYear) <= 2200)) errors.push("目標年份不合理");
-  if (!isValidDateStr(data.planSchedule?.startDate)) errors.push("計畫起始日不合法");
+  if (!(Number(data.goal?.targetAmount) > 0)) errors.push(M("Target amount must be greater than 0", "目標金額必須大於 0"));
+  if (!(Number(data.goal?.targetYear) >= 2000 && Number(data.goal?.targetYear) <= 2200)) errors.push(M("Invalid target year", "目標年份不合理"));
+  if (!isValidDateStr(data.planSchedule?.startDate)) errors.push(M("Invalid plan start date", "計畫起始日不合法"));
   ["initialCapital", "initialPrincipal", "initialAssets", "monthlyAmount"].forEach((k) => {
-    if (data.planSchedule?.[k] != null && !finiteNonNegative(data.planSchedule[k])) errors.push(`planSchedule.${k} 不合法`);
+    if (data.planSchedule?.[k] != null && !finiteNonNegative(data.planSchedule[k])) errors.push(M(`planSchedule.${k} is invalid`, `planSchedule.${k} 不合法`));
   });
-  if (data.planSchedule?.annualReturn != null && !(Number(data.planSchedule.annualReturn) > -100 && Number.isFinite(Number(data.planSchedule.annualReturn)))) errors.push("年化報酬率不合法");
-  if (data.planSchedule?.horizonMonths != null && !(Number(data.planSchedule.horizonMonths) > 0)) errors.push("投影月數必須大於 0");
-  if (schemaVersion >= 2 && data.costBasis != null && (!isObject(data.costBasis) || !finiteNonNegative(data.costBasis.startingCost))) errors.push("costBasis 格式不合法");
+  if (data.planSchedule?.annualReturn != null && !(Number(data.planSchedule.annualReturn) > -100 && Number.isFinite(Number(data.planSchedule.annualReturn)))) errors.push(M("Invalid annual return rate", "年化報酬率不合法"));
+  if (data.planSchedule?.horizonMonths != null && !(Number(data.planSchedule.horizonMonths) > 0)) errors.push(M("Projection months must be greater than 0", "投影月數必須大於 0"));
+  if (schemaVersion >= 2 && data.costBasis != null && (!isObject(data.costBasis) || !finiteNonNegative(data.costBasis.startingCost))) errors.push(M("Invalid costBasis format", "costBasis 格式不合法"));
 
-  const duplicateIds = (arr, label) => {
+  const duplicateIds = (arr, labelEn, labelZh) => {
     const seen = new Set(), dup = new Set();
     arr.forEach((x) => { const id = String(x?.id || "").trim(); if (id && seen.has(id)) dup.add(id); else if (id) seen.add(id); });
-    if (dup.size) warnings.push(`${label} 有 ${dup.size} 個重複 ID`);
+    if (dup.size) warnings.push(UI_SHOW_ENGLISH ? `${labelEn} has ${dup.size} duplicate IDs` : `${labelZh} 有 ${dup.size} 個重複 ID`);
   };
-  duplicateIds(data.holdings, "持股");
-  duplicateIds(data.trades, "交易");
-  duplicateIds(data.dividends, "配息");
-  duplicateIds(data.planItems, "定期定額");
+  duplicateIds(data.holdings, "Holdings", "持股");
+  duplicateIds(data.trades, "Trades", "交易");
+  duplicateIds(data.dividends, "Dividends", "配息");
+  duplicateIds(data.planItems, "Recurring investments", "定期定額");
   const holdingSymbols = data.holdings.map((h) => String(h?.symbol || "").trim()).filter(Boolean);
-  if (new Set(holdingSymbols).size !== holdingSymbols.length) warnings.push("持股清單有重複股票代號");
+  if (new Set(holdingSymbols).size !== holdingSymbols.length) warnings.push(M("Holdings list has duplicate symbols", "持股清單有重複股票代號"));
   const dates = data.dailyRecords.map((r) => r?.date).filter(Boolean);
-  if (new Set(dates).size !== dates.length) warnings.push("每日紀錄有重複日期，匯入後請檢查是否為刻意保留");
+  if (new Set(dates).size !== dates.length) warnings.push(M("Daily records have duplicate dates — please check after import whether that's intentional", "每日紀錄有重複日期，匯入後請檢查是否為刻意保留"));
 
   return { ok: errors.length === 0, errors, warnings, data, schemaVersion };
 }
@@ -1194,7 +1204,7 @@ function AssetTracker() {
     try {
       XLSX = await loadXLSXLibrary();
     } catch (e) {
-      window.alert("Excel 匯出元件載入失敗，請確認網路後再試一次。");
+      window.alert(uiText("Excel 匯出元件載入失敗，請確認網路後再試一次。"));
       return;
     }
 
@@ -1301,15 +1311,15 @@ function AssetTracker() {
       const check = inspectBackupPayload(payload);
       if (!check.ok) {
         const shown = check.errors.slice(0, 8).map((x) => `• ${x}`).join("\n");
-        const more = check.errors.length > 8 ? `\n…另有 ${check.errors.length - 8} 項` : "";
-        window.alert(`備份檔深度驗證失敗，資料未變更。\n\n${shown}${more}`);
+        const more = check.errors.length > 8 ? (UI_SHOW_ENGLISH ? `\n…and ${check.errors.length - 8} more` : `\n…另有 ${check.errors.length - 8} 項`) : "";
+        window.alert(UI_SHOW_ENGLISH ? `Backup validation failed, no data was changed.\n\n${shown}${more}` : `備份檔深度驗證失敗，資料未變更。\n\n${shown}${more}`);
         return;
       }
       if (check.warnings.length) {
         const shown = check.warnings.map((x) => `• ${x}`).join("\n");
-        if (!window.confirm(`備份檔可匯入，但有提醒：\n\n${shown}\n\n仍要繼續嗎？`)) return;
+        if (!window.confirm(UI_SHOW_ENGLISH ? `Backup can be imported, but with warnings:\n\n${shown}\n\nContinue anyway?` : `備份檔可匯入，但有提醒：\n\n${shown}\n\n仍要繼續嗎？`)) return;
       }
-      if (!window.confirm("匯入會以備份內容取代目前 App 內的資料，確定要繼續嗎？")) return;
+      if (!window.confirm(uiText("匯入會以備份內容取代目前 App 內的資料，確定要繼續嗎？"))) return;
       const data = check.data;
       setDailyRecords(data.dailyRecords);
       setHoldings(data.holdings);
@@ -1331,10 +1341,10 @@ function AssetTracker() {
         setLastBackupAt(payload.exportedAt);
         saveKey("lastBackupAt", payload.exportedAt);
       }
-      window.alert(`備份已匯入完成（schema ${check.schemaVersion}）。建議重新整理一次頁面確認資料。`);
+      window.alert(UI_SHOW_ENGLISH ? `Backup imported (schema ${check.schemaVersion}). We recommend refreshing the page to confirm the data.` : `備份已匯入完成（schema ${check.schemaVersion}）。建議重新整理一次頁面確認資料。`);
     } catch (e) {
       console.error("backup import failed", e);
-      window.alert("備份檔讀取失敗，資料未變更。");
+      window.alert(uiText("備份檔讀取失敗，資料未變更。"));
     }
   };
 
@@ -1485,7 +1495,7 @@ function AssetTracker() {
     let projectedLabel = null;
     if (h.target2035 > 0) {
       if (current >= h.target2035) {
-        projectedLabel = "已達成";
+        projectedLabel = UI_SHOW_ENGLISH ? "Reached" : "已達成";
       } else if (symbolTrades.length > 0) {
         const firstTradeDate = new Date(symbolTrades[0].date);
         const daysSpan = Math.max(1, (now - firstTradeDate) / 86400000);
@@ -1498,12 +1508,12 @@ function AssetTracker() {
           const target = new Date(now.getTime() + monthsNeeded * 30.44 * 86400000);
           const y = target.getFullYear();
           const m = String(target.getMonth() + 1).padStart(2, "0");
-          projectedLabel = `預定 ${y}/${m}`;
+          projectedLabel = UI_SHOW_ENGLISH ? `Est. ${y}/${m}` : `預定 ${y}/${m}`;
         } else {
-          projectedLabel = "無法推估";
+          projectedLabel = UI_SHOW_ENGLISH ? "Unable to project" : "無法推估";
         }
       } else {
-        projectedLabel = "無法推估";
+        projectedLabel = UI_SHOW_ENGLISH ? "Unable to project" : "無法推估";
       }
     }
 
@@ -1511,7 +1521,7 @@ function AssetTracker() {
       ...h, bought, sold, current, pct, avgCost, estCostBasis, isManualAvgCost: hasManualAvgCost, avgTradePrice,
       quarterSharesAdded, quarterNum, yearSharesAdded, projectedLabel,
     };
-  }), [holdings, trades]);
+  }), [holdings, trades, showEnglish]);
 
   const planTotal = planItems.reduce((s, p) => s + Number(p.amount || 0), 0);
 
@@ -3240,6 +3250,7 @@ function StatCard({ label, value, tone, className = "" }) {
 
 // ---------------- Daily Panel ----------------
 function DailyPanel({ records, setRecords, prefill, form, setForm }) {
+  const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
   // When "帶入「每日紀錄」..." is pressed elsewhere in the app, prefill is
   // set to a fresh object each time — that reference change is what makes
   // this effect fire again even if the same value is sent twice. Only the
@@ -3415,7 +3426,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
   const rangeResult = (rangeFrom && rangeTo) ? (() => {
     const fromRec = findRecordAtOrBefore(rangeFrom);
     const toRec = findRecordAtOrBefore(rangeTo);
-    if (!fromRec || !toRec) return { error: "這個區間找不到對應的紀錄" };
+    if (!fromRec || !toRec) return { error: M("No matching record found for this date range", "這個區間找不到對應的紀錄") };
     const fromValue = fromRec.twValue + fromRec.usValue;
     const toValue = toRec.twValue + toRec.usValue;
     const fromCost = (fromRec.twCost || 0) + (fromRec.usCost || 0);
@@ -3458,7 +3469,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
 
       <Panel title="區間查詢（精算，非AI）">
         <div className="text-[11px] mb-2" style={{ color: COLORS.sub }}>
-          選兩個日期，直接用你的原始紀錄計算資產/本金/損益變化，數字保證準確
+          {M("Pick two dates and this computes the asset/principal/P&L change directly from your raw records — guaranteed accurate.", "選兩個日期，直接用你的原始紀錄計算資產/本金/損益變化，數字保證準確")}
         </div>
         <div className="grid grid-cols-2 gap-2">
           <Field label="起始日期"><input type="date" value={rangeFrom}
@@ -3473,49 +3484,49 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
           <div className="mt-3 space-y-1.5 text-sm mono rounded-lg px-3 py-2.5"
             style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
             <div className="text-[10px]" style={{ color: COLORS.sub }}>
-              實際比對：{rangeResult.fromRec.date}（起）→ {rangeResult.toRec.date}（迄）
+              {M("Actual comparison:", "實際比對：")}{rangeResult.fromRec.date}{M(" (start) → ", "（起）→ ")}{rangeResult.toRec.date}{M(" (end)", "（迄）")}
               {(rangeResult.fromRec.date !== rangeFrom || rangeResult.toRec.date !== rangeTo)
-                ? "（其中一天沒有剛好的紀錄，取最近一筆較早的紀錄代替）" : ""}
+                ? M(" (one day had no exact record; the nearest earlier record was used instead)", "（其中一天沒有剛好的紀錄，取最近一筆較早的紀錄代替）") : ""}
             </div>
             <div className="flex justify-between">
-              <span style={{ color: COLORS.sub }}>總市值變化</span>
+              <span style={{ color: COLORS.sub }}><UiLabel zh="總市值變化" /></span>
               <span className="font-bold" style={{ color: rangeResult.assetChange >= 0 ? COLORS.gain : COLORS.loss }}>
                 {rangeResult.assetChange >= 0 ? "+" : ""}{nf(rangeResult.assetChange)}
               </span>
             </div>
             <div className="flex justify-between">
-              <span style={{ color: COLORS.sub }}>總本金變化</span>
+              <span style={{ color: COLORS.sub }}><UiLabel zh="總本金變化" /></span>
               <span className="font-bold" style={{ color: COLORS.gold }}>
                 {rangeResult.costChange >= 0 ? "+" : ""}{nf(rangeResult.costChange)}
               </span>
             </div>
             <div className="flex justify-between">
-              <span style={{ color: COLORS.sub }}>損益變化（市場報酬）</span>
+              <span style={{ color: COLORS.sub }}><UiLabel zh="損益變化（市場報酬）" /></span>
               <span className="font-bold" style={{ color: rangeResult.gainChange >= 0 ? COLORS.gain : COLORS.loss }}>
                 {rangeResult.gainChange >= 0 ? "+" : ""}{nf(rangeResult.gainChange)}
               </span>
             </div>
             <div style={{ borderTop: `1px solid ${COLORS.panelBorder}`, margin: "6px 0" }} />
             <div className="flex justify-between">
-              <span style={{ color: COLORS.sub }}>台股市值變化</span>
+              <span style={{ color: COLORS.sub }}><UiLabel zh="台股市值變化" /></span>
               <span className="font-bold" style={{ color: rangeResult.twValueChange >= 0 ? COLORS.gain : COLORS.loss }}>
                 {rangeResult.twValueChange >= 0 ? "+" : ""}{nf(rangeResult.twValueChange)}
               </span>
             </div>
             <div className="flex justify-between">
-              <span style={{ color: COLORS.sub }}>台股本金變化</span>
+              <span style={{ color: COLORS.sub }}><UiLabel zh="台股本金變化" /></span>
               <span className="font-bold" style={{ color: COLORS.gold }}>
                 {rangeResult.twCostChange >= 0 ? "+" : ""}{nf(rangeResult.twCostChange)}
               </span>
             </div>
             <div className="flex justify-between">
-              <span style={{ color: COLORS.sub }}>美股市值變化</span>
+              <span style={{ color: COLORS.sub }}><UiLabel zh="美股市值變化" /></span>
               <span className="font-bold" style={{ color: rangeResult.usValueChange >= 0 ? COLORS.gain : COLORS.loss }}>
                 {rangeResult.usValueChange >= 0 ? "+" : ""}{nf(rangeResult.usValueChange)}
               </span>
             </div>
             <div className="flex justify-between">
-              <span style={{ color: COLORS.sub }}>美股本金變化</span>
+              <span style={{ color: COLORS.sub }}><UiLabel zh="美股本金變化" /></span>
               <span className="font-bold" style={{ color: COLORS.gold }}>
                 {rangeResult.usCostChange >= 0 ? "+" : ""}{nf(rangeResult.usCostChange)}
               </span>
@@ -3528,7 +3539,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
         <Panel title="週度損益">
           {weekKeys.some((wk) => weeklyStats[wk]?.approximate) && (
             <div className="text-[10px] mb-2" style={{ color: COLORS.sub }}>
-              * 成本資料不完整的週份，市場報酬與新增投入無法精準拆分，數字為粗估
+              {M("* For weeks with incomplete cost data, market return and new contributions can't be precisely split — figures are estimates", "* 成本資料不完整的週份，市場報酬與新增投入無法精準拆分，數字為粗估")}
             </div>
           )}
           <div className="space-y-1.5 max-h-64 overflow-y-auto">
@@ -3541,15 +3552,15 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
                     <span style={{ color: COLORS.sub }}>{weekLabel(wk)}{stat?.approximate ? " *" : ""}</span>
                     {stat ? (
                       <span className="font-bold" style={{ color: stat.marketReturn >= 0 ? COLORS.gain : COLORS.loss }}>
-                        市場 {stat.marketReturn >= 0 ? "+" : ""}{nf(stat.marketReturn)}（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）
+                        {M("Market", "市場")} {stat.marketReturn >= 0 ? "+" : ""}{nf(stat.marketReturn)}（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）
                       </span>
                     ) : (
-                      <span style={{ color: COLORS.sub }}>最早紀錄，無前週可比較</span>
+                      <span style={{ color: COLORS.sub }}>{M("Earliest record, no prior week to compare", "最早紀錄，無前週可比較")}</span>
                     )}
                   </div>
                   {stat && stat.contribution != null && stat.contribution !== 0 && (
                     <div className="text-right mt-0.5" style={{ color: COLORS.gold }}>
-                      新增投入 {stat.contribution >= 0 ? "+" : ""}{nf(stat.contribution)}
+                      {M("New contribution", "新增投入")} {stat.contribution >= 0 ? "+" : ""}{nf(stat.contribution)}
                     </div>
                   )}
                 </div>
@@ -3563,7 +3574,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
         <Panel title="月度損益">
           {monthKeys.some((mk) => monthlyStats[mk]?.approximate) && (
             <div className="text-[10px] mb-2" style={{ color: COLORS.sub }}>
-              * 成本資料不完整的月份，市場報酬與新增投入無法精準拆分，數字為粗估
+              {M("* For months with incomplete cost data, market return and new contributions can't be precisely split — figures are estimates", "* 成本資料不完整的月份，市場報酬與新增投入無法精準拆分，數字為粗估")}
             </div>
           )}
           <div className="space-y-1.5 max-h-64 overflow-y-auto">
@@ -3576,15 +3587,15 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
                     <span style={{ color: COLORS.sub }}>{mk}{stat?.approximate ? " *" : ""}</span>
                     {stat ? (
                       <span className="font-bold" style={{ color: stat.marketReturn >= 0 ? COLORS.gain : COLORS.loss }}>
-                        市場 {stat.marketReturn >= 0 ? "+" : ""}{nf(stat.marketReturn)}（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）
+                        {M("Market", "市場")} {stat.marketReturn >= 0 ? "+" : ""}{nf(stat.marketReturn)}（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）
                       </span>
                     ) : (
-                      <span style={{ color: COLORS.sub }}>最早紀錄，無前月可比較</span>
+                      <span style={{ color: COLORS.sub }}>{M("Earliest record, no prior month to compare", "最早紀錄，無前月可比較")}</span>
                     )}
                   </div>
                   {stat && stat.contribution != null && stat.contribution !== 0 && (
                     <div className="text-right mt-0.5" style={{ color: COLORS.gold }}>
-                      新增投入 {stat.contribution >= 0 ? "+" : ""}{nf(stat.contribution)}
+                      {M("New contribution", "新增投入")} {stat.contribution >= 0 ? "+" : ""}{nf(stat.contribution)}
                     </div>
                   )}
                 </div>
@@ -3598,7 +3609,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
         <Panel title="年度損益">
           {yearKeys.some((yk) => yearlyStats[yk]?.approximate) && (
             <div className="text-[10px] mb-2" style={{ color: COLORS.sub }}>
-              * 成本資料不完整的年份，市場報酬與新增投入無法精準拆分，數字為粗估
+              {M("* For years with incomplete cost data, market return and new contributions can't be precisely split — figures are estimates", "* 成本資料不完整的年份，市場報酬與新增投入無法精準拆分，數字為粗估")}
             </div>
           )}
           <div className="space-y-1.5 max-h-64 overflow-y-auto">
@@ -3611,15 +3622,15 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
                     <span style={{ color: COLORS.sub }}>{yk}{stat?.approximate ? " *" : ""}</span>
                     {stat ? (
                       <span className="font-bold" style={{ color: stat.marketReturn >= 0 ? COLORS.gain : COLORS.loss }}>
-                        市場 {stat.marketReturn >= 0 ? "+" : ""}{nf(stat.marketReturn)}（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）
+                        {M("Market", "市場")} {stat.marketReturn >= 0 ? "+" : ""}{nf(stat.marketReturn)}（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）
                       </span>
                     ) : (
-                      <span style={{ color: COLORS.sub }}>最早紀錄，無前年可比較</span>
+                      <span style={{ color: COLORS.sub }}>{M("Earliest record, no prior year to compare", "最早紀錄，無前年可比較")}</span>
                     )}
                   </div>
                   {stat && stat.contribution != null && stat.contribution !== 0 && (
                     <div className="text-right mt-0.5" style={{ color: COLORS.gold }}>
-                      新增投入 {stat.contribution >= 0 ? "+" : ""}{nf(stat.contribution)}
+                      {M("New contribution", "新增投入")} {stat.contribution >= 0 ? "+" : ""}{nf(stat.contribution)}
                     </div>
                   )}
                 </div>
@@ -3630,7 +3641,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
       )}
 
 
-      <Panel title={`歷史紀錄（${records.length}）`}>
+      <Panel title={M(`History (${records.length})`, `歷史紀錄（${records.length}）`)}>
         <div className="space-y-2 max-h-[30rem] overflow-y-auto">
           {(() => {
             let lastMonth = null;
@@ -3652,15 +3663,15 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
                         <span style={{ color: COLORS.gold }}>{mk}{stat?.approximate ? " *" : ""}</span>
                         {stat ? (
                           <span style={{ color: stat.marketReturn >= 0 ? COLORS.gain : COLORS.loss }}>
-                            市場 {stat.marketReturn >= 0 ? "+" : ""}{nf(stat.marketReturn)}（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）
+                            {M("Market", "市場")} {stat.marketReturn >= 0 ? "+" : ""}{nf(stat.marketReturn)}（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）
                           </span>
                         ) : (
-                          <span style={{ color: COLORS.sub, fontWeight: "normal" }}>最早紀錄，無前月可比較</span>
+                          <span style={{ color: COLORS.sub, fontWeight: "normal" }}>{M("Earliest record, no prior month to compare", "最早紀錄，無前月可比較")}</span>
                         )}
                       </div>
                       {stat && stat.contribution != null && stat.contribution !== 0 && (
                         <div className="text-right font-normal" style={{ color: COLORS.gold }}>
-                          新增投入 {stat.contribution >= 0 ? "+" : ""}{nf(stat.contribution)}
+                          {M("New contribution", "新增投入")} {stat.contribution >= 0 ? "+" : ""}{nf(stat.contribution)}
                         </div>
                       )}
                     </div>
@@ -3669,11 +3680,11 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
                     <div className="flex-1">
                       <div className="text-sm mono">{r.date}</div>
                       <div className="text-[11px]" style={{ color: COLORS.sub }}>
-                        台 {nf(r.twValue)} ／ 美 {nf(r.usValue)}
+                        {M(`TW ${nf(r.twValue)} / US ${nf(r.usValue)}`, `台 ${nf(r.twValue)} ／ 美 ${nf(r.usValue)}`)}
                       </div>
                       {totalCost > 0 && (
                         <div className="text-[11px] mono" style={{ color: COLORS.sub }}>
-                          成本 台 {nf(r.twCost)} ／ 美 {nf(r.usCost)}
+                          {M(`Cost TW ${nf(r.twCost)} / US ${nf(r.usCost)}`, `成本 台 ${nf(r.twCost)} ／ 美 ${nf(r.usCost)}`)}
                         </div>
                       )}
                     </div>
@@ -3686,7 +3697,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
                       )}
                       {totalCost > 0 && (
                         <div className="text-[11px] mono" style={{ color: (total - totalCost) >= 0 ? COLORS.gain : COLORS.loss }}>
-                          損益 {(total - totalCost) >= 0 ? "+" : ""}{nf(total - totalCost)}
+                          {M("P/L", "損益")} {(total - totalCost) >= 0 ? "+" : ""}{nf(total - totalCost)}
                         </div>
                       )}
                     </div>
@@ -3704,6 +3715,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
 
 // ---------------- Holdings Panel ----------------
 function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
+  const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
   const [form, setForm] = useState({ symbol: "", name: "", initialShares: "", target2035: "", costBasis: "" });
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState(null);
@@ -3797,21 +3809,21 @@ function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
         <div className="flex items-center justify-between rounded-xl p-3 mb-3"
           style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
           <div>
-            <div className="text-[11px]" style={{ color: COLORS.sub }}>總持有成本（所有標的合計）</div>
+            <div className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="總持有成本（所有標的合計）" /></div>
             <div className="text-base font-bold mono" style={{ color: COLORS.gold }}>NT$ {nf(totalHoldingCost)}</div>
           </div>
           {onFillDailyCost && (
             <button onClick={() => onFillDailyCost(Math.round(totalHoldingCost))}
               className="text-[11px] px-2.5 py-1.5 rounded-lg font-bold"
               style={{ border: `1px solid ${COLORS.gold}`, color: COLORS.gold }}>
-              帶入「每日紀錄」台股成本
+              <UiLabel zh="帶入「每日紀錄」台股成本" />
             </button>
           )}
         </div>
 
         {allocationData.length > 0 && (
           <div className="rounded-xl p-3 mb-3" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
-            <div className="text-[11px] mb-1" style={{ color: COLORS.sub }}>資產配置（以市值計，抓不到報價時退回用成本）</div>
+            <div className="text-[11px] mb-1" style={{ color: COLORS.sub }}><UiLabel zh="資產配置（以市值計，抓不到報價時退回用成本）" /></div>
             <div style={{ height: 180 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -3838,7 +3850,7 @@ function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
             </div>
             {hasCostFallback && (
               <div className="text-[10px] mt-1" style={{ color: COLORS.sub }}>
-                * 抓不到即時報價，暫時用持有成本計算佔比
+                <UiLabel zh="* 抓不到即時報價，暫時用持有成本計算佔比" />
               </div>
             )}
           </div>
@@ -3864,19 +3876,21 @@ function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
                           onChange={(e) => setEditForm({ ...editForm, costBasis: e.target.value })} className="input" />
                       </Field>
                       <div className="text-[10px] mt-1" style={{ color: COLORS.sub }}>
-                        平均成本會用「持有成本 ÷ 目前股數」自動倒算。儲存後會把這個數字當成「今天」的成本快照，
-                        之後新增的每一筆交易都會自動疊加上去；今天以前已經發生的交易不會被重複計算。
+                        {M(
+                          "Average cost is back-calculated as \"cost basis ÷ current shares\". Saving stores this as today's cost snapshot — every trade added after today stacks on top automatically; trades before today aren't double-counted.",
+                          "平均成本會用「持有成本 ÷ 目前股數」自動倒算。儲存後會把這個數字當成「今天」的成本快照，之後新增的每一筆交易都會自動疊加上去；今天以前已經發生的交易不會被重複計算。"
+                        )}
                       </div>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <button onClick={cancelEdit} className="rounded-lg py-2 text-xs font-bold"
                       style={{ background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`, color: COLORS.sub }}>
-                      取消
+                      <UiLabel zh="取消" />
                     </button>
                     <button onClick={saveEdit} className="rounded-lg py-2 text-xs font-bold"
                       style={{ background: COLORS.gold, color: COLORS.bg }}>
-                      儲存
+                      <UiLabel zh="儲存" />
                     </button>
                   </div>
                 </div>
@@ -3888,7 +3902,7 @@ function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
                       <span className="text-[11px]" style={{ color: COLORS.sub }}>{h.name}</span>
                       {h.avgTradePrice != null && (
                         <span className="text-[11px] mono" style={{ color: COLORS.gold }}>
-                          均價 {h.avgTradePrice.toFixed(2)}
+                          <UiLabel zh="均價" inline /> {h.avgTradePrice.toFixed(2)}
                         </span>
                       )}
                     </div>
@@ -3899,16 +3913,16 @@ function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
                   </div>
                   <div className="flex justify-between text-xs mono mt-2">
                     <span style={{ color: COLORS.sub }}>
-                      平均成本 <span style={{ color: COLORS.text }}>{h.avgCost != null ? `NT$ ${h.avgCost.toFixed(2)}` : "-"}</span>
-                      {h.isManualAvgCost && <span style={{ color: COLORS.gold }}> (手動)</span>}
+                      <UiLabel zh="平均成本" inline /> <span style={{ color: COLORS.text }}>{h.avgCost != null ? `NT$ ${h.avgCost.toFixed(2)}` : "-"}</span>
+                      {h.isManualAvgCost && <span style={{ color: COLORS.gold }}> <UiLabel zh="(手動)" inline /></span>}
                     </span>
                     <span style={{ color: COLORS.sub }}>
-                      持有成本 <span style={{ color: COLORS.text }}>{h.estCostBasis != null ? `NT$ ${nf(h.estCostBasis)}` : "-"}</span>
+                      <UiLabel zh="持有成本" inline /> <span style={{ color: COLORS.text }}>{h.estCostBasis != null ? `NT$ ${nf(h.estCostBasis)}` : "-"}</span>
                     </span>
                   </div>
                   <div className="flex justify-between text-xs mono mt-2">
-                    <span style={{ color: COLORS.sub }}>目前 {nf(h.current)} 股</span>
-                    <span style={{ color: COLORS.sub }}>目標 {nf(h.target2035)} 股</span>
+                    <span style={{ color: COLORS.sub }}>{M(`Current ${nf(h.current)} shares`, `目前 ${nf(h.current)} 股`)}</span>
+                    <span style={{ color: COLORS.sub }}>{M(`Target ${nf(h.target2035)} shares`, `目標 ${nf(h.target2035)} 股`)}</span>
                   </div>
                   {(() => {
                     const q = holdingQuotes[h.symbol];
@@ -3928,13 +3942,13 @@ function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
                     return (
                       <div className="flex justify-between text-[11px] mono mt-1">
                         <span style={{ color: COLORS.sub }}>
-                          預估損益{" "}
+                          <UiLabel zh="預估損益" inline />{" "}
                           <span style={{ color: estimatedPnl == null ? COLORS.sub : (estimatedPnl >= 0 ? COLORS.gain : COLORS.loss) }}>
                             {estimatedPnl == null ? "--" : `${estimatedPnl >= 0 ? "+" : ""}${nf(estimatedPnl)}`}
                           </span>
                         </span>
                         <span style={{ color: COLORS.sub }}>
-                          累積獲利率{" "}
+                          <UiLabel zh="累積獲利率" inline />{" "}
                           <span style={{ color: cumulativePct == null ? COLORS.sub : (cumulativePct >= 0 ? COLORS.gain : COLORS.loss) }}>
                             {cumulativePct == null ? "--" : `${cumulativePct >= 0 ? "+" : ""}${cumulativePct.toFixed(1)}%`}
                           </span>
@@ -3944,13 +3958,13 @@ function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
                   })()}
                   <div className="flex justify-between text-[11px] mono mt-1" style={{ color: COLORS.sub }}>
                     <span>
-                      第 {h.quarterNum} 季增加 <span style={{ color: h.quarterSharesAdded >= 0 ? COLORS.text : COLORS.gain }}>
-                        {h.quarterSharesAdded > 0 ? "+" : ""}{nf(h.quarterSharesAdded)} 股
+                      {M(`Q${h.quarterNum} Added`, `第 ${h.quarterNum} 季增加`)} <span style={{ color: h.quarterSharesAdded >= 0 ? COLORS.text : COLORS.gain }}>
+                        {h.quarterSharesAdded > 0 ? "+" : ""}{nf(h.quarterSharesAdded)} {M("sh", "股")}
                       </span>
                     </span>
                     <span>
-                      今年累計 <span style={{ color: h.yearSharesAdded >= 0 ? COLORS.text : COLORS.gain }}>
-                        {h.yearSharesAdded > 0 ? "+" : ""}{nf(h.yearSharesAdded)} 股
+                      <UiLabel zh="今年累計" inline /> <span style={{ color: h.yearSharesAdded >= 0 ? COLORS.text : COLORS.gain }}>
+                        {h.yearSharesAdded > 0 ? "+" : ""}{nf(h.yearSharesAdded)} {M("sh", "股")}
                       </span>
                     </span>
                   </div>
@@ -3960,7 +3974,7 @@ function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
                   <div className="flex justify-between items-baseline mt-1">
                     <span className="text-[11px] mono" style={{ color: COLORS.sub }}>{h.projectedLabel}</span>
                     <span className="text-[11px] mono" style={{ color: COLORS.gold }}>
-                      達成率 {h.pct.toFixed(1)}%
+                      <UiLabel zh="達成率" inline /> {h.pct.toFixed(1)}%
                     </span>
                   </div>
                 </>
@@ -4001,6 +4015,7 @@ function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
 
 // ---------------- Trades Panel ----------------
 function TradesPanel({ trades, setTrades, holdings, costBasis, setCostBasis, accumulatedCost, onFillDailyCost }) {
+  const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
   const [form, setForm] = useState({
     date: todayStr(), symbol: "", action: "buy", shares: "", price: "", fee: "", tax: "", note: "",
   });
@@ -4062,7 +4077,7 @@ function TradesPanel({ trades, setTrades, holdings, costBasis, setCostBasis, acc
               className="input" />
           </Field>
           <div className="flex justify-between items-baseline mt-3 text-sm mono">
-            <span style={{ color: COLORS.sub }}>目前累積成本（起始成本 + 全部買賣紀錄）</span>
+            <span style={{ color: COLORS.sub }}><UiLabel zh="目前累積成本（起始成本 + 全部買賣紀錄）" /></span>
             <span className="font-bold" style={{ color: COLORS.gold }}>NT$ {nf(accumulatedCost)}</span>
           </div>
           {onFillDailyCost && (
@@ -4070,10 +4085,10 @@ function TradesPanel({ trades, setTrades, holdings, costBasis, setCostBasis, acc
               <button onClick={() => onFillDailyCost(Math.round(accumulatedCost))}
                 className="mt-3 w-full rounded-lg py-2 text-[11px] font-bold"
                 style={{ background: COLORS.bg, border: `1px solid ${COLORS.gold}`, color: COLORS.gold }}>
-                帶入「每日紀錄」台股成本
+                <UiLabel zh="帶入「每日紀錄」台股成本" />
               </button>
               <div className="text-[10px] mt-1" style={{ color: COLORS.sub }}>
-                會跳到「每日紀錄」並自動填好今天的台股成本，確認後按「儲存紀錄」即可
+                <UiLabel zh="會跳到「每日紀錄」並自動填好今天的台股成本，確認後按「儲存紀錄」即可" />
               </div>
             </>
           )}
@@ -4086,8 +4101,8 @@ function TradesPanel({ trades, setTrades, holdings, costBasis, setCostBasis, acc
             onChange={(e) => setForm({ ...form, date: e.target.value })} className="input" /></Field>
           <Field label="買賣">
             <select value={form.action} onChange={(e) => setForm({ ...form, action: e.target.value })} className="input">
-              <option value="buy">買</option>
-              <option value="sell">賣</option>
+              <option value="buy">{uiText("買")}</option>
+              <option value="sell">{uiText("賣")}</option>
             </select>
           </Field>
           <Field label="代號">
@@ -4109,28 +4124,33 @@ function TradesPanel({ trades, setTrades, holdings, costBasis, setCostBasis, acc
         <AddButton onClick={add} label="新增交易" />
       </Panel>
 
-      <Panel title={`交易紀錄（${filtered.length}${q ? ` / 共${trades.length}` : ""}）`}>
+      <Panel title={M(`Trades (${filtered.length}${q ? ` / ${trades.length} total` : ""})`, `交易紀錄（${filtered.length}${q ? ` / 共${trades.length}` : ""}）`)}>
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="搜尋代號或名稱，例如 0050 或 元大台灣50"
+          placeholder={uiText("搜尋代號或名稱，例如 0050 或 元大台灣50")}
           className="input mb-3"
         />
         {singleSymbolSummary && (
           <div className="rounded-lg p-3 mb-3 text-[11px] mono" style={{ background: COLORS.bg, border: `1px solid ${COLORS.gold}` }}>
             <div style={{ color: COLORS.gold }} className="font-bold mb-1">
-              {singleSymbolSummary.symbol}{singleSymbolSummary.name ? `｜${singleSymbolSummary.name}` : ""} 核對
+              {singleSymbolSummary.symbol}{singleSymbolSummary.name ? `｜${singleSymbolSummary.name}` : ""} {M("Reconciliation", "核對")}
             </div>
-            <div style={{ color: COLORS.sub }}>買進共 {nf(singleSymbolSummary.bought)} 股、賣出共 {nf(singleSymbolSummary.sold)} 股，淨增加 {nf(singleSymbolSummary.net)} 股</div>
-            <div style={{ color: COLORS.sub }}>期初股數 {nf(singleSymbolSummary.initialShares)} + 淨增加 {nf(singleSymbolSummary.net)} = 目前應有 <span className="font-bold" style={{ color: COLORS.text }}>{nf(singleSymbolSummary.total)}</span> 股（跟「持股進度」頁顯示的股數對一下，兩邊算法一樣，如果對不起來代表持股進度那邊被手動改過）</div>
+            <div style={{ color: COLORS.sub }}>{M(
+              `Bought ${nf(singleSymbolSummary.bought)} sh, sold ${nf(singleSymbolSummary.sold)} sh, net +${nf(singleSymbolSummary.net)} sh`,
+              `買進共 ${nf(singleSymbolSummary.bought)} 股、賣出共 ${nf(singleSymbolSummary.sold)} 股，淨增加 ${nf(singleSymbolSummary.net)} 股`
+            )}</div>
+            <div style={{ color: COLORS.sub }}>{UI_SHOW_ENGLISH
+              ? <>Starting {nf(singleSymbolSummary.initialShares)} + net {nf(singleSymbolSummary.net)} = should now be <span className="font-bold" style={{ color: COLORS.text }}>{nf(singleSymbolSummary.total)}</span> sh (compare with the Holdings tab — same formula; a mismatch means Holdings was manually overridden)</>
+              : <>期初股數 {nf(singleSymbolSummary.initialShares)} + 淨增加 {nf(singleSymbolSummary.net)} = 目前應有 <span className="font-bold" style={{ color: COLORS.text }}>{nf(singleSymbolSummary.total)}</span> 股（跟「持股進度」頁顯示的股數對一下，兩邊算法一樣，如果對不起來代表持股進度那邊被手動改過）</>}</div>
           </div>
         )}
         {q && dupGroups.length > 0 && (
           <div className="rounded-lg p-3 mb-3 text-[11px]" style={{ background: "#3a1f1f", border: `1px solid ${COLORS.loss}` }}>
-            <div style={{ color: COLORS.loss }} className="font-bold mb-1">⚠️ 發現 {dupGroups.length} 組疑似重複輸入</div>
+            <div style={{ color: COLORS.loss }} className="font-bold mb-1">{M(`⚠️ Found ${dupGroups.length} possible duplicate entries`, `⚠️ 發現 ${dupGroups.length} 組疑似重複輸入`)}</div>
             {dupGroups.map((g, i) => (
               <div key={i} style={{ color: COLORS.sub }} className="mono">
-                {g[0].symbol} {g[0].date} {g[0].action === "buy" ? "買" : "賣"} {g[0].shares}股@{g[0].price}（出現 {g.length} 次）
+                {g[0].symbol} {g[0].date} {uiText(g[0].action === "buy" ? "買" : "賣")} {g[0].shares}{M("sh", "股")}@{g[0].price}{M(` (appeared ${g.length} times)`, `（出現 ${g.length} 次）`)}
               </div>
             ))}
           </div>
@@ -4141,11 +4161,11 @@ function TradesPanel({ trades, setTrades, holdings, costBasis, setCostBasis, acc
               <div className="flex-1">
                 <div className="text-sm mono">
                   {t.date} <span style={{ color: t.action === "buy" ? COLORS.gain : COLORS.loss }}>
-                    {t.action === "buy" ? "買" : "賣"}
+                    {uiText(t.action === "buy" ? "買" : "賣")}
                   </span> {t.symbol}
                 </div>
                 <div className="text-[11px]" style={{ color: COLORS.sub }}>
-                  {nf(t.shares)}股 @ {t.price}
+                  {nf(t.shares)}{M("sh", "股")} @ {t.price}
                 </div>
               </div>
               <div className="text-right mono text-sm font-bold">
@@ -4198,7 +4218,7 @@ function UpcomingDividendReminder({ holdings }) {
   if (status === "loading") {
     return (
       <Panel title="近期除息">
-        <div className="text-xs" style={{ color: COLORS.sub }}>查詢中…</div>
+        <div className="text-xs" style={{ color: COLORS.sub }}><UiLabel zh="查詢中…" /></div>
       </Panel>
     );
   }
@@ -4220,7 +4240,7 @@ function UpcomingDividendReminder({ holdings }) {
               <div className="text-right">
                 <span className="mono" style={{ color: COLORS.gold }}>{r.date}</span>
                 <span className="text-[11px] ml-1" style={{ color: COLORS.sub }}>
-                  {days === 0 ? "就是今天" : `還有 ${days} 天`}
+                  {days === 0 ? <UiLabel zh="就是今天" /> : (UI_SHOW_ENGLISH ? `${days} days left` : `還有 ${days} 天`)}
                 </span>
               </div>
             </div>
@@ -4282,7 +4302,7 @@ function DividendHistoryChart({ dividends }) {
                 color: active ? "#0A0F1C" : COLORS.sub,
                 border: `1px solid ${active ? COLORS.gold : COLORS.panelBorder}`,
               }}>
-              {s === "all" ? "全部" : s}
+              {s === "all" ? <UiLabel zh="全部" /> : s}
             </button>
           );
         })}
@@ -4297,7 +4317,7 @@ function DividendHistoryChart({ dividends }) {
             <Tooltip
               cursor={false}
               contentStyle={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, fontSize: 12 }}
-              formatter={(v, name) => [`NT$ ${nf(v)}`, isAll ? name : "配息"]} />
+              formatter={(v, name) => [`NT$ ${nf(v)}`, isAll ? name : uiText("配息")]} />
             {isAll && (
               <Legend wrapperStyle={{ fontSize: 11 }}
                 formatter={(value) => <span style={{ color: COLORS.sub }}>{value}</span>} />
@@ -4317,6 +4337,7 @@ function DividendHistoryChart({ dividends }) {
 
 // ---------------- Dividends Panel ----------------
 function DividendsPanel({ dividends, setDividends, holdings }) {
+  const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
   const [form, setForm] = useState({ date: todayStr(), symbol: "", shares: "", perShare: "" });
   // Typing/selecting a symbol that matches a holding auto-fills 股數 with
   // that holding's current share count, so you don't have to look it up
@@ -4375,13 +4396,16 @@ function DividendsPanel({ dividends, setDividends, holdings }) {
   }, [form.symbol]);
 
   const scheduleHint = (() => {
-    if (scheduleStatus === "loading") return { text: "查詢最新除息公告中…", color: COLORS.sub };
+    if (scheduleStatus === "loading") return { text: uiText("查詢最新除息公告中…"), color: COLORS.sub };
     if (scheduleStatus === "found") {
-      const cash = scheduleInfo?.cashDividend != null ? `，每股 ${scheduleInfo.cashDividend}` : "";
-      return { text: `已抓到最新公告：${scheduleInfo.date} 除${scheduleInfo.type || "息"}${cash}`, color: COLORS.gold };
+      const cash = scheduleInfo?.cashDividend != null ? (UI_SHOW_ENGLISH ? `, ${scheduleInfo.cashDividend}/share` : `，每股 ${scheduleInfo.cashDividend}`) : "";
+      const text = UI_SHOW_ENGLISH
+        ? `Latest notice found: ex-${scheduleInfo.type === "息" || !scheduleInfo.type ? "dividend" : scheduleInfo.type} date ${scheduleInfo.date}${cash}`
+        : `已抓到最新公告：${scheduleInfo.date} 除${scheduleInfo.type || "息"}${cash}`;
+      return { text, color: COLORS.gold };
     }
-    if (scheduleStatus === "not-found") return { text: "尚未有除權息公告（可能還沒到公告時間，日期請自行填寫）", color: COLORS.sub };
-    if (scheduleStatus === "error") return { text: "查詢公告失敗，請自行填寫除息日", color: "#EF4444" };
+    if (scheduleStatus === "not-found") return { text: uiText("尚未有除權息公告（可能還沒到公告時間，日期請自行填寫）"), color: COLORS.sub };
+    if (scheduleStatus === "error") return { text: uiText("查詢公告失敗，請自行填寫除息日"), color: "#EF4444" };
     return null;
   })();
 
@@ -4428,14 +4452,14 @@ function DividendsPanel({ dividends, setDividends, holdings }) {
 
       <DividendHistoryChart dividends={dividends} />
 
-      <Panel title={`累積股息：NT$ ${nf(total)}`}>
+      <Panel title={M(`Cumulative Dividends: NT$ ${nf(total)}`, `累積股息：NT$ ${nf(total)}`)}>
         <div className="space-y-2 max-h-96 overflow-y-auto">
           {sorted.map((d) => (
             <Row key={d.id} onDelete={() => remove(d.id)}>
               <div className="flex-1">
                 <div className="text-sm mono">{d.date} · {d.symbol}</div>
                 <div className="text-[11px]" style={{ color: COLORS.sub }}>
-                  {nf(d.shares)}股 × {d.perShare}
+                  {nf(d.shares)}{M("sh", "股")} × {d.perShare}
                 </div>
               </div>
               <div className="text-right mono text-sm font-bold" style={{ color: COLORS.gold }}>
@@ -4452,16 +4476,17 @@ function DividendsPanel({ dividends, setDividends, holdings }) {
 
 // ---------------- Plan Panel ----------------
 function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBackup, importBackup, exportExcel, lastBackupAt, backupAgeDays, backupOverdue, aiFallbackConfig, setAiFallbackConfig, healthCards, healthCardBusyId, respondHealthCard }) {
+  const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
   const [form, setForm] = useState({ symbol: "", amount: "", note: "" });
   const [fallbackTest, setFallbackTest] = useState({ status: "idle", message: "" });
 
   const testExternalAiFallback = async () => {
     const healthUrl = externalAiHealthUrl(aiFallbackConfig?.url);
     if (!healthUrl) {
-      setFallbackTest({ status: "error", message: "網址格式不正確；可直接貼 Vercel 專案網址" });
+      setFallbackTest({ status: "error", message: uiText("網址格式不正確；可直接貼 Vercel 專案網址") });
       return;
     }
-    setFallbackTest({ status: "loading", message: "測試中…" });
+    setFallbackTest({ status: "loading", message: uiText("測試中…") });
     try {
       const headers = {};
       if (aiFallbackConfig?.token) headers["x-fallback-token"] = aiFallbackConfig.token;
@@ -4469,9 +4494,9 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.ok) throw new Error(data?.error || `HTTP ${res.status}`);
       const model = data.model ? ` · ${data.model}` : "";
-      setFallbackTest({ status: "ok", message: `備援後端正常${model}` });
+      setFallbackTest({ status: "ok", message: M(`Fallback backend OK${model}`, `備援後端正常${model}`) });
     } catch (e) {
-      setFallbackTest({ status: "error", message: e?.message || "備援測試失敗" });
+      setFallbackTest({ status: "error", message: e?.message || uiText("備援測試失敗") });
     }
   };
   const add = () => {
@@ -4492,7 +4517,7 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
         </div>
       </Panel>
 
-      <Panel title={`每月定期定額（合計 NT$ ${nf(planTotal)}）`}>
+      <Panel title={M(`Monthly Recurring (Total NT$ ${nf(planTotal)})`, `每月定期定額（合計 NT$ ${nf(planTotal)}）`)}>
         <div className="space-y-2">
           {planItems.map((p) => (
             <Row key={p.id} onDelete={() => remove(p.id)}>
@@ -4527,24 +4552,24 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
             <div key={card.id} className="mb-3 rounded-xl p-3" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
               <div className="text-[12px] leading-5" style={{ color: COLORS.text }}>{card.summary}</div>
               {card.occurrences > 1 && (
-                <div className="mt-1 text-[10px]" style={{ color: COLORS.sub }}>已連續偵測到 {card.occurrences} 次，最後一次：{card.lastSeenAt}</div>
+                <div className="mt-1 text-[10px]" style={{ color: COLORS.sub }}>{M(`Detected ${card.occurrences} times in a row, last: ${card.lastSeenAt}`, `已連續偵測到 ${card.occurrences} 次，最後一次：${card.lastSeenAt}`)}</div>
               )}
               {card.fixType === "wait" && (
-                <div className="mt-1 text-[10px]" style={{ color: COLORS.sub }}>建議：不用做什麼，等它自動恢復即可。</div>
+                <div className="mt-1 text-[10px]" style={{ color: COLORS.sub }}><UiLabel zh="建議：不用做什麼，等它自動恢復即可。" /></div>
               )}
               {card.fixType === "code" && (
-                <div className="mt-1 text-[10px]" style={{ color: COLORS.sub }}>建議：這個需要改程式碼重新部署，按「確定」只會把這張卡片標記為已處理，不會自動改程式。</div>
+                <div className="mt-1 text-[10px]" style={{ color: COLORS.sub }}><UiLabel zh="建議：這個需要改程式碼重新部署，按「確定」只會把這張卡片標記為已處理，不會自動改程式。" /></div>
               )}
               <div className="mt-2 flex gap-2">
                 <button onClick={() => respondHealthCard(card.id, "apply")} disabled={healthCardBusyId === card.id}
                   className="flex-1 rounded-lg py-2 text-[11px] font-bold"
                   style={{ background: COLORS.gold, color: COLORS.bg, opacity: healthCardBusyId === card.id ? 0.6 : 1 }}>
-                  確定（知道了）
+                  <UiLabel zh="確定（知道了）" />
                 </button>
                 <button onClick={() => respondHealthCard(card.id, "dismiss")} disabled={healthCardBusyId === card.id}
                   className="flex-1 rounded-lg py-2 text-[11px] font-bold"
                   style={{ background: COLORS.bg, color: COLORS.sub, border: `1px solid ${COLORS.panelBorder}`, opacity: healthCardBusyId === card.id ? 0.6 : 1 }}>
-                  忽略
+                  <UiLabel zh="忽略" />
                 </button>
               </div>
             </div>
@@ -4554,19 +4579,23 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
 
       <Panel title="AI 雙層備援（自動）">
         <div className="text-[11px] leading-5" style={{ color: COLORS.sub }}>
-          主 AI：<span style={{ color: COLORS.gold }}>Cloudflare GPT-OSS</span>。如果遇到額度用完、429、逾時或服務錯誤，會由同一個 Cloudflare Worker <span style={{ color: COLORS.gold }}>直接切到 Gemini 3.5 Flash-Lite</span>，不再需要 Vercel，也不會把 Gemini API Key 放在手機。
+          {UI_SHOW_ENGLISH
+            ? <>Primary AI: <span style={{ color: COLORS.gold }}>Cloudflare GPT-OSS</span>. If it hits a quota limit, 429, timeout or service error, the same Cloudflare Worker <span style={{ color: COLORS.gold }}>switches directly to Gemini 3.5 Flash-Lite</span> — no Vercel needed, and the Gemini API key never touches your phone.</>
+            : <>主 AI：<span style={{ color: COLORS.gold }}>Cloudflare GPT-OSS</span>。如果遇到額度用完、429、逾時或服務錯誤，會由同一個 Cloudflare Worker <span style={{ color: COLORS.gold }}>直接切到 Gemini 3.5 Flash-Lite</span>，不再需要 Vercel，也不會把 Gemini API Key 放在手機。</>}
         </div>
         <div className="mt-2 rounded-xl p-3 text-[11px] leading-5" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, color: COLORS.sub }}>
           <div><span style={{ color: COLORS.loss }}>①</span> Cloudflare AI</div>
-          <div><span style={{ color: COLORS.gold }}>↓ 失敗自動切換</span></div>
-          <div><span style={{ color: COLORS.gain }}>②</span> Gemini 3.5 Flash-Lite（Worker 伺服器端）</div>
-          <div><span style={{ color: COLORS.sub }}>↓ 如果 Gemini 也失敗，才顯示真正錯誤，不會假裝成功</span></div>
+          <div><span style={{ color: COLORS.gold }}>{M("↓ Auto-switch on failure", "↓ 失敗自動切換")}</span></div>
+          <div><span style={{ color: COLORS.gain }}>②</span> {M("Gemini 3.5 Flash-Lite (server-side Worker)", "Gemini 3.5 Flash-Lite（Worker 伺服器端）")}</div>
+          <div><span style={{ color: COLORS.sub }}>{M("↓ Only shows a real error if Gemini also fails — never pretends to succeed", "↓ 如果 Gemini 也失敗，才顯示真正錯誤，不會假裝成功")}</span></div>
         </div>
         <label className="mt-3 flex items-start gap-2 text-[11px] leading-5" style={{ color: COLORS.sub }}>
           <input type="checkbox" checked={aiFallbackConfig?.allowPrivate === true}
             onChange={(e) => setAiFallbackConfig({ ...aiFallbackConfig, allowPrivate: e.target.checked })}
             style={{ marginTop: 3 }} />
-          <span>允許 Gemini 備援讀取 App 的持股／成本／資產資料。關閉時，公開資訊、聊天、新聞與即時股價仍可備援；需要私人資產資料時，Gemini 會改用唯讀工具請 App 查詢，不會把整份私人 context 送出去。</span>
+          <span>{UI_SHOW_ENGLISH
+            ? "Allow the Gemini fallback to read the app's holdings/cost/asset data. When off, public info, chat, news and live quotes can still use the fallback; when private data is needed, Gemini uses a read-only tool to query the app instead of sending the whole private context."
+            : "允許 Gemini 備援讀取 App 的持股／成本／資產資料。關閉時，公開資訊、聊天、新聞與即時股價仍可備援；需要私人資產資料時，Gemini 會改用唯讀工具請 App 查詢，不會把整份私人 context 送出去。"}</span>
         </label>
       </Panel>
 
@@ -4575,23 +4604,23 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
           style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
           <ShieldCheck size={18} style={{ color: COLORS.gold, flex: "0 0 auto", marginTop: 1 }} />
           <div className="text-[11px] leading-5" style={{ color: COLORS.sub }}>
-            JSON 用來完整備份／還原 App；Excel 用來保存、檢視與分析投資歷史。重要修改後建議兩種都留一份。
+            <UiLabel zh="JSON 用來完整備份／還原 App；Excel 用來保存、檢視與分析投資歷史。重要修改後建議兩種都留一份。" />
           </div>
           <div className="ml-auto text-right text-[10px] leading-4" style={{ color: backupOverdue ? COLORS.gold : COLORS.sub }}>
             {lastBackupAt
-              ? <>上次 JSON 備份<br />{new Date(lastBackupAt).toLocaleDateString("zh-TW")}（{backupAgeDays} 天前）</>
-              : <>上次 JSON 備份<br />尚未記錄</>}
+              ? <>{UI_SHOW_ENGLISH ? "Last JSON Backup" : "上次 JSON 備份"}<br />{new Date(lastBackupAt).toLocaleDateString("zh-TW")}{M(` (${backupAgeDays}d ago)`, `（${backupAgeDays} 天前）`)}</>
+              : <>{UI_SHOW_ENGLISH ? "Last JSON Backup" : "上次 JSON 備份"}<br /><UiLabel zh="尚未記錄" /></>}
           </div>
         </div>
         <div className="grid grid-cols-3 gap-2 mt-3">
           <button onClick={exportBackup}
             className="rounded-xl py-2.5 text-[11px] font-bold flex items-center justify-center gap-1"
             style={{ background: COLORS.gold, color: COLORS.bg }}>
-            <Download size={14} /> JSON備份
+            <Download size={14} /> <UiLabel zh="JSON備份" inline />
           </button>
           <label className="rounded-xl py-2.5 text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer"
             style={{ background: COLORS.bg, color: COLORS.gold, border: `1px solid ${COLORS.gold}` }}>
-            <Upload size={14} /> JSON還原
+            <Upload size={14} /> <UiLabel zh="JSON還原" inline />
             <input type="file" accept="application/json,.json" className="hidden"
               onChange={(e) => {
                 const file = e.target.files?.[0];
@@ -4602,7 +4631,7 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
           <button onClick={exportExcel}
             className="rounded-xl py-2.5 text-[11px] font-bold flex items-center justify-center gap-1"
             style={{ background: COLORS.bg, color: COLORS.gold, border: `1px solid ${COLORS.gold}` }}>
-            <Download size={14} /> 匯出Excel
+            <Download size={14} /> <UiLabel zh="匯出Excel" inline />
           </button>
         </div>
       </Panel>
@@ -4613,6 +4642,7 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
 // ---------------- Progress Panel ----------------
 function ProgressPanel({ planSchedule, setPlanSchedule, planTotal, schedule, totalInvested, totalToday,
   principalCrossing, assetCrossing, elapsedMonths, costLeadMonths, assetLeadMonths }) {
+  const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
 
   const principalDate = principalCrossing ? addMonths(planSchedule.startDate, principalCrossing.index) : "—";
   const assetDate = assetCrossing ? addMonths(planSchedule.startDate, assetCrossing.index) : "—";
@@ -4624,49 +4654,49 @@ function ProgressPanel({ planSchedule, setPlanSchedule, planTotal, schedule, tot
       <Panel title="計畫進度追蹤">
         <div className="grid grid-cols-2 gap-3">
           <div className="rounded-xl p-3" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
-            <div className="text-[11px]" style={{ color: COLORS.sub }}>成本進度</div>
+            <div className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="成本進度" /></div>
             <div className="text-lg font-bold mono mt-1">{principalDate}{principalBeyond ? "+" : ""}</div>
             <div className="text-[11px] mono mt-1" style={{ color: COLORS.sub }}>
-              目前持倉成本 NT$ {nf(totalInvested)}
+              <UiLabel zh="目前持倉成本" inline /> NT$ {nf(totalInvested)}
             </div>
           </div>
           <div className="rounded-xl p-3" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
-            <div className="text-[11px]" style={{ color: COLORS.sub }}>資產進度</div>
+            <div className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="資產進度" /></div>
             <div className="text-lg font-bold mono mt-1">{assetDate}{assetBeyond ? "+" : ""}</div>
             <div className="text-[11px] mono mt-1" style={{ color: COLORS.sub }}>
-              實際資產 NT$ {nf(totalToday)}
+              <UiLabel zh="實際資產" inline /> NT$ {nf(totalToday)}
             </div>
           </div>
         </div>
 
         <div className="mt-3 grid grid-cols-2 gap-3">
           <div className="rounded-xl p-3 flex flex-col justify-between" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
-            <span className="text-[11px]" style={{ color: COLORS.sub }}>成本進度 vs 已執行月數</span>
+            <span className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="成本進度 vs 已執行月數" /></span>
             <span className="text-lg font-bold mono mt-1"
               style={{ color: costLeadMonths == null ? COLORS.text : (costLeadMonths >= 0 ? COLORS.gain : COLORS.loss) }}>
-              {costLeadMonths == null ? "—" : `${costLeadMonths >= 0 ? "+" : ""}${costLeadMonths.toFixed(1)} 個月`}
+              {costLeadMonths == null ? "—" : M(`${costLeadMonths >= 0 ? "+" : ""}${costLeadMonths.toFixed(1)} mo`, `${costLeadMonths >= 0 ? "+" : ""}${costLeadMonths.toFixed(1)} 個月`)}
             </span>
             <span className="text-[10px] mt-1" style={{ color: COLORS.sub }}>
-              {costLeadMonths == null ? "" : (costLeadMonths >= 0 ? "投入節奏領先計畫" : "投入節奏落後計畫")}
+              {costLeadMonths == null ? "" : <UiLabel zh={costLeadMonths >= 0 ? "投入節奏領先計畫" : "投入節奏落後計畫"} />}
             </span>
           </div>
           <div className="rounded-xl p-3 flex flex-col justify-between" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
-            <span className="text-[11px]" style={{ color: COLORS.sub }}>資產進度 vs 已執行月數</span>
+            <span className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="資產進度 vs 已執行月數" /></span>
             <span className="text-lg font-bold mono mt-1"
               style={{ color: assetLeadMonths == null ? COLORS.text : (assetLeadMonths >= 0 ? COLORS.gain : COLORS.loss) }}>
-              {assetLeadMonths == null ? "—" : `${assetLeadMonths >= 0 ? "+" : ""}${assetLeadMonths.toFixed(1)} 個月`}
+              {assetLeadMonths == null ? "—" : M(`${assetLeadMonths >= 0 ? "+" : ""}${assetLeadMonths.toFixed(1)} mo`, `${assetLeadMonths >= 0 ? "+" : ""}${assetLeadMonths.toFixed(1)} 個月`)}
             </span>
             <span className="text-[10px] mt-1" style={{ color: COLORS.sub }}>
-              {assetLeadMonths == null ? "" : (assetLeadMonths >= 0 ? "資產成長領先假設報酬率" : "資產成長落後假設報酬率")}
+              {assetLeadMonths == null ? "" : <UiLabel zh={assetLeadMonths >= 0 ? "資產成長領先假設報酬率" : "資產成長落後假設報酬率"} />}
             </span>
           </div>
         </div>
         <div className="mt-2 text-[11px] mono" style={{ color: COLORS.sub }}>
-          計畫已執行約 {elapsedMonths.toFixed(1)} 個月（自 {planSchedule.startDate}）
+          {M(`Plan has been running ~${elapsedMonths.toFixed(1)} months (since ${planSchedule.startDate})`, `計畫已執行約 ${elapsedMonths.toFixed(1)} 個月（自 ${planSchedule.startDate}）`)}
         </div>
         {(principalBeyond || assetBeyond) && (
           <div className="mt-2 text-[11px]" style={{ color: COLORS.gold }}>
-            已超出目前推算年限，請拉長下方「推算年限」以看到精確月份。
+            <UiLabel zh="已超出目前推算年限，請拉長下方「推算年限」以看到精確月份。" />
           </div>
         )}
       </Panel>
@@ -4699,16 +4729,16 @@ function ProgressPanel({ planSchedule, setPlanSchedule, planTotal, schedule, tot
         <button onClick={() => setPlanSchedule({ ...planSchedule, monthlyAmount: planTotal })}
           className="mt-3 w-full rounded-xl py-2 text-xs font-bold"
           style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, color: COLORS.gold }}>
-          帶入「計畫設定」目前每月定期定額合計（NT$ {nf(planTotal)}）
+          {M(`Send Current Monthly Recurring Total to "Plan Settings" (NT$ ${nf(planTotal)})`, `帶入「計畫設定」目前每月定期定額合計（NT$ ${nf(planTotal)}）`)}
         </button>
       </Panel>
 
-      <Panel title={`每月本金與資產推算（共 ${schedule.length} 筆）`}>
+      <Panel title={M(`Monthly Principal & Asset Projection (${schedule.length} rows)`, `每月本金與資產推算（共 ${schedule.length} 筆）`)}>
         <div className="grid grid-cols-4 gap-1 text-[10px] font-bold px-2 pb-1.5" style={{ color: COLORS.sub }}>
-          <div>月份</div>
-          <div className="text-right">累積本金</div>
-          <div className="text-right">推算資產</div>
-          <div className="text-right">資產-本金</div>
+          <div><UiLabel zh="月份" /></div>
+          <div className="text-right"><UiLabel zh="累積本金" /></div>
+          <div className="text-right"><UiLabel zh="推算資產" /></div>
+          <div className="text-right"><UiLabel zh="資產-本金" /></div>
         </div>
         <div className="space-y-1.5 max-h-96 overflow-y-auto">
           {schedule.map((row) => {
@@ -4722,8 +4752,8 @@ function ProgressPanel({ planSchedule, setPlanSchedule, planTotal, schedule, tot
                   border: `1px solid ${isCurrent ? COLORS.gold : COLORS.panelBorder}`,
                 }}>
                 <div style={{ color: isCurrent ? COLORS.gold : COLORS.text }}>
-                  {row.index === 0 ? "起點" : addMonths(planSchedule.startDate, row.index)}
-                  {isCurrent && <span className="ml-1 text-[9px]" style={{ color: COLORS.gold }}>●目前</span>}
+                  {row.index === 0 ? <UiLabel zh="起點" /> : addMonths(planSchedule.startDate, row.index)}
+                  {isCurrent && <span className="ml-1 text-[9px]" style={{ color: COLORS.gold }}><UiLabel zh="●目前" /></span>}
                 </div>
                 <div className="text-right" style={{ color: COLORS.sub }}>{nf(row.principal)}</div>
                 <div className="text-right">{nf(row.assets)}</div>
