@@ -1,6 +1,6 @@
 import { onRequestPost } from "../lib/ask-core.js";
 
-const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
+const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
 
 // 預設使用 Gemini 3.5 Flash-Lite。若 Vercel 還留著舊的 Gemini 2.x 環境變數，
 // 自動改用 3.5，避免舊部署偷偷退回已淘汰的 2.5。
