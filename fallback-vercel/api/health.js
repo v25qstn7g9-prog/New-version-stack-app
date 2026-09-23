@@ -1,4 +1,4 @@
-const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
+const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
 
 function resolvedGeminiModel() {
   const configured = String(process.env.GEMINI_MODEL || "").trim();
