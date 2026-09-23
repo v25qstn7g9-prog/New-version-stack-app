@@ -237,6 +237,10 @@ const UI_EN = {
   "明日": "Tomorrow",
   "持股上漲廣度": "Holding Breadth",
   "盤中趨勢": "Intraday Trend",
+  "偏多": "Bullish",
+  "偏空": "Bearish",
+  "盤整": "Mixed",
+  "累積中": "Accumulating",
   "展開判斷明細": "Show Details",
   "收合判斷明細": "Hide Details",
   "方向不明": "Unclear",
@@ -2928,6 +2932,17 @@ function TrendRadar({ holdings }) {
 
   const flowText=(v)=>{const n=Number(v)||0; if(!n)return "0"; const abs=Math.abs(n); const x=abs>=1000000?(abs/1000000).toFixed(1)+"M":abs>=1000?(abs/1000).toFixed(0)+"K":abs.toFixed(0); return (n>0?"+":"-")+x;};
   const kdCell=(kd)=>kd?`${kd.K.toFixed(0)}/${kd.D.toFixed(0)} ${kd.state}`:(UI_SHOW_ENGLISH?"Accumulating":"累積中");
+  // Plain-language rollup of the three short-timeframe KD signals (5/15/60分)
+  // into one word: this is what the "盤中趨勢" label was already showing on
+  // the market card, but with no value next to it — it was never actually
+  // wired up. At least 2 of the 3 timeframes must agree to call a direction;
+  // otherwise it reads as mixed rather than forcing a guess.
+  const intradayTrend=(kd5,kd15,kd60)=>{
+    const list=[kd5,kd15,kd60].filter(Boolean);
+    if(!list.length) return "累積中";
+    const sum=list.reduce((a,k)=>a+k.bull,0);
+    return sum>=2?"偏多":sum<=-2?"偏空":"盤整";
+  };
   // Plain-language one-liner for each holding: spells out in words why the
   // call agrees or disagrees with the stock's own real-time move, so a
   // "跌但稍偏漲"-looking card is self-explanatory instead of confusing.
@@ -2989,7 +3004,7 @@ function TrendRadar({ holdings }) {
         </div>}
         {marketRow&&<div className="rounded-xl px-3 py-2" style={{background:COLORS.bg,border:"1px solid "+COLORS.gold}}>
           <div className="flex items-center justify-between"><div className="text-xs font-bold"><UiLabel zh="加權指數" inline /> <span className="font-normal" style={{color:COLORS.sub}}>TAIEX</span></div><div className="text-[10px] font-black mono text-right" style={{color:marketRow.direction.includes("漲")?COLORS.gain:marketRow.direction.includes("跌")?COLORS.loss:COLORS.sub}}><span><UiLabel zh="今日" inline /> <UiLabel zh={marketRow.direction} inline /> {marketRow.probability.toFixed(0)}%</span><span className="ml-2" style={{color:tomorrowMap.TAIEX?.direction?.includes("漲")?COLORS.gain:tomorrowMap.TAIEX?.direction?.includes("跌")?COLORS.loss:COLORS.sub}}><UiLabel zh="明日" inline /> {tomorrowMap.TAIEX?<><UiLabel zh={tomorrowMap.TAIEX.direction} inline />{" "+tomorrowMap.TAIEX.probability.toFixed(0)+"%"}</>:<UiLabel zh="資料累積中" inline />}</span></div></div>
-          <div className="flex justify-between mt-1 text-[9px]" style={{color:COLORS.sub}}><span><UiLabel zh="目前" inline /> {marketRow.indexPct>=0?"+":""}{marketRow.indexPct.toFixed(2)}%</span><span><UiLabel zh="持股上漲廣度" inline /> {(marketRow.breadth*100).toFixed(0)}%</span><span><UiLabel zh="盤中趨勢" /></span></div>
+          <div className="flex justify-between mt-1 text-[9px]" style={{color:COLORS.sub}}><span><UiLabel zh="目前" inline /> {marketRow.indexPct>=0?"+":""}{marketRow.indexPct.toFixed(2)}%</span><span><UiLabel zh="持股上漲廣度" inline /> {(marketRow.breadth*100).toFixed(0)}%</span><span><UiLabel zh="盤中趨勢" inline /> <UiLabel zh={intradayTrend(marketRow.kd5,marketRow.kd15,marketRow.kd60)} inline /></span></div>
           {detailsOpen&&<div className="mt-1.5 pt-1.5 text-[9px] mono" style={{color:COLORS.sub,borderTop:"1px solid "+COLORS.panelBorder}}>
             <div className="flex justify-between"><span><UiLabel zh="大盤 KD 5分" /></span><span>{kdCell(marketRow.kd5)}</span></div>
             <div className="flex justify-between"><span><UiLabel zh="大盤 KD 15分" /></span><span>{kdCell(marketRow.kd15)}</span></div>
@@ -3004,6 +3019,7 @@ function TrendRadar({ holdings }) {
           return <div key={r.symbol} className="rounded-xl px-3 py-2" style={{background:COLORS.bg,border:"1px solid "+COLORS.panelBorder}}>
             <div className="flex items-center justify-between"><div className="text-xs font-bold mono">{r.symbol}<span className="ml-1 font-normal" style={{color:COLORS.sub}}>{r.name}</span></div><div className="text-[10px] font-black mono text-right"><span style={{color:tone}}><UiLabel zh="今日" inline /> <UiLabel zh={r.direction} inline /> {r.probability.toFixed(0)}%</span><span className="ml-2" style={{color:tomorrowMap[r.symbol]?.direction?.includes("漲")?COLORS.gain:tomorrowMap[r.symbol]?.direction?.includes("跌")?COLORS.loss:COLORS.sub}}><UiLabel zh="明日" inline /> {tomorrowMap[r.symbol]?<><UiLabel zh={tomorrowMap[r.symbol].direction} inline />{" "+tomorrowMap[r.symbol].probability.toFixed(0)+"%"}</>:<UiLabel zh="資料累積中" inline />}</span></div></div>
             <div className="flex justify-between mt-1 text-[9px]" style={{color:COLORS.sub}}><span><UiLabel zh="大盤" inline /> {r.indexPct>=0?"+":""}{r.indexPct.toFixed(2)}%</span><span><UiLabel zh="個股" inline /> {r.stockPct>=0?"+":""}{r.stockPct.toFixed(2)}%</span><span><UiLabel zh="新聞" inline /> <UiLabel zh={r.newsScore>0?"偏正":r.newsScore<0?"偏負":"中性"} inline /></span><span><UiLabel zh="信心" inline /> <UiLabel zh={r.confidence} inline /></span></div>
+            <div className="mt-0.5 text-[9px]" style={{color:COLORS.sub}}><span><UiLabel zh="盤中趨勢" inline /> <UiLabel zh={intradayTrend(r.kd5,r.kd15,r.kd60)} inline /></span></div>
             <div className="mt-1 text-[9px] leading-snug" style={{color:COLORS.sub}}>{explainRow(r)}</div>
             {detailsOpen&&<><div className="mt-1.5 pt-1.5 text-[9px] mono" style={{color:COLORS.sub,borderTop:"1px solid "+COLORS.panelBorder}}>
               <div className="flex justify-between"><span><UiLabel zh="KD 5分" /></span><span>{kdCell(r.kd5)}</span></div>
