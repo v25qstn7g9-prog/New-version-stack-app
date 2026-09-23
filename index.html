@@ -124,7 +124,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.44.1-language-switch-fix";
+const APP_VERSION = "4.7-personal-advisor-v2.45.0-bilingual-coverage-pass";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -220,7 +220,6 @@ const UI_EN = {
   "目前總資產": "Current Total Assets",
   "今天": "Today",
   "已更新": "Updated",
-  "<UiLabel zh="抓取即時股價" />": "Refresh Quotes",
   "高／低價": "High / Low",
   "股價／漲跌幅": "Price / Change",
   "市值／今日損益": "Value / Today P&L",
@@ -250,10 +249,207 @@ const UI_EN = {
   "信心高": "High Confidence",
   "隔夜訊號": "Overnight Signal",
   "台指近月": "TX Front Month",
-  "日盤": "Day Session",
-  "夜盤": "Night Session",
+  "日盤": "Day",
+  "夜盤": "Night",
   "資料累積中": "Collecting Data",
-  "暫不可用，明日預測退回原模型": "Unavailable; using fallback model"
+  "暫不可用，明日預測退回原模型": "Unavailable; Tomorrow Forecast Uses Fallback Model",
+  "達成": "Reach",
+  "抓取即時股價": "Refresh Quotes",
+  "信心": "Confidence",
+  "新聞": "News",
+  "法人": "Institutional",
+  "因子回測（研究用）": "Factor Backtest (Research)",
+  "計畫進度": "Progress",
+  "計畫設定": "Settings",
+  "資產曲線": "Asset Curve",
+  "資產高點": "Asset High",
+  "回撤率": "Drawdown",
+  "目前持倉成本": "Current Cost Basis",
+  "總資產": "Total Assets",
+  "持倉損益(估)": "Holding P/L (Est.)",
+  "累積股息": "Cumulative Dividends",
+  "粗估總報酬": "Estimated Total Return",
+  "粗估報酬率": "Estimated Return Rate",
+  "今年資產變化(YTD)": "YTD Asset Change",
+  "1個月": "1M",
+  "3個月": "3M",
+  "半年": "6M",
+  "1年": "1Y",
+  "全部": "All",
+  "總市值變化": "Total Value Change",
+  "總本金變化": "Principal Change",
+  "損益變化（市場報酬）": "P/L Change (Market Return)",
+  "台股市值變化": "TW Value Change",
+  "台股本金變化": "TW Principal Change",
+  "美股市值變化": "US Value Change",
+  "美股本金變化": "US Principal Change",
+  "儲存紀錄": "Save Record",
+  "尚無紀錄，新增第一筆吧": "No records yet. Add the first one.",
+  "總持有成本（所有標的合計）": "Total Holding Cost",
+  "資產配置（以市值計，抓不到報價時退回用成本）": "Asset Allocation (Market Value; Cost Fallback)",
+  "尚未新增持股標的": "No holdings added yet",
+  "新增標的": "Add Holding",
+  "取消": "Cancel",
+  "平均成本": "Average Cost",
+  "預估損益": "Estimated P/L",
+  "累積獲利率": "Cumulative Return",
+  "目前累積成本（起始成本 + 全部買賣紀錄）": "Current Accumulated Cost",
+  "查無符合的交易紀錄": "No matching trades",
+  "尚無交易紀錄": "No trade records",
+  "搜尋代號或名稱，例如 0050 或 元大台灣50": "Search symbol or name, e.g. 0050",
+  "查詢最新除息公告中…": "Checking latest ex-dividend notice…",
+  "尚未有除權息公告（可能還沒到公告時間，日期請自行填寫）": "No ex-dividend notice yet. Please enter the date manually.",
+  "查詢公告失敗，請自行填寫除息日": "Notice lookup failed. Please enter the ex-dividend date.",
+  "每股配息（已用最新公告帶入，請確認後再送出）": "Dividend / Share (Prefilled; Please Verify)",
+  "每股配息": "Dividend / Share",
+  "尚無配息紀錄": "No dividend records",
+  "網址格式不正確；可直接貼 Vercel 專案網址": "Invalid URL. You can paste the Vercel project URL directly.",
+  "測試中…": "Testing…",
+  "備援測試失敗": "Fallback test failed",
+  "尚未設定定期定額配置": "No recurring investment plan yet",
+  "新增項目": "Add Item",
+  "成本進度": "Cost Progress",
+  "資產進度": "Asset Progress",
+  "成本進度 vs 已執行月數": "Cost Progress vs Elapsed Months",
+  "資產進度 vs 已執行月數": "Asset Progress vs Elapsed Months",
+  "月份": "Month",
+  "累積本金": "Cumulative Principal",
+  "推算資產": "Projected Assets",
+  "資產-本金": "Assets - Principal",
+  "起點": "Start",
+  "●目前": "●Now",
+  "投入節奏領先計畫": "Contributions Ahead of Plan",
+  "投入節奏落後計畫": "Contributions Behind Plan",
+  "資產成長領先假設報酬率": "Asset Growth Ahead of Assumption",
+  "資產成長落後假設報酬率": "Asset Growth Behind Assumption",
+  "已取得": "Available",
+  "目前": "Current",
+  "大盤": "Market",
+  "個股": "Stock",
+  "偏正": "Positive",
+  "偏負": "Negative",
+  "中性": "Neutral",
+  "KD 5分": "KD 5m",
+  "KD 15分": "KD 15m",
+  "KD 60分": "KD 60m",
+  "KD 日線": "KD Daily",
+  "KD 月線": "KD Monthly",
+  "大盤 KD 5分": "Market KD 5m",
+  "大盤 KD 15分": "Market KD 15m",
+  "大盤 KD 60分": "Market KD 60m",
+  "大盤 KD 日線": "Market KD Daily",
+  "大盤 KD 月線": "Market KD Monthly",
+  "隔夜曝險係數（對TAIEX的beta）": "Overnight Exposure Beta vs TAIEX",
+  "外資 1/3/5日": "Foreign 1/3/5D",
+  "投信 1/3/5日": "Investment Trust 1/3/5D",
+  "收起判斷明細 ▲": "Hide Details ▲",
+  "展開判斷明細 ▼": "Show Details ▼",
+  "大盤 %": "Market %",
+  "個股 %": "Stock %",
+  "新聞分數": "News Score",
+  "外資 1日": "Foreign 1D",
+  "外資 3日": "Foreign 3D",
+  "外資 5日": "Foreign 5D",
+  "投信 1日": "Trust 1D",
+  "投信 3日": "Trust 3D",
+  "投信 5日": "Trust 5D",
+  "自營 1日": "Dealer 1D",
+  "自營 3日": "Dealer 3D",
+  "自營 5日": "Dealer 5D",
+  "KD 5分 (K-D)": "KD 5m (K-D)",
+  "KD 15分 (K-D)": "KD 15m (K-D)",
+  "KD 60分 (K-D)": "KD 60m (K-D)",
+  "KD 日線 (K-D)": "KD Daily (K-D)",
+  "KD 月線 (K-D)": "KD Monthly (K-D)",
+  "隔夜綜合訊號": "Overnight Composite",
+  "台指近月 %": "TX Front Month %",
+  "S&P500 隔夜 %": "S&P 500 Overnight %",
+  "費半SOX 隔夜 %": "SOX Overnight %",
+  "美元/台幣 隔夜 %": "USD/TWD Overnight %",
+  "今日動能（次要項）": "Today Momentum (Secondary)",
+  "KD 綜合分數": "KD Composite",
+  "法人訊號": "Institutional Signal",
+  "隔夜曝險係數 beta": "Overnight Exposure Beta",
+  "正相關": "Positive Correlation",
+  "負相關": "Negative Correlation",
+  "幾乎無關聯": "Little Correlation",
+  "收起 ▲": "Collapse ▲",
+  "展開 ▼": "Expand ▼",
+  "上午模型（09:00–10:00）vs 當日收盤": "Morning Model (09:00–10:00) vs Same-Day Close",
+  "收盤前模型（13:25 鎖定）vs 當日收盤": "Pre-Close Model (13:25 Lock) vs Same-Day Close",
+  "明日模型 vs 隔天實際漲跌": "Tomorrow Model vs Next-Day Actual Move",
+  "還沒有已驗證的上午預測資料，先持續累積": "No validated morning forecasts yet — keep collecting",
+  "從 v2.42 起開始累積 13:25 鎖定樣本": "13:25 lock samples are accumulating since v2.42",
+  "還沒有已驗證的明日預測資料，累積幾週後再回來看": "No validated tomorrow forecasts yet. Check back in a few weeks.",
+  "更新中…": "Updating…",
+  "待更新": "Pending",
+  "目前可得市值（部分）": "Available Value (Partial)",
+  "目前報價不完整：已禁止把部分市值寫入每日紀錄": "Quotes incomplete; partial value cannot be saved.",
+  "請先到「持股進度」新增持股並填入股數，才能抓取即時股價": "Add holdings and share counts in Holdings first to fetch live quotes.",
+  "高": "High",
+  "低": "Low",
+  "買": "Buy",
+  "賣": "Sell",
+  "趨勢累積中": "Trend accumulating",
+  "上升趨勢": "Uptrend",
+  "下降趨勢": "Downtrend",
+  "抓取失敗（來源可能暫時壅塞），稍後再試或改用券商 App 查詢": "Fetch failed (source may be busy). Try again later or check via your broker's app.",
+  "會跳到「每日紀錄」並自動填好台股市值，美股記得手動補上再儲存": "This jumps to Daily Record and fills in the TW value automatically — remember to add the US value before saving.",
+  "中": "Medium",
+  "S&P500": "S&P 500",
+  "費半SOX": "SOX",
+  "美元/台幣": "USD/TWD",
+  "連線逾時": "Connection timed out",
+  "網路連線失敗": "Network connection failed",
+  "目前 App 快照資料不足，暫時無法完成分析。": "The app snapshot doesn't have enough data yet to complete this analysis.",
+  "已取得資料，但這次模型沒有產生文字回答。": "Data was retrieved, but the model didn't produce a text answer this time.",
+  "問答失敗，請稍後再試": "Something went wrong. Please try again later.",
+  "Cloudflare AI 已失敗；獨立 Gemini 備援可用，但這一輪包含私人資產查詢結果。請到『計畫設定 → AI 獨立備援』開啟私人資料授權後再試。": "Cloudflare AI failed; the independent Gemini fallback is available, but this turn includes private asset query results. Please enable private data access under \"Settings → AI Fallback\" and try again.",
+  "這個問題需要讀取你的 App 私人資產資料；目前 Gemini 備援的私人資料授權是關閉的。請到『計畫設定 → AI 獨立備援』開啟後再試。": "This question needs to read your app's private asset data, but the Gemini fallback's private data access is currently off. Please enable it under \"Settings → AI Fallback\" and try again.",
+  "賣出": "Sell",
+  "買進": "Buy",
+  "不認得這個動作": "Unrecognized action",
+  "股票代號格式不正確": "Invalid stock symbol format",
+  "交易動作必須是買進或賣出": "Trade action must be Buy or Sell",
+  "股數數值不合理": "Invalid share count",
+  "成交價數值不合理": "Invalid trade price",
+  "手續費數值不合理": "Invalid fee amount",
+  "證交稅數值不合理": "Invalid transaction tax amount",
+  "交易日期格式不正確": "Invalid trade date format",
+  "目標股數數值不合理": "Invalid target share count",
+  "平均成本數值不合理": "Invalid average cost",
+  "沒有帶任何要修改的欄位": "No fields were provided to update",
+  "目標金額數值不合理": "Invalid target amount",
+  "目標年份不合理": "Invalid target year",
+  "存股助手 AI": "Stock Assistant AI",
+  "Gemini 獨立備援": "Gemini Fallback",
+  "GPT-OSS": "GPT-OSS",
+  "AI 想執行（資料看起來不完整）：": "AI wants to run (data looks incomplete):",
+  "AI 想執行：": "AI wants to run:",
+  "確定執行": "Confirm",
+  "✓ 已完成": "✓ Done",
+  "✗ 失敗：": "✗ Failed:",
+  "已取消": "Cancelled",
+  "思考中…": "Thinking…",
+  "輸入訊息…": "Type a message…",
+  "可以直接問我 App 裡的持股、設定、即時行情、雷達、KD、法人、新聞、台指近月、資產與計畫；我會先讀 App 資料再回答，不另外亂猜一套。": "Ask me directly about your holdings, settings, live quotes, the radar, KD, institutional flow, news, TX front-month, assets or your plan — I'll read the app's own data before answering, not guess.",
+  "萬": "0K",
+  "查詢中…": "Checking…",
+  "就是今天": "Today",
+  "配息": "Dividend",
+  "確定（知道了）": "OK (Acknowledged)",
+  "忽略": "Dismiss",
+  "上次 JSON 備份": "Last JSON Backup",
+  "尚未記錄": "Not recorded",
+  "JSON備份": "JSON Backup",
+  "JSON還原": "JSON Restore",
+  "匯出Excel": "Export Excel",
+  "實際資產": "Actual Assets",
+  "載入中…": "Loading…",
+  "Excel 匯出元件載入失敗，請確認網路後再試一次。": "Excel export component failed to load. Please check your connection and try again.",
+  "匯入會以備份內容取代目前 App 內的資料，確定要繼續嗎？": "Importing will replace all current app data with the backup's content. Continue?",
+  "備份檔讀取失敗，資料未變更。": "Failed to read the backup file. No data was changed.",
+  "自營 1/3/5日": "Dealer 1/3/5D",
 };
 
 function uiText(zh) {
@@ -1407,7 +1603,7 @@ function AssetTracker() {
       <div style={{ background: COLORS.bg, color: COLORS.sub }}
         className="min-h-screen flex items-center justify-center gap-2 font-sans">
         <Loader2 className="animate-spin" size={20} />
-        <span>載入中…</span>
+        <span><UiLabel zh="載入中…" /></span>
       </div>
     );
   }
@@ -1432,7 +1628,7 @@ function AssetTracker() {
             transform: "translateX(-50%)", background: COLORS.gold, color: COLORS.bg,
             boxShadow: "0 8px 24px rgba(0,0,0,0.4)", animation: "celebrate-in 0.35s ease-out",
           }}>
-          🎉 已達成目標 {celebration}%！
+          {UI_SHOW_ENGLISH ? <>🎉 Goal Reached: {celebration}%!</> : <>🎉 已達成目標 {celebration}%！</>}
         </div>
       )}
 
@@ -1616,7 +1812,9 @@ function Header({ goal, totalToday, goalDate, backupOverdue, backupAgeDays, show
         {backupOverdue && (
           <div className="mt-2 rounded-lg px-2.5 py-1.5 text-[10px] font-bold"
             style={{ color: COLORS.gold, background: COLORS.panel, border: `1px solid ${COLORS.gold}` }}>
-            🔐 備份提醒：{backupAgeDays == null ? "尚未記錄 JSON 備份" : `上次備份已 ${backupAgeDays} 天前`}，建議到「計畫設定」匯出一份。
+            {showEnglish
+              ? <>🔐 Backup Reminder: {backupAgeDays == null ? "No JSON backup recorded yet" : `Last backup was ${backupAgeDays} days ago`}. We recommend exporting one from "Settings".</>
+              : <>🔐 備份提醒：{backupAgeDays == null ? "尚未記錄 JSON 備份" : `上次備份已 ${backupAgeDays} 天前`}，建議到「計畫設定」匯出一份。</>}
           </div>
         )}
       </div>
@@ -1744,7 +1942,7 @@ function NewsCarousel({ holdings }) {
 // ---------------- Live Price Panel (dashboard) ----------------
 function MiniSparkline({ values, width=120, height=18, tone=null, showArea=true, showDot=true }) {
   const pts=(values||[]).map(Number).filter(Number.isFinite);
-  if(pts.length<2) return <span className="text-[9px]" style={{color:COLORS.sub}}>趨勢累積中</span>;
+  if(pts.length<2) return <span className="text-[9px]" style={{color:COLORS.sub}}><UiLabel zh="趨勢累積中" /></span>;
   const min=Math.min(...pts), max=Math.max(...pts), span=max-min || 1;
   const xy=pts.map((v,i)=>{
     const x=pts.length===1?0:(i/(pts.length-1))*width;
@@ -1757,7 +1955,7 @@ function MiniSparkline({ values, width=120, height=18, tone=null, showArea=true,
   const stroke=tone || (up?COLORS.gain:COLORS.loss);
   const last=xy[xy.length-1];
   return (
-    <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-label={up?"上升趨勢":"下降趨勢"}>
+    <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-label={uiText(up?"上升趨勢":"下降趨勢")}>
       {showArea && <polygon points={areaCoords} fill={stroke} opacity="0.09" />}
       <polyline points={coords} fill="none" stroke={stroke} strokeWidth="1.8" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
       {showDot && <circle cx={last.x} cy={last.y} r="2.2" fill={stroke} stroke={COLORS.panel} strokeWidth="1" vectorEffect="non-scaling-stroke" />}
@@ -2005,7 +2203,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
   const recordToday = () => {
     if (!onFillDailyTw) return;
     if (!quoteComplete) {
-      window.alert("目前報價只有部分成功或混有快取價格，為避免把不完整市值寫進每日紀錄，請先重新抓到全部持股報價。");
+      window.alert(uiText("目前報價只有部分成功或混有快取價格，為避免把不完整市值寫進每日紀錄，請先重新抓到全部持股報價。"));
       return;
     }
     onFillDailyTw(Math.round(totalValue));
@@ -2015,12 +2213,16 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
     <Panel title="即時股價">
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="text-[11px]" style={{ color: COLORS.sub }}>
-          {liveStatus === "idle" && `自動抓取目前持有的 ${activeHoldings.length} 檔台股（09:00–13:45 每 15 秒更新，其他時間可手動更新）`}
-          {liveStatus === "loading" && "更新中…"}
+          {liveStatus === "idle" && (UI_SHOW_ENGLISH
+            ? `Auto-fetching ${activeHoldings.length} TW holdings (updates every 15s 09:00-13:45; manual refresh otherwise)`
+            : `自動抓取目前持有的 ${activeHoldings.length} 檔台股（09:00–13:45 每 15 秒更新，其他時間可手動更新）`)}
+          {liveStatus === "loading" && <UiLabel zh="更新中…" />}
           {liveStatus === "done" && liveAt && (staleOne
-            ? `休市中，顯示 ${staleOne.asOfDate.getFullYear()}/${String(staleOne.asOfDate.getMonth()+1).padStart(2,"0")}/${String(staleOne.asOfDate.getDate()).padStart(2,"0")} 收盤價（查詢 ${liveAt.toLocaleTimeString("zh-TW", { hour12: false })}）`
-            : `已更新 ${liveAt.toLocaleTimeString("zh-TW", { hour12: false })}`)}
-          {liveStatus === "error" && "抓取失敗（來源可能暫時壅塞），稍後再試或改用券商 App 查詢"}
+            ? (UI_SHOW_ENGLISH
+              ? `Market closed, showing ${staleOne.asOfDate.getFullYear()}/${String(staleOne.asOfDate.getMonth()+1).padStart(2,"0")}/${String(staleOne.asOfDate.getDate()).padStart(2,"0")} close (checked ${liveAt.toLocaleTimeString("zh-TW", { hour12: false })})`
+              : `休市中，顯示 ${staleOne.asOfDate.getFullYear()}/${String(staleOne.asOfDate.getMonth()+1).padStart(2,"0")}/${String(staleOne.asOfDate.getDate()).padStart(2,"0")} 收盤價（查詢 ${liveAt.toLocaleTimeString("zh-TW", { hour12: false })}）`)
+            : (UI_SHOW_ENGLISH ? `Updated ${liveAt.toLocaleTimeString("zh-TW", { hour12: false })}` : `已更新 ${liveAt.toLocaleTimeString("zh-TW", { hour12: false })}`))}
+          {liveStatus === "error" && <UiLabel zh="抓取失敗（來源可能暫時壅塞），稍後再試或改用券商 App 查詢" />}
         </div>
         <button
           onClick={() => fetchAllLive(true)}
@@ -2036,7 +2238,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
       {hasLive && (
         <div>
           <div className="grid grid-cols-[36px_68px_76px_minmax(0,1fr)] gap-1 text-[10px] pb-1.5 mb-1.5 items-center" style={{ color: COLORS.sub, borderBottom: `1px solid ${COLORS.panelBorder}` }}>
-            <span>代號</span><span>高／低價</span><span className="text-right">股價／漲跌幅</span><span className="text-right">市值／今日損益</span>
+            <span><UiLabel zh="代號" /></span><span><UiLabel zh="高／低價" /></span><span className="text-right"><UiLabel zh="股價／漲跌幅" /></span><span className="text-right"><UiLabel zh="市值／今日損益" /></span>
           </div>
           <div className="space-y-1 max-h-64 overflow-y-auto">
             {rows.map((r) => (
@@ -2046,22 +2248,22 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
                     <span className="row-start-1 col-start-1" style={{ color: COLORS.sub }}>{r.symbol}</span>
 
                     <span className="row-start-1 col-start-2 whitespace-nowrap leading-none" style={{color:COLORS.sub}}>
-                      高 {Number.isFinite(Number(r.high)) ? Number(r.high).toFixed(2) : "--"}
+                      <UiLabel zh="高" /> {Number.isFinite(Number(r.high)) ? Number(r.high).toFixed(2) : "--"}
                     </span>
                     <span className="row-start-2 col-start-2 whitespace-nowrap leading-none" style={{color:COLORS.sub}}>
-                      低 {Number.isFinite(Number(r.low)) ? Number(r.low).toFixed(2) : "--"}
+                      <UiLabel zh="低" /> {Number.isFinite(Number(r.low)) ? Number(r.low).toFixed(2) : "--"}
                     </span>
 
                     <span className="row-start-1 col-start-3 text-right whitespace-nowrap leading-none">
                       {r.price.toFixed(2)}
                     </span>
                     <span className="row-start-2 col-start-3 text-right whitespace-nowrap leading-none" style={{ color: r.quoteIsStale ? COLORS.sub : (r.chg >= 0 ? COLORS.gain : COLORS.loss) }}>
-                      {r.quoteIsStale && isTwseTradingHours() ? "待更新" : <>{r.chg >= 0 ? "▲" : "▼"}{r.chgPct >= 0 ? "+" : ""}{r.chgPct.toFixed(2)}%</>}
+                      {r.quoteIsStale && isTwseTradingHours() ? <UiLabel zh="待更新" /> : <>{r.chg >= 0 ? "▲" : "▼"}{r.chgPct >= 0 ? "+" : ""}{r.chgPct.toFixed(2)}%</>}
                     </span>
 
                     <span className="row-start-1 col-start-4 text-right font-bold whitespace-nowrap leading-none min-w-0">{nf(r.value)}</span>
                     <span className="row-start-2 col-start-4 text-right whitespace-nowrap leading-none min-w-0" style={{ color: r.quoteIsStale ? COLORS.sub : (r.chg >= 0 ? COLORS.gain : COLORS.loss) }}>
-                      {!r.quoteIsStale ? <>今日損益 {r.chg >= 0 ? "+" : ""}{nf(Math.round(r.chg * r.current))}</> : ""}
+                      {!r.quoteIsStale ? <><UiLabel zh="今日損益" /> {r.chg >= 0 ? "+" : ""}{nf(Math.round(r.chg * r.current))}</> : ""}
                     </span>
                     <div className="row-start-3 col-start-2 col-span-3 h-[12px] opacity-80">
                       <MiniSparkline values={sparkFor(r.symbol)} width={240} height={12} tone={r.chg>=0?COLORS.gain:COLORS.loss} showArea={true} showDot={true} />
@@ -2070,16 +2272,16 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
                 </div>
                 {r.isFromCache && r.fetchedAt && (
                   <div className="text-[9px] text-right mt-0.5" style={{ color: COLORS.sub }}>
-                    這次抓取失敗，顯示上次成功價格（{new Date(r.fetchedAt).toLocaleString("zh-TW", {
+                    {UI_SHOW_ENGLISH ? "Fetch failed this time, showing last successful price (" : "這次抓取失敗，顯示上次成功價格（"}{new Date(r.fetchedAt).toLocaleString("zh-TW", {
                       month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false,
-                    })}）
+                    })}{UI_SHOW_ENGLISH ? ")" : "）"}
                   </div>
                 )}
               </div>
             ))}
           </div>
           <div className="flex justify-between text-xs mono pt-2 mt-2 font-bold" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
-            <span style={{ color: COLORS.sub }}>{quoteComplete ? "今日台股總市值" : "目前可得市值（部分）"}</span>
+            <span style={{ color: COLORS.sub }}><UiLabel zh={quoteComplete ? "今日台股總市值" : "目前可得市值（部分）"} /></span>
             <span style={{ color: COLORS.gold }}>NT$ {nf(totalValue)}</span>
           </div>
           <div className="h-[20px] mt-1 opacity-85">
@@ -2088,11 +2290,11 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
           {yesterdayTwValue != null && (
             <>
               <div className="flex justify-between text-xs mono mt-1">
-                <span style={{ color: COLORS.sub }}>昨日台股總市值</span>
+                <span style={{ color: COLORS.sub }}><UiLabel zh="昨日台股總市值" /></span>
                 <span style={{ color: COLORS.sub }}>NT$ {nf(yesterdayTwValue)}</span>
               </div>
               <div className="flex justify-between text-xs mono mt-1 font-bold">
-                <span style={{ color: COLORS.sub }}>今/昨日盈虧</span>
+                <span style={{ color: COLORS.sub }}><UiLabel zh="今/昨日盈虧" /></span>
                 {(() => {
                   const diff = totalValue - yesterdayTwValue;
                   const diffPct = yesterdayTwValue ? (diff / yesterdayTwValue) * 100 : 0;
@@ -2109,8 +2311,8 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
           {hasMarketIndex && (
             <>
               <div className="grid grid-cols-[72px_1fr_auto] gap-2 text-xs mono mt-1 items-center">
-                <span style={{ color: COLORS.sub }}>加權指數</span>
-                <span className="text-[9px] whitespace-nowrap" style={{color:COLORS.sub}}>{Number.isFinite(Number(marketIndex?.high))&&Number.isFinite(Number(marketIndex?.low)) ? <>高 {nf(Math.round(Number(marketIndex.high)))}｜低 {nf(Math.round(Number(marketIndex.low)))}</> : "高低點 --"}</span>
+                <span style={{ color: COLORS.sub }}><UiLabel zh="加權指數" /></span>
+                <span className="text-[9px] whitespace-nowrap" style={{color:COLORS.sub}}>{Number.isFinite(Number(marketIndex?.high))&&Number.isFinite(Number(marketIndex?.low)) ? (UI_SHOW_ENGLISH ? <>High {nf(Math.round(Number(marketIndex.high)))} | Low {nf(Math.round(Number(marketIndex.low)))}</> : <>高 {nf(Math.round(Number(marketIndex.high)))}｜低 {nf(Math.round(Number(marketIndex.low)))}</>) : (UI_SHOW_ENGLISH ? "High/Low --" : "高低點 --")}</span>
                 <span style={{ color: indexChange >= 0 ? COLORS.gain : COLORS.loss }}>{nf(Math.round(indexPrice))}　{indexChange >= 0 ? "▲" : "▼"} {indexChangePct >= 0 ? "+" : ""}{indexChangePct.toFixed(2)}%</span>
               </div>
               <div className="h-[18px] mt-0.5 opacity-85">
@@ -2118,9 +2320,9 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
               </div>
               {vsMarketPct != null && (
                 <div className="flex justify-between text-xs mono mt-1">
-                  <span style={{ color: COLORS.sub }}>今日 vs 大盤</span>
+                  <span style={{ color: COLORS.sub }}><UiLabel zh="今日 vs 大盤" /></span>
                   <span style={{ color: vsMarketPct >= 0 ? COLORS.gain : COLORS.loss }}>
-                    {vsMarketPct >= 0 ? "贏大盤" : "輸大盤"} {vsMarketPct >= 0 ? "+" : ""}{vsMarketPct.toFixed(2)}%
+                    <UiLabel zh={vsMarketPct >= 0 ? "贏大盤" : "輸大盤"} inline /> {vsMarketPct >= 0 ? "+" : ""}{vsMarketPct.toFixed(2)}%
                   </span>
                 </div>
               )}
@@ -2131,12 +2333,12 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
               <button onClick={recordToday} disabled={!quoteComplete}
                 className="mt-2 w-full rounded-lg py-2 text-[11px] font-bold"
                 style={{ background: COLORS.bg, border: `1px solid ${quoteComplete ? COLORS.gold : COLORS.panelBorder}`, color: quoteComplete ? COLORS.gold : COLORS.sub, opacity: quoteComplete ? 1 : 0.6 }}>
-                帶入「每日紀錄」台股市值
+                <UiLabel zh="帶入「每日紀錄」台股市值" />
               </button>
               <div className="text-[10px] mt-1" style={{ color: COLORS.sub }}>
-                {quoteComplete
+                <UiLabel zh={quoteComplete
                   ? "會跳到「每日紀錄」並自動填好台股市值，美股記得手動補上再儲存"
-                  : "目前報價不完整：已禁止把部分市值寫入每日紀錄"}
+                  : "目前報價不完整：已禁止把部分市值寫入每日紀錄"} />
               </div>
             </>
           )}
@@ -2144,10 +2346,12 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
       )}
       {liveStatus === "done" && failedSymbols.length > 0 && (
         <div className="text-[11px] mt-2" style={{ color: COLORS.loss }}>
-          抓取失敗：{failedSymbols.join("、")}（來源暫時壅塞，可再按一次重試）
+          {UI_SHOW_ENGLISH
+            ? `Fetch failed: ${failedSymbols.join(", ")} (source may be busy, retry once more)`
+            : `抓取失敗：${failedSymbols.join("、")}（來源暫時壅塞，可再按一次重試）`}
         </div>
       )}
-      {!activeHoldings.length && <Empty text="請先到「持股進度」新增持股並填入股數，才能<UiLabel zh="抓取即時股價" />" />}
+      {!activeHoldings.length && <Empty text="請先到「持股進度」新增持股並填入股數，才能抓取即時股價" />}
     </Panel>
   );
 }
@@ -2695,70 +2899,72 @@ function TrendRadar({ holdings }) {
   },[asOf]);
 
   const flowText=(v)=>{const n=Number(v)||0; if(!n)return "0"; const abs=Math.abs(n); const x=abs>=1000000?(abs/1000000).toFixed(1)+"M":abs>=1000?(abs/1000).toFixed(0)+"K":abs.toFixed(0); return (n>0?"+":"-")+x;};
-  const kdCell=(kd)=>kd?`${kd.K.toFixed(0)}/${kd.D.toFixed(0)} ${kd.state}`:"累積中";
+  const kdCell=(kd)=>kd?`${kd.K.toFixed(0)}/${kd.D.toFixed(0)} ${kd.state}`:(UI_SHOW_ENGLISH?"Accumulating":"累積中");
   if(!rows.length)return null;
   return (
     <div className="rounded-2xl p-4" style={{background:COLORS.panel,border:"1px solid "+COLORS.panelBorder,boxShadow:"0 4px 16px rgba(0,0,0,0.28)"}}>
       <div className="flex items-center justify-between mb-2">
-        <div><div className="text-xs font-bold" style={{color:COLORS.gold}}>AI 今日／明日趨勢雷達</div><div className="text-[9px] mt-0.5" style={{color:COLORS.sub}}>{`學習版 v${TREND_RADAR_VERSION} · 時間自適應權重 · OHLC＋KD＋法人＋台指近月＋隔夜訊號＋自動驗證`}</div></div>
+        <div><div className="text-xs font-bold" style={{color:COLORS.gold}}><UiLabel zh="AI 今日／明日趨勢雷達" /></div><div className="text-[9px] mt-0.5" style={{color:COLORS.sub}}>{UI_SHOW_ENGLISH ? `Learning v${TREND_RADAR_VERSION} · Time-Adaptive Weights · OHLC+KD+Institutional+TX Front Month+Overnight+Auto-Validated` : `學習版 v${TREND_RADAR_VERSION} · 時間自適應權重 · OHLC＋KD＋法人＋台指近月＋隔夜訊號＋自動驗證`}</div></div>
         {asOf&&<div className="text-[9px] mono" style={{color:COLORS.sub}}>{asOf.toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit",hour12:false})}</div>}
       </div>
       <div className="space-y-2">
         {globalRow&&<div className="rounded-xl px-3 py-2 text-[9px] mono" style={{background:COLORS.bg,border:"1px solid "+COLORS.panelBorder,color:COLORS.sub}}>
-          <div className="flex justify-between"><span>隔夜訊號</span><span>{globalStatus==="ok"?"已取得":"暫不可用，明日預測退回原模型"}</span></div>
+          <div className="flex justify-between"><span><UiLabel zh="隔夜訊號" /></span><span><UiLabel zh={globalStatus==="ok"?"已取得":"暫不可用，明日預測退回原模型"} /></span></div>
           {globalStatus==="ok"&&<>
             <div className="flex justify-between mt-0.5">
-              <span>台指近月 {globalRow.txfPct!=null?(globalRow.txfPct>=0?"+":"")+globalRow.txfPct.toFixed(2)+"%":"—"}</span>
+              <span><UiLabel zh="台指近月" inline /> {globalRow.txfPct!=null?(globalRow.txfPct>=0?"+":"")+globalRow.txfPct.toFixed(2)+"%":"—"}</span>
               <span>{globalRow.txfPrice!=null?globalRow.txfPrice.toLocaleString("zh-TW"):"—"}{globalRow.txfExpiry?" · "+globalRow.txfExpiry:""}</span>
-              <span>{globalRow.txfSession==="after_hours"?"夜盤":"日盤"}</span>
+              <span><UiLabel zh={globalRow.txfSession==="after_hours"?"夜盤":"日盤"} /></span>
             </div>
             <div className="flex justify-between mt-0.5">
-              <span>S&amp;P500 {globalRow.spxPct!=null?(globalRow.spxPct>=0?"+":"")+globalRow.spxPct.toFixed(2)+"%":"—"}</span>
-              <span>費半SOX {globalRow.soxPct!=null?(globalRow.soxPct>=0?"+":"")+globalRow.soxPct.toFixed(2)+"%":"—"}</span>
-              <span>美元/台幣 {globalRow.usdtwdPct!=null?(globalRow.usdtwdPct>=0?"+":"")+globalRow.usdtwdPct.toFixed(2)+"%":"—"}</span>
+              <span><UiLabel zh="S&P500" inline /> {globalRow.spxPct!=null?(globalRow.spxPct>=0?"+":"")+globalRow.spxPct.toFixed(2)+"%":"—"}</span>
+              <span><UiLabel zh="費半SOX" inline /> {globalRow.soxPct!=null?(globalRow.soxPct>=0?"+":"")+globalRow.soxPct.toFixed(2)+"%":"—"}</span>
+              <span><UiLabel zh="美元/台幣" inline /> {globalRow.usdtwdPct!=null?(globalRow.usdtwdPct>=0?"+":"")+globalRow.usdtwdPct.toFixed(2)+"%":"—"}</span>
             </div>
           </>}
         </div>}
         {marketRow&&<div className="rounded-xl px-3 py-2" style={{background:COLORS.bg,border:"1px solid "+COLORS.gold}}>
-          <div className="flex items-center justify-between"><div className="text-xs font-bold">加權指數 <span className="font-normal" style={{color:COLORS.sub}}>TAIEX</span></div><div className="text-[10px] font-black mono text-right" style={{color:marketRow.direction.includes("漲")?COLORS.gain:marketRow.direction.includes("跌")?COLORS.loss:COLORS.sub}}><span>今日 {marketRow.direction} {marketRow.probability.toFixed(0)}%</span><span className="ml-2" style={{color:tomorrowMap.TAIEX?.direction?.includes("漲")?COLORS.gain:tomorrowMap.TAIEX?.direction?.includes("跌")?COLORS.loss:COLORS.sub}}>明日 {tomorrowMap.TAIEX?tomorrowMap.TAIEX.direction+" "+tomorrowMap.TAIEX.probability.toFixed(0)+"%":"資料累積中"}</span></div></div>
-          <div className="flex justify-between mt-1 text-[9px]" style={{color:COLORS.sub}}><span>目前 {marketRow.indexPct>=0?"+":""}{marketRow.indexPct.toFixed(2)}%</span><span>持股上漲廣度 {(marketRow.breadth*100).toFixed(0)}%</span><span>盤中趨勢</span></div>
+          <div className="flex items-center justify-between"><div className="text-xs font-bold"><UiLabel zh="加權指數" inline /> <span className="font-normal" style={{color:COLORS.sub}}>TAIEX</span></div><div className="text-[10px] font-black mono text-right" style={{color:marketRow.direction.includes("漲")?COLORS.gain:marketRow.direction.includes("跌")?COLORS.loss:COLORS.sub}}><span><UiLabel zh="今日" inline /> <UiLabel zh={marketRow.direction} inline /> {marketRow.probability.toFixed(0)}%</span><span className="ml-2" style={{color:tomorrowMap.TAIEX?.direction?.includes("漲")?COLORS.gain:tomorrowMap.TAIEX?.direction?.includes("跌")?COLORS.loss:COLORS.sub}}><UiLabel zh="明日" inline /> {tomorrowMap.TAIEX?<><UiLabel zh={tomorrowMap.TAIEX.direction} inline />{" "+tomorrowMap.TAIEX.probability.toFixed(0)+"%"}</>:<UiLabel zh="資料累積中" inline />}</span></div></div>
+          <div className="flex justify-between mt-1 text-[9px]" style={{color:COLORS.sub}}><span><UiLabel zh="目前" inline /> {marketRow.indexPct>=0?"+":""}{marketRow.indexPct.toFixed(2)}%</span><span><UiLabel zh="持股上漲廣度" inline /> {(marketRow.breadth*100).toFixed(0)}%</span><span><UiLabel zh="盤中趨勢" /></span></div>
           {detailsOpen&&<div className="mt-1.5 pt-1.5 text-[9px] mono" style={{color:COLORS.sub,borderTop:"1px solid "+COLORS.panelBorder}}>
-            <div className="flex justify-between"><span>大盤 KD 5分</span><span>{kdCell(marketRow.kd5)}</span></div>
-            <div className="flex justify-between"><span>大盤 KD 15分</span><span>{kdCell(marketRow.kd15)}</span></div>
-            <div className="flex justify-between"><span>大盤 KD 60分</span><span>{kdCell(marketRow.kd60)}</span></div>
-            <div className="flex justify-between"><span>大盤 KD 日線</span><span>{kdCell(marketRow.kdDaily)}</span></div>
-            <div className="flex justify-between"><span>大盤 KD 月線</span><span>{kdCell(marketRow.kdMonthly)}</span></div>
+            <div className="flex justify-between"><span><UiLabel zh="大盤 KD 5分" /></span><span>{kdCell(marketRow.kd5)}</span></div>
+            <div className="flex justify-between"><span><UiLabel zh="大盤 KD 15分" /></span><span>{kdCell(marketRow.kd15)}</span></div>
+            <div className="flex justify-between"><span><UiLabel zh="大盤 KD 60分" /></span><span>{kdCell(marketRow.kd60)}</span></div>
+            <div className="flex justify-between"><span><UiLabel zh="大盤 KD 日線" /></span><span>{kdCell(marketRow.kdDaily)}</span></div>
+            <div className="flex justify-between"><span><UiLabel zh="大盤 KD 月線" /></span><span>{kdCell(marketRow.kdMonthly)}</span></div>
           </div>}
         </div>}
         {rows.map((r)=>{
 
           const tone=r.direction.includes("漲")?COLORS.gain:r.direction.includes("跌")?COLORS.loss:COLORS.sub;
           return <div key={r.symbol} className="rounded-xl px-3 py-2" style={{background:COLORS.bg,border:"1px solid "+COLORS.panelBorder}}>
-            <div className="flex items-center justify-between"><div className="text-xs font-bold mono">{r.symbol}<span className="ml-1 font-normal" style={{color:COLORS.sub}}>{r.name}</span></div><div className="text-[10px] font-black mono text-right"><span style={{color:tone}}>今日 {r.direction} {r.probability.toFixed(0)}%</span><span className="ml-2" style={{color:tomorrowMap[r.symbol]?.direction?.includes("漲")?COLORS.gain:tomorrowMap[r.symbol]?.direction?.includes("跌")?COLORS.loss:COLORS.sub}}>明日 {tomorrowMap[r.symbol]?tomorrowMap[r.symbol].direction+" "+tomorrowMap[r.symbol].probability.toFixed(0)+"%":"資料累積中"}</span></div></div>
-            <div className="flex justify-between mt-1 text-[9px]" style={{color:COLORS.sub}}><span>大盤 {r.indexPct>=0?"+":""}{r.indexPct.toFixed(2)}%</span><span>個股 {r.stockPct>=0?"+":""}{r.stockPct.toFixed(2)}%</span><span>新聞 {r.newsScore>0?"偏正":r.newsScore<0?"偏負":"中性"}</span><span>信心 {r.confidence}</span></div>
+            <div className="flex items-center justify-between"><div className="text-xs font-bold mono">{r.symbol}<span className="ml-1 font-normal" style={{color:COLORS.sub}}>{r.name}</span></div><div className="text-[10px] font-black mono text-right"><span style={{color:tone}}><UiLabel zh="今日" inline /> <UiLabel zh={r.direction} inline /> {r.probability.toFixed(0)}%</span><span className="ml-2" style={{color:tomorrowMap[r.symbol]?.direction?.includes("漲")?COLORS.gain:tomorrowMap[r.symbol]?.direction?.includes("跌")?COLORS.loss:COLORS.sub}}><UiLabel zh="明日" inline /> {tomorrowMap[r.symbol]?<><UiLabel zh={tomorrowMap[r.symbol].direction} inline />{" "+tomorrowMap[r.symbol].probability.toFixed(0)+"%"}</>:<UiLabel zh="資料累積中" inline />}</span></div></div>
+            <div className="flex justify-between mt-1 text-[9px]" style={{color:COLORS.sub}}><span><UiLabel zh="大盤" inline /> {r.indexPct>=0?"+":""}{r.indexPct.toFixed(2)}%</span><span><UiLabel zh="個股" inline /> {r.stockPct>=0?"+":""}{r.stockPct.toFixed(2)}%</span><span><UiLabel zh="新聞" inline /> <UiLabel zh={r.newsScore>0?"偏正":r.newsScore<0?"偏負":"中性"} inline /></span><span><UiLabel zh="信心" inline /> <UiLabel zh={r.confidence} inline /></span></div>
             {detailsOpen&&<><div className="mt-1.5 pt-1.5 text-[9px] mono" style={{color:COLORS.sub,borderTop:"1px solid "+COLORS.panelBorder}}>
-              <div className="flex justify-between"><span>KD 5分</span><span>{kdCell(r.kd5)}</span></div>
-              <div className="flex justify-between"><span>KD 15分</span><span>{kdCell(r.kd15)}</span></div>
-              <div className="flex justify-between"><span>KD 60分</span><span>{kdCell(r.kd60)}</span></div>
-              <div className="flex justify-between"><span>KD 日線</span><span>{kdCell(r.kdDaily)}</span></div>
-              <div className="flex justify-between"><span>KD 月線</span><span>{kdCell(r.kdMonthly)}</span></div>
-              <div className="flex justify-between"><span>隔夜曝險係數（對TAIEX的beta）</span><span>{tomorrowMap[r.symbol]?.factors?.beta!=null?tomorrowMap[r.symbol].factors.beta.toFixed(2):"—"}</span></div>
+              <div className="flex justify-between"><span><UiLabel zh="KD 5分" /></span><span>{kdCell(r.kd5)}</span></div>
+              <div className="flex justify-between"><span><UiLabel zh="KD 15分" /></span><span>{kdCell(r.kd15)}</span></div>
+              <div className="flex justify-between"><span><UiLabel zh="KD 60分" /></span><span>{kdCell(r.kd60)}</span></div>
+              <div className="flex justify-between"><span><UiLabel zh="KD 日線" /></span><span>{kdCell(r.kdDaily)}</span></div>
+              <div className="flex justify-between"><span><UiLabel zh="KD 月線" /></span><span>{kdCell(r.kdMonthly)}</span></div>
+              <div className="flex justify-between"><span><UiLabel zh="隔夜曝險係數（對TAIEX的beta）" /></span><span>{tomorrowMap[r.symbol]?.factors?.beta!=null?tomorrowMap[r.symbol].factors.beta.toFixed(2):"—"}</span></div>
             </div>
             {r.flows.length>0&&<div className="mt-1.5 pt-1.5 text-[9px] mono" style={{color:COLORS.sub,borderTop:"1px solid "+COLORS.panelBorder}}>
-              <div className="flex justify-between"><span>外資 1/3/5日</span><span>{flowText(r.f1)} / {flowText(r.f3)} / {flowText(r.f5)}</span></div>
-              <div className="flex justify-between"><span>投信 1/3/5日</span><span>{flowText(r.t1)} / {flowText(r.t3)} / {flowText(r.t5)}</span></div>
-              <div className="flex justify-between"><span>自營 1/3/5日</span><span>{flowText(r.d1)} / {flowText(r.d3)} / {flowText(r.d5)}</span></div>
+              <div className="flex justify-between"><span><UiLabel zh="外資 1/3/5日" /></span><span>{flowText(r.f1)} / {flowText(r.f3)} / {flowText(r.f5)}</span></div>
+              <div className="flex justify-between"><span><UiLabel zh="投信 1/3/5日" /></span><span>{flowText(r.t1)} / {flowText(r.t3)} / {flowText(r.t5)}</span></div>
+              <div className="flex justify-between"><span><UiLabel zh="自營 1/3/5日" /></span><span>{flowText(r.d1)} / {flowText(r.d3)} / {flowText(r.d5)}</span></div>
             </div>}</>}
           </div>;
         })}
       </div>
       <button onClick={()=>setDetailsOpen(v=>!v)} className="w-full mt-2 rounded-lg py-1.5 text-[10px] font-bold" style={{background:COLORS.bg,color:COLORS.gold,border:"1px solid "+COLORS.panelBorder}}>
-        {detailsOpen?"收起判斷明細 ▲":"展開判斷明細 ▼"}
+        <UiLabel zh={detailsOpen?"收起判斷明細 ▲":"展開判斷明細 ▼"} />
       </button>
-      {accuracy&&<div className="text-[9px] mt-2 mono" style={{color:COLORS.gold}}>近 {accuracy.n} 次已驗證「上午」預測：方向命中 {((accuracy.hits/accuracy.n)*100).toFixed(1)}%（已排除方向不明，僅統計，不代表未來）</div>}
-      {closeLockAccuracy&&<div className="text-[9px] mt-1 mono" style={{color:COLORS.gold}}>近 {closeLockAccuracy.n} 次已驗證「收盤前鎖定」預測：方向命中 {((closeLockAccuracy.hits/closeLockAccuracy.n)*100).toFixed(1)}%（13:25 才鎖定，難度遠低於上午，跟上面分開看）</div>}
-      {tomorrowAccuracy&&<div className="text-[9px] mt-1 mono" style={{color:COLORS.gold}}>近 {tomorrowAccuracy.n} 次已驗證「明日」預測：方向命中 {((tomorrowAccuracy.hits/tomorrowAccuracy.n)*100).toFixed(1)}%（已排除方向不明，僅統計，不代表未來）</div>}
-      <div className="text-[9px] mt-2 leading-relaxed" style={{color:COLORS.sub}}>法人：證交所盤後公開資料；ETF 法人流量降低權重，自營商亦降低權重以減少避險/造市影響，大盤分數已納入全市場法人加總。{instStatus==="unavailable"?"目前法人來源暫不可用，雷達會自動退回原模型。":"法人資料快取6小時。"} 5/15/60分KD由15秒即時報價持續取樣、聚合OHLC後運算；日/月KD取自真實歷史K線。明日預測以台指近月／美股／費半／匯率等隔夜訊號為主，{globalStatus==="unavailable"?"目前隔夜訊號暫不可用，明日預測退回今日動能外推。":"今日動能僅作次要修正。"} 每日上午預測會保存，收盤後自動核對方向；明日預測則以「目標交易日」為準，隔天核對，兩者準確率分開統計。</div>
+      {accuracy&&<div className="text-[9px] mt-2 mono" style={{color:COLORS.gold}}>{UI_SHOW_ENGLISH ? `Last ${accuracy.n} validated "morning" forecasts: ${((accuracy.hits/accuracy.n)*100).toFixed(1)}% hit rate (excludes unclear direction; stats only, not a guarantee)` : `近 ${accuracy.n} 次已驗證「上午」預測：方向命中 ${((accuracy.hits/accuracy.n)*100).toFixed(1)}%（已排除方向不明，僅統計，不代表未來）`}</div>}
+      {closeLockAccuracy&&<div className="text-[9px] mt-1 mono" style={{color:COLORS.gold}}>{UI_SHOW_ENGLISH ? `Last ${closeLockAccuracy.n} validated "pre-close lock" forecasts: ${((closeLockAccuracy.hits/closeLockAccuracy.n)*100).toFixed(1)}% hit rate (locked at 13:25, far easier than morning — kept separate above)` : `近 ${closeLockAccuracy.n} 次已驗證「收盤前鎖定」預測：方向命中 ${((closeLockAccuracy.hits/closeLockAccuracy.n)*100).toFixed(1)}%（13:25 才鎖定，難度遠低於上午，跟上面分開看）`}</div>}
+      {tomorrowAccuracy&&<div className="text-[9px] mt-1 mono" style={{color:COLORS.gold}}>{UI_SHOW_ENGLISH ? `Last ${tomorrowAccuracy.n} validated "tomorrow" forecasts: ${((tomorrowAccuracy.hits/tomorrowAccuracy.n)*100).toFixed(1)}% hit rate (excludes unclear direction; stats only, not a guarantee)` : `近 ${tomorrowAccuracy.n} 次已驗證「明日」預測：方向命中 ${((tomorrowAccuracy.hits/tomorrowAccuracy.n)*100).toFixed(1)}%（已排除方向不明，僅統計，不代表未來）`}</div>}
+      <div className="text-[9px] mt-2 leading-relaxed" style={{color:COLORS.sub}}>{UI_SHOW_ENGLISH
+        ? <>Institutional: TWSE post-close public data; ETF institutional flow and dealer flow are downweighted to reduce hedging/market-making noise, and the market score now includes the whole-market institutional total. {instStatus==="unavailable"?"Institutional source is temporarily unavailable; the radar falls back to the base model.":"Institutional data is cached for 6 hours."} 5/15/60m KD is built from continuous 15-second quote sampling aggregated into OHLC; daily/monthly KD comes from real historical bars. The tomorrow forecast is driven mainly by overnight signals (TX front-month futures / US equities / SOX / FX); {globalStatus==="unavailable"?"the overnight signal is temporarily unavailable, so tomorrow's forecast falls back to extrapolating today's momentum.":"today's own momentum is only a secondary adjustment."} Each morning's forecast is saved and checked against the same day's close; the tomorrow forecast is checked the next day against its own target trading date, with hit rates tracked separately.</>
+        : <>法人：證交所盤後公開資料；ETF 法人流量降低權重，自營商亦降低權重以減少避險/造市影響，大盤分數已納入全市場法人加總。{instStatus==="unavailable"?"目前法人來源暫不可用，雷達會自動退回原模型。":"法人資料快取6小時。"} 5/15/60分KD由15秒即時報價持續取樣、聚合OHLC後運算；日/月KD取自真實歷史K線。明日預測以台指近月／美股／費半／匯率等隔夜訊號為主，{globalStatus==="unavailable"?"目前隔夜訊號暫不可用，明日預測退回今日動能外推。":"今日動能僅作次要修正。"} 每日上午預測會保存，收盤後自動核對方向；明日預測則以「目標交易日」為準，隔天核對，兩者準確率分開統計。</>}</div>
     </div>
   );
 }
@@ -2851,10 +3057,12 @@ function FactorBacktest() {
   const renderRow = (f) => {
     const strength = f.r == null ? null : Math.abs(f.r);
     const tone = f.r == null ? COLORS.sub : strength >= 0.3 ? (f.r > 0 ? COLORS.gain : COLORS.loss) : COLORS.sub;
-    const readLabel = f.r == null ? `樣本不足（${f.n}/${MIN_N}）` : strength >= 0.3 ? (f.r > 0 ? "正相關" : "負相關") : "幾乎無關聯";
+    const readLabel = f.r == null
+      ? (UI_SHOW_ENGLISH ? `Insufficient sample (${f.n}/${MIN_N})` : `樣本不足（${f.n}/${MIN_N}）`)
+      : uiText(strength >= 0.3 ? (f.r > 0 ? "正相關" : "負相關") : "幾乎無關聯");
     return (
       <div key={f.label} className="flex items-center justify-between text-[10px] mono py-1" style={{ borderBottom: "1px solid " + COLORS.panelBorder }}>
-        <span style={{ color: COLORS.sub }}>{f.label}</span>
+        <span style={{ color: COLORS.sub }}><UiLabel zh={f.label} /></span>
         <span style={{ color: tone }}>{f.r != null ? f.r.toFixed(2) : "—"}　{readLabel}（n={f.n}）</span>
       </div>
     );
@@ -2863,21 +3071,23 @@ function FactorBacktest() {
   return (
     <div className="rounded-2xl p-4" style={{ background: COLORS.panel, border: "1px solid " + COLORS.panelBorder }}>
       <button onClick={() => setOpen((v) => !v)} className="w-full flex items-center justify-between text-xs font-bold" style={{ color: COLORS.gold }}>
-        <span>因子回測（研究用）</span>
-        <span>{open ? "收起 ▲" : "展開 ▼"}</span>
+        <span><UiLabel zh="因子回測（研究用）" /></span>
+        <span><UiLabel zh={open ? "收起 ▲" : "展開 ▼"} /></span>
       </button>
       {open && (
         <div className="mt-3">
           <div className="text-[9px] mb-2 leading-relaxed" style={{ color: COLORS.sub }}>
-            算每個因子跟「實際漲跌幅」的皮爾森相關係數（-1～1）；|r|≥0.3 才視為有意義的關聯，樣本數不到 {MIN_N} 筆時只顯示樣本數、不給係數，避免把噪音誤讀成訊號。上午模型與 13:25 鎖定模型分開統計，避免混在一起失真。這只是研究參考，不會自動回頭改雷達的權重。
+            {UI_SHOW_ENGLISH
+              ? `Computes each factor's Pearson correlation (-1 to 1) with the actual move; |r| >= 0.3 counts as a meaningful relationship. Under ${MIN_N} samples shows only the sample count, no coefficient, to avoid reading noise as signal. The morning model and the 13:25 lock model are tracked separately so they don't distort each other. Research reference only — never feeds back into the radar's live weights.`
+              : <>算每個因子跟「實際漲跌幅」的皮爾森相關係數（-1～1）；|r|≥0.3 才視為有意義的關聯，樣本數不到 {MIN_N} 筆時只顯示樣本數、不給係數，避免把噪音誤讀成訊號。上午模型與 13:25 鎖定模型分開統計，避免混在一起失真。這只是研究參考，不會自動回頭改雷達的權重。</>}
           </div>
-          <div className="text-[10px] font-bold mb-1" style={{ color: COLORS.text }}>上午模型（09:00–10:00）vs 當日收盤</div>
+          <div className="text-[10px] font-bold mb-1" style={{ color: COLORS.text }}><UiLabel zh="上午模型（09:00–10:00）vs 當日收盤" /></div>
           {morningFactors.every((f) => f.n === 0) ? <Empty text="還沒有已驗證的上午預測資料，先持續累積" /> : morningFactors.map(renderRow)}
 
-          <div className="text-[10px] font-bold mb-1 mt-3" style={{ color: COLORS.text }}>收盤前模型（13:25 鎖定）vs 當日收盤</div>
+          <div className="text-[10px] font-bold mb-1 mt-3" style={{ color: COLORS.text }}><UiLabel zh="收盤前模型（13:25 鎖定）vs 當日收盤" /></div>
           {closeLockFactors.every((f) => f.n === 0) ? <Empty text="從 v2.42 起開始累積 13:25 鎖定樣本" /> : closeLockFactors.map(renderRow)}
 
-          <div className="text-[10px] font-bold mb-1 mt-3" style={{ color: COLORS.text }}>明日模型 vs 隔天實際漲跌</div>
+          <div className="text-[10px] font-bold mb-1 mt-3" style={{ color: COLORS.text }}><UiLabel zh="明日模型 vs 隔天實際漲跌" /></div>
           {tomorrowFactors.every((f) => f.n === 0) ? <Empty text="還沒有已驗證的明日預測資料，累積幾週後再回來看" /> : tomorrowFactors.map(renderRow)}
         </div>
       )}
@@ -2930,7 +3140,7 @@ function Dashboard({ totalToday, dailyChange, dailyChangePct, capitalGain, total
         <div className="flex items-center gap-1 mt-1.5 text-sm mono"
           style={{ color: up ? COLORS.gain : COLORS.loss }}>
           {up ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
-          {nf(dailyChange)}（{pf(dailyChangePct)}）今日
+          {UI_SHOW_ENGLISH ? <>{pf(dailyChangePct)} {nf(dailyChange)} Today</> : <>{nf(dailyChange)}（{pf(dailyChangePct)}）今日</>}
         </div>
       </div>
 
@@ -2946,7 +3156,7 @@ function Dashboard({ totalToday, dailyChange, dailyChangePct, capitalGain, total
           boxShadow: "0 4px 16px rgba(0,0,0,0.28)",
         }}>
           <div className="flex items-center justify-between mb-2">
-            <div className="text-xs" style={{ color: COLORS.sub }}>資產曲線</div>
+            <div className="text-xs" style={{ color: COLORS.sub }}><UiLabel zh="資產曲線" /></div>
             <div className="flex gap-1">
               {CHART_RANGES.map((r) => {
                 const active = chartRangeId === r.id;
@@ -2958,7 +3168,7 @@ function Dashboard({ totalToday, dailyChange, dailyChangePct, capitalGain, total
                       color: active ? "#0A0F1C" : COLORS.sub,
                       border: `1px solid ${active ? COLORS.gold : COLORS.panelBorder}`,
                     }}>
-                    {r.label}
+                    <UiLabel zh={r.label} />
                   </button>
                 );
               })}
@@ -2972,11 +3182,11 @@ function Dashboard({ totalToday, dailyChange, dailyChangePct, capitalGain, total
                   tick={{ fontSize: 9, fill: COLORS.sub }}
                   ticks={pickEvenTimeTicks(rangedChartData, "t", 6)} tickFormatter={formatTickDate} />
                 <YAxis tick={{ fontSize: 9, fill: COLORS.sub }}
-                  tickFormatter={(v) => `${(v / 10000).toFixed(0)}萬`} width={44} />
+                  tickFormatter={(v) => UI_SHOW_ENGLISH ? `${(v / 1000).toFixed(0)}K` : `${(v / 10000).toFixed(0)}萬`} width={44} />
                 <Tooltip
                   labelFormatter={formatTickDate}
                   contentStyle={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, fontSize: 12 }}
-                  formatter={(v) => [`NT$ ${nf(v)}`, "總資產"]} />
+                  formatter={(v) => [`NT$ ${nf(v)}`, uiText("總資產")]} />
                 <ReferenceLine y={goal.targetAmount} stroke={COLORS.gold} strokeDasharray="4 4" />
                 <Line type="monotone" dataKey="total" stroke={COLORS.gold} strokeWidth={2} dot={false} />
               </LineChart>
@@ -2993,22 +3203,24 @@ function Dashboard({ totalToday, dailyChange, dailyChangePct, capitalGain, total
         <StatCard label="今年資產變化(YTD)" value={`${nf(ytdGain)}（${pf(ytdPct)}）`} tone={ytdGain >= 0 ? "gain" : "loss"} className="col-span-2" />
       </div>
       <div className="text-[11px] px-1" style={{ color: COLORS.sub }}>
-        註：目前成本來自券商/每日紀錄的持倉成本；若曾賣出、換股或用股息再投入，
-        「粗估總報酬」不等同完整 XIRR 或全期間真實總報酬。
+        {UI_SHOW_ENGLISH
+          ? <>Note: Current cost comes from your broker/Daily Record cost basis; if you've sold, swapped holdings, or reinvested dividends, "Estimated Total Return" is not the same as a full XIRR or true whole-period return.</>
+          : <>註：目前成本來自券商/每日紀錄的持倉成本；若曾賣出、換股或用股息再投入，
+          「粗估總報酬」不等同完整 XIRR 或全期間真實總報酬。</>}
       </div>
 
       <div className="rounded-2xl p-4" style={{ background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}` }}>
-        <div className="text-xs mb-2" style={{ color: COLORS.sub }}>資產高點</div>
+        <div className="text-xs mb-2" style={{ color: COLORS.sub }}><UiLabel zh="資產高點" /></div>
         <div className="flex justify-between text-sm mono">
           <span style={{ color: COLORS.sub }}>{highPoint.date || "—"}</span>
           <span>NT$ {nf(highPoint.value === -Infinity ? 0 : highPoint.value)}</span>
         </div>
         <div className="flex justify-between text-sm mono mt-1">
-          <span style={{ color: COLORS.sub }}>回撤率</span>
+          <span style={{ color: COLORS.sub }}><UiLabel zh="回撤率" /></span>
           <span style={{ color: drawdown < 0 ? COLORS.loss : COLORS.text }}>{pf(drawdown)}</span>
         </div>
         <div className="flex justify-between text-sm mono mt-1">
-          <span style={{ color: COLORS.sub }}>目前持倉成本</span>
+          <span style={{ color: COLORS.sub }}><UiLabel zh="目前持倉成本" /></span>
           <span>NT$ {nf(totalInvested)}</span>
         </div>
       </div>
@@ -3020,7 +3232,7 @@ function StatCard({ label, value, tone, className = "" }) {
   const color = tone === "gain" ? COLORS.gain : tone === "loss" ? COLORS.loss : tone === "gold" ? COLORS.gold : COLORS.text;
   return (
     <div className={`rounded-2xl p-4 ${className}`} style={{ background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}` }}>
-      <div className="text-xs" style={{ color: COLORS.sub }}>{label}</div>
+      <div className="text-xs" style={{ color: COLORS.sub }}><UiLabel zh={label} /></div>
       <div className="text-lg font-bold mono mt-1" style={{ color }}>{value}</div>
     </div>
   );
@@ -4572,13 +4784,37 @@ function Row({ children, onDelete }) {
   );
 }
 function Empty({ text }) {
-  return <div className="text-center text-xs py-6" style={{ color: COLORS.sub }}>{text}</div>;
+  return <div className="text-center text-xs py-6" style={{ color: COLORS.sub }}><UiLabel zh={text} /></div>;
 }
 
 // ---------------- AI 聊天/問答（浮動按鈕，任何分頁都叫得出來） ----------------
 // 把 AI 提議的動作翻成人看得懂的一句話，讓使用者在按確定前知道到底要發生什麼事。
 function describeToolCall(tc, holdings) {
   const a = tc.arguments || {};
+  if (UI_SHOW_ENGLISH) {
+    switch (tc.name) {
+      case "add_trade": {
+        const actionLabel = a.action === "sell" ? "Sell" : "Buy";
+        const feeStr = a.fee ? `, fee ${a.fee}` : "";
+        const taxStr = a.tax ? `, tax ${a.tax}` : "";
+        return `Add trade: ${a.date || "Today"} ${actionLabel} ${a.symbol} ${a.shares} shares @NT$${a.price}${feeStr}${taxStr}`;
+      }
+      case "update_holding_target":
+        return `Change ${a.symbol}'s target shares to ${nf(a.target)}`;
+      case "update_manual_avg_cost":
+        return a.clear
+          ? `Clear ${a.symbol}'s manually-set average cost, revert to auto-calculated`
+          : `Manually set ${a.symbol}'s average cost to NT$${a.avgCost}`;
+      case "update_goal": {
+        const parts = [];
+        if (a.targetAmount != null) parts.push(`Change target amount to NT$${nf(a.targetAmount)}`);
+        if (a.targetYear != null) parts.push(`Change target year to ${a.targetYear}`);
+        return parts.length ? parts.join(", ") : "Update goal (but no fields were provided)";
+      }
+      default:
+        return `Run unknown action: ${tc.name}`;
+    }
+  }
   switch (tc.name) {
     case "add_trade": {
       const actionLabel = a.action === "sell" ? "賣出" : "買進";
@@ -4620,26 +4856,26 @@ function validateToolCall(tc) {
   const validSymbol = /^[A-Z0-9.-]{1,20}$/.test(symbol);
   switch (tc?.name) {
     case "add_trade":
-      if (!validSymbol) return "股票代號格式不正確";
-      if (a.action !== "buy" && a.action !== "sell") return "交易動作必須是買進或賣出";
-      if (!finitePositive(a.shares) || Number(a.shares) > 100000000) return "股數數值不合理";
-      if (!finitePositive(a.price) || Number(a.price) > 100000000) return "成交價數值不合理";
-      if (!Number.isFinite(Number(a.fee || 0)) || Number(a.fee || 0) < 0) return "手續費數值不合理";
-      if (!Number.isFinite(Number(a.tax || 0)) || Number(a.tax || 0) < 0) return "證交稅數值不合理";
-      if (!validDate(a.date)) return "交易日期格式不正確";
+      if (!validSymbol) return uiText("股票代號格式不正確");
+      if (a.action !== "buy" && a.action !== "sell") return uiText("交易動作必須是買進或賣出");
+      if (!finitePositive(a.shares) || Number(a.shares) > 100000000) return uiText("股數數值不合理");
+      if (!finitePositive(a.price) || Number(a.price) > 100000000) return uiText("成交價數值不合理");
+      if (!Number.isFinite(Number(a.fee || 0)) || Number(a.fee || 0) < 0) return uiText("手續費數值不合理");
+      if (!Number.isFinite(Number(a.tax || 0)) || Number(a.tax || 0) < 0) return uiText("證交稅數值不合理");
+      if (!validDate(a.date)) return uiText("交易日期格式不正確");
       return null;
     case "update_holding_target":
-      if (!validSymbol) return "股票代號格式不正確";
-      if (!finitePositive(a.target) || Number(a.target) > 100000000) return "目標股數數值不合理";
+      if (!validSymbol) return uiText("股票代號格式不正確");
+      if (!finitePositive(a.target) || Number(a.target) > 100000000) return uiText("目標股數數值不合理");
       return null;
     case "update_manual_avg_cost":
-      if (!validSymbol) return "股票代號格式不正確";
-      if (!a.clear && (!finitePositive(a.avgCost) || Number(a.avgCost) > 100000000)) return "平均成本數值不合理";
+      if (!validSymbol) return uiText("股票代號格式不正確");
+      if (!a.clear && (!finitePositive(a.avgCost) || Number(a.avgCost) > 100000000)) return uiText("平均成本數值不合理");
       return null;
     case "update_goal":
-      if (a.targetAmount == null && a.targetYear == null) return "沒有帶任何要修改的欄位";
-      if (a.targetAmount != null && (!finitePositive(a.targetAmount) || Number(a.targetAmount) > 1000000000000)) return "目標金額數值不合理";
-      if (a.targetYear != null && (!Number.isInteger(Number(a.targetYear)) || Number(a.targetYear) < 2020 || Number(a.targetYear) > 2200)) return "目標年份不合理";
+      if (a.targetAmount == null && a.targetYear == null) return uiText("沒有帶任何要修改的欄位");
+      if (a.targetAmount != null && (!finitePositive(a.targetAmount) || Number(a.targetAmount) > 1000000000000)) return uiText("目標金額數值不合理");
+      if (a.targetYear != null && (!Number.isInteger(Number(a.targetYear)) || Number(a.targetYear) < 2020 || Number(a.targetYear) > 2200)) return uiText("目標年份不合理");
       return null;
     default:
       return null;
@@ -5012,13 +5248,13 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
           method: "POST", headers, body: JSON.stringify(body), cache: "no-store",
         }, fallback ? 30000 : 20000);
       } catch (e) {
-        const err = new Error(e?.name === "AbortError" ? "連線逾時" : (e?.message || "網路連線失敗"));
+        const err = new Error(e?.name === "AbortError" ? uiText("連線逾時") : (e?.message || uiText("網路連線失敗")));
         err.status = 0;
         throw err;
       }
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.ok) {
-        const err = new Error(data?.error || `問答失敗（HTTP ${res.status}）`);
+        const err = new Error(data?.error || (UI_SHOW_ENGLISH ? `Request failed (HTTP ${res.status})` : `問答失敗（HTTP ${res.status}）`));
         err.status = res.status;
         err.data = data;
         throw err;
@@ -5036,7 +5272,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
         Array.isArray(turn?.calls) && turn.calls.some((tc) => tc?.name === "query_app_data" || tc?.name === "get_app_snapshot")
       );
       if (containsPrivateToolResult && aiFallbackConfig?.allowPrivate !== true) {
-        throw new Error("Cloudflare AI 已失敗；獨立 Gemini 備援可用，但這一輪包含私人資產查詢結果。請到『計畫設定 → AI 獨立備援』開啟私人資料授權後再試。");
+        throw new Error(uiText("Cloudflare AI 已失敗；獨立 Gemini 備援可用，但這一輪包含私人資產查詢結果。請到『計畫設定 → AI 獨立備援』開啟私人資料授權後再試。"));
       }
 
       const fallbackBody = {
@@ -5046,11 +5282,11 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
       try {
         const data = await callAskEndpoint(fallbackUrl, fallbackBody, { fallback: true });
         if (aiFallbackConfig?.allowPrivate !== true && Array.isArray(data?.toolCalls) && data.toolCalls.some((tc) => tc?.name === "query_app_data" || tc?.name === "get_app_snapshot")) {
-          throw new Error("這個問題需要讀取你的 App 私人資產資料；目前 Gemini 備援的私人資料授權是關閉的。請到『計畫設定 → AI 獨立備援』開啟後再試。");
+          throw new Error(uiText("這個問題需要讀取你的 App 私人資產資料；目前 Gemini 備援的私人資料授權是關閉的。請到『計畫設定 → AI 獨立備援』開啟後再試。"));
         }
         return { ...data, provider: data.provider || "gemini-external", fallbackFrom: primaryError.message };
       } catch (fallbackError) {
-        throw new Error(`Cloudflare AI：${primaryError.message}；獨立備援：${fallbackError.message}`);
+        throw new Error(UI_SHOW_ENGLISH ? `Cloudflare AI: ${primaryError.message}; Fallback: ${fallbackError.message}` : `Cloudflare AI：${primaryError.message}；獨立備援：${fallbackError.message}`);
       }
     }
   };
@@ -5095,7 +5331,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
       if (data?.provider) setProviderInfo({ provider: data.provider, model: data.model || "", profile: data.profile || "" });
 
       if (fastMode) {
-        setMessages((m) => [...m, { role: "assistant", content: data.reply || "目前 App 快照資料不足，暫時無法完成分析。" }]);
+        setMessages((m) => [...m, { role: "assistant", content: data.reply || uiText("目前 App 快照資料不足，暫時無法完成分析。") }]);
         return;
       }
 
@@ -5143,13 +5379,13 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
         } else {
           const finalData = await askOnce(text, history, baseContext, toolTurns, true);
           if (finalData?.provider) setProviderInfo({ provider: finalData.provider, model: finalData.model || "", profile: finalData.profile || "" });
-          setMessages((m) => [...m, { role: "assistant", content: finalData.reply || "已取得資料，但這次模型沒有產生文字回答。" }]);
+          setMessages((m) => [...m, { role: "assistant", content: finalData.reply || uiText("已取得資料，但這次模型沒有產生文字回答。") }]);
         }
       } else {
         setMessages((m) => [...m, { role: "assistant", content: data.reply }]);
       }
     } catch (e) {
-      setError(e?.message || "問答失敗，請稍後再試");
+      setError(e?.message || uiText("問答失敗，請稍後再試"));
     } finally {
       setSending(false);
     }
@@ -5177,7 +5413,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
           if (h.symbol === a.symbol) { found = true; return { ...h, target2035: Number(a.target) }; }
           return h;
         }));
-        return found ? { ok: true } : { ok: false, message: `找不到 ${a.symbol} 這檔持股` };
+        return found ? { ok: true } : { ok: false, message: UI_SHOW_ENGLISH ? `Could not find holding ${a.symbol}` : `找不到 ${a.symbol} 這檔持股` };
       }
       case "update_manual_avg_cost": {
         let found = false;
@@ -5188,7 +5424,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
           }
           return h;
         }));
-        return found ? { ok: true } : { ok: false, message: `找不到 ${a.symbol} 這檔持股` };
+        return found ? { ok: true } : { ok: false, message: UI_SHOW_ENGLISH ? `Could not find holding ${a.symbol}` : `找不到 ${a.symbol} 這檔持股` };
       }
       case "update_goal": {
         setGoal((g) => ({
@@ -5199,7 +5435,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
         return { ok: true };
       }
       default:
-        return { ok: false, message: "不認得這個動作" };
+        return { ok: false, message: uiText("不認得這個動作") };
     }
   };
 
@@ -5253,14 +5489,14 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
             <div className="flex items-center justify-between px-4 py-3"
               style={{ borderBottom: `1px solid ${COLORS.panelBorder}`, paddingTop: "max(12px, env(safe-area-inset-top, 0px))" }}>
               <div className="flex items-center gap-2 min-w-0">
-                <div className="font-bold text-sm">存股助手 AI</div>
+                <div className="font-bold text-sm"><UiLabel zh="存股助手 AI" /></div>
                 {providerInfo && (() => {
                   const isGemini = String(providerInfo.provider || "").toLowerCase().includes("gemini");
                   return (
                     <div className="text-[9px] px-1.5 py-0.5 rounded-full truncate max-w-[170px]"
                       title={`${providerInfo.provider} · ${providerInfo.model}`}
                       style={{ color: isGemini ? COLORS.gold : COLORS.sub, border: `1px solid ${isGemini ? COLORS.gold : COLORS.panelBorder}` }}>
-                      {isGemini ? "Gemini 獨立備援" : "GPT-OSS"}
+                      {isGemini ? <UiLabel zh="Gemini 獨立備援" inline /> : "GPT-OSS"}
                     </div>
                   );
                 })()}
@@ -5272,7 +5508,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
               className={`flex-1 min-h-0 overflow-y-auto px-4 py-3 ${messages.length === 0 ? "flex items-center justify-center" : "space-y-3"}`}>
               {messages.length === 0 && (
                 <div className="text-xs text-center" style={{ color: COLORS.sub }}>
-                  可以直接問我 App 裡的持股、設定、即時行情、雷達、KD、法人、新聞、台指近月、資產與計畫；我會先讀 App 資料再回答，不另外亂猜一套。
+                  <UiLabel zh="可以直接問我 App 裡的持股、設定、即時行情、雷達、KD、法人、新聞、台指近月、資產與計畫；我會先讀 App 資料再回答，不另外亂猜一套。" />
                 </div>
               )}
               {messages.map((m, i) => {
@@ -5284,7 +5520,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
                       <div className="max-w-[85%] rounded-2xl px-3 py-2.5 text-sm"
                         style={{ background: COLORS.panel, border: `1px solid ${invalidReason ? COLORS.gain : COLORS.gold}` }}>
                         <div className="text-[11px] mb-1" style={{ color: invalidReason ? COLORS.gain : COLORS.gold }}>
-                          {invalidReason ? "AI 想執行（資料看起來不完整）：" : "AI 想執行："}
+                          <UiLabel zh={invalidReason ? "AI 想執行（資料看起來不完整）：" : "AI 想執行："} />
                         </div>
                         <div className="leading-relaxed">{desc}</div>
                         {invalidReason && (
@@ -5295,23 +5531,23 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
                             <button onClick={() => cancelToolCall(i)}
                               className="flex-1 rounded-lg py-1.5 text-xs font-bold"
                               style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, color: COLORS.sub }}>
-                              取消
+                              <UiLabel zh="取消" />
                             </button>
                             <button onClick={() => confirmToolCall(i)} disabled={!!invalidReason}
                               className="flex-1 rounded-lg py-1.5 text-xs font-bold"
                               style={{ background: invalidReason ? COLORS.panelBorder : COLORS.gold, color: invalidReason ? COLORS.sub : COLORS.bg, opacity: invalidReason ? 0.6 : 1 }}>
-                              確定執行
+                              <UiLabel zh="確定執行" />
                             </button>
                           </div>
                         )}
                         {m.status === "done" && (
-                          <div className="text-[11px] mt-2" style={{ color: COLORS.gain }}>✓ 已完成</div>
+                          <div className="text-[11px] mt-2" style={{ color: COLORS.gain }}><UiLabel zh="✓ 已完成" /></div>
                         )}
                         {m.status === "failed" && (
-                          <div className="text-[11px] mt-2" style={{ color: COLORS.gain }}>✗ 失敗：{m.failMessage}</div>
+                          <div className="text-[11px] mt-2" style={{ color: COLORS.gain }}><UiLabel zh="✗ 失敗：" inline />{m.failMessage}</div>
                         )}
                         {m.status === "cancelled" && (
-                          <div className="text-[11px] mt-2" style={{ color: COLORS.sub }}>已取消</div>
+                          <div className="text-[11px] mt-2" style={{ color: COLORS.sub }}><UiLabel zh="已取消" /></div>
                         )}
                       </div>
                     </div>
@@ -5333,7 +5569,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
               {sending && (
                 <div className="flex justify-start">
                   <div className="rounded-2xl px-3 py-2 text-sm" style={{ background: COLORS.panel, color: COLORS.sub, border: `1px solid ${COLORS.panelBorder}` }}>
-                    思考中…
+                    <UiLabel zh="思考中…" />
                   </div>
                 </div>
               )}
@@ -5343,7 +5579,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
             <div className="px-3 py-3 flex items-end gap-2"
               style={{ borderTop: `1px solid ${COLORS.panelBorder}`, paddingBottom: "calc(12px + env(safe-area-inset-bottom, 4px))" }}>
               <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onKeyDown}
-                placeholder="輸入訊息…" rows={1}
+                placeholder={uiText("輸入訊息…")} rows={1}
                 className="flex-1 rounded-xl px-3 py-2 text-sm resize-none"
                 style={{ 
                   background: COLORS.panel, 
