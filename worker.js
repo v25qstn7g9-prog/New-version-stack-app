@@ -55,7 +55,21 @@ export default {
       return healthPostHandler({ request, env, ctx });
     }
 
-    return env.ASSETS.fetch(request);
+    const assetResponse = await env.ASSETS.fetch(request);
+    // index.html changes frequently during active development. Prevent Safari/PWA
+    // and intermediary caches from pinning an older header/version after a deploy.
+    if (url.pathname === "/" || url.pathname === "/index.html") {
+      const headers = new Headers(assetResponse.headers);
+      headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+      headers.set("Pragma", "no-cache");
+      headers.set("Expires", "0");
+      return new Response(assetResponse.body, {
+        status: assetResponse.status,
+        statusText: assetResponse.statusText,
+        headers,
+      });
+    }
+    return assetResponse;
   },
 
   // Cron Trigger 進來的入口（不是一般 HTTP 請求，沒有 request/response）。
