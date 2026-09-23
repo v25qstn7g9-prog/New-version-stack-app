@@ -2918,6 +2918,42 @@ function TrendRadar({ holdings }) {
 
   const flowText=(v)=>{const n=Number(v)||0; if(!n)return "0"; const abs=Math.abs(n); const x=abs>=1000000?(abs/1000000).toFixed(1)+"M":abs>=1000?(abs/1000).toFixed(0)+"K":abs.toFixed(0); return (n>0?"+":"-")+x;};
   const kdCell=(kd)=>kd?`${kd.K.toFixed(0)}/${kd.D.toFixed(0)} ${kd.state}`:(UI_SHOW_ENGLISH?"Accumulating":"累積中");
+  // Plain-language one-liner for each holding: spells out in words why the
+  // call agrees or disagrees with the stock's own real-time move, so a
+  // "跌但稍偏漲"-looking card is self-explanatory instead of confusing.
+  const explainRow=(r)=>{
+    const stockUp=r.stockPct>0.001, stockDown=r.stockPct<-0.001;
+    const callBull=r.direction.includes("漲"), callBear=r.direction.includes("跌");
+    const instNet=(Number(r.f1)||0)+(Number(r.t1)||0)+(Number(r.d1)||0);
+    const kdBull=(r.kd5?.bull||0)+(r.kd15?.bull||0)+(r.kd60?.bull||0)+(r.kdDaily?.bull||0);
+    const reasonsZh=[], reasonsEn=[];
+    if(r.indexPct>0.05){reasonsZh.push("大盤走升");reasonsEn.push("the index is up");}
+    else if(r.indexPct<-0.05){reasonsZh.push("大盤走跌");reasonsEn.push("the index is down");}
+    if(r.newsScore>0){reasonsZh.push("新聞偏正");reasonsEn.push("news is positive");}
+    else if(r.newsScore<0){reasonsZh.push("新聞偏負");reasonsEn.push("news is negative");}
+    if(instNet>0){reasonsZh.push("法人買超");reasonsEn.push("institutions are net buying");}
+    else if(instNet<0){reasonsZh.push("法人賣超");reasonsEn.push("institutions are net selling");}
+    if(kdBull>0){reasonsZh.push("技術面偏多");reasonsEn.push("technicals lean bullish");}
+    else if(kdBull<0){reasonsZh.push("技術面偏空");reasonsEn.push("technicals lean bearish");}
+    const stockWordZh=stockUp?"上漲":stockDown?"下跌":"持平";
+    const stockWordEn=stockUp?"up":stockDown?"down":"flat";
+    const pctTxt=Math.abs(r.stockPct).toFixed(2)+"%";
+    const listZh=reasonsZh.slice(0,3).join("、");
+    const listEn=reasonsEn.slice(0,3).join(", ");
+    const callTxt=uiText(r.direction);
+    const agree=(stockUp&&callBull)||(stockDown&&callBear);
+    const conflict=(stockUp&&callBear)||(stockDown&&callBull);
+    if(UI_SHOW_ENGLISH){
+      if(!listEn) return `Right now it's ${stockWordEn} ${pctTxt}, and other signals aren't clear yet, so the call stays "${callTxt}".`;
+      if(conflict) return `It's ${stockWordEn} ${pctTxt} right now, but ${listEn} — pulling the other way, so the call is "${callTxt}".`;
+      if(agree) return `It's ${stockWordEn} ${pctTxt} right now, and ${listEn} — pointing the same way, so the call is "${callTxt}".`;
+      return `It's ${stockWordEn} ${pctTxt} right now; ${listEn}, so the overall call stays "${callTxt}".`;
+    }
+    if(!listZh) return `個股目前${stockWordZh} ${pctTxt}，其他訊號還不夠明確，暫時判斷「${callTxt}」。`;
+    if(conflict) return `個股目前${stockWordZh} ${pctTxt}，但${listZh}，把方向拉開，綜合判斷「${callTxt}」。`;
+    if(agree) return `個股目前${stockWordZh} ${pctTxt}，加上${listZh}同方向，綜合判斷「${callTxt}」。`;
+    return `個股目前${stockWordZh} ${pctTxt}，${listZh}，綜合判斷「${callTxt}」。`;
+  };
   if(!rows.length)return null;
   return (
     <div className="rounded-2xl p-4" style={{background:COLORS.panel,border:"1px solid "+COLORS.panelBorder,boxShadow:"0 4px 16px rgba(0,0,0,0.28)"}}>
@@ -2958,6 +2994,7 @@ function TrendRadar({ holdings }) {
           return <div key={r.symbol} className="rounded-xl px-3 py-2" style={{background:COLORS.bg,border:"1px solid "+COLORS.panelBorder}}>
             <div className="flex items-center justify-between"><div className="text-xs font-bold mono">{r.symbol}<span className="ml-1 font-normal" style={{color:COLORS.sub}}>{r.name}</span></div><div className="text-[10px] font-black mono text-right"><span style={{color:tone}}><UiLabel zh="今日" inline /> <UiLabel zh={r.direction} inline /> {r.probability.toFixed(0)}%</span><span className="ml-2" style={{color:tomorrowMap[r.symbol]?.direction?.includes("漲")?COLORS.gain:tomorrowMap[r.symbol]?.direction?.includes("跌")?COLORS.loss:COLORS.sub}}><UiLabel zh="明日" inline /> {tomorrowMap[r.symbol]?<><UiLabel zh={tomorrowMap[r.symbol].direction} inline />{" "+tomorrowMap[r.symbol].probability.toFixed(0)+"%"}</>:<UiLabel zh="資料累積中" inline />}</span></div></div>
             <div className="flex justify-between mt-1 text-[9px]" style={{color:COLORS.sub}}><span><UiLabel zh="大盤" inline /> {r.indexPct>=0?"+":""}{r.indexPct.toFixed(2)}%</span><span><UiLabel zh="個股" inline /> {r.stockPct>=0?"+":""}{r.stockPct.toFixed(2)}%</span><span><UiLabel zh="新聞" inline /> <UiLabel zh={r.newsScore>0?"偏正":r.newsScore<0?"偏負":"中性"} inline /></span><span><UiLabel zh="信心" inline /> <UiLabel zh={r.confidence} inline /></span></div>
+            <div className="mt-1 text-[9px] leading-snug" style={{color:COLORS.sub}}>{explainRow(r)}</div>
             {detailsOpen&&<><div className="mt-1.5 pt-1.5 text-[9px] mono" style={{color:COLORS.sub,borderTop:"1px solid "+COLORS.panelBorder}}>
               <div className="flex justify-between"><span><UiLabel zh="KD 5分" /></span><span>{kdCell(r.kd5)}</span></div>
               <div className="flex justify-between"><span><UiLabel zh="KD 15分" /></span><span>{kdCell(r.kd15)}</span></div>
