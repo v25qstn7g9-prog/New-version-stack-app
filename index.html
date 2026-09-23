@@ -1680,20 +1680,25 @@ function NewsCarousel({ holdings }) {
 }
 
 // ---------------- Live Price Panel (dashboard) ----------------
-function MiniSparkline({ values, width=120, height=18, tone=null }) {
+function MiniSparkline({ values, width=120, height=18, tone=null, showArea=true, showDot=true }) {
   const pts=(values||[]).map(Number).filter(Number.isFinite);
   if(pts.length<2) return <span className="text-[9px]" style={{color:COLORS.sub}}>趨勢累積中</span>;
   const min=Math.min(...pts), max=Math.max(...pts), span=max-min || 1;
-  const coords=pts.map((v,i)=>{
+  const xy=pts.map((v,i)=>{
     const x=pts.length===1?0:(i/(pts.length-1))*width;
     const y=height-2-((v-min)/span)*(height-4);
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(" ");
+    return {x,y};
+  });
+  const coords=xy.map(p=>`${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+  const areaCoords=`0,${height} ${coords} ${width},${height}`;
   const up=pts[pts.length-1]>=pts[0];
   const stroke=tone || (up?COLORS.gain:COLORS.loss);
+  const last=xy[xy.length-1];
   return (
     <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-label={up?"上升趨勢":"下降趨勢"}>
-      <polyline points={coords} fill="none" stroke={stroke} strokeWidth="1.6" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
+      {showArea && <polygon points={areaCoords} fill={stroke} opacity="0.09" />}
+      <polyline points={coords} fill="none" stroke={stroke} strokeWidth="1.8" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
+      {showDot && <circle cx={last.x} cy={last.y} r="2.2" fill={stroke} stroke={COLORS.panel} strokeWidth="1" vectorEffect="non-scaling-stroke" />}
     </svg>
   );
 }
@@ -1919,14 +1924,21 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
   const todayTape = tapePoints.filter(p => p?.day === todayKeyForSpark);
   const sparkFor = (sym) => todayTape.map(p => Number(p?.quotes?.[sym])).filter(v => Number.isFinite(v) && v>0);
   const portfolioSpark = todayTape.map(p => {
-    let total=0, ok=false;
+    let total=0;
+    let complete=activeHoldings.length>0;
     activeHoldings.forEach(h=>{
       const px=Number(p?.quotes?.[h.symbol]);
-      if(Number.isFinite(px) && px>0){ total += px*Number(h.current||0); ok=true; }
+      if(Number.isFinite(px) && px>0) total += px*Number(h.current||0);
+      else complete=false;
     });
-    return ok?total:null;
+    // 總市值曲線只接受「同一分鐘全部持股都有價格」的完整快照，
+    // 避免某檔暫時缺值時把部分市值誤畫成突然下跌。
+    return complete?total:null;
   }).filter(v=>Number.isFinite(v) && v>0);
   const indexSpark = sparkFor("TAIEX");
+  const portfolioDayUp = yesterdayTwValue != null
+    ? totalValue >= yesterdayTwValue
+    : (portfolioSpark.length>1 ? portfolioSpark[portfolioSpark.length-1] >= portfolioSpark[0] : true);
 
   const recordToday = () => {
     if (!onFillDailyTw) return;
@@ -1990,7 +2002,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
                       {!r.quoteIsStale ? <>今日損益 {r.chg >= 0 ? "+" : ""}{nf(Math.round(r.chg * r.current))}</> : ""}
                     </span>
                     <div className="row-start-3 col-start-2 col-span-3 h-[12px] opacity-80">
-                      <MiniSparkline values={sparkFor(r.symbol)} width={240} height={12} tone={r.chg>=0?COLORS.gain:COLORS.loss} />
+                      <MiniSparkline values={sparkFor(r.symbol)} width={240} height={12} tone={r.chg>=0?COLORS.gain:COLORS.loss} showArea={true} showDot={true} />
                     </div>
                   </div>
                 </div>
@@ -2009,7 +2021,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
             <span style={{ color: COLORS.gold }}>NT$ {nf(totalValue)}</span>
           </div>
           <div className="h-[20px] mt-1 opacity-85">
-            <MiniSparkline values={portfolioSpark} width={300} height={20} tone={portfolioSpark.length>1 && portfolioSpark[portfolioSpark.length-1]>=portfolioSpark[0]?COLORS.gain:COLORS.loss} />
+            <MiniSparkline values={portfolioSpark} width={300} height={20} tone={portfolioDayUp?COLORS.gain:COLORS.loss} />
           </div>
           {yesterdayTwValue != null && (
             <>
