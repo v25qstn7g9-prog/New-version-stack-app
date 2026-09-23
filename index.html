@@ -2576,7 +2576,12 @@ function TrendRadar({ holdings }) {
       const betaFor = (sym) => betaVs(dailyBarsMap[sym], dailyBarsMap.TAIEX);
 
       const idx = cached?.marketIndex || null;
-      const indexPct = idx && Number(idx.prevClose) ? ((Number(idx.price)-Number(idx.prevClose))/Number(idx.prevClose))*100 : 0;
+      // Round to the same 2 decimals shown on screen (toFixed(2)) so threshold
+      // checks below (e.g. >=0.30) never disagree with what the user is looking
+      // at — a raw value like 0.2957 would display as "0.30%" but silently miss
+      // a ">=0.30" guard, which is exactly the kind of contradiction these
+      // guards exist to prevent.
+      const indexPct = idx && Number(idx.prevClose) ? Math.round(((Number(idx.price)-Number(idx.prevClose))/Number(idx.prevClose))*10000)/100 : 0;
       // Negation-aware keyword scoring: a headline like "並未衰退" used to
       // register as flatly negative because the old scorer only checked
       // whether the keyword appeared anywhere in the title. Now a positive/
@@ -2644,7 +2649,10 @@ function TrendRadar({ holdings }) {
       if(cancelled) return;
       let next = active.map((h) => {
         const q = quoteMap[h.symbol] || {};
-        const stockPct = Number(q.prevClose) ? ((Number(q.price)-Number(q.prevClose))/Number(q.prevClose))*100 : 0;
+        // Same rounding as indexPct above: keep this equal to the 2-decimal
+        // value the card displays, so the late-session contradiction guard
+        // below can't be skipped by an unrounded value the user never sees.
+        const stockPct = Number(q.prevClose) ? Math.round(((Number(q.price)-Number(q.prevClose))/Number(q.prevClose))*10000)/100 : 0;
         const news = (newsCache?.news?.[h.symbol] || []).slice(0,5);
         let newsScore = 0;
         news.forEach((n) => { newsScore += scoreHeadline(String(n.title||"")); });
