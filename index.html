@@ -2613,8 +2613,6 @@ function TrendRadar({ holdings }) {
       const marketKdDaily=dailyKdFor("TAIEX"), marketKdMonthly=monthlyKdFor("TAIEX");
       const holdingPcts=Object.values(quoteMap).map(q=>Number(q?.prevClose)?((Number(q.price)-Number(q.prevClose))/Number(q.prevClose))*100:null).filter(v=>Number.isFinite(v));
       const breadth=holdingPcts.length?holdingPcts.filter(v=>v>0).length/holdingPcts.length:0.5;
-      const mkKd=[marketKd5,marketKd15,marketKd60,marketKdDaily].filter(Boolean);
-      const mkKdScore=mkKd.reduce((a,k)=>a+k.bull,0);
       let instDays=[];
       try{
         const instCache=await loadKey("institutionalFlow",null);
@@ -2643,6 +2641,19 @@ function TrendRadar({ holdings }) {
         ? Math.sign(indexPct)*Math.min(6, 2 + Math.abs(indexPct)*8)*closeProgress
         : 0;
       marketScore += marketCloseBoost;
+      // Late-session contradiction guard for the market/TAIEX row — mirrors
+      // the per-stock guard further below (model correction #1b). This was
+      // previously only applied per-holding, leaving the headline TAIEX card
+      // with no protection against showing a same-day call that visibly
+      // contradicts the index's own displayed daily change. Threshold is
+      // half the per-stock one (0.20 vs 0.30), matching how marketCloseBoost
+      // above already uses half the per-stock boost threshold (0.10 vs 0.15)
+      // since the index itself moves in smaller percentages than individual
+      // stocks.
+      if (sessionClock >= 750 && Math.abs(indexPct) >= 0.20) {
+        if (indexPct < 0 && marketScore > 1.5) marketScore = 1.5;
+        if (indexPct > 0 && marketScore < -1.5) marketScore = -1.5;
+      }
       const marketProbability=Math.max(25,Math.min(75,50 + 25*Math.tanh(marketScore/22)));
       const marketDirection=marketProbability>=64?"明顯偏漲":marketProbability>=55?"稍偏漲":marketProbability<=36?"明顯偏跌":marketProbability<=45?"稍偏跌":"方向不明";
       let computedMarketRow={probability:marketProbability,direction:marketDirection,indexPct,breadth,kd5:marketKd5,kd15:marketKd15,kd60:marketKd60,kdDaily:marketKdDaily,kdMonthly:marketKdMonthly,marketCloseBoost,modelVersion:TREND_MODEL_VERSION};
@@ -2670,7 +2681,6 @@ function TrendRadar({ holdings }) {
         const kdDaily=dailyKdFor(h.symbol);
         const kdMonthly=monthlyKdFor(h.symbol);
         const kdSignals=[kd5,kd15,kd60,kdDaily].filter(Boolean);
-        const kdScore=kdSignals.reduce((a,k)=>a+k.bull,0);
         const timedKdScore=(kd5?.bull||0)*(1+1.0*lateProgress)
           +(kd15?.bull||0)*(1+0.75*lateProgress)
           +(kd60?.bull||0)*(1-0.25*lateProgress)
