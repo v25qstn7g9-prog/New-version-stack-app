@@ -124,10 +124,10 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.43.0-overnight-beta-and-phase-split-accuracy";
+const APP_VERSION = "4.7-personal-advisor-v2.44.0-language-toggle-and-trend-radar";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
-let UI_SHOW_ENGLISH = true;
+let UI_LANG = "zh";
 
 const TABS = [
   { id: "dashboard", label: "總覽", en: "Overview", icon: Wallet },
@@ -209,19 +209,60 @@ const UI_EN = {
   "更新": "Update",
   "刪除": "Delete",
   "新增交易紀錄": "Add Trade",
-  "新增配息紀錄": "Add Dividend"
+  "新增配息紀錄": "Add Dividend",
+  "存股資產追蹤": "Stock Asset Tracker",
+  "目標": "Goal",
+  "距目標": "To Goal",
+  "已達成": "Completed",
+  "預計": "Est.",
+  "達成": "Reach",
+  "持股新聞": "Holding News",
+  "查看新聞": "View News",
+  "目前總資產": "Current Total Assets",
+  "今天": "Today",
+  "即時股價": "Live Quotes",
+  "已更新": "Updated",
+  "抓取即時股價": "Refresh Quotes",
+  "代號": "Symbol",
+  "高／低價": "High / Low",
+  "股價／漲跌幅": "Price / Change",
+  "市值／今日損益": "Value / Today P&L",
+  "今日損益": "Today P&L",
+  "今日台股總市值": "Today TW Market Value",
+  "昨日台股總市值": "Yesterday TW Market Value",
+  "今/昨日盈虧": "Today vs Yesterday",
+  "加權指數": "TAIEX",
+  "今日 vs 大盤": "Today vs Market",
+  "贏大盤": "Beat Market",
+  "輸大盤": "Lag Market",
+  "帶入「每日紀錄」台股市值": "Send TW Value to Daily Record",
+  "AI 今日／明日趨勢雷達": "AI Today / Tomorrow Trend Radar",
+  "今日": "Today",
+  "明日": "Tomorrow",
+  "方向不明": "Unclear",
+  "稍偏漲": "Slightly Bullish",
+  "稍偏跌": "Slightly Bearish",
+  "明顯偏漲": "Bullish",
+  "明顯偏跌": "Bearish",
+  "信心": "Confidence",
+  "新聞": "News",
+  "法人": "Institutional",
+  "隔夜訊號": "Overnight Signal",
+  "台指近月": "TX Front Month",
+  "日盤": "Day",
+  "夜盤": "Night",
+  "展開判斷明細": "Show Details",
+  "收合判斷明細": "Hide Details",
+  "因子回測（研究用）": "Factor Backtest (Research)",
+  "計畫進度": "Progress",
+  "計畫設定": "Settings"
 };
 
+function uiText(zh) {
+  return UI_LANG === "en" ? (UI_EN[zh] || zh) : zh;
+}
 function UiLabel({ zh, className = "", style = null, inline = false }) {
-  const en = UI_EN[zh];
-  if (!en || !UI_SHOW_ENGLISH) return <span className={className} style={style}>{zh}</span>;
-  if (inline) return <span className={className} style={style}>{zh} <span style={{ opacity: 0.72 }}>/ {en}</span></span>;
-  return (
-    <span className={className} style={style}>
-      <span className="block">{zh}</span>
-      <span className="block text-[9px] font-medium mt-0.5" style={{ opacity: 0.72 }}>{en}</span>
-    </span>
-  );
+  return <span className={className} style={style}>{uiText(zh)}</span>;
 }
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -725,17 +766,17 @@ const DAILY_SEED = [];
 function AssetTracker() {
   const [ready, setReady] = useState(false);
   const [tab, setTab] = useState("dashboard");
-  const [showEnglish, setShowEnglish] = useState(() => {
+  const [uiLang, setUiLang] = useState(() => {
     try {
-      const saved = localStorage.getItem("uiShowEnglish");
-      return saved == null ? true : saved === "true";
-    } catch { return true; }
+      const saved = localStorage.getItem("uiLang");
+      return saved === "en" ? "en" : "zh";
+    } catch { return "zh"; }
   });
-  UI_SHOW_ENGLISH = showEnglish;
-  const toggleBilingual = () => {
-    setShowEnglish((prev) => {
-      const next = !prev;
-      try { localStorage.setItem("uiShowEnglish", String(next)); } catch {}
+  UI_LANG = uiLang;
+  const toggleLanguage = () => {
+    setUiLang((prev) => {
+      const next = prev === "zh" ? "en" : "zh";
+      try { localStorage.setItem("uiLang", next); } catch {}
       return next;
     });
   };
@@ -1398,7 +1439,7 @@ function AssetTracker() {
       )}
 
       <div ref={headerRef}>
-        <Header goal={goal} totalToday={totalToday} goalDate={goalDate} backupOverdue={backupOverdue} backupAgeDays={backupAgeDays} showEnglish={showEnglish} onToggleBilingual={toggleBilingual} />
+        <Header goal={goal} totalToday={totalToday} goalDate={goalDate} backupOverdue={backupOverdue} backupAgeDays={backupAgeDays} uiLang={uiLang} onToggleLanguage={toggleLanguage} />
       </div>
 
       <main
@@ -1525,13 +1566,13 @@ function AssetTracker() {
           elapsedMonths, costLeadMonths, assetLeadMonths, startingCost: costBasis?.startingCost,
         }} />
 
-      <TabBar tab={tab} setTab={goToTab} rootRef={tabBarRef} showEnglish={showEnglish} />
+      <TabBar tab={tab} setTab={goToTab} rootRef={tabBarRef} uiLang={uiLang} />
     </div>
   );
 }
 
 // ---------------- Header ----------------
-function Header({ goal, totalToday, goalDate, backupOverdue, backupAgeDays, showEnglish, onToggleBilingual }) {
+function Header({ goal, totalToday, goalDate, backupOverdue, backupAgeDays, uiLang, onToggleLanguage }) {
   const remain = Math.max(0, goal.targetAmount - totalToday);
   const pct = Math.min(100, (totalToday / goal.targetAmount) * 100);
   return (
@@ -1553,34 +1594,30 @@ function Header({ goal, totalToday, goalDate, backupOverdue, backupAgeDays, show
       <div className="max-w-none mx-auto px-0">
         <div className="flex items-start justify-between gap-3">
           <h1 className="text-lg font-black tracking-tight min-w-0" style={{ color: COLORS.gold }}>
-            <span className="block whitespace-nowrap">存股資產追蹤 <span className="text-[10px] font-medium" style={{ color: COLORS.sub }}>v{APP_DISPLAY_VERSION}</span></span>
+            <span className="block whitespace-nowrap">{uiLang==="en" ? "Stock Asset Tracker" : "存股資產追蹤"} <span className="text-[10px] font-medium" style={{ color: COLORS.sub }}>v{APP_DISPLAY_VERSION}</span></span>
           </h1>
           <span className="text-xs mono text-right flex-shrink-0" style={{ color: COLORS.sub }}>
-            目標 {goal.targetYear} · {nf(goal.targetAmount)}
+            {uiLang==="en" ? "Goal" : "目標"} {goal.targetYear} · {nf(goal.targetAmount)}
           </span>
         </div>
-        <div className="mt-1 flex items-center justify-between">
-          {showEnglish
-            ? <span className="text-[9px] font-medium" style={{ color: COLORS.sub }}>Stock Asset Tracker</span>
-            : <span />}
-          <button onClick={onToggleBilingual}
+        <div className="mt-1 flex items-center justify-end">
+          <button onClick={onToggleLanguage}
             className="rounded-full px-2.5 py-1 text-[9px] font-bold leading-none"
-            title={showEnglish ? "切換為純中文介面" : "顯示中英文介面"}
+            title={uiLang==="en" ? "切換中文介面" : "Switch to English"}
             style={{
-              color: showEnglish ? COLORS.gold : COLORS.sub,
-              border: `1px solid ${showEnglish ? "rgba(201,162,75,0.75)" : COLORS.panelBorder}`,
-              background: showEnglish ? "rgba(201,162,75,0.08)" : COLORS.panel,
-              boxShadow: showEnglish ? "0 0 0 1px rgba(201,162,75,0.03)" : "none"
+              color: COLORS.gold,
+              border: "1px solid rgba(201,162,75,0.75)",
+              background: "rgba(201,162,75,0.08)"
             }}>
-            中 / EN
+            {uiLang==="en" ? "EN / 中" : "中 / EN"}
           </button>
         </div>
         <div className="mt-2 h-1.5 rounded-full overflow-hidden" style={{ background: COLORS.panel }}>
           <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: COLORS.gold }} />
         </div>
         <div className="mt-1 flex items-baseline justify-between text-[11px] mono" style={{ color: COLORS.sub }}>
-          <span>距目標 NT${nf(remain)}（已達成 {pct.toFixed(1)}%）</span>
-          {goalDate && <span style={{ color: COLORS.gold }}>預計 {goalDate} 達成</span>}
+          <span>{uiLang==="en" ? `To Goal NT${nf(remain)} (${pct.toFixed(1)}% completed)` : `距目標 NT${nf(remain)}（已達成 ${pct.toFixed(1)}%）`}</span>
+          {goalDate && <span style={{ color: COLORS.gold }}>{uiLang==="en" ? `Est. ${goalDate}` : `預計 ${goalDate} 達成`}</span>}
         </div>
         {backupOverdue && (
           <div className="mt-2 rounded-lg px-2.5 py-1.5 text-[10px] font-bold"
@@ -2005,7 +2042,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
       {hasLive && (
         <div>
           <div className="grid grid-cols-[36px_68px_76px_minmax(0,1fr)] gap-1 text-[10px] pb-1.5 mb-1.5 items-center" style={{ color: COLORS.sub, borderBottom: `1px solid ${COLORS.panelBorder}` }}>
-            <span>代號</span><span>高／低價</span><span className="text-right">股價／漲跌幅</span><span className="text-right">市值／今日損益</span>
+            <span>{uiText("代號")}</span><span>{uiText("高／低價")}</span><span className="text-right">{uiText("股價／漲跌幅")}</span><span className="text-right">{uiText("市值／今日損益")}</span>
           </div>
           <div className="space-y-1 max-h-64 overflow-y-auto">
             {rows.map((r) => (
@@ -2030,7 +2067,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
 
                     <span className="row-start-1 col-start-4 text-right font-bold whitespace-nowrap leading-none min-w-0">{nf(r.value)}</span>
                     <span className="row-start-2 col-start-4 text-right whitespace-nowrap leading-none min-w-0" style={{ color: r.quoteIsStale ? COLORS.sub : (r.chg >= 0 ? COLORS.gain : COLORS.loss) }}>
-                      {!r.quoteIsStale ? <>今日損益 {r.chg >= 0 ? "+" : ""}{nf(Math.round(r.chg * r.current))}</> : ""}
+                      {!r.quoteIsStale ? <>{uiText("今日損益")} {r.chg >= 0 ? "+" : ""}{nf(Math.round(r.chg * r.current))}</> : ""}
                     </span>
                     <div className="row-start-3 col-start-2 col-span-3 h-[12px] opacity-80">
                       <MiniSparkline values={sparkFor(r.symbol)} width={240} height={12} tone={r.chg>=0?COLORS.gain:COLORS.loss} showArea={true} showDot={true} />
@@ -2057,11 +2094,11 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
           {yesterdayTwValue != null && (
             <>
               <div className="flex justify-between text-xs mono mt-1">
-                <span style={{ color: COLORS.sub }}>昨日台股總市值</span>
+                <span style={{ color: COLORS.sub }}>{uiText("昨日台股總市值")}</span>
                 <span style={{ color: COLORS.sub }}>NT$ {nf(yesterdayTwValue)}</span>
               </div>
               <div className="flex justify-between text-xs mono mt-1 font-bold">
-                <span style={{ color: COLORS.sub }}>今/昨日盈虧</span>
+                <span style={{ color: COLORS.sub }}>{uiText("今/昨日盈虧")}</span>
                 {(() => {
                   const diff = totalValue - yesterdayTwValue;
                   const diffPct = yesterdayTwValue ? (diff / yesterdayTwValue) * 100 : 0;
@@ -2078,7 +2115,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
           {hasMarketIndex && (
             <>
               <div className="grid grid-cols-[72px_1fr_auto] gap-2 text-xs mono mt-1 items-center">
-                <span style={{ color: COLORS.sub }}>加權指數</span>
+                <span style={{ color: COLORS.sub }}>{uiText("加權指數")}</span>
                 <span className="text-[9px] whitespace-nowrap" style={{color:COLORS.sub}}>{Number.isFinite(Number(marketIndex?.high))&&Number.isFinite(Number(marketIndex?.low)) ? <>高 {nf(Math.round(Number(marketIndex.high)))}｜低 {nf(Math.round(Number(marketIndex.low)))}</> : "高低點 --"}</span>
                 <span style={{ color: indexChange >= 0 ? COLORS.gain : COLORS.loss }}>{nf(Math.round(indexPrice))}　{indexChange >= 0 ? "▲" : "▼"} {indexChangePct >= 0 ? "+" : ""}{indexChangePct.toFixed(2)}%</span>
               </div>
@@ -2087,7 +2124,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
               </div>
               {vsMarketPct != null && (
                 <div className="flex justify-between text-xs mono mt-1">
-                  <span style={{ color: COLORS.sub }}>今日 vs 大盤</span>
+                  <span style={{ color: COLORS.sub }}>{uiText("今日 vs 大盤")}</span>
                   <span style={{ color: vsMarketPct >= 0 ? COLORS.gain : COLORS.loss }}>
                     {vsMarketPct >= 0 ? "贏大盤" : "輸大盤"} {vsMarketPct >= 0 ? "+" : ""}{vsMarketPct.toFixed(2)}%
                   </span>
@@ -2669,15 +2706,15 @@ function TrendRadar({ holdings }) {
   return (
     <div className="rounded-2xl p-4" style={{background:COLORS.panel,border:"1px solid "+COLORS.panelBorder,boxShadow:"0 4px 16px rgba(0,0,0,0.28)"}}>
       <div className="flex items-center justify-between mb-2">
-        <div><div className="text-xs font-bold" style={{color:COLORS.gold}}>AI 今日／明日趨勢雷達</div><div className="text-[9px] mt-0.5" style={{color:COLORS.sub}}>{`學習版 v${TREND_RADAR_VERSION} · 時間自適應權重 · OHLC＋KD＋法人＋台指近月＋隔夜訊號＋自動驗證`}</div></div>
+        <div><div className="text-xs font-bold" style={{color:COLORS.gold}}>{uiText("AI 今日／明日趨勢雷達")}</div><div className="text-[9px] mt-0.5" style={{color:COLORS.sub}}>{`學習版 v${TREND_RADAR_VERSION} · 時間自適應權重 · OHLC＋KD＋法人＋台指近月＋隔夜訊號＋自動驗證`}</div></div>
         {asOf&&<div className="text-[9px] mono" style={{color:COLORS.sub}}>{asOf.toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit",hour12:false})}</div>}
       </div>
       <div className="space-y-2">
         {globalRow&&<div className="rounded-xl px-3 py-2 text-[9px] mono" style={{background:COLORS.bg,border:"1px solid "+COLORS.panelBorder,color:COLORS.sub}}>
-          <div className="flex justify-between"><span>隔夜訊號</span><span>{globalStatus==="ok"?"已取得":"暫不可用，明日預測退回原模型"}</span></div>
+          <div className="flex justify-between"><span>{uiText("隔夜訊號")}</span><span>{globalStatus==="ok"?"已取得":"暫不可用，明日預測退回原模型"}</span></div>
           {globalStatus==="ok"&&<>
             <div className="flex justify-between mt-0.5">
-              <span>台指近月 {globalRow.txfPct!=null?(globalRow.txfPct>=0?"+":"")+globalRow.txfPct.toFixed(2)+"%":"—"}</span>
+              <span>{uiText("台指近月")} {globalRow.txfPct!=null?(globalRow.txfPct>=0?"+":"")+globalRow.txfPct.toFixed(2)+"%":"—"}</span>
               <span>{globalRow.txfPrice!=null?globalRow.txfPrice.toLocaleString("zh-TW"):"—"}{globalRow.txfExpiry?" · "+globalRow.txfExpiry:""}</span>
               <span>{globalRow.txfSession==="after_hours"?"夜盤":"日盤"}</span>
             </div>
@@ -2894,7 +2931,7 @@ function Dashboard({ totalToday, dailyChange, dailyChangePct, capitalGain, total
         background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`,
         boxShadow: "0 4px 16px rgba(0,0,0,0.28)",
       }}>
-        <div className="text-xs" style={{ color: COLORS.sub }}>目前總資產</div>
+        <div className="text-xs" style={{ color: COLORS.sub }}>{uiText("目前總資產")}</div>
         <div className="text-3xl font-black mono mt-1"><AnimatedNumber value={totalToday} prefix="NT$ " /></div>
         <div className="flex items-center gap-1 mt-1.5 text-sm mono"
           style={{ color: up ? COLORS.gain : COLORS.loss }}>
@@ -5339,7 +5376,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
   );
 }
 
-function TabBar({ tab, setTab, rootRef, showEnglish }) {
+function TabBar({ tab, setTab, rootRef, uiLang }) {
   return (
     <div ref={rootRef} className="fixed bottom-0 left-0 right-0"
       style={{
@@ -5358,8 +5395,7 @@ function TabBar({ tab, setTab, rootRef, showEnglish }) {
               }}>
               <Icon size={13} />
               <span className="text-[8px] font-medium whitespace-nowrap leading-[1.05] text-center">
-                <span className="block">{label}</span>
-                {showEnglish && <span className="block text-[6px] mt-0.5" style={{ opacity: 0.72 }}>{en}</span>}
+                <span className="block">{uiLang==="en" ? en : label}</span>
               </span>
             </button>
           );
