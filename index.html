@@ -291,6 +291,31 @@ const UI_EN = {
   "轉弱中": "Weakening",
   "等待方向形成": "Waiting for Direction",
   "觀察": "Watch",
+  "即時動能回升，觀察能否續強": "Live momentum up — can it keep going?",
+  "即時動能轉弱，觀察是否守穩": "Live momentum fading — can it hold?",
+  "等待更多盤中資料": "Waiting for more intraday data",
+  "短線續強才算真正轉強": "Needs follow-through to confirm the turn",
+  "短線KD翻多才算止弱": "Short-term KD must turn up to stop the slide",
+  "先看能否持續回收跌幅": "Can it keep recovering the loss?",
+  "短線重新轉多才算續強": "Needs short-term to turn up again",
+  "短線維持偏多可延續強勢": "Stays strong while short-term is bullish",
+  "留意是否出現第二波上攻": "Is a second leg up forming?",
+  "價格轉正會更確認": "Turning positive would confirm it",
+  "價格守穩才有機會止弱": "Must hold steady to stop weakening",
+  "高檔": "Overbought",
+  "低檔": "Oversold",
+  "黃金交叉": "Golden Cross",
+  "死亡交叉": "Death Cross",
+  "盤中訊號、KD、法人與明日方向": "Intraday signals, KD, institutions & tomorrow",
+  "回測、XIRR、回撤、波動與風險效率": "Backtest, XIRR, drawdown, volatility & risk efficiency",
+  "持有成本": "Holding Cost",
+  "今年累計": "YTD Total",
+  "上一則": "Previous",
+  "下一則": "Next",
+  "* 抓不到即時報價，暫時用持有成本計算佔比": "* No live quote — using cost basis for allocation",
+  "會跳到「每日紀錄」並自動填好台股市值，可直接儲存": "This jumps to Daily Record with the TW value filled in, ready to save.",
+  "目前報價只有部分成功或混有快取價格，為避免把不完整市值寫進每日紀錄，請先重新抓到全部持股報價。": "Some quotes failed or are cached. To avoid saving an incomplete value to Daily Record, refresh until every holding has a live quote.",
+  "JSON 用來完整備份／還原 App；Excel 用來保存、檢視與分析投資歷史。重要修改後建議兩種都留一份。": "JSON is a full App backup/restore; Excel is for keeping, viewing and analyzing your history. Keep both after important changes.",
   "偏多": "Bullish",
   "偏空": "Bearish",
   "盤整": "Mixed",
@@ -3272,7 +3297,7 @@ function TrendRadar({ holdings }) {
   },[asOf]);
 
   const flowText=(v)=>{const n=Number(v)||0; if(!n)return "0"; const abs=Math.abs(n); const x=abs>=1000000?(abs/1000000).toFixed(1)+"M":abs>=1000?(abs/1000).toFixed(0)+"K":abs.toFixed(0); return (n>0?"+":"-")+x;};
-  const kdCell=(kd)=>kd?`${kd.K.toFixed(0)}/${kd.D.toFixed(0)} ${kd.state}`:(UI_SHOW_ENGLISH?"Accumulating":"累積中");
+  const kdCell=(kd)=>kd?`${kd.K.toFixed(0)}/${kd.D.toFixed(0)} ${uiText(kd.state)}`:(UI_SHOW_ENGLISH?"Accumulating":"累積中");
   // Plain-language rollup of the three short-timeframe KD signals (5/15/60分)
   // into one word: this is what the "盤中趨勢" label was already showing on
   // the market card, but with no value next to it — it was never actually
@@ -3307,6 +3332,11 @@ function TrendRadar({ holdings }) {
     const st=easyState(r.indexPct,r.kd5,r.kd15,r.kd60,r.micro);
     const lead=r.indexPct<=-0.15?"開低":r.indexPct>=0.15?"開高":"目前";
     const suffix=st.label.includes("回穩")?"｜短線回穩中":st.label.includes("轉弱")?"｜短線轉弱中":"";
+    if(UI_SHOW_ENGLISH){
+      const leadEn=r.indexPct<=-0.15?"Opened lower · ":r.indexPct>=0.15?"Opened higher · ":"";
+      const suffixEn=st.label.includes("回穩")?" | stabilizing short-term":st.label.includes("轉弱")?" | weakening short-term":"";
+      return {...st,text:`${leadEn}${uiText(st.label)}${suffixEn}`};
+    }
     return {...st,text:`${lead}${st.label}${suffix}`};
   };
   const keyLevelText=(r,easy)=>{
@@ -3326,8 +3356,8 @@ function TrendRadar({ holdings }) {
     // Every other state (recovery, neutral, weak, accumulating) still needs
     // to prove itself by reclaiming the high.
     const alreadyStrong = easy?.label==="偏強" || easy?.label==="強中轉弱";
-    if(alreadyStrong) return `跌破 ${fmt(lo)} → 轉弱確認`;
-    return `突破 ${fmt(hi)} → 轉強確認`;
+    if(alreadyStrong) return UI_SHOW_ENGLISH ? `Below ${fmt(lo)} → confirms weakness` : `跌破 ${fmt(lo)} → 轉弱確認`;
+    return UI_SHOW_ENGLISH ? `Above ${fmt(hi)} → confirms strength` : `突破 ${fmt(hi)} → 轉強確認`;
   };
   // Plain-language one-liner for each holding: spells out in words why the
   // call agrees or disagrees with the stock's own real-time move, so a
@@ -3393,7 +3423,7 @@ function TrendRadar({ holdings }) {
           return <div className="rounded-xl px-3 py-2" style={{background:"rgba(201,162,75,0.07)",border:"1px solid rgba(201,162,75,0.45)"}}>
             <div className="text-[9px] font-bold" style={{color:COLORS.gold}}><UiLabel zh="盤勢總結" /></div>
             <div className="mt-0.5 text-[12px] font-black" style={{color:ms.tone}}>{ms.arrow} {ms.text}</div>
-            <div className="mt-0.5 text-[9px]" style={{color:COLORS.sub}}>TAIEX {marketRow.indexPct>=0?"+":""}{marketRow.indexPct.toFixed(2)}% ｜ {ms.watch}</div>
+            <div className="mt-0.5 text-[9px]" style={{color:COLORS.sub}}>TAIEX {marketRow.indexPct>=0?"+":""}{marketRow.indexPct.toFixed(2)}% ｜ {uiText(ms.watch)}</div>
           </div>;
         })()}
         {marketRow&&<div className="rounded-xl px-3 py-2" style={{background:COLORS.bg,border:"1px solid "+COLORS.gold}}>
@@ -3422,9 +3452,9 @@ function TrendRadar({ holdings }) {
             </div>
             <div className="flex justify-between gap-2 mt-1 text-[9px]" style={{color:COLORS.sub}}>
               <span><UiLabel zh="目前" inline /> {r.stockPct>=0?"+":""}{r.stockPct.toFixed(2)}%</span>
-              <span><UiLabel zh="觀察" inline />：{easy.watch}</span>
+              <span><UiLabel zh="觀察" inline />{UI_SHOW_ENGLISH?": ":"："}{uiText(easy.watch)}</span>
             </div>
-            {keyText&&<div className="mt-1 text-[9px] font-bold" style={{color:COLORS.gold}}><UiLabel zh="關鍵價位" inline />：{keyText}</div>}
+            {keyText&&<div className="mt-1 text-[9px] font-bold" style={{color:COLORS.gold}}><UiLabel zh="關鍵價位" inline />{UI_SHOW_ENGLISH?": ":"："}{keyText}</div>}
             <div className="flex justify-between gap-2 mt-1 text-[9px] mono" style={{color:COLORS.sub}}>
               <span><UiLabel zh="今日收盤預測" inline /> <span style={{color:tone}}><UiLabel zh={r.direction} inline /> {r.probability.toFixed(0)}%</span></span>
               <span><UiLabel zh="明日預測" inline /> {tomorrowMap[r.symbol]?<span style={{color:tomorrowMap[r.symbol]?.direction?.includes("漲")?COLORS.gain:tomorrowMap[r.symbol]?.direction?.includes("跌")?COLORS.loss:COLORS.sub}}><UiLabel zh={tomorrowMap[r.symbol].direction} inline />{" "+tomorrowMap[r.symbol].probability.toFixed(0)+"%"}</span>:<UiLabel zh="資料累積中" inline />}</span>
