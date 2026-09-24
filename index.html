@@ -58,6 +58,20 @@
       .text-2xl{font-size:1.35rem;line-height:1.2}
       .shadow-xl,.shadow-lg{box-shadow:0 8px 24px rgba(0,0,0,.16)}
     }
+
+    .premium-dashboard>.premium-asset-hero{position:relative;overflow:hidden}
+    .premium-dashboard>.premium-asset-hero:before{content:"";position:absolute;inset:0 0 auto 0;height:1px;background:linear-gradient(90deg,transparent,rgba(212,173,87,.55),transparent)}
+    .premium-dashboard>.premium-asset-hero .text-3xl{letter-spacing:-.045em}
+    .premium-tabbar{background:rgba(17,24,39,.94)!important;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);box-shadow:0 -8px 28px rgba(0,0,0,.18);z-index:50}
+    .premium-tabbar button{min-height:43px}
+    @media(max-width:640px){
+      .premium-dashboard{padding-bottom:4px}
+      .premium-dashboard>.premium-asset-hero{padding:1rem!important}
+      .premium-dashboard>.premium-asset-hero .text-3xl{font-size:1.75rem}
+      .premium-tabbar button{min-height:45px;padding-top:4px!important;padding-bottom:3px!important}
+      .premium-tabbar svg{width:15px;height:15px}
+      .premium-tabbar span.text-\\[8px\\]{font-size:8.5px}
+    }
     @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
 
   </style>
@@ -6837,7 +6851,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
 
 function TabBar({ tab, setTab, rootRef, showEnglish }) {
   return (
-    <div ref={rootRef} className="fixed bottom-0 left-0 right-0"
+    <div ref={rootRef} className="fixed bottom-0 left-0 right-0 premium-tabbar"
       style={{
         background: COLORS.panel, borderTop: `1px solid ${COLORS.panelBorder}`,
         paddingBottom: "env(safe-area-inset-bottom, 4px)",
