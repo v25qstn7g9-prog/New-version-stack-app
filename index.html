@@ -80,6 +80,29 @@
       .premium-tabbar svg{width:15px;height:15px}
       .premium-tabbar span.text-\[8px\]{font-size:8.5px}
     }
+
+    /* Premium pass 4 — denser overview + cleaner cards */
+    .premium-dashboard>.rounded-xl{box-shadow:0 4px 14px rgba(0,0,0,.14)}
+    .premium-dashboard>.rounded-xl a{min-width:0}
+    .premium-dashboard>.rounded-xl button{padding:.15rem}
+    .premium-dashboard .rounded-2xl{border-color:#202b3e!important}
+    .premium-dashboard .text-xs{letter-spacing:-.01em}
+    .premium-dashboard .mono{font-variant-numeric:tabular-nums}
+    .premium-dashboard button{box-shadow:none}
+    .premium-dashboard [class*="rounded-2xl"]{transition:border-color .15s ease,background-color .15s ease}
+    .premium-dashboard [class*="rounded-2xl"]:focus-within{border-color:#31415d!important}
+    @media(max-width:640px){
+      .premium-dashboard{row-gap:.5rem}
+      .premium-dashboard>.rounded-xl{padding-left:.65rem!important;padding-right:.65rem!important}
+      .premium-dashboard>.rounded-xl .text-\\[11px\\]{font-size:10.5px}
+      .premium-dashboard>.rounded-xl .text-\\[10px\\]{font-size:9.5px}
+      .premium-dashboard>.premium-asset-hero{border-radius:17px!important}
+      .premium-dashboard>.premium-asset-hero .text-xs{font-size:11px}
+      .premium-dashboard>.premium-asset-hero .text-sm{font-size:12px}
+      .premium-tabbar{border-top-color:#273247!important}
+      .premium-tabbar button{opacity:.86}
+      .premium-tabbar button[style*="#C9A24B"]{opacity:1}
+    }
     @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
 
   </style>
