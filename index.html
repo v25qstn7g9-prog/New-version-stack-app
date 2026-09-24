@@ -1554,6 +1554,10 @@ function AssetTracker() {
     };
   }), [holdings, trades, showEnglish]);
 
+  // 與「持股進度 → 總持有成本」使用同一套 estCostBasis 加總，
+  // 總覽顯示時不要再拿每日紀錄成本，避免兩頁數字不一致。
+  const currentHoldingCost = holdingsWithShares.reduce((s, h) => s + Number(h.estCostBasis || 0), 0);
+
   const planTotal = planItems.reduce((s, p) => s + Number(p.amount || 0), 0);
 
   const schedule = useMemo(() => buildSchedule(planSchedule), [planSchedule]);
@@ -1693,7 +1697,7 @@ function AssetTracker() {
                     capitalGain={capitalGain} totalDividends={totalDividends} totalReturn={totalReturn}
                     totalReturnPct={totalReturnPct} highPoint={highPoint} drawdown={drawdown}
                     ytdGain={ytdGain} ytdPct={ytdPct}
-                    chartData={chartData} goal={goal} totalInvested={totalInvested}
+                    chartData={chartData} goal={goal} totalInvested={totalInvested} holdingCostTotal={currentHoldingCost}
                     holdings={holdingsWithShares} dailyRecords={sortedDaily} dividends={dividends}
                     yesterdayTwValue={yesterdayTwValue}
                     onFillDailyTw={(value) => { setDailyPrefill({ twValue: value, nonce: Date.now() }); goToTab("daily"); }}
@@ -3704,7 +3708,7 @@ function PortfolioPerformanceCard({
 }
 
 function Dashboard({ totalToday, dailyChange, dailyChangePct, capitalGain, totalDividends,
-  totalReturn, totalReturnPct, highPoint, drawdown, ytdGain, ytdPct, chartData, goal, totalInvested, holdings,
+  totalReturn, totalReturnPct, highPoint, drawdown, ytdGain, ytdPct, chartData, goal, totalInvested, holdingCostTotal, holdings,
   dailyRecords, dividends, yesterdayTwValue, onFillDailyTw }) {
   const up = dailyChange >= 0;
   // Defaults to "1年" rather than "全部": with 3+ sparse years plotted
@@ -3820,7 +3824,7 @@ function Dashboard({ totalToday, dailyChange, dailyChangePct, capitalGain, total
         totalReturnPct={totalReturnPct}
         ytdGain={ytdGain}
         ytdPct={ytdPct}
-        totalInvested={totalInvested}
+        totalInvested={holdingCostTotal}
       />
 
     </div>
