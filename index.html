@@ -61,12 +61,21 @@
     .premium-dashboard>.premium-asset-hero{position:relative;overflow:hidden}
     .premium-dashboard>.premium-asset-hero:before{content:"";position:absolute;inset:0 0 auto 0;height:1px;background:linear-gradient(90deg,transparent,rgba(212,173,87,.55),transparent)}
     .premium-dashboard>.premium-asset-hero .text-3xl{letter-spacing:-.045em}
+    .premium-dashboard{gap:.55rem}
+    .premium-dashboard>div{scroll-margin-top:10px}
+    .premium-dashboard .premium-asset-hero{border-radius:18px!important}
+    .premium-dashboard .premium-asset-hero>div:first-child{min-height:18px}
+    .premium-dashboard .premium-asset-hero svg{opacity:.9}
     .premium-tabbar{background:rgba(17,24,39,.94)!important;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);box-shadow:0 -8px 28px rgba(0,0,0,.18);z-index:50}
     .premium-tabbar button{min-height:43px}
     @media(max-width:640px){
       .premium-dashboard{padding-bottom:4px}
-      .premium-dashboard>.premium-asset-hero{padding:1rem!important}
-      .premium-dashboard>.premium-asset-hero .text-3xl{font-size:1.75rem}
+      .premium-dashboard>.premium-asset-hero{padding:.9rem!important}
+      .premium-dashboard>.premium-asset-hero .text-3xl{font-size:1.65rem}
+      .premium-dashboard>.premium-asset-hero .mt-3{margin-top:.6rem}
+      .premium-dashboard>.premium-asset-hero .pt-3{padding-top:.6rem}
+      .premium-dashboard>.premium-asset-hero [style*="height: 180"]{height:148px!important}
+      .premium-dashboard>.rounded-xl{border-radius:12px!important;padding-top:.42rem!important;padding-bottom:.42rem!important}
       .premium-tabbar button{min-height:45px;padding-top:4px!important;padding-bottom:3px!important}
       .premium-tabbar svg{width:15px;height:15px}
       .premium-tabbar span.text-\[8px\]{font-size:8.5px}
