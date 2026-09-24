@@ -4210,7 +4210,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
           {UI_SHOW_ENGLISH ? <>{pf(dailyChangePct)} {nf(dailyChange)} Today</> : <>{nf(dailyChange)}（{pf(dailyChangePct)}）今日</>}
         </div>
 
-        <div className="mt-3 pt-3 space-y-2" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
+        <div className="mt-2.5 pt-2.5 space-y-1.5" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
           <div className="flex items-center justify-between">
             <span className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="台股資產" /></span>
             <span className="text-sm font-bold mono">NT$ {nf(currentTwValue)}</span>
@@ -4224,7 +4224,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
         </div>
 
         {chartData.length > 1 && (
-          <div className="mt-4 pt-4" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
+          <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
             <div className="flex items-center justify-between mb-2">
               <div className="text-xs" style={{ color: COLORS.sub }}><UiLabel zh="資產曲線" /></div>
               <div className="flex gap-1">
@@ -4263,7 +4263,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
               </ResponsiveContainer>
             </div>
   
-            <div className="grid grid-cols-2 gap-3 mt-3 pt-3" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
+            <div className="grid grid-cols-2 gap-3 mt-2.5 pt-2.5" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
               <div className="min-w-0">
                 <div className="text-[10px]" style={{ color: COLORS.sub }}><UiLabel zh="資產高點" /></div>
                 <div className="text-xs mono mt-1" style={{ color: COLORS.text }}>
@@ -4275,7 +4275,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
               </div>
               <div className="text-right">
                 <div className="text-[10px]" style={{ color: COLORS.sub }}><UiLabel zh="目前回撤" /></div>
-                <div className="text-lg font-black mono mt-2" style={{ color: drawdown < 0 ? COLORS.loss : COLORS.text }}>
+                <div className="text-lg font-black mono mt-1.5" style={{ color: drawdown < 0 ? COLORS.loss : COLORS.text }}>
                   {pf(drawdown)}
                 </div>
               </div>
