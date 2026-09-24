@@ -3169,18 +3169,24 @@ function TrendRadar({ holdings }) {
     return {...st,text:`${lead}${st.label}${suffix}`};
   };
   const keyLevelText=(r,easy)=>{
-    const hi=Number(r?.dayHigh), lo=Number(r?.dayLow), px=Number(r?.currentPrice);
+    const hi=Number(r?.dayHigh), lo=Number(r?.dayLow);
     const fmt=(v)=>{
       if(!Number.isFinite(v)) return "—";
-      return v>=1000?v.toFixed(1):v>=100?v.toFixed(2):v.toFixed(2);
+      return v>=1000?v.toFixed(1):v.toFixed(2);
     };
-    if(!(hi>0)&&!(lo>0)) return null;
-    // Recovery / neutral states need to reclaim the session high to confirm strength.
-    if(easy?.arrow==="↗" || easy?.label?.includes("回穩") || (Number.isFinite(px)&&Number.isFinite(hi)&&px<hi)) {
-      return `突破 ${fmt(hi)} → 轉強確認`;
-    }
-    // Strong states focus on the lower boundary as the failure condition.
-    return `跌破 ${fmt(lo)} → 轉弱確認`;
+    if(!(hi>0)||!(lo>0)) return null;
+    // The old condition here also matched "price < session high", which is
+    // true almost all the time (the live tick is only ever equal to the
+    // running high for an instant), so it drowned out the label/arrow checks
+    // and showed "突破 hi → 轉強確認" for nearly every card regardless of
+    // whether it was actually rising or falling. Already-strong states (or
+    // ones fading from strength) have the burden of proof on the downside —
+    // losing the low is what would actually confirm the strength is over.
+    // Every other state (recovery, neutral, weak, accumulating) still needs
+    // to prove itself by reclaiming the high.
+    const alreadyStrong = easy?.label==="偏強" || easy?.label==="強中轉弱";
+    if(alreadyStrong) return `跌破 ${fmt(lo)} → 轉弱確認`;
+    return `突破 ${fmt(hi)} → 轉強確認`;
   };
   // Plain-language one-liner for each holding: spells out in words why the
   // call agrees or disagrees with the stock's own real-time move, so a

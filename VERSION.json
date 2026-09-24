@@ -13,13 +13,13 @@
   "vercel": {
     "package": "2.21.4",
     "ask-core.js": "4.7-personal-advisor-v3.1-polished-analysis",
-    "model": "gemini-3.5-flash-lite",
+    "model": "gemini-3.5-flash",
     "thinkingLevel": "minimal"
   },
   "features": {
     "quote": "TAIEX + 台股即時報價（含盤中最高/最低）+ S&P500/費半SOX/美元台幣等海外隔夜訊號",
     "ask": "使用者專用投資顧問助手：以 App 個人資產資料為優先，支援即時行情、歷史分析、新聞與情境比較；Cloudflare GPT-OSS 主 AI + Gemini 3.5 備援",
-    "fallback": "Cloudflare Worker 內建 Gemini 3.5 Flash-Lite 備援；舊 Vercel 備援可作最後一道相容備援",
+    "fallback": "Cloudflare Worker 內建 Gemini 3.5 Flash 備援；舊 Vercel 備援可作最後一道相容備援",
     "news": "台股市場新聞",
     "health": "自動健康檢查卡片",
     "backup": "JSON 備份／匯入",
