@@ -3645,13 +3645,13 @@ function PortfolioPerformanceCard({
         <div className="flex items-end justify-between gap-4">
           <div className="min-w-0">
             <div className="text-sm" style={{ color: COLORS.sub }}><UiLabel zh="粗估總報酬" /></div>
-            <div className="text-[20px] font-black mono mt-1 leading-none whitespace-nowrap" style={{ color: totalTone }}>
+            <div className="text-base font-black mono mt-1 leading-none whitespace-nowrap" style={{ color: totalTone }}>
               NT$ {nf(totalReturn)}
             </div>
           </div>
           <div className="text-right flex-none">
             <div className="text-sm" style={{ color: COLORS.sub }}><UiLabel zh="粗估報酬率" /></div>
-            <div className="text-[20px] font-black mono mt-1 leading-none" style={{ color: totalReturnPct >= 0 ? COLORS.gain : COLORS.loss }}>
+            <div className="text-base font-black mono mt-1 leading-none" style={{ color: totalReturnPct >= 0 ? COLORS.gain : COLORS.loss }}>
               {pf(totalReturnPct)}
             </div>
           </div>
@@ -3659,7 +3659,7 @@ function PortfolioPerformanceCard({
 
         <div className="pt-3" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
           <div className="text-sm" style={{ color: COLORS.sub }}><UiLabel zh="持倉損益(估)" /></div>
-          <div className="text-[20px] font-black mono mt-1 leading-tight"
+          <div className="text-base font-black mono mt-1 leading-tight"
             style={{ color: capitalGain >= 0 ? COLORS.gain : COLORS.loss }}>
             NT$ {nf(capitalGain)}
           </div>
@@ -3667,7 +3667,7 @@ function PortfolioPerformanceCard({
 
         <div className="pt-3" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
           <div className="text-sm" style={{ color: COLORS.sub }}><UiLabel zh="累積股息" /></div>
-          <div className="text-[20px] font-black mono mt-1 leading-tight" style={{ color: COLORS.gold }}>
+          <div className="text-base font-black mono mt-1 leading-tight" style={{ color: COLORS.gold }}>
             NT$ {nf(totalDividends)}
           </div>
         </div>
