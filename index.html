@@ -60,6 +60,10 @@
   <script crossorigin src="https://unpkg.com/react-is@18.3.1/umd/react-is.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
   <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+  <!-- lucide-react's UMD build reads the lowercase global `react`, but React's
+       UMD only defines `React`; without this alias it throws on load and every
+       icon silently falls back to "•". -->
+  <script>window.react = window.React;</script>
   <script src="https://unpkg.com/lucide-react@0.344.0/dist/umd/lucide-react.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
@@ -169,7 +173,6 @@ const UI_EN = {
   "14:00 後每日自動更新一次": "Auto-updates once daily after 14:00",
   "重新分析": "Re-analyze",
   "展開全文": "Show Full Report",
-  "收合": "Collapse",
   "分析中…": "Analyzing…",
   "尚未到收盤分析時間": "Closing analysis starts after 14:00",
   "請 AI 評論": "Ask AI",
@@ -2110,17 +2113,25 @@ function SessionSparkline({ points, baseline=null, width=300, height=34, tone=nu
   const last=xy[xy.length-1];
   const baseY=Number.isFinite(base)&&base>0?yFor(base):null;
   const closeX=xFor(closeMin);
+  const closePct=((closeMin-startMin)/(endMin-startMin))*100;
 
+  // Time labels are HTML, not SVG <text>: with preserveAspectRatio="none" the
+  // SVG is stretched to the container width, which distorted the glyphs and,
+  // on the narrower per-holding charts, ran "13:30" into "14:00".
   return (
-    <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-label={uiText(up?"上升趨勢":"下降趨勢")}>
-      {baseY!=null&&<line x1="0" y1={baseY} x2={width} y2={baseY} stroke={COLORS.sub} strokeWidth="1" strokeDasharray="3 3" opacity="0.5" vectorEffect="non-scaling-stroke" />}
-      <line x1={closeX} y1="1" x2={closeX} y2={plotBottom} stroke={COLORS.sub} strokeWidth="0.8" strokeDasharray="2 3" opacity="0.25" vectorEffect="non-scaling-stroke" />
-      <polyline points={coords} fill="none" stroke={stroke} strokeWidth="1.8" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
-      {showDot&&<circle cx={last.x} cy={last.y} r="2.1" fill={stroke} stroke={COLORS.panel} strokeWidth="1" vectorEffect="non-scaling-stroke" />}
-      <text x="0" y={height-1} textAnchor="start" fontSize="6.5" fill={COLORS.sub}>09:00</text>
-      <text x={closeX} y={height-1} textAnchor="middle" fontSize="6.5" fill={COLORS.sub}>13:30</text>
-      <text x={width} y={height-1} textAnchor="end" fontSize="6.5" fill={COLORS.sub}>14:00</text>
-    </svg>
+    <div style={{ position:"relative", width:"100%", height }}>
+      <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-label={uiText(up?"上升趨勢":"下降趨勢")}>
+        {baseY!=null&&<line x1="0" y1={baseY} x2={width} y2={baseY} stroke={COLORS.sub} strokeWidth="1" strokeDasharray="3 3" opacity="0.5" vectorEffect="non-scaling-stroke" />}
+        <line x1={closeX} y1="1" x2={closeX} y2={plotBottom} stroke={COLORS.sub} strokeWidth="0.8" strokeDasharray="2 3" opacity="0.25" vectorEffect="non-scaling-stroke" />
+        <polyline points={coords} fill="none" stroke={stroke} strokeWidth="1.8" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
+        {showDot&&<circle cx={last.x} cy={last.y} r="2.1" fill={stroke} stroke={COLORS.panel} strokeWidth="1" vectorEffect="non-scaling-stroke" />}
+      </svg>
+      <div style={{ position:"absolute", left:0, right:0, bottom:0, height:8, fontSize:6.5, lineHeight:"8px", color:COLORS.sub, whiteSpace:"nowrap", pointerEvents:"none" }}>
+        <span style={{ position:"absolute", left:0 }}>09:00</span>
+        <span style={{ position:"absolute", left:`${closePct}%`, transform:"translateX(-50%)" }}>13:30</span>
+        <span style={{ position:"absolute", right:0 }}>14:00</span>
+      </div>
+    </div>
   );
 }
 
@@ -3286,7 +3297,7 @@ function TrendRadar({ holdings }) {
     if(pct<=-0.05) return {label:"偏弱盤整",arrow:"→",tone:COLORS.loss,watch:"先看能否持續回收跌幅"};
     if(pct>=0.15 && trend==="偏空") return {label:"強中轉弱",arrow:"↘",tone:COLORS.gold,watch:"短線重新轉多才算續強"};
     if(pct>=0.15 && trend==="偏多") return {label:"偏強",arrow:"↗",tone:COLORS.gain,watch:"短線維持偏多可延續強勢"};
-    if(pct>=0.05) return {label:"偏強盤整",arrow:"→",tone:COLORS.gain,watch:"觀察是否出現第二波上攻"};
+    if(pct>=0.05) return {label:"偏強盤整",arrow:"→",tone:COLORS.gain,watch:"留意是否出現第二波上攻"};
     if(trend==="偏多") return {label:"回穩中",arrow:"↗",tone:COLORS.gold,watch:"價格轉正會更確認"};
     if(trend==="偏空") return {label:"轉弱中",arrow:"↘",tone:COLORS.loss,watch:"價格守穩才有機會止弱"};
     return {label:"盤整",arrow:"→",tone:COLORS.sub,watch:"等待方向形成"};
@@ -3409,12 +3420,12 @@ function TrendRadar({ holdings }) {
                 <div className="text-[12px] font-black" style={{color:easy.tone}}>{easy.arrow} <UiLabel zh={easy.label} inline /></div>
               </div>
             </div>
-            <div className="flex justify-between mt-1 text-[9px]" style={{color:COLORS.sub}}>
+            <div className="flex justify-between gap-2 mt-1 text-[9px]" style={{color:COLORS.sub}}>
               <span><UiLabel zh="目前" inline /> {r.stockPct>=0?"+":""}{r.stockPct.toFixed(2)}%</span>
               <span><UiLabel zh="觀察" inline />：{easy.watch}</span>
             </div>
             {keyText&&<div className="mt-1 text-[9px] font-bold" style={{color:COLORS.gold}}><UiLabel zh="關鍵價位" inline />：{keyText}</div>}
-            <div className="flex justify-between mt-1 text-[9px] mono" style={{color:COLORS.sub}}>
+            <div className="flex justify-between gap-2 mt-1 text-[9px] mono" style={{color:COLORS.sub}}>
               <span><UiLabel zh="今日收盤預測" inline /> <span style={{color:tone}}><UiLabel zh={r.direction} inline /> {r.probability.toFixed(0)}%</span></span>
               <span><UiLabel zh="明日預測" inline /> {tomorrowMap[r.symbol]?<span style={{color:tomorrowMap[r.symbol]?.direction?.includes("漲")?COLORS.gain:tomorrowMap[r.symbol]?.direction?.includes("跌")?COLORS.loss:COLORS.sub}}><UiLabel zh={tomorrowMap[r.symbol].direction} inline />{" "+tomorrowMap[r.symbol].probability.toFixed(0)+"%"}</span>:<UiLabel zh="資料累積中" inline />}</span>
             </div>
@@ -4224,6 +4235,13 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
   highPoint, drawdown, ytdGain, ytdPct, chartData, goal, totalInvested, holdings,
   dailyRecords, dividends, yesterdayTwValue, yesterdayUsValue, onFillDailyTw }) {
   const up = dailyChange >= 0;
+  // dailyChange compares the two most recent daily records. Until today's
+  // record is saved, that is the previous session's change, so label it with
+  // its date rather than "今日" (it would otherwise contradict the live
+  // 今/昨日盈虧 shown further down the same page).
+  const latestRecordDate = (dailyRecords || []).reduce((m, r) => (r?.date > m ? r.date : m), "");
+  const changeIsToday = !latestRecordDate || latestRecordDate === todayStr();
+  const changeDateLabel = changeIsToday ? null : `${Number(latestRecordDate.slice(5, 7))}/${Number(latestRecordDate.slice(8, 10))}`;
   // Defaults to "1年" rather than "全部": with 3+ sparse years plotted
   // proportionally to real time (see pickEvenTimeTicks above), the last
   // few months of daily-tracked detail — the part most people check day to
@@ -4259,7 +4277,9 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
         <div className="flex items-center gap-1 mt-1.5 text-sm mono"
           style={{ color: up ? COLORS.gain : COLORS.loss }}>
           {up ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
-          {UI_SHOW_ENGLISH ? <>{pf(dailyChangePct)} {nf(dailyChange)} Today</> : <>{nf(dailyChange)}（{pf(dailyChangePct)}）今日</>}
+          {UI_SHOW_ENGLISH
+            ? <>{pf(dailyChangePct)} {nf(dailyChange)} {changeDateLabel ? `(${changeDateLabel} record)` : "Today"}</>
+            : <>{nf(dailyChange)}（{pf(dailyChangePct)}）{changeDateLabel ? `${changeDateLabel} 紀錄` : "今日"}</>}
         </div>
 
         <div className="mt-2.5 pt-2.5 space-y-1.5" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
