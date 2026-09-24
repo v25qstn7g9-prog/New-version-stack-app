@@ -3641,29 +3641,34 @@ function PortfolioPerformanceCard({
         </div>
       </div>
 
-      <div className="rounded-xl p-4 mb-2" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
-        <div className="flex items-end justify-between gap-3">
+      <div className="rounded-xl p-4 mb-2 space-y-3" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
+        <div className="flex items-end justify-between gap-4">
           <div className="min-w-0">
-            <div className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="粗估總報酬" /></div>
-            <div className="text-2xl font-black mono mt-1 truncate" style={{ color: totalTone }}>
+            <div className="text-sm" style={{ color: COLORS.sub }}><UiLabel zh="粗估總報酬" /></div>
+            <div className="text-3xl font-black mono mt-1 leading-none truncate" style={{ color: totalTone }}>
               NT$ {nf(totalReturn)}
             </div>
           </div>
           <div className="text-right flex-none">
-            <div className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="粗估報酬率" /></div>
-            <div className="text-xl font-black mono mt-1" style={{ color: totalReturnPct >= 0 ? COLORS.gain : COLORS.loss }}>
+            <div className="text-sm" style={{ color: COLORS.sub }}><UiLabel zh="粗估報酬率" /></div>
+            <div className="text-2xl font-black mono mt-1 leading-none" style={{ color: totalReturnPct >= 0 ? COLORS.gain : COLORS.loss }}>
               {pf(totalReturnPct)}
             </div>
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-2 mt-3">
-          <div className="text-[11px]">
-            <span style={{ color: COLORS.sub }}><UiLabel zh="持倉損益(估)" /> </span>
-            <span className="mono font-bold" style={{ color: capitalGain >= 0 ? COLORS.gain : COLORS.loss }}>NT$ {nf(capitalGain)}</span>
+
+        <div className="pt-3" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
+          <div className="text-sm" style={{ color: COLORS.sub }}><UiLabel zh="持倉損益(估)" /></div>
+          <div className="text-2xl font-black mono mt-1 leading-tight"
+            style={{ color: capitalGain >= 0 ? COLORS.gain : COLORS.loss }}>
+            NT$ {nf(capitalGain)}
           </div>
-          <div className="text-[11px] text-right">
-            <span style={{ color: COLORS.sub }}><UiLabel zh="累積股息" /> </span>
-            <span className="mono font-bold" style={{ color: COLORS.gold }}>NT$ {nf(totalDividends)}</span>
+        </div>
+
+        <div className="pt-3" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
+          <div className="text-sm" style={{ color: COLORS.sub }}><UiLabel zh="累積股息" /></div>
+          <div className="text-2xl font-black mono mt-1 leading-tight" style={{ color: COLORS.gold }}>
+            NT$ {nf(totalDividends)}
           </div>
         </div>
       </div>
