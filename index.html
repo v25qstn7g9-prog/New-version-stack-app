@@ -1936,27 +1936,26 @@ function Header({ goal, totalToday, goalDate, backupOverdue, backupAgeDays, show
       }}
     >
       <div className="max-w-none mx-auto px-0">
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center justify-between gap-3">
           <h1 className="text-lg font-black tracking-tight min-w-0" style={{ color: COLORS.gold }}>
             <span className="block whitespace-nowrap">{showEnglish ? "Stock Asset Tracker" : "存股資產追蹤"} <span className="text-[10px] font-medium" style={{ color: COLORS.sub }}>v{APP_DISPLAY_VERSION}</span></span>
           </h1>
-          <span className="text-xs mono text-right flex-shrink-0" style={{ color: COLORS.sub }}>
-            {showEnglish ? "Goal" : "目標"} {goal.targetYear} · {nf(goal.targetAmount)}
-          </span>
-        </div>
-        <div className="mt-1 flex items-center justify-end">
           <button onClick={onToggleBilingual}
-            className="rounded-full px-2.5 py-1 text-[9px] font-bold leading-none"
+            className="rounded-full px-2.5 py-1 text-[9px] font-bold leading-none flex-shrink-0"
             title={showEnglish ? "切換中文介面" : "Switch to English"}
             style={{ color: COLORS.gold, border: "1px solid rgba(201,162,75,0.75)", background: "rgba(201,162,75,0.08)" }}>
             {showEnglish ? "EN / 中" : "中 / EN"}
           </button>
         </div>
-        <div className="mt-2 h-1.5 rounded-full overflow-hidden" style={{ background: COLORS.panel }}>
+        <div className="mt-2 flex items-baseline justify-between gap-2 text-[11px] mono" style={{ color: COLORS.sub }}>
+          <span>{showEnglish ? "Goal" : "目標"} {goal.targetYear} · NT$ {nf(goal.targetAmount)}</span>
+          <span className="font-bold" style={{ color: COLORS.gold }}>{showEnglish ? `${pct.toFixed(1)}% done` : `已達成 ${pct.toFixed(1)}%`}</span>
+        </div>
+        <div className="mt-1 h-1.5 rounded-full overflow-hidden" style={{ background: COLORS.panel }}>
           <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: COLORS.gold }} />
         </div>
-        <div className="mt-1 flex items-baseline justify-between text-[11px] mono" style={{ color: COLORS.sub }}>
-          <span>{showEnglish ? `To Goal NT${nf(remain)} (${pct.toFixed(1)}% completed)` : `距目標 NT${nf(remain)}（已達成 ${pct.toFixed(1)}%）`}</span>
+        <div className="mt-1 flex items-baseline justify-between gap-2 text-[11px] mono" style={{ color: COLORS.sub }}>
+          <span>{showEnglish ? `NT$ ${nf(remain)} to go` : `距目標 NT$ ${nf(remain)}`}</span>
           {goalDate && <span style={{ color: COLORS.gold }}>{showEnglish ? `Est. ${goalDate}` : `預計 ${goalDate} 達成`}</span>}
         </div>
         {backupOverdue && (
@@ -2489,83 +2488,60 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
               </div>
             ))}
           </div>
-          <div className="rounded-xl px-3 py-2.5 mt-2.5" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
-            <div className="text-[11px] font-bold mb-1.5" style={{ color: COLORS.gold }}>
-              <UiLabel zh="今日摘要" />
+          {/* One flat summary instead of a boxed 今日摘要 plus two repeated
+              blocks: portfolio value vs yesterday, then TAIEX vs portfolio. */}
+          <div className="pt-2 mt-2" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
+            <div className="flex justify-between items-baseline gap-2 text-xs mono font-bold">
+              <span style={{ color: COLORS.sub }}><UiLabel zh={quoteComplete ? "今日台股總市值" : "目前可得市值（部分）"} /></span>
+              <span style={{ color: COLORS.gold }}>NT$ {nf(totalValue)}</span>
             </div>
-
-            {yesterdayTwValue != null && (
-              <>
-                <div className="flex justify-between text-[11px] mono">
-                  <span style={{ color: COLORS.sub }}><UiLabel zh="昨日台股總市值" /></span>
-                  <span style={{ color: COLORS.sub }}>NT$ {nf(yesterdayTwValue)}</span>
-                </div>
-                {hasUsAssets && Number(yesterdayUsValue || 0) > 0 && (
-                  <div className="flex justify-between text-[11px] mono mt-1">
-                    <span style={{ color: COLORS.sub }}><UiLabel zh="昨日美股總市值" /></span>
-                    <span style={{ color: COLORS.sub }}>NT$ {nf(yesterdayUsValue)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between text-[11px] mono mt-1 font-bold">
-                  <span style={{ color: COLORS.sub }}><UiLabel zh="今/昨日盈虧" /></span>
-                  {(() => {
-                    const diff = totalValue - yesterdayTwValue;
-                    const diffPct = yesterdayTwValue ? (diff / yesterdayTwValue) * 100 : 0;
-                    const up = diff >= 0;
-                    return (
-                      <span style={{ color: up ? COLORS.gain : COLORS.loss }}>
-                        {up ? "+" : ""}{nf(diff)}（{up ? "+" : ""}{diffPct.toFixed(2)}%）
-                      </span>
-                    );
-                  })()}
-                </div>
-              </>
-            )}
-
-            {hasMarketIndex && (
-              <div className="mt-1.5 pt-1.5" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
-                <div className="flex justify-between text-[11px] mono">
-                  <span style={{ color: COLORS.sub }}><UiLabel zh="加權指數" /></span>
-                  <span style={{ color: indexChange >= 0 ? COLORS.gain : COLORS.loss }}>
-                    {nf(Math.round(indexPrice))}　{indexChange >= 0 ? "▲" : "▼"} {indexChangePct >= 0 ? "+" : ""}{indexChangePct.toFixed(2)}%
+            {yesterdayTwValue != null && (() => {
+              const diff = totalValue - yesterdayTwValue;
+              const diffPct = yesterdayTwValue ? (diff / yesterdayTwValue) * 100 : 0;
+              const dUp = diff >= 0;
+              return (
+                <div className="flex justify-between items-baseline gap-2 text-[11px] mono mt-0.5">
+                  <span style={{ color: dUp ? COLORS.gain : COLORS.loss }}>
+                    {UI_SHOW_ENGLISH ? "vs yesterday " : "較昨日 "}{dUp ? "+" : ""}{nf(diff)}（{dUp ? "+" : ""}{diffPct.toFixed(2)}%）
                   </span>
+                  <span style={{ color: COLORS.sub }}>{UI_SHOW_ENGLISH ? "Yesterday " : "昨日 "}{nf(yesterdayTwValue)}</span>
                 </div>
-                {vsMarketPct != null && (
-                  <div className="flex justify-between text-[11px] mono mt-1">
-                    <span style={{ color: COLORS.sub }}><UiLabel zh="今日 vs 大盤" /></span>
-                    <span style={{ color: vsMarketPct >= 0 ? COLORS.gain : COLORS.loss }}>
-                      <UiLabel zh={vsMarketPct >= 0 ? "贏大盤" : "輸大盤"} inline /> {vsMarketPct >= 0 ? "+" : ""}{vsMarketPct.toFixed(2)}%
-                    </span>
-                  </div>
-                )}
+              );
+            })()}
+            {hasUsAssets && Number(yesterdayUsValue || 0) > 0 && (
+              <div className="flex justify-between text-[11px] mono mt-0.5">
+                <span style={{ color: COLORS.sub }}><UiLabel zh="昨日美股總市值" /></span>
+                <span style={{ color: COLORS.sub }}>NT$ {nf(yesterdayUsValue)}</span>
               </div>
             )}
-          </div>
-
-          <div className="flex justify-between text-xs mono pt-2 mt-2 font-bold" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
-            <span style={{ color: COLORS.sub }}><UiLabel zh={quoteComplete ? "今日台股總市值" : "目前可得市值（部分）"} /></span>
-            <span style={{ color: COLORS.gold }}>NT$ {nf(totalValue)}</span>
-          </div>
-          <div className="h-[24px] mt-1 opacity-85">
-            <SessionSparkline points={portfolioSpark} baseline={yesterdayTwValue} width={300} height={24} tone={portfolioDayUp?COLORS.gain:COLORS.loss} />
+            <div className="h-[24px] mt-1 opacity-85">
+              <SessionSparkline points={portfolioSpark} baseline={yesterdayTwValue} width={300} height={24} tone={portfolioDayUp?COLORS.gain:COLORS.loss} />
+            </div>
           </div>
 
           {hasMarketIndex && (
-            <div className="mt-1.5 pt-1.5" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
-              <div className="flex justify-between items-center text-[11px] mono">
-                <span style={{ color: COLORS.sub }}>
-                  <UiLabel zh="加權指數" />
-                  {Number.isFinite(Number(marketIndex?.high))&&Number.isFinite(Number(marketIndex?.low))
-                    ? (UI_SHOW_ENGLISH
-                      ? <>　High {nf(Math.round(Number(marketIndex.high)))} | Low {nf(Math.round(Number(marketIndex.low)))}</>
-                      : <>　高 {nf(Math.round(Number(marketIndex.high)))}｜低 {nf(Math.round(Number(marketIndex.low)))}</>)
-                    : null}
-                </span>
+            <div className="mt-2 pt-2" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
+              <div className="flex justify-between items-baseline gap-2 text-[11px] mono">
+                <span style={{ color: COLORS.sub }}><UiLabel zh="加權指數" /></span>
                 <span style={{ color: indexChange >= 0 ? COLORS.gain : COLORS.loss }}>
                   {nf(Math.round(indexPrice))}　{indexChange >= 0 ? "▲" : "▼"} {indexChangePct >= 0 ? "+" : ""}{indexChangePct.toFixed(2)}%
                 </span>
               </div>
-              <div className="h-[22px] mt-0.5 opacity-80">
+              <div className="flex justify-between items-baseline gap-2 text-[10px] mono mt-0.5" style={{ color: COLORS.sub }}>
+                <span>
+                  {Number.isFinite(Number(marketIndex?.high))&&Number.isFinite(Number(marketIndex?.low))
+                    ? (UI_SHOW_ENGLISH
+                      ? <>High {nf(Math.round(Number(marketIndex.high)))} | Low {nf(Math.round(Number(marketIndex.low)))}</>
+                      : <>高 {nf(Math.round(Number(marketIndex.high)))}｜低 {nf(Math.round(Number(marketIndex.low)))}</>)
+                    : null}
+                </span>
+                {vsMarketPct != null && (
+                  <span style={{ color: vsMarketPct >= 0 ? COLORS.gain : COLORS.loss }}>
+                    <UiLabel zh={vsMarketPct >= 0 ? "贏大盤" : "輸大盤"} inline /> {vsMarketPct >= 0 ? "+" : ""}{vsMarketPct.toFixed(2)}%
+                  </span>
+                )}
+              </div>
+              <div className="h-[22px] mt-1 opacity-80">
                 <SessionSparkline points={indexSpark} baseline={indexPrevClose} width={300} height={22} tone={indexChange>=0?COLORS.gain:COLORS.loss} />
               </div>
             </div>
@@ -4312,18 +4288,19 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
             : <>{nf(dailyChange)}（{pf(dailyChangePct)}）{changeDateLabel ? `${changeDateLabel} 紀錄` : "今日"}</>}
         </div>
 
-        <div className="mt-2.5 pt-2.5 space-y-1.5" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
-          <div className="flex items-center justify-between">
-            <span className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="台股資產" /></span>
-            <span className="text-sm font-bold mono">NT$ {nf(currentTwValue)}</span>
-          </div>
-          {hasUsAssets && (
+        {/* With only TW holdings this breakdown would just repeat the headline number. */}
+        {hasUsAssets && (
+          <div className="mt-2.5 pt-2.5 space-y-1.5" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
+            <div className="flex items-center justify-between">
+              <span className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="台股資產" /></span>
+              <span className="text-sm font-bold mono">NT$ {nf(currentTwValue)}</span>
+            </div>
             <div className="flex items-center justify-between">
               <span className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="美股資產" /></span>
               <span className="text-sm font-bold mono">NT$ {nf(currentUsValue)}</span>
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {chartData.length > 1 && (
           <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
@@ -4353,8 +4330,15 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
                   <XAxis dataKey="t" type="number" domain={["dataMin", "dataMax"]}
                     tick={{ fontSize: 9, fill: COLORS.sub }}
                     ticks={pickEvenTimeTicks(rangedChartData, "t", 6)} tickFormatter={formatTickDate} />
-                  <YAxis tick={{ fontSize: 9, fill: COLORS.sub }}
-                    tickFormatter={(v) => UI_SHOW_ENGLISH ? `${(v / 1000).toFixed(0)}K` : `${(v / 10000).toFixed(0)}萬`} width={44} />
+                  {/* Fit the axis to the data instead of starting at 0 — a
+                      line shows change, and a zero baseline flattened a
+                      108–119萬 range into a straight line at the top. */}
+                  <YAxis tick={{ fontSize: 9, fill: COLORS.sub }} domain={["auto", "auto"]}
+                    tickFormatter={(v) => {
+                      const unit = UI_SHOW_ENGLISH ? 1000 : 10000;
+                      const n = v / unit;
+                      return `${Number.isInteger(n) ? n : n.toFixed(1)}${UI_SHOW_ENGLISH ? "K" : "萬"}`;
+                    }} width={44} />
                   <Tooltip
                     labelFormatter={formatTickDate}
                     contentStyle={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, fontSize: 12 }}
@@ -6692,11 +6676,12 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
       <button onClick={() => setOpen(true)}
         className="fixed z-40 rounded-full flex items-center justify-center"
         style={{
-          right: 16, bottom: "calc(64px + env(safe-area-inset-bottom, 4px))",
-          width: 52, height: 52, background: COLORS.gold, color: COLORS.bg,
-          boxShadow: "0 6px 18px rgba(0,0,0,0.4)",
+          right: 14, bottom: "calc(64px + env(safe-area-inset-bottom, 4px))",
+          width: 46, height: 46, background: "rgba(17,24,39,0.92)", color: COLORS.gold,
+          border: `1.5px solid ${COLORS.gold}`,
+          boxShadow: "0 6px 18px rgba(0,0,0,0.45)",
         }}>
-        <MessageCircle size={24} />
+        <MessageCircle size={22} />
       </button>
 
       {open && (
