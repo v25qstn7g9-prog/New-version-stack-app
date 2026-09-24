@@ -317,7 +317,6 @@ const UI_EN = {
   "儲存紀錄": "Save Record",
   "尚無紀錄，新增第一筆吧": "No records yet. Add the first one.",
   "總持有成本（所有標的合計）": "Total Holding Cost",
-  "台股總持有成本": "TW Holding Cost",
   "資產配置（以市值計，抓不到報價時退回用成本）": "Asset Allocation (Market Value; Cost Fallback)",
   "尚未新增持股標的": "No holdings added yet",
   "新增標的": "Add Holding",
@@ -513,9 +512,6 @@ const todayStr = () => {
   const p = taiwanDateParts();
   return `${p.year}-${p.month}-${p.day}`;
 };
-// 台股代號：4–6 位數字，可帶一個字母後綴（例如 2882A、00937B）。
-// 美股/其他英文字母代號保留在資料裡，但不納入台股績效與資產計算。
-const isTaiwanSymbol = (symbol) => /^[0-9]{4,6}[A-Z]?$/i.test(String(symbol || "").trim());
 const nf = (n) => (n ?? 0).toLocaleString("zh-TW", { maximumFractionDigits: 0 });
 
 // A categorical XAxis (dataKey pointing at a string) spaces every point
@@ -835,14 +831,14 @@ function buildPortfolioContext(holdings, goal, totalToday, totalInvested, trades
     const omitted = sortedDaily.length - recentDaily.length;
     lines.push(`\n每日紀錄${omitted > 0 ? `（共${sortedDaily.length}筆，以下為最近20筆）` : `（共${sortedDaily.length}筆）`}：`);
     for (const r of recentDaily) {
-      const total = Number(r.twValue || 0);
-      lines.push(`${r.date} 台股資產NT${nf(total)}`);
+      const total = (r.twValue || 0) + (r.usValue || 0);
+      lines.push(`${r.date} 資產NT$${nf(total)}（台股${nf(r.twValue || 0)}+美股${nf(r.usValue || 0)}）`);
     }
   }
 
   // 配息紀錄：只帶最近 20 筆。
   const sortedDividends = Array.isArray(dividends)
-    ? [...dividends].filter((d) => isTaiwanSymbol(d.symbol)).sort((a, b) => a.date.localeCompare(b.date))
+    ? [...dividends].sort((a, b) => a.date.localeCompare(b.date))
     : [];
   if (sortedDividends.length > 0) {
     const recentDiv = sortedDividends.slice(-20);
@@ -1390,23 +1386,22 @@ function AssetTracker() {
   );
   const latest = sortedDaily[sortedDaily.length - 1];
   const prev = sortedDaily[sortedDaily.length - 2];
-  // 總覽與計畫進度統一採「台股口徑」；美股欄位只保留原始紀錄，不參與計算。
-  const totalToday = latest ? Number(latest.twValue || 0) : 0;
-  const totalPrev = prev ? Number(prev.twValue || 0) : null;
+  const totalToday = latest ? latest.twValue + latest.usValue : 0;
+  const totalPrev = prev ? prev.twValue + prev.usValue : null;
   const dailyChange = totalPrev != null ? totalToday - totalPrev : 0;
   const dailyChangePct = totalPrev ? (dailyChange / totalPrev) * 100 : 0;
 
-  const tradesInvested = trades
-    .filter((t) => isTaiwanSymbol(t.symbol))
-    .reduce((s, t) => s + (t.action === "buy" ? Number(t.amount || 0) : -Number(t.amount || 0)), 0);
+  const tradesInvested = trades.reduce(
+    (s, t) => s + (t.action === "buy" ? t.amount : -t.amount), 0
+  );
   // Running cost basis: starting cost plus every buy (+) / sell (-) since.
   const accumulatedCost = Number(costBasis.startingCost || 0) + tradesInvested;
   // 每日紀錄成本保留作為歷史快照／XIRR 等時間序列計算來源。
   // 「目前」績效則在 holdingsWithShares 算完後，統一改用持股頁的即時持有成本。
-  const latestCost = latest ? Number(latest.twCost || 0) : 0;
+  const latestCost = latest ? (latest.twCost || 0) + (latest.usCost || 0) : 0;
 
   const highPoint = sortedDaily.reduce((max, r) => {
-    const v = Number(r.twValue || 0);
+    const v = r.twValue + r.usValue;
     return v > max.value ? { value: v, date: r.date } : max;
   }, { value: -Infinity, date: null });
   const drawdown = highPoint.value > 0 ? ((totalToday - highPoint.value) / highPoint.value) * 100 : 0;
@@ -1414,7 +1409,7 @@ function AssetTracker() {
   const chartData = sortedDaily.map((r) => ({
     date: r.date.slice(2),
     t: new Date(r.date).getTime(),
-    total: Number(r.twValue || 0),
+    total: r.twValue + r.usValue,
   }));
 
   // 昨日台股市值：抓最近一筆日期在「今天」之前的每日紀錄的 twValue。
@@ -1559,18 +1554,14 @@ function AssetTracker() {
   // 「目前持有成本」的單一真實來源：
   // 與「持股進度 → 總持有成本」完全相同，直接加總每檔 estCostBasis。
   // 若尚未建立持股成本，才退回每日紀錄／交易紀錄，避免新安裝時全部變成 0。
-  const currentHoldingCost = holdingsWithShares
-    .filter((h) => isTaiwanSymbol(h.symbol))
-    .reduce((s, h) => s + Number(h.estCostBasis || 0), 0);
+  const currentHoldingCost = holdingsWithShares.reduce((s, h) => s + Number(h.estCostBasis || 0), 0);
   const totalInvested = currentHoldingCost > 0
     ? currentHoldingCost
     : (latestCost > 0 ? latestCost : tradesInvested);
 
   // 總覽、計畫進度與 AI 助手都共用同一組「目前」績效數字，
   // 不再出現畫面顯示一個持有成本、總報酬卻用另一個成本計算的情況。
-  const totalDividends = dividends
-    .filter((d) => isTaiwanSymbol(d.symbol))
-    .reduce((s, d) => s + Number(d.amount || 0), 0);
+  const totalDividends = dividends.reduce((s, d) => s + Number(d.amount || 0), 0);
   const capitalGain = totalToday - totalInvested;
   const totalReturn = capitalGain + totalDividends;
   const totalReturnPct = totalInvested ? (totalReturn / totalInvested) * 100 : 0;
@@ -2103,9 +2094,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
   // Dynamic watchlist: fetch every Taiwan holding whose current share count
   // is greater than zero. Add/sell holdings in the app and this list follows
   // automatically — no symbol needs to be hardcoded here.
-  const activeHoldings = holdings.filter((h) =>
-    Number(h.current || 0) > 0 && h.symbol && isTaiwanSymbol(h.symbol)
-  );
+  const activeHoldings = holdings.filter((h) => Number(h.current || 0) > 0 && h.symbol);
   // Auto-refresh reads this ref instead of closing over `activeHoldings`
   // directly, so an interval set up before you add/remove a holding still
   // fetches the current list instead of the one from when it was created.
@@ -3548,8 +3537,8 @@ function calcPortfolioHealth(records, dividends) {
     .map((r) => ({
       t: new Date(r.date).getTime(),
       date: r.date,
-      total: Number(r.twValue || 0),
-      cost: Number(r.twCost || 0),
+      total: Number(r.twValue || 0) + Number(r.usValue || 0),
+      cost: Number(r.twCost || 0) + Number(r.usCost || 0),
     }))
     .filter((r) => Number.isFinite(r.t) && r.total > 0)
     .sort((a, b) => a.t - b.t);
@@ -3578,7 +3567,7 @@ function calcPortfolioHealth(records, dividends) {
     }
     const firstT = rows[trackedStart].t;
     const lastT = rows[rows.length - 1].t;
-    (dividends || []).filter((d) => isTaiwanSymbol(d.symbol)).forEach((d) => {
+    (dividends || []).forEach((d) => {
       const t = new Date(d.date).getTime();
       const amount = Number(d.amount || 0);
       if (Number.isFinite(t) && t >= firstT && t <= lastT && amount > 0) flows.push({ t, amount });
@@ -3657,7 +3646,7 @@ function PortfolioPerformanceCard({
             {UI_SHOW_ENGLISH ? "Performance & Portfolio Health" : "投資績效・體質"}
           </div>
           <div className="text-[10px] mt-0.5" style={{ color: COLORS.sub }}>
-            {UI_SHOW_ENGLISH ? "TW equities only · return and risk" : "僅計台股・總報酬與風險指標"}
+            {UI_SHOW_ENGLISH ? "Return and risk in one place" : "總報酬與風險指標整合"}
           </div>
         </div>
         <div className="text-[10px] mono text-right" style={{ color: COLORS.sub }}>
@@ -3911,13 +3900,13 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
   const monthKeys = Object.keys(lastSeenPerMonth).sort();
   monthKeys.forEach((mk, i) => {
     const endRec = lastSeenPerMonth[mk];
-    const endValue = Number(endRec.twValue || 0);
-    const endCost = Number(endRec.twCost || 0);
+    const endValue = endRec.twValue + endRec.usValue;
+    const endCost = (endRec.twCost || 0) + (endRec.usCost || 0);
     const prevMk = i > 0 ? monthKeys[i - 1] : null;
     if (!prevMk) { monthlyStats[mk] = null; return; }
     const startRec = lastSeenPerMonth[prevMk];
-    const startValue = Number(startRec.twValue || 0);
-    const startCost = Number(startRec.twCost || 0);
+    const startValue = startRec.twValue + startRec.usValue;
+    const startCost = (startRec.twCost || 0) + (startRec.usCost || 0);
     // Market return isolates actual investment performance from money you
     // added that month: compare unrealized gain (value − cost) at the
     // start vs end of the month, instead of comparing raw asset value
@@ -3955,13 +3944,13 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
   const yearKeys = Object.keys(lastSeenPerYear).sort();
   yearKeys.forEach((yk, i) => {
     const endRec = lastSeenPerYear[yk];
-    const endValue = Number(endRec.twValue || 0);
-    const endCost = Number(endRec.twCost || 0);
+    const endValue = endRec.twValue + endRec.usValue;
+    const endCost = (endRec.twCost || 0) + (endRec.usCost || 0);
     const prevYk = i > 0 ? yearKeys[i - 1] : null;
     if (!prevYk) { yearlyStats[yk] = null; return; }
     const startRec = lastSeenPerYear[prevYk];
-    const startValue = Number(startRec.twValue || 0);
-    const startCost = Number(startRec.twCost || 0);
+    const startValue = startRec.twValue + startRec.usValue;
+    const startCost = (startRec.twCost || 0) + (startRec.usCost || 0);
     const hasCostBothEnds = startCost > 0 && endCost > 0;
     let marketReturn, pct, contribution;
     if (hasCostBothEnds) {
@@ -3996,13 +3985,13 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
   const weekKeys = Object.keys(lastSeenPerWeek).sort();
   weekKeys.forEach((wk, i) => {
     const endRec = lastSeenPerWeek[wk];
-    const endValue = Number(endRec.twValue || 0);
-    const endCost = Number(endRec.twCost || 0);
+    const endValue = endRec.twValue + endRec.usValue;
+    const endCost = (endRec.twCost || 0) + (endRec.usCost || 0);
     const prevWk = i > 0 ? weekKeys[i - 1] : null;
     if (!prevWk) { weeklyStats[wk] = null; return; }
     const startRec = lastSeenPerWeek[prevWk];
-    const startValue = Number(startRec.twValue || 0);
-    const startCost = Number(startRec.twCost || 0);
+    const startValue = startRec.twValue + startRec.usValue;
+    const startCost = (startRec.twCost || 0) + (startRec.usCost || 0);
     const hasCostBothEnds = startCost > 0 && endCost > 0;
     let marketReturn, pct, contribution;
     if (hasCostBothEnds) {
@@ -4039,15 +4028,19 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
     const fromRec = findRecordAtOrBefore(rangeFrom);
     const toRec = findRecordAtOrBefore(rangeTo);
     if (!fromRec || !toRec) return { error: M("No matching record found for this date range", "這個區間找不到對應的紀錄") };
-    const fromValue = Number(fromRec.twValue || 0);
-    const toValue = Number(toRec.twValue || 0);
-    const fromCost = Number(fromRec.twCost || 0);
-    const toCost = Number(toRec.twCost || 0);
+    const fromValue = fromRec.twValue + fromRec.usValue;
+    const toValue = toRec.twValue + toRec.usValue;
+    const fromCost = (fromRec.twCost || 0) + (fromRec.usCost || 0);
+    const toCost = (toRec.twCost || 0) + (toRec.usCost || 0);
     return {
       fromRec, toRec, fromValue, toValue, fromCost, toCost,
       assetChange: toValue - fromValue,
       costChange: toCost - fromCost,
       gainChange: (toValue - toCost) - (fromValue - fromCost),
+      twValueChange: (toRec.twValue || 0) - (fromRec.twValue || 0),
+      usValueChange: (toRec.usValue || 0) - (fromRec.usValue || 0),
+      twCostChange: (toRec.twCost || 0) - (fromRec.twCost || 0),
+      usCostChange: (toRec.usCost || 0) - (fromRec.usCost || 0),
     };
   })() : null;
 
@@ -4097,13 +4090,13 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
                 ? M(" (one day had no exact record; the nearest earlier record was used instead)", "（其中一天沒有剛好的紀錄，取最近一筆較早的紀錄代替）") : ""}
             </div>
             <div className="flex justify-between">
-              <span style={{ color: COLORS.sub }}><UiLabel zh="台股市值變化" /></span>
+              <span style={{ color: COLORS.sub }}><UiLabel zh="總市值變化" /></span>
               <span className="font-bold" style={{ color: rangeResult.assetChange >= 0 ? COLORS.gain : COLORS.loss }}>
                 {rangeResult.assetChange >= 0 ? "+" : ""}{nf(rangeResult.assetChange)}
               </span>
             </div>
             <div className="flex justify-between">
-              <span style={{ color: COLORS.sub }}><UiLabel zh="台股本金變化" /></span>
+              <span style={{ color: COLORS.sub }}><UiLabel zh="總本金變化" /></span>
               <span className="font-bold" style={{ color: COLORS.gold }}>
                 {rangeResult.costChange >= 0 ? "+" : ""}{nf(rangeResult.costChange)}
               </span>
@@ -4112,6 +4105,31 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
               <span style={{ color: COLORS.sub }}><UiLabel zh="損益變化（市場報酬）" /></span>
               <span className="font-bold" style={{ color: rangeResult.gainChange >= 0 ? COLORS.gain : COLORS.loss }}>
                 {rangeResult.gainChange >= 0 ? "+" : ""}{nf(rangeResult.gainChange)}
+              </span>
+            </div>
+            <div style={{ borderTop: `1px solid ${COLORS.panelBorder}`, margin: "6px 0" }} />
+            <div className="flex justify-between">
+              <span style={{ color: COLORS.sub }}><UiLabel zh="台股市值變化" /></span>
+              <span className="font-bold" style={{ color: rangeResult.twValueChange >= 0 ? COLORS.gain : COLORS.loss }}>
+                {rangeResult.twValueChange >= 0 ? "+" : ""}{nf(rangeResult.twValueChange)}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span style={{ color: COLORS.sub }}><UiLabel zh="台股本金變化" /></span>
+              <span className="font-bold" style={{ color: COLORS.gold }}>
+                {rangeResult.twCostChange >= 0 ? "+" : ""}{nf(rangeResult.twCostChange)}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span style={{ color: COLORS.sub }}><UiLabel zh="美股市值變化" /></span>
+              <span className="font-bold" style={{ color: rangeResult.usValueChange >= 0 ? COLORS.gain : COLORS.loss }}>
+                {rangeResult.usValueChange >= 0 ? "+" : ""}{nf(rangeResult.usValueChange)}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span style={{ color: COLORS.sub }}><UiLabel zh="美股本金變化" /></span>
+              <span className="font-bold" style={{ color: COLORS.gold }}>
+                {rangeResult.usCostChange >= 0 ? "+" : ""}{nf(rangeResult.usCostChange)}
               </span>
             </div>
           </div>
@@ -4229,10 +4247,10 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
           {(() => {
             let lastMonth = null;
             return reversed.map((r, i) => {
-              const total = Number(r.twValue || 0);
-              const totalCost = Number(r.twCost || 0);
+              const total = r.twValue + r.usValue;
+              const totalCost = (r.twCost || 0) + (r.usCost || 0);
               const prevRec = records[records.length - 2 - i];
-              const diff = prevRec ? total - Number(prevRec.twValue || 0) : null;
+              const diff = prevRec ? total - (prevRec.twValue + prevRec.usValue) : null;
               const mk = monthKey(r.date);
               const showHeader = mk !== lastMonth;
               lastMonth = mk;
@@ -4368,15 +4386,13 @@ function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
 
   // 總持有成本：加總每一檔目前的持有成本（起始成本＋歷來買賣紀錄），
   // 用來跟「每日紀錄」的台股成本互相核對、同步。
-  const totalHoldingCost = holdings
-    .filter((h) => isTaiwanSymbol(h.symbol))
-    .reduce((s, h) => s + Number(h.estCostBasis || 0), 0);
+  const totalHoldingCost = holdings.reduce((s, h) => s + (h.estCostBasis || 0), 0);
 
   // 資產配置圓餅圖：優先用「即時股價 × 目前股數」算市值佔比（比較貼近再平衡要看的
   // 實際曝險），單一標的抓不到報價時，退回用該檔的持有成本，圖表才不會缺一塊。
   const ALLOC_COLORS = [COLORS.gold, "#60A5FA", "#34D399", "#F472B6", "#A78BFA", "#F87171", "#22D3EE", "#FBBF24"];
   const allocationData = useMemo(() => {
-    return holdings.filter((h) => isTaiwanSymbol(h.symbol)).map((h) => {
+    return holdings.map((h) => {
       const q = holdingQuotes[h.symbol];
       const price = Number(q?.price);
       const hasPrice = Number.isFinite(price) && price > 0 && Number(h.current || 0) > 0;
@@ -4394,7 +4410,7 @@ function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
         <div className="flex items-center justify-between rounded-xl p-3 mb-3"
           style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
           <div>
-            <div className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="台股總持有成本" /></div>
+            <div className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="總持有成本（所有標的合計）" /></div>
             <div className="text-base font-bold mono" style={{ color: COLORS.gold }}>NT$ {nf(totalHoldingCost)}</div>
           </div>
           {onFillDailyCost && (
@@ -5005,9 +5021,7 @@ function DividendsPanel({ dividends, setDividends, holdings }) {
   };
   const remove = (id) => setDividends((d) => d.filter((x) => x.id !== id));
   const sorted = [...dividends].sort((a, b) => b.date.localeCompare(a.date));
-  const total = dividends
-    .filter((d) => isTaiwanSymbol(d.symbol))
-    .reduce((s, d) => s + Number(d.amount || 0), 0);
+  const total = dividends.reduce((s, d) => s + d.amount, 0);
 
   return (
     <div className="space-y-4">
@@ -5037,7 +5051,7 @@ function DividendsPanel({ dividends, setDividends, holdings }) {
         <AddButton onClick={add} label="新增配息紀錄" />
       </Panel>
 
-      <DividendHistoryChart dividends={dividends.filter((d) => isTaiwanSymbol(d.symbol))} />
+      <DividendHistoryChart dividends={dividends} />
 
       <Panel title={M(`Cumulative Dividends: NT$ ${nf(total)}`, `累積股息：NT$ ${nf(total)}`)}>
         <div className="space-y-2 max-h-96 overflow-y-auto">
