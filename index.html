@@ -294,6 +294,7 @@ const UI_EN = {
   "資產曲線": "Asset Curve",
   "資產高點": "Asset High",
   "回撤率": "Drawdown",
+  "目前回撤": "Current Drawdown",
   "目前持倉成本": "Current Cost Basis",
   "總資產": "Total Assets",
   "持倉損益(估)": "Holding P/L (Est.)",
@@ -3605,7 +3606,7 @@ function calcPortfolioHealth(records, dividends) {
 }
 
 function PortfolioPerformanceCard({
-  records, dividends, capitalGain, totalDividends, totalReturn, totalReturnPct, ytdGain, ytdPct
+  records, dividends, capitalGain, totalDividends, totalReturn, totalReturnPct, ytdGain, ytdPct, totalInvested
 }) {
   const m = useMemo(() => calcPortfolioHealth(records, dividends), [records, dividends]);
   const pctOrDash = (v) => Number.isFinite(v) ? pf(v) : uiText("資料不足");
@@ -3680,12 +3681,17 @@ function PortfolioPerformanceCard({
         {mini("Sharpe / Sortino", `${ratioOrDash(m.sharpe)} / ${ratioOrDash(m.sortino)}`, COLORS.text, "Rf=0%・全期間")}
       </div>
 
-      <div className="rounded-xl px-3 py-2.5 mt-2 flex items-center justify-between gap-3"
-        style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
-        <span className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="今年資產變化(YTD)" /></span>
-        <span className="text-sm font-black mono" style={{ color: ytdGain >= 0 ? COLORS.gain : COLORS.loss }}>
-          {nf(ytdGain)}（{pf(ytdPct)}）
-        </span>
+      <div className="rounded-xl px-3 py-2.5 mt-2" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="今年資產變化(YTD)" /></span>
+          <span className="text-sm font-black mono" style={{ color: ytdGain >= 0 ? COLORS.gain : COLORS.loss }}>
+            {nf(ytdGain)}（{pf(ytdPct)}）
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-3 mt-2 pt-2" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
+          <span className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="目前持倉成本" /></span>
+          <span className="text-sm font-bold mono">NT$ {nf(totalInvested)}</span>
+        </div>
       </div>
 
       <div className="text-[10px] leading-relaxed mt-2" style={{ color: COLORS.sub }}>
@@ -3780,6 +3786,24 @@ function Dashboard({ totalToday, dailyChange, dailyChangePct, capitalGain, total
               </LineChart>
             </ResponsiveContainer>
           </div>
+
+          <div className="grid grid-cols-2 gap-3 mt-3 pt-3" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
+            <div className="min-w-0">
+              <div className="text-[10px]" style={{ color: COLORS.sub }}><UiLabel zh="資產高點" /></div>
+              <div className="text-xs mono mt-1" style={{ color: COLORS.text }}>
+                {highPoint.date || "—"}
+              </div>
+              <div className="text-sm font-bold mono mt-0.5 truncate" style={{ color: COLORS.gold }}>
+                NT$ {nf(highPoint.value === -Infinity ? 0 : highPoint.value)}
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-[10px]" style={{ color: COLORS.sub }}><UiLabel zh="目前回撤" /></div>
+              <div className="text-lg font-black mono mt-2" style={{ color: drawdown < 0 ? COLORS.loss : COLORS.text }}>
+                {pf(drawdown)}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -3796,23 +3820,9 @@ function Dashboard({ totalToday, dailyChange, dailyChangePct, capitalGain, total
         totalReturnPct={totalReturnPct}
         ytdGain={ytdGain}
         ytdPct={ytdPct}
+        totalInvested={totalInvested}
       />
 
-      <div className="rounded-2xl p-4" style={{ background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}` }}>
-        <div className="text-xs mb-2" style={{ color: COLORS.sub }}><UiLabel zh="資產高點" /></div>
-        <div className="flex justify-between text-sm mono">
-          <span style={{ color: COLORS.sub }}>{highPoint.date || "—"}</span>
-          <span>NT$ {nf(highPoint.value === -Infinity ? 0 : highPoint.value)}</span>
-        </div>
-        <div className="flex justify-between text-sm mono mt-1">
-          <span style={{ color: COLORS.sub }}><UiLabel zh="回撤率" /></span>
-          <span style={{ color: drawdown < 0 ? COLORS.loss : COLORS.text }}>{pf(drawdown)}</span>
-        </div>
-        <div className="flex justify-between text-sm mono mt-1">
-          <span style={{ color: COLORS.sub }}><UiLabel zh="目前持倉成本" /></span>
-          <span>NT$ {nf(totalInvested)}</span>
-        </div>
-      </div>
     </div>
   );
 }
