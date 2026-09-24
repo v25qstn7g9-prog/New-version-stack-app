@@ -1396,14 +1396,9 @@ function AssetTracker() {
   );
   // Running cost basis: starting cost plus every buy (+) / sell (-) since.
   const accumulatedCost = Number(costBasis.startingCost || 0) + tradesInvested;
-  // 目前持倉成本優先取自「每日紀錄」的台股成本+美股成本
-  // 沒有填成本欄位時，才退回用交易紀錄淨買入金額估算
+  // 每日紀錄成本保留作為歷史快照／XIRR 等時間序列計算來源。
+  // 「目前」績效則在 holdingsWithShares 算完後，統一改用持股頁的即時持有成本。
   const latestCost = latest ? (latest.twCost || 0) + (latest.usCost || 0) : 0;
-  const totalInvested = latestCost > 0 ? latestCost : tradesInvested;
-  const totalDividends = dividends.reduce((s, d) => s + d.amount, 0);
-  const capitalGain = totalToday - totalInvested;
-  const totalReturn = capitalGain + totalDividends;
-  const totalReturnPct = totalInvested ? (totalReturn / totalInvested) * 100 : 0;
 
   const highPoint = sortedDaily.reduce((max, r) => {
     const v = r.twValue + r.usValue;
@@ -1437,6 +1432,8 @@ function AssetTracker() {
     }
     return base || chartData[0] || null;
   })();
+  // YTD 這裡刻意維持「資產變化」：會包含今年新增投入，不冒充投資報酬率。
+  // 真正考慮現金流的年化績效請看 XIRR；月/年市場損益則在「每日紀錄」分頁。
   const ytdGain = ytdBase ? totalToday - ytdBase.total : 0;
   const ytdPct = ytdBase && ytdBase.total ? (ytdGain / ytdBase.total) * 100 : 0;
 
@@ -1554,9 +1551,20 @@ function AssetTracker() {
     };
   }), [holdings, trades, showEnglish]);
 
-  // 與「持股進度 → 總持有成本」使用同一套 estCostBasis 加總，
-  // 總覽顯示時不要再拿每日紀錄成本，避免兩頁數字不一致。
+  // 「目前持有成本」的單一真實來源：
+  // 與「持股進度 → 總持有成本」完全相同，直接加總每檔 estCostBasis。
+  // 若尚未建立持股成本，才退回每日紀錄／交易紀錄，避免新安裝時全部變成 0。
   const currentHoldingCost = holdingsWithShares.reduce((s, h) => s + Number(h.estCostBasis || 0), 0);
+  const totalInvested = currentHoldingCost > 0
+    ? currentHoldingCost
+    : (latestCost > 0 ? latestCost : tradesInvested);
+
+  // 總覽、計畫進度與 AI 助手都共用同一組「目前」績效數字，
+  // 不再出現畫面顯示一個持有成本、總報酬卻用另一個成本計算的情況。
+  const totalDividends = dividends.reduce((s, d) => s + Number(d.amount || 0), 0);
+  const capitalGain = totalToday - totalInvested;
+  const totalReturn = capitalGain + totalDividends;
+  const totalReturnPct = totalInvested ? (totalReturn / totalInvested) * 100 : 0;
 
   const planTotal = planItems.reduce((s, p) => s + Number(p.amount || 0), 0);
 
