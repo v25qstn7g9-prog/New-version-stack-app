@@ -230,6 +230,7 @@ const UI_EN = {
   "查看新聞": "View News",
   "目前總資產": "Current Total Assets",
   "台股＋美股合計": "TW + US Combined",
+  "台股合計": "TW Total",
   "台股資產": "TW Assets",
   "美股資產": "US Assets",
   "今天": "Today",
@@ -3753,7 +3754,9 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
       }}>
         <div className="flex items-center gap-2">
           <div className="text-xs" style={{ color: COLORS.sub }}><UiLabel zh="目前總資產" /></div>
-          <div className="text-[10px]" style={{ color: COLORS.sub, opacity: 0.85 }}><UiLabel zh="台股＋美股合計" /></div>
+          <div className="text-[10px]" style={{ color: COLORS.sub, opacity: 0.85 }}>
+            <UiLabel zh={currentUsValue > 0 ? "台股＋美股合計" : "台股合計"} />
+          </div>
         </div>
         <div className="text-3xl font-black mono mt-1"><AnimatedNumber value={totalToday} prefix="NT$ " /></div>
         <div className="flex items-center gap-1 mt-1.5 text-sm mono"
