@@ -35,6 +35,45 @@
       white-space:pre-wrap; overflow:auto;
     }
     #boot-error h2 { color:#C9A24B; }
+
+    /* === Premium finance UI polish · 2026-09-24 === */
+    :root{--premium-bg:#090e19;--premium-panel:#111827;--premium-line:#202b3e;--premium-muted:#8b96aa;--premium-gold:#d4ad57}
+    html,body,#root{background:var(--premium-bg)!important}
+    body{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;letter-spacing:-.01em}
+    .premium-shell{max-width:1180px;margin-inline:auto}
+    button,input,select,textarea{font:inherit}
+    button{transition:transform .12s ease,opacity .15s ease,background-color .15s ease}
+    button:active{transform:scale(.985)}
+    @media(max-width:640px){
+      body{font-size:14px}
+      .min-h-screen{min-height:100svh!important}
+      .grid{column-gap:.65rem;row-gap:.65rem}
+      .rounded-xl{border-radius:1rem}
+      .rounded-2xl{border-radius:1.15rem}
+      .p-6{padding:1rem}.p-5{padding:.9rem}.p-4{padding:.8rem}
+      .px-6{padding-left:1rem;padding-right:1rem}
+      .gap-6{gap:.85rem}.gap-5{gap:.75rem}.gap-4{gap:.65rem}
+      .space-y-6>:not([hidden])~:not([hidden]){margin-top:.85rem}
+      .text-3xl{font-size:1.65rem;line-height:1.15}
+      .text-2xl{font-size:1.35rem;line-height:1.2}
+      .shadow-xl,.shadow-lg{box-shadow:0 8px 24px rgba(0,0,0,.16)}
+    }
+
+    .premium-dashboard>.premium-asset-hero{position:relative;overflow:hidden}
+    .premium-dashboard>.premium-asset-hero:before{content:"";position:absolute;inset:0 0 auto 0;height:1px;background:linear-gradient(90deg,transparent,rgba(212,173,87,.55),transparent)}
+    .premium-dashboard>.premium-asset-hero .text-3xl{letter-spacing:-.045em}
+    .premium-tabbar{background:rgba(17,24,39,.94)!important;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);box-shadow:0 -8px 28px rgba(0,0,0,.18);z-index:50}
+    .premium-tabbar button{min-height:43px}
+    @media(max-width:640px){
+      .premium-dashboard{padding-bottom:4px}
+      .premium-dashboard>.premium-asset-hero{padding:1rem!important}
+      .premium-dashboard>.premium-asset-hero .text-3xl{font-size:1.75rem}
+      .premium-tabbar button{min-height:45px;padding-top:4px!important;padding-bottom:3px!important}
+      .premium-tabbar svg{width:15px;height:15px}
+      .premium-tabbar span.text-\\[8px\\]{font-size:8.5px}
+    }
+    @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+
   </style>
 
   <script>
@@ -6812,7 +6851,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
 
 function TabBar({ tab, setTab, rootRef, showEnglish }) {
   return (
-    <div ref={rootRef} className="fixed bottom-0 left-0 right-0"
+    <div ref={rootRef} className="fixed bottom-0 left-0 right-0 premium-tabbar"
       style={{
         background: COLORS.panel, borderTop: `1px solid ${COLORS.panelBorder}`,
         paddingBottom: "env(safe-area-inset-bottom, 4px)",
