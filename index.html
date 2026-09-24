@@ -2260,9 +2260,20 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
 
   const todayKeyForSpark = new Date().toLocaleDateString("sv-SE");
   const todayTape = tapePoints.filter(p => p?.day === todayKeyForSpark);
+  // The stored tape only gains one point per ~minute, but price/colour update
+  // every 15s — append the latest live quote as the tip so the line's end
+  // moves together with the colour instead of lagging up to a minute behind.
+  const liveTs = liveAt instanceof Date && liveAt.toLocaleDateString("sv-SE") === todayKeyForSpark ? liveAt.getTime() : null;
+  const withLive = (points, value) => {
+    const v = Number(value);
+    if (liveTs == null || !(v > 0)) return points;
+    const last = points[points.length - 1];
+    if (last && last.ts >= liveTs) return points;
+    return [...points, { ts: liveTs, value: v }];
+  };
   const sparkFor = (sym) => todayTape.map(p => ({ts:Number(p?.ts),value:Number(p?.quotes?.[sym])}))
     .filter(p => Number.isFinite(p.ts) && Number.isFinite(p.value) && p.value>0);
-  const portfolioSpark = todayTape.map(p => {
+  const portfolioSpark = withLive(todayTape.map(p => {
     let total=0;
     let complete=activeHoldings.length>0;
     activeHoldings.forEach(h=>{
@@ -2273,8 +2284,8 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
     // 總市值曲線只接受「同一分鐘全部持股都有價格」的完整快照，
     // 避免某檔暫時缺值時把部分市值誤畫成突然下跌。
     return complete?{ts:Number(p?.ts),value:total}:null;
-  }).filter(p=>p && Number.isFinite(p.ts) && Number.isFinite(p.value) && p.value>0);
-  const indexSpark = sparkFor("TAIEX");
+  }).filter(p=>p && Number.isFinite(p.ts) && Number.isFinite(p.value) && p.value>0), quoteComplete ? totalValue : null);
+  const indexSpark = withLive(sparkFor("TAIEX"), hasMarketIndex && !marketIndex?.isStale ? indexPrice : null);
   const portfolioDayUp = yesterdayTwValue != null
     ? totalValue >= yesterdayTwValue
     : (portfolioSpark.length>1 ? portfolioSpark[portfolioSpark.length-1].value >= portfolioSpark[0].value : true);
@@ -2345,7 +2356,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
                       {!r.quoteIsStale ? <><UiLabel zh="今日損益" /> {r.chg >= 0 ? "+" : ""}{nf(Math.round(r.chg * r.current))}</> : ""}
                     </span>
                     <div className="row-start-3 col-start-2 col-span-3 h-[27px] opacity-90">
-                      <SessionSparkline points={sparkFor(r.symbol)} baseline={r.prevClose} width={240} height={27} tone={r.chg>=0?COLORS.gain:COLORS.loss} />
+                      <SessionSparkline points={withLive(sparkFor(r.symbol), r.quoteIsStale || r.isFromCache ? null : r.price)} baseline={r.prevClose} width={240} height={27} tone={r.chg>=0?COLORS.gain:COLORS.loss} />
                     </div>
                   </div>
                 </div>
