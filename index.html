@@ -229,6 +229,7 @@ const UI_EN = {
   "持股新聞": "Holding News",
   "查看新聞": "View News",
   "目前總資產": "Current Total Assets",
+  "台股＋美股合計": "TW + US Combined",
   "今天": "Today",
   "已更新": "Updated",
   "高／低價": "High / Low",
@@ -3744,7 +3745,10 @@ function Dashboard({ totalToday, dailyChange, dailyChangePct, capitalGain, total
         background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`,
         boxShadow: "0 4px 16px rgba(0,0,0,0.28)",
       }}>
-        <div className="text-xs" style={{ color: COLORS.sub }}><UiLabel zh="目前總資產" /></div>
+        <div className="flex items-center gap-2">
+          <div className="text-xs" style={{ color: COLORS.sub }}><UiLabel zh="目前總資產" /></div>
+          <div className="text-[10px]" style={{ color: COLORS.sub, opacity: 0.85 }}><UiLabel zh="台股＋美股合計" /></div>
+        </div>
         <div className="text-3xl font-black mono mt-1"><AnimatedNumber value={totalToday} prefix="NT$ " /></div>
         <div className="flex items-center gap-1 mt-1.5 text-sm mono"
           style={{ color: up ? COLORS.gain : COLORS.loss }}>
