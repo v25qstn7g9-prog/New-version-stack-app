@@ -241,6 +241,7 @@ const UI_EN = {
   "今日損益": "Today P&L",
   "今日台股總市值": "Today TW Market Value",
   "昨日台股總市值": "Yesterday TW Market Value",
+  "昨日美股總市值": "Yesterday US Market Value",
   "今/昨日盈虧": "Today vs Yesterday",
   "加權指數": "TAIEX",
   "今日 vs 大盤": "Today vs Market",
@@ -304,7 +305,11 @@ const UI_EN = {
   "持倉損益(估)": "Holding P/L (Est.)",
   "累積股息": "Cumulative Dividends",
   "粗估總報酬": "Estimated Total Return",
+  "合併總報酬": "Combined Total Return",
+  "台股總報酬": "TW Total Return",
+  "美股總報酬": "US Total Return",
   "粗估報酬率": "Estimated Return Rate",
+  "合併報酬率": "Combined Return Rate",
   "今年資產變化(YTD)": "YTD Asset Change",
   "1個月": "1M",
   "3個月": "3M",
@@ -516,6 +521,8 @@ const todayStr = () => {
   const p = taiwanDateParts();
   return `${p.year}-${p.month}-${p.day}`;
 };
+// 台股代號以數字開頭（含 2882A、00937B 這類後綴）；美股一般為英文字母代號。
+const isTaiwanSymbol = (symbol) => /^[0-9]/.test(String(symbol || "").trim());
 const nf = (n) => (n ?? 0).toLocaleString("zh-TW", { maximumFractionDigits: 0 });
 
 // A categorical XAxis (dataKey pointing at a string) spaces every point
@@ -1405,7 +1412,9 @@ function AssetTracker() {
   const accumulatedCost = Number(costBasis.startingCost || 0) + tradesInvested;
   // 每日紀錄成本保留作為歷史快照／XIRR 等時間序列計算來源。
   // 「目前」績效則在 holdingsWithShares 算完後，統一改用持股頁的即時持有成本。
-  const latestCost = latest ? (latest.twCost || 0) + (latest.usCost || 0) : 0;
+  const latestTwCost = latest ? Number(latest.twCost || 0) : 0;
+  const latestUsCost = latest ? Number(latest.usCost || 0) : 0;
+  const latestCost = latestTwCost + latestUsCost;
 
   const highPoint = sortedDaily.reduce((max, r) => {
     const v = r.twValue + r.usValue;
@@ -1423,7 +1432,8 @@ function AssetTracker() {
   // 用來在「即時股價」面板算「今/昨日盈虧」——比較的是你自己台股持股的市值，
   // 不是單一股票的漲跌幅。
   const yesterdayTwRecord = [...sortedDaily].reverse().find((r) => r.date < todayStr());
-  const yesterdayTwValue = yesterdayTwRecord ? yesterdayTwRecord.twValue : null;
+  const yesterdayTwValue = yesterdayTwRecord ? Number(yesterdayTwRecord.twValue || 0) : null;
+  const yesterdayUsValue = yesterdayTwRecord ? Number(yesterdayTwRecord.usValue || 0) : null;
 
   // "今年資產變化(YTD)" — market-value change since the start of the current
   // calendar year. Like the other stat cards, this is value-based, not a
@@ -1558,19 +1568,44 @@ function AssetTracker() {
     };
   }), [holdings, trades, showEnglish]);
 
-  // 「目前持有成本」的單一真實來源：
-  // 與「持股進度 → 總持有成本」完全相同，直接加總每檔 estCostBasis。
-  // 若尚未建立持股成本，才退回每日紀錄／交易紀錄，避免新安裝時全部變成 0。
-  const currentHoldingCost = holdingsWithShares.reduce((s, h) => s + Number(h.estCostBasis || 0), 0);
+  // 台股成本：優先沿用「持股進度」逐檔算出的持有成本；沒有才退回每日紀錄。
+  // 美股成本：每日紀錄中的 usCost 已經是新台幣，優先使用它，避免把美元成本直接和台幣相加。
+  const twHoldingCost = holdingsWithShares
+    .filter((h) => isTaiwanSymbol(h.symbol))
+    .reduce((s, h) => s + Number(h.estCostBasis || 0), 0);
+  const usHoldingCostFallback = holdingsWithShares
+    .filter((h) => !isTaiwanSymbol(h.symbol))
+    .reduce((s, h) => s + Number(h.estCostBasis || 0), 0);
+
+  const currentTwCost = twHoldingCost > 0 ? twHoldingCost : latestTwCost;
+  const hasUsAssets = currentUsValue > 0 || latestUsCost > 0;
+  const currentUsCost = hasUsAssets
+    ? (latestUsCost > 0 ? latestUsCost : usHoldingCostFallback)
+    : 0;
+  const currentHoldingCost = currentTwCost + currentUsCost;
   const totalInvested = currentHoldingCost > 0
     ? currentHoldingCost
     : (latestCost > 0 ? latestCost : tradesInvested);
 
-  // 總覽、計畫進度與 AI 助手都共用同一組「目前」績效數字，
-  // 不再出現畫面顯示一個持有成本、總報酬卻用另一個成本計算的情況。
-  const totalDividends = dividends.reduce((s, d) => s + Number(d.amount || 0), 0);
-  const capitalGain = totalToday - totalInvested;
-  const totalReturn = capitalGain + totalDividends;
+  // 報酬先分台股、美股各自計算（市值－成本＋股息），最後再相加成總報酬。
+  // 這樣美股不會因為缺少成本而被整筆誤當成獲利。
+  const twDividends = dividends
+    .filter((d) => isTaiwanSymbol(d.symbol))
+    .reduce((s, d) => s + Number(d.amount || 0), 0);
+  const usDividends = dividends
+    .filter((d) => !isTaiwanSymbol(d.symbol))
+    .reduce((s, d) => s + Number(d.amount || 0), 0);
+
+  const twCapitalGain = currentTwValue - currentTwCost;
+  const usCapitalGain = hasUsAssets ? currentUsValue - currentUsCost : 0;
+  const twTotalReturn = twCapitalGain + twDividends;
+  const usTotalReturn = hasUsAssets ? usCapitalGain + usDividends : 0;
+  const twTotalReturnPct = currentTwCost ? (twTotalReturn / currentTwCost) * 100 : 0;
+  const usTotalReturnPct = currentUsCost ? (usTotalReturn / currentUsCost) * 100 : 0;
+
+  const totalDividends = twDividends + usDividends;
+  const capitalGain = twCapitalGain + usCapitalGain;
+  const totalReturn = twTotalReturn + usTotalReturn;
   const totalReturnPct = totalInvested ? (totalReturn / totalInvested) * 100 : 0;
 
   const planTotal = planItems.reduce((s, p) => s + Number(p.amount || 0), 0);
@@ -1711,11 +1746,14 @@ function AssetTracker() {
                     totalToday={totalToday} currentTwValue={currentTwValue} currentUsValue={currentUsValue}
                     dailyChange={dailyChange} dailyChangePct={dailyChangePct}
                     capitalGain={capitalGain} totalDividends={totalDividends} totalReturn={totalReturn}
-                    totalReturnPct={totalReturnPct} highPoint={highPoint} drawdown={drawdown}
+                    totalReturnPct={totalReturnPct}
+                    twTotalReturn={twTotalReturn} twTotalReturnPct={twTotalReturnPct}
+                    usTotalReturn={usTotalReturn} usTotalReturnPct={usTotalReturnPct} hasUsAssets={hasUsAssets}
+                    highPoint={highPoint} drawdown={drawdown}
                     ytdGain={ytdGain} ytdPct={ytdPct}
-                    chartData={chartData} goal={goal} totalInvested={totalInvested} holdingCostTotal={currentHoldingCost}
+                    chartData={chartData} goal={goal} totalInvested={totalInvested}
                     holdings={holdingsWithShares} dailyRecords={sortedDaily} dividends={dividends}
-                    yesterdayTwValue={yesterdayTwValue}
+                    yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue}
                     onFillDailyTw={(value) => { setDailyPrefill({ twValue: value, nonce: Date.now() }); goToTab("daily"); }}
                   />
                 );
@@ -2074,7 +2112,7 @@ function SessionSparkline({ points, baseline=null, width=300, height=34, tone=nu
   );
 }
 
-function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
+function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUsValue }) {
   const [live, setLive] = useState({});      // symbol -> { price, prevClose, isUS, asOfDate, isStale }
   const [liveStatus, setLiveStatus] = useState("idle"); // idle | loading | done | error
   const [liveAt, setLiveAt] = useState(null);
@@ -2416,6 +2454,12 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
                 <span style={{ color: COLORS.sub }}><UiLabel zh="昨日台股總市值" /></span>
                 <span style={{ color: COLORS.sub }}>NT$ {nf(yesterdayTwValue)}</span>
               </div>
+              {Number(yesterdayUsValue || 0) > 0 && (
+                <div className="flex justify-between text-xs mono mt-1">
+                  <span style={{ color: COLORS.sub }}><UiLabel zh="昨日美股總市值" /></span>
+                  <span style={{ color: COLORS.sub }}>NT$ {nf(yesterdayUsValue)}</span>
+                </div>
+              )}
               <div className="flex justify-between text-xs mono mt-1 font-bold">
                 <span style={{ color: COLORS.sub }}><UiLabel zh="今/昨日盈虧" /></span>
                 {(() => {
@@ -3626,7 +3670,9 @@ function calcPortfolioHealth(records, dividends) {
 }
 
 function PortfolioPerformanceCard({
-  records, dividends, capitalGain, totalDividends, totalReturn, totalReturnPct, ytdGain, ytdPct, totalInvested
+  records, dividends, capitalGain, totalDividends, totalReturn, totalReturnPct,
+  twTotalReturn, twTotalReturnPct, usTotalReturn, usTotalReturnPct, hasUsAssets,
+  ytdGain, ytdPct, totalInvested
 }) {
   const m = useMemo(() => calcPortfolioHealth(records, dividends), [records, dividends]);
   const pctOrDash = (v) => Number.isFinite(v) ? pf(v) : uiText("資料不足");
@@ -3665,18 +3711,41 @@ function PortfolioPerformanceCard({
       <div className="rounded-xl p-4 mb-2 space-y-3" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
         <div className="flex items-end justify-between gap-4">
           <div className="min-w-0">
-            <div className="text-sm" style={{ color: COLORS.sub }}><UiLabel zh="粗估總報酬" /></div>
+            <div className="text-sm" style={{ color: COLORS.sub }}><UiLabel zh={hasUsAssets ? "合併總報酬" : "粗估總報酬"} /></div>
             <div className="text-base font-black mono mt-1 leading-none whitespace-nowrap" style={{ color: totalTone }}>
               NT$ {nf(totalReturn)}
             </div>
           </div>
           <div className="text-right flex-none">
-            <div className="text-sm" style={{ color: COLORS.sub }}><UiLabel zh="粗估報酬率" /></div>
+            <div className="text-sm" style={{ color: COLORS.sub }}><UiLabel zh={hasUsAssets ? "合併報酬率" : "粗估報酬率"} /></div>
             <div className="text-base font-black mono mt-1 leading-none" style={{ color: totalReturnPct >= 0 ? COLORS.gain : COLORS.loss }}>
               {pf(totalReturnPct)}
             </div>
           </div>
         </div>
+
+        {hasUsAssets && (
+          <div className="grid grid-cols-2 gap-2 pt-3" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
+            <div className="rounded-lg px-2.5 py-2" style={{ background: COLORS.panel }}>
+              <div className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="台股總報酬" /></div>
+              <div className="text-sm font-black mono mt-1" style={{ color: twTotalReturn >= 0 ? COLORS.gain : COLORS.loss }}>
+                NT$ {nf(twTotalReturn)}
+              </div>
+              <div className="text-[11px] mono mt-0.5" style={{ color: twTotalReturnPct >= 0 ? COLORS.gain : COLORS.loss }}>
+                {pf(twTotalReturnPct)}
+              </div>
+            </div>
+            <div className="rounded-lg px-2.5 py-2" style={{ background: COLORS.panel }}>
+              <div className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="美股總報酬" /></div>
+              <div className="text-sm font-black mono mt-1" style={{ color: usTotalReturn >= 0 ? COLORS.gain : COLORS.loss }}>
+                NT$ {nf(usTotalReturn)}
+              </div>
+              <div className="text-[11px] mono mt-0.5" style={{ color: usTotalReturnPct >= 0 ? COLORS.gain : COLORS.loss }}>
+                {pf(usTotalReturnPct)}
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="pt-3" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
           <div className="text-sm" style={{ color: COLORS.sub }}><UiLabel zh="持倉損益(估)" /></div>
@@ -3724,8 +3793,9 @@ function PortfolioPerformanceCard({
 }
 
 function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, dailyChangePct, capitalGain, totalDividends,
-  totalReturn, totalReturnPct, highPoint, drawdown, ytdGain, ytdPct, chartData, goal, totalInvested, holdingCostTotal, holdings,
-  dailyRecords, dividends, yesterdayTwValue, onFillDailyTw }) {
+  totalReturn, totalReturnPct, twTotalReturn, twTotalReturnPct, usTotalReturn, usTotalReturnPct, hasUsAssets,
+  highPoint, drawdown, ytdGain, ytdPct, chartData, goal, totalInvested, holdings,
+  dailyRecords, dividends, yesterdayTwValue, yesterdayUsValue, onFillDailyTw }) {
   const up = dailyChange >= 0;
   // Defaults to "1年" rather than "全部": with 3+ sparse years plotted
   // proportionally to real time (see pickEvenTimeTicks above), the last
@@ -3779,7 +3849,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
         </div>
       </div>
 
-      <LivePricePanel holdings={holdings} onFillDailyTw={onFillDailyTw} yesterdayTwValue={yesterdayTwValue} />
+      <LivePricePanel holdings={holdings} onFillDailyTw={onFillDailyTw} yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue} />
 
 
       {chartData.length > 1 && (
@@ -3856,9 +3926,14 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
         totalDividends={totalDividends}
         totalReturn={totalReturn}
         totalReturnPct={totalReturnPct}
+        twTotalReturn={twTotalReturn}
+        twTotalReturnPct={twTotalReturnPct}
+        usTotalReturn={usTotalReturn}
+        usTotalReturnPct={usTotalReturnPct}
+        hasUsAssets={hasUsAssets}
         ytdGain={ytdGain}
         ytdPct={ytdPct}
-        totalInvested={holdingCostTotal}
+        totalInvested={totalInvested}
       />
 
     </div>
