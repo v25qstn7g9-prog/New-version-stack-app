@@ -2148,7 +2148,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
           }
         }
       } catch(e) {}
-      window.dispatchEvent(new CustomEvent("livePricesUpdated", { detail: { map: mergedMap } }));
+      window.dispatchEvent(new CustomEvent("livePricesUpdated", { detail: { map: mergedMap, marketIndex: freshIndex || marketIndex || null, at: now.getTime() } }));
     }
     isFetchingRef.current = false;
   };
@@ -2383,8 +2383,8 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
 
 
 // ---------------- Today Trend Radar (dashboard) ----------------
-const TREND_RADAR_VERSION = "2.44.1";
-const TREND_MODEL_VERSION = "2.44.1-readable-radar";
+const TREND_RADAR_VERSION = "2.45";
+const TREND_MODEL_VERSION = "2.45-fast-micro-and-final-tomorrow";
 function TrendRadar({ holdings }) {
   const [rows, setRows] = useState([]);
   const [asOf, setAsOf] = useState(null);
@@ -2402,6 +2402,13 @@ function TrendRadar({ holdings }) {
     let cancelled = false;
     let recalcRunning = false;
     let recalcQueued = false;
+    // Fast tape lives only in memory: fresh 15-second observations drive the
+    // intraday reaction layer without bloating persistent storage.
+    let fastTape = [];
+    // Slow inputs do not need to be re-read/re-built on every quote tick.
+    let memoDailyDay = null, memoDailyBars = null;
+    let memoInstDays = null, memoInstAt = 0;
+    let memoGlobal = null, memoGlobalAt = 0;
     const fmtDate = (d) => {
       const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,"0"), day=String(d.getDate()).padStart(2,"0");
       return `${y}${m}${day}`;
@@ -2525,6 +2532,38 @@ function TrendRadar({ holdings }) {
         });
         return [...buckets.values()].sort((a,b)=>a.ts-b.ts);
       };
+      const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
+      // 15-second micro momentum. Uses fastTape first, then the persisted
+      // minute tape as a cold-start fallback. Three horizons reduce whipsaw.
+      const microMomentum=(sym,currentPx)=>{
+        const base=(fastTape.length?fastTape:tape)
+          .filter(p=>p.day===todayKey && Number(p?.quotes?.[sym])>0)
+          .map(p=>({ts:Number(p.ts),px:Number(p.quotes[sym])}))
+          .sort((a,b)=>a.ts-b.ts);
+        const px=Number(currentPx);
+        if(!(px>0)) return {available:false,m1:0,m3:0,m8:0,score:0,agreement:0};
+        const endTs=now.getTime();
+        if(!base.length || endTs-base[base.length-1].ts>5000) base.push({ts:endTs,px});
+        if(base.length<2) return {available:false,m1:0,m3:0,m8:0,score:0,agreement:0};
+        const ref=(mins)=>{
+          const target=endTs-mins*60000;
+          let chosen=base[0];
+          for(const p of base){ if(p.ts<=target) chosen=p; else break; }
+          return chosen?.px>0?chosen.px:null;
+        };
+        const ret=(mins)=>{const r=ref(mins);return r?((px-r)/r)*100:0;};
+        const m1=ret(1),m3=ret(3),m8=ret(8);
+        const signs=[m1,m3,m8].filter(v=>Math.abs(v)>=0.02).map(v=>Math.sign(v));
+        const agreement=signs.length>=2 && signs.every(x=>x===signs[0]) ? signs[0] : 0;
+        const score=clamp(m1*12,-2.5,2.5)+clamp(m3*8,-3,3)+clamp(m8*5,-3.5,3.5)+(agreement*0.8);
+        return {available:true,m1,m3,m8,score:clamp(score,-8,8),agreement};
+      };
+      const rangePressure=(q,currentPx)=>{
+        const hi=Number(q?.high),lo=Number(q?.low),px=Number(currentPx);
+        if(!(hi>lo) || !(px>0)) return {available:false,pos:0.5,score:0};
+        const pos=clamp((px-lo)/(hi-lo),0,1);
+        return {available:true,pos,score:(pos-0.5)*3};
+      };
       // Real daily/monthly KD, built from actual TWSE-listed daily OHLC (via
       // /daily-history, itself Yahoo daily bars — same trusted source quote.js
       // already falls back to). Cached once per calendar day client-side since
@@ -2532,16 +2571,24 @@ function TrendRadar({ holdings }) {
       const active = holdings.filter((h) => Number(h.current || 0) > 0 && h.symbol);
       let dailyBarsMap = {};
       try {
-        const dhCache = await loadKey("trendRadarDailyHistory", { day: null, bars: {} });
-        if (dhCache?.day === todayKey && dhCache.bars && Object.keys(dhCache.bars).length) {
-          dailyBarsMap = dhCache.bars;
+        if (memoDailyDay === todayKey && memoDailyBars) {
+          dailyBarsMap = memoDailyBars;
         } else {
-          const wanted = [...new Set(["TAIEX", ...active.map(h => String(h.symbol))])];
-          const res = await fetchWithTimeout(`/daily-history?symbols=${encodeURIComponent(wanted.join(","))}&_ts=${Date.now()}`, { cache: "no-store" }, 12000);
-          const json = await res.json();
-          if (json?.ok && json.bars) {
-            dailyBarsMap = json.bars;
-            await saveKey("trendRadarDailyHistory", { day: todayKey, bars: dailyBarsMap, at: now.toISOString() });
+          const dhCache = await loadKey("trendRadarDailyHistory", { day: null, bars: {} });
+          if (dhCache?.day === todayKey && dhCache.bars && Object.keys(dhCache.bars).length) {
+            dailyBarsMap = dhCache.bars;
+          } else {
+            const wanted = [...new Set(["TAIEX", ...active.map(h => String(h.symbol))])];
+            const res = await fetchWithTimeout(`/daily-history?symbols=${encodeURIComponent(wanted.join(","))}&_ts=${Date.now()}`, { cache: "no-store" }, 12000);
+            const json = await res.json();
+            if (json?.ok && json.bars) {
+              dailyBarsMap = json.bars;
+              await saveKey("trendRadarDailyHistory", { day: todayKey, bars: dailyBarsMap, at: now.toISOString() });
+            }
+          }
+          if (Object.keys(dailyBarsMap).length) {
+            memoDailyDay = todayKey;
+            memoDailyBars = dailyBarsMap;
           }
         }
       } catch (e) {}
@@ -2630,10 +2677,15 @@ function TrendRadar({ holdings }) {
       const breadth=holdingPcts.length?holdingPcts.filter(v=>v>0).length/holdingPcts.length:0.5;
       let instDays=[];
       try{
-        const instCache=await loadKey("institutionalFlow",null);
-        const fresh=instCache && (Date.now()-new Date(instCache.at).getTime())<6*3600*1000;
-        instDays=fresh?instCache.days:await fetchInstitutional(active.map(h=>String(h.symbol)));
-        if(!fresh && instDays.length) await saveKey("institutionalFlow",{at:new Date().toISOString(),days:instDays});
+        if(memoInstDays && Date.now()-memoInstAt<6*3600*1000){
+          instDays=memoInstDays;
+        }else{
+          const instCache=await loadKey("institutionalFlow",null);
+          const fresh=instCache && (Date.now()-new Date(instCache.at).getTime())<6*3600*1000;
+          instDays=fresh?instCache.days:await fetchInstitutional(active.map(h=>String(h.symbol)));
+          if(!fresh && instDays.length) await saveKey("institutionalFlow",{at:new Date().toISOString(),days:instDays});
+          if(instDays.length){ memoInstDays=instDays; memoInstAt=Date.now(); }
+        }
         setInstStatus(instDays.length?"ok":"unavailable");
       }catch(e){setInstStatus("unavailable");}
       const signScore=(v)=>v>0?1:v<0?-1:0;
@@ -2648,10 +2700,17 @@ function TrendRadar({ holdings }) {
         + (marketKd15?.bull||0)*(1+0.75*lateProgress)
         + (marketKd60?.bull||0)*(1-0.25*lateProgress)
         + (marketKdDaily?.bull||0)*(1-0.5*lateProgress);
+      const marketMicro=microMomentum("TAIEX",Number(idx?.price));
+      const marketRange=rangePressure(idx,Number(idx?.price));
+      const microWeight=1.35-0.35*lateProgress;
       let marketScore=Math.max(-22,Math.min(22,indexPct*marketIndexW))
         +Math.max(-6,Math.min(6,(breadth-0.5)*marketBreadthW))
         +Math.max(-7,Math.min(7,mkShortScore*1.8))
-        +Math.max(-6,Math.min(6,marketInstScore*marketInstW));
+        +Math.max(-6,Math.min(6,marketInstScore*marketInstW))
+        +Math.max(-7,Math.min(7,marketMicro.score*microWeight))
+        +Math.max(-2,Math.min(2,marketRange.score));
+      const marketEvidence=1+(marketMicro.available?1:0)+([marketKd5,marketKd15,marketKd60].filter(Boolean).length>=2?1:0)+(instDays.length?1:0);
+      marketScore*=0.72+0.28*Math.min(1,marketEvidence/4);
       const marketCloseBoost = Math.abs(indexPct)>=0.10
         ? Math.sign(indexPct)*Math.min(6, 2 + Math.abs(indexPct)*8)*closeProgress
         : 0;
@@ -2671,9 +2730,11 @@ function TrendRadar({ holdings }) {
       }
       // Same whole-percent rounding as the per-stock probability below, so
       // the displayed "%" and the direction label can never disagree.
-      const marketProbability=Math.round(Math.max(25,Math.min(75,50 + 25*Math.tanh(marketScore/22))));
+      let marketProbability=Math.round(Math.max(25,Math.min(75,50 + 25*Math.tanh(marketScore/22))));
+      const marketFresh=!(sessionClock>=540&&sessionClock<=825) || !idx?.isStale;
+      if(!marketFresh) marketProbability=50;
       const marketDirection=marketProbability>=64?"明顯偏漲":marketProbability>=55?"稍偏漲":marketProbability<=36?"明顯偏跌":marketProbability<=45?"稍偏跌":"方向不明";
-      let computedMarketRow={probability:marketProbability,direction:marketDirection,indexPct,breadth,kd5:marketKd5,kd15:marketKd15,kd60:marketKd60,kdDaily:marketKdDaily,kdMonthly:marketKdMonthly,marketCloseBoost,modelVersion:TREND_MODEL_VERSION};
+      let computedMarketRow={probability:marketProbability,direction:marketDirection,indexPct,breadth,kd5:marketKd5,kd15:marketKd15,kd60:marketKd60,kdDaily:marketKdDaily,kdMonthly:marketKdMonthly,micro:marketMicro,range:marketRange,evidence:marketEvidence,marketCloseBoost,modelVersion:TREND_MODEL_VERSION};
       if(cancelled) return;
       let next = active.map((h) => {
         const q = quoteMap[h.symbol] || {};
@@ -2698,6 +2759,8 @@ function TrendRadar({ holdings }) {
         const kdDaily=dailyKdFor(h.symbol);
         const kdMonthly=monthlyKdFor(h.symbol);
         const kdSignals=[kd5,kd15,kd60,kdDaily].filter(Boolean);
+        const micro=microMomentum(h.symbol,Number(q.price));
+        const range=rangePressure(q,Number(q.price));
         const timedKdScore=(kd5?.bull||0)*(1+1.0*lateProgress)
           +(kd15?.bull||0)*(1+0.75*lateProgress)
           +(kd60?.bull||0)*(1-0.25*lateProgress)
@@ -2710,7 +2773,11 @@ function TrendRadar({ holdings }) {
           + Math.max(-20,Math.min(20,stockPct*stockW))
           + Math.max(-6,Math.min(6,newsScore*newsW))
           + Math.max(-7,Math.min(7,instScore*instWeight*instTimeW))
-          + Math.max(-7,Math.min(7,timedKdScore*1.5));
+          + Math.max(-7,Math.min(7,timedKdScore*1.5))
+          + Math.max(-8,Math.min(8,micro.score*(1.4-0.4*lateProgress)))
+          + Math.max(-2,Math.min(2,range.score));
+        const evidence=1+(micro.available?1:0)+(kdSignals.length>=2?1:0)+(flows.length?1:0)+(news.length?0.5:0);
+        score*=0.72+0.28*Math.min(1,evidence/4);
 
         // Model correction #2: close-proximity direction reinforcement.
         // From 12:30 onward, a move that is already meaningfully away from flat
@@ -2734,15 +2801,15 @@ function TrendRadar({ holdings }) {
         // deciding the label — otherwise a raw 54.6% displays as "55%" while
         // the label is decided on 54.6 (<55), showing "55% 方向不明" which
         // reads as a contradiction even though it isn't one internally.
-        const probability = Math.round(Math.max(25,Math.min(75,50 + 25*Math.tanh(score/22))));
+        let probability = Math.round(Math.max(25,Math.min(75,50 + 25*Math.tanh(score/22))));
+        const quoteFresh=!(sessionClock>=540&&sessionClock<=825) || (!q?.isStale && (!q?.fetchedAt || Date.now()-new Date(q.fetchedAt).getTime()<45000));
+        if(!quoteFresh) probability=50;
         const direction = probability>=64 ? "明顯偏漲" : probability>=55 ? "稍偏漲" : probability<=36 ? "明顯偏跌" : probability<=45 ? "稍偏跌" : "方向不明";
-        // Three tiers now instead of two: "高" needs both real depth of
-        // institutional history AND agreement across several KD timeframes,
-        // not just a probability that happens to be far from 50%.
+        // Confidence now requires actual evidence breadth, not probability alone.
         const conviction = Math.abs(probability-50);
-        const confidence = (flows.length>=3 && conviction>=15 && kdSignals.length>=3) ? "高"
-          : (flows.length>=1 && conviction>=8) ? "中" : "低";
-        return {symbol:h.symbol,name:h.name||"",probability,direction,confidence,indexPct,stockPct,newsScore,flows,f1,f3,f5,t1,t3,t5,d1,d3,d5,kd5,kd15,kd60,kdDaily,kdMonthly,modelVersion:TREND_MODEL_VERSION,lateProgress,closeProgress,closeDirectionBoost,weights:{indexW,stockW,newsW,instTimeW},timedKdScore};
+        const confidence = (evidence>=3.5 && flows.length>=3 && conviction>=14 && kdSignals.length>=3) ? "高"
+          : (evidence>=2.5 && conviction>=7) ? "中" : "低";
+        return {symbol:h.symbol,name:h.name||"",probability,direction,confidence,indexPct,stockPct,newsScore,flows,f1,f3,f5,t1,t3,t5,d1,d3,d5,kd5,kd15,kd60,kdDaily,kdMonthly,micro,range,evidence,quoteFresh,modelVersion:TREND_MODEL_VERSION,lateProgress,closeProgress,closeDirectionBoost,weights:{indexW,stockW,newsW,instTimeW},timedKdScore};
       });
 
       // Model correction #2: freeze today's forecast at/after 13:25.
@@ -2816,71 +2883,118 @@ function TrendRadar({ holdings }) {
       // forward-looking input available before TWSE opens the next session.
       let global=null;
       try{
-        const gCache=await loadKey("trendRadarGlobalSignal",null);
-        const gFresh=gCache && (Date.now()-Number(gCache.at||0))<5*60*1000;
-        global=gFresh ? gCache.value : await fetchGlobalSignal();
-        if(!gFresh && global) await saveKey("trendRadarGlobalSignal",{at:Date.now(),value:global});
+        if(memoGlobal && Date.now()-memoGlobalAt<2*60*1000){
+          global=memoGlobal;
+        }else{
+          const gCache=await loadKey("trendRadarGlobalSignal",null);
+          const gFresh=gCache && (Date.now()-Number(gCache.at||0))<2*60*1000;
+          global=gFresh ? gCache.value : await fetchGlobalSignal();
+          if(!gFresh && global) await saveKey("trendRadarGlobalSignal",{at:Date.now(),value:global});
+          if(global){memoGlobal=global;memoGlobalAt=Date.now();}
+        }
         setGlobalStatus(global?"ok":"unavailable");
         setGlobalRow(global);
       }catch(e){ setGlobalStatus("unavailable"); }
-      // Next-session preview. Overnight momentum is now the dominant driver
-      // (it is the only input here that isn't already reflected in today's
-      // own intraday score); today's own move is kept as a much smaller
-      // secondary drift term rather than the main driver it used to be.
+      // Next-session model v2.45.
+      // Preview starts at 10:30 and updates with every live quote. The final
+      // next-day call is frozen at 13:25, so backtests compare a fixed forecast
+      // with the next session instead of validating a moving target.
       const clock=sessionClock;
       const toLabel=(p)=>p>=64?"明顯偏漲":p>=55?"稍偏漲":p<=36?"明顯偏跌":p<=45?"稍偏跌":"方向不明";
       const tomorrow={};
-      if(clock>=720){
-        const calcTomorrow=(pct,kds,news=0,inst=0,beta=1)=>{
+      if(clock>=630){
+        const previewProgress=Math.max(0,Math.min(1,(clock-630)/(805-630)));
+        const overnightDecay=1-0.65*previewProgress;
+        const calcTomorrow=({pct,kds,news=0,inst=0,beta=1,micro=null,relative=0,range=null})=>{
           const ks=(kds||[]).filter(Boolean).reduce((a,k)=>a+k.bull,0);
-          const overnight = global ? Math.max(-10,Math.min(10,global.combined*1.1*beta)) : 0;
-          const raw=overnight+Math.max(-6,Math.min(6,pct*2))+Math.max(-5,Math.min(5,ks*1.5))+Math.max(-4,Math.min(4,news*1.5))+Math.max(-4,Math.min(4,inst));
-          // Round before labeling — same reasoning as the today/market
-          // probabilities: keeps the displayed "明日 X%" and its direction
-          // label always in agreement instead of disagreeing right at a
-          // 55/45 boundary.
-          const p=Math.round(Math.max(30,Math.min(70,50+20*Math.tanh(raw/16))));
-          // Keep the raw inputs (not just the blended probability) so a future
-          // factor backtest can tell which of these actually carries signal,
-          // instead of trusting these hand-picked weights forever.
-          return {probability:p,direction:toLabel(p),factors:{overnight,pct,ks,news,inst,beta}};
+          const overnight=global ? Math.max(-6,Math.min(6,global.combined*0.8*beta*overnightDecay)) : 0;
+          const microTerm=micro?.available ? Math.max(-3,Math.min(3,micro.score*0.45)) : 0;
+          const rangeTerm=range?.available ? Math.max(-1.5,Math.min(1.5,range.score*0.55)) : 0;
+          const raw=overnight
+            +Math.max(-4,Math.min(4,pct*1.25))
+            +Math.max(-4.5,Math.min(4.5,ks*1.25))
+            +Math.max(-3,Math.min(3,news*1.0))
+            +Math.max(-4,Math.min(4,inst))
+            +Math.max(-3.5,Math.min(3.5,relative*2.5))
+            +microTerm+rangeTerm;
+          const evidence=(global?1:0)+((kds||[]).filter(Boolean).length>=2?1:0)+(Math.abs(inst)>0?1:0)+(micro?.available?1:0)+(range?.available?0.5:0);
+          let dev=clock<750?8:clock<805?13:18;
+          if(evidence<2) dev=Math.min(dev,6);
+          let p=Math.round(50+20*Math.tanh(raw/16));
+          p=Math.round(Math.max(50-dev,Math.min(50+dev,p)));
+          return {probability:p,direction:toLabel(p),phase:clock>=805?"final":clock>=750?"refining":"preview",factors:{overnight,overnightDecay,pct,ks,news,inst,beta,micro:microTerm,relative,range:rangeTerm,evidence}};
         };
-        tomorrow.TAIEX=calcTomorrow(indexPct,[marketKd15,marketKd60,marketKdDaily]);
-        next.forEach(r=>{
-          const inst=(Math.sign(r.f3||0)*1.5+Math.sign(r.t3||0));
-          tomorrow[r.symbol]=calcTomorrow(r.stockPct,[r.kd15,r.kd60,r.kdDaily],r.newsScore,inst,betaFor(r.symbol));
+        tomorrow.TAIEX=calcTomorrow({
+          pct:indexPct,kds:[marketKd15,marketKd60,marketKdDaily],
+          micro:marketMicro,range:marketRange
         });
-        // Snapshot each symbol's "tomorrow" call exactly once per target
-        // trading day, keyed by the date it's actually about — so it can be
-        // checked against that day's real close instead of never being
-        // checked at all (the old version only ever validated "today").
+        next.forEach(r=>{
+          const inst=(Math.sign(r.f3||0)*1.5+Math.sign(r.t3||0)+Math.sign(r.f5||0)*0.5);
+          const beta=betaFor(r.symbol);
+          const relative=r.stockPct-(indexPct*beta);
+          tomorrow[r.symbol]=calcTomorrow({
+            pct:r.stockPct,kds:[r.kd15,r.kd60,r.kdDaily],news:r.newsScore,
+            inst,beta,micro:r.micro,relative,range:r.range
+          });
+        });
+
         try{
-          const tCache=await loadKey("trendRadarTomorrowHistory",{records:[]});
-          let tRecords=Array.isArray(tCache?.records)?tCache.records:[];
           const target=new Date(now);
           target.setDate(target.getDate()+1);
           while(target.getDay()===0||target.getDay()===6) target.setDate(target.getDate()+1);
           const targetDay=target.toLocaleDateString("sv-SE");
-          const entries=[["TAIEX",tomorrow.TAIEX], ...next.map(r=>[r.symbol,tomorrow[r.symbol]])];
-          entries.forEach(([sym,pred])=>{
-            if(!pred) return;
-            const key=targetDay+"|"+sym;
-            if(!tRecords.some(x=>x.key===key)){
-              tRecords.push({key,targetDay,symbol:sym,predictedOn:todayKey,probability:pred.probability,direction:pred.direction,factors:pred.factors,global:global?{spxPct:global.spxPct,soxPct:global.soxPct,usdtwdPct:global.usdtwdPct,txfPct:global.txfPct,txfPrice:global.txfPrice,txfExpiry:global.txfExpiry,txfSession:global.txfSession,combined:global.combined}:null});
+
+          // Freeze the final next-day forecast at/after 13:25.
+          if(clock>=805){
+            const existingLock=await loadKey("trendRadarTomorrowLock",null);
+            if(existingLock?.targetDay===targetDay && existingLock?.predictions){
+              Object.entries(existingLock.predictions).forEach(([sym,pred])=>{tomorrow[sym]=pred;});
+            }else{
+              await saveKey("trendRadarTomorrowLock",{
+                targetDay,predictedOn:todayKey,at:now.toISOString(),
+                modelVersion:TREND_MODEL_VERSION,predictions:tomorrow
+              });
             }
-          });
-          // Validate any record whose target day has now actually happened.
-          tRecords=tRecords.map(rec=>{
-            if(rec.actual || rec.targetDay!==todayKey) return rec;
-            const q=rec.symbol==="TAIEX"?idx:quoteMap[rec.symbol];
-            if(!q || !Number(q.prevClose) || !Number(q.price) || clock<810) return rec;
-            const actualPct=((Number(q.price)-Number(q.prevClose))/Number(q.prevClose))*100;
-            const actualUp=actualPct>0;
-            const predictedUp=rec.probability>=50;
-            return {...rec,actual:{pct:actualPct,up:actualUp,hit:predictedUp===actualUp,checkedAt:now.toISOString()}};
-          });
-          tRecords=tRecords.slice(-1500);
-          await saveKey("trendRadarTomorrowHistory",{records:tRecords,at:now.toISOString()});
+
+            const tCache=await loadKey("trendRadarTomorrowHistory",{records:[]});
+            let tRecords=Array.isArray(tCache?.records)?tCache.records:[];
+            const entries=[["TAIEX",tomorrow.TAIEX], ...next.map(r=>[r.symbol,tomorrow[r.symbol]])];
+            entries.forEach(([sym,pred])=>{
+              if(!pred) return;
+              const key=targetDay+"|"+sym;
+              const rec={key,targetDay,symbol:sym,predictedOn:todayKey,phase:"final",lockedAt:now.toISOString(),modelVersion:TREND_MODEL_VERSION,probability:pred.probability,direction:pred.direction,factors:pred.factors,global:global?{spxPct:global.spxPct,soxPct:global.soxPct,usdtwdPct:global.usdtwdPct,txfPct:global.txfPct,txfPrice:global.txfPrice,txfExpiry:global.txfExpiry,txfSession:global.txfSession,combined:global.combined}:null};
+              const i=tRecords.findIndex(x=>x.key===key && !x.actual);
+              if(i>=0) tRecords[i]=rec; else if(!tRecords.some(x=>x.key===key)) tRecords.push(rec);
+            });
+            tRecords=tRecords.map(rec=>{
+              if(rec.actual || rec.targetDay!==todayKey) return rec;
+              const q=rec.symbol==="TAIEX"?idx:quoteMap[rec.symbol];
+              if(!q || !Number(q.prevClose) || !Number(q.price) || clock<810) return rec;
+              const actualPct=((Number(q.price)-Number(q.prevClose))/Number(q.prevClose))*100;
+              const actualUp=actualPct>0;
+              const predictedUp=rec.probability>=50;
+              return {...rec,actual:{pct:actualPct,up:actualUp,hit:predictedUp===actualUp,checkedAt:now.toISOString()}};
+            });
+            tRecords=tRecords.slice(-1500);
+            await saveKey("trendRadarTomorrowHistory",{records:tRecords,at:now.toISOString()});
+          }else{
+            // Even before today's final lock exists, validate an older forecast
+            // once its target session has actually closed.
+            const tCache=await loadKey("trendRadarTomorrowHistory",{records:[]});
+            let tRecords=Array.isArray(tCache?.records)?tCache.records:[];
+            if(clock>=810 && tRecords.some(rec=>!rec.actual&&rec.targetDay===todayKey)){
+              tRecords=tRecords.map(rec=>{
+                if(rec.actual || rec.targetDay!==todayKey) return rec;
+                const q=rec.symbol==="TAIEX"?idx:quoteMap[rec.symbol];
+                if(!q || !Number(q.prevClose) || !Number(q.price)) return rec;
+                const actualPct=((Number(q.price)-Number(q.prevClose))/Number(q.prevClose))*100;
+                const actualUp=actualPct>0;
+                const predictedUp=rec.probability>=50;
+                return {...rec,actual:{pct:actualPct,up:actualUp,hit:predictedUp===actualUp,checkedAt:now.toISOString()}};
+              });
+              await saveKey("trendRadarTomorrowHistory",{records:tRecords.slice(-1500),at:now.toISOString()});
+            }
+          }
         }catch(e){}
       }
       try {
@@ -2892,6 +3006,7 @@ function TrendRadar({ holdings }) {
             symbol:r.symbol,name:r.name,probability:r.probability,direction:r.direction,confidence:r.confidence,
             indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,
             kd5:r.kd5,kd15:r.kd15,kd60:r.kd60,kdDaily:r.kdDaily,kdMonthly:r.kdMonthly,
+            micro:r.micro,range:r.range,evidence:r.evidence,quoteFresh:r.quoteFresh,
             f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5,
             closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,
           })),
@@ -2916,9 +3031,19 @@ function TrendRadar({ holdings }) {
     // recalc() reads the already-cached livePrices, so this does NOT add
     // another quote API request.
     let liveSyncTimer=null;
-    const onLivePricesUpdated=()=>{
+    const onLivePricesUpdated=(ev)=>{
+      const d=ev?.detail||{};
+      const quotes={};
+      Object.entries(d.map||{}).forEach(([sym,q])=>{const px=Number(q?.price);if(px>0&&!q?.isStale)quotes[sym]=px;});
+      const ip=Number(d.marketIndex?.price); if(ip>0) quotes.TAIEX=ip;
+      if(Object.keys(quotes).length){
+        const ts=Number(d.at)||Date.now();
+        fastTape.push({day:new Date(ts).toLocaleDateString("sv-SE"),ts,quotes});
+        const cutoff=ts-15*60*1000;
+        fastTape=fastTape.filter(p=>p.ts>=cutoff).slice(-80);
+      }
       clearTimeout(liveSyncTimer);
-      liveSyncTimer=setTimeout(()=>{ if(!cancelled) recalc(); },250);
+      liveSyncTimer=setTimeout(()=>{ if(!cancelled) recalc(); },80);
     };
     window.addEventListener("livePricesUpdated",onLivePricesUpdated);
     const timer=setInterval(recalc,5*60*1000);
@@ -2943,7 +3068,7 @@ function TrendRadar({ holdings }) {
       }catch(e){}
       try{
         const th=await loadKey("trendRadarTomorrowHistory",{records:[]});
-        const doneT=(th?.records||[]).filter(r=>r.actual && typeof r.actual.hit==="boolean" && r.direction!=="方向不明");
+        const doneT=(th?.records||[]).filter(r=>r.actual && typeof r.actual.hit==="boolean" && r.direction!=="方向不明" && r.phase!=="preview");
         const recentT=doneT.slice(-60);
         if(!dead) setTomorrowAccuracy(recentT.length?{n:recentT.length,hits:recentT.filter(r=>r.actual.hit).length}:null);
       }catch(e){}
@@ -2966,9 +3091,12 @@ function TrendRadar({ holdings }) {
   };
   // Human-readable layer: translate "price now + short KD" into one phrase
   // that can be understood at a glance. This does NOT change model scoring.
-  const easyState=(pct,kd5,kd15,kd60)=>{
+  const easyState=(pct,kd5,kd15,kd60,micro=null)=>{
     const trend=intradayTrend(kd5,kd15,kd60);
-    if(trend==="累積中") return {label:"資料累積中",arrow:"→",tone:COLORS.sub,watch:"等待更多盤中資料"};
+    const fast=micro?.available?micro.score:0;
+    if(fast>=1.5 && pct<0) return {label:"弱中回穩",arrow:"↗",tone:COLORS.gold,watch:"即時動能回升，觀察能否續強"};
+    if(fast<=-1.5 && pct>0) return {label:"強中轉弱",arrow:"↘",tone:COLORS.gold,watch:"即時動能轉弱，觀察是否守穩"};
+    if(trend==="累積中" && !micro?.available) return {label:"資料累積中",arrow:"→",tone:COLORS.sub,watch:"等待更多盤中資料"};
     if(pct<=-0.15 && trend==="偏多") return {label:"弱中回穩",arrow:"↗",tone:COLORS.gold,watch:"短線續強才算真正轉強"};
     if(pct<=-0.15 && trend==="偏空") return {label:"偏弱",arrow:"↘",tone:COLORS.loss,watch:"短線KD翻多才算止弱"};
     if(pct<=-0.05) return {label:"偏弱盤整",arrow:"→",tone:COLORS.loss,watch:"先看能否持續回收跌幅"};
@@ -2981,7 +3109,7 @@ function TrendRadar({ holdings }) {
   };
   const easyMarketSummary=(r)=>{
     if(!r) return null;
-    const st=easyState(r.indexPct,r.kd5,r.kd15,r.kd60);
+    const st=easyState(r.indexPct,r.kd5,r.kd15,r.kd60,r.micro);
     const lead=r.indexPct<=-0.15?"開低後":r.indexPct>=0.15?"開高後":"目前";
     return {...st,text:`${lead}${st.label}；尚未形成明確單邊趨勢`};
   };
@@ -3066,7 +3194,7 @@ function TrendRadar({ holdings }) {
         {rows.map((r)=>{
 
           const tone=r.direction.includes("漲")?COLORS.gain:r.direction.includes("跌")?COLORS.loss:COLORS.sub;
-          const easy=easyState(r.stockPct,r.kd5,r.kd15,r.kd60);
+          const easy=easyState(r.stockPct,r.kd5,r.kd15,r.kd60,r.micro);
           return <div key={r.symbol} className="rounded-xl px-3 py-2" style={{background:COLORS.bg,border:"1px solid "+COLORS.panelBorder}}>
             <div className="flex items-center justify-between">
               <div className="text-xs font-bold mono">{r.symbol}<span className="ml-1 font-normal" style={{color:COLORS.sub}}>{r.name}</span></div>
