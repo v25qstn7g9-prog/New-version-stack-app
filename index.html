@@ -230,6 +230,8 @@ const UI_EN = {
   "查看新聞": "View News",
   "目前總資產": "Current Total Assets",
   "台股＋美股合計": "TW + US Combined",
+  "台股資產": "TW Assets",
+  "美股資產": "US Assets",
   "今天": "Today",
   "已更新": "Updated",
   "高／低價": "High / Low",
@@ -1387,8 +1389,11 @@ function AssetTracker() {
   );
   const latest = sortedDaily[sortedDaily.length - 1];
   const prev = sortedDaily[sortedDaily.length - 2];
-  const totalToday = latest ? latest.twValue + latest.usValue : 0;
-  const totalPrev = prev ? prev.twValue + prev.usValue : null;
+  // 每日紀錄中的 twValue / usValue 都已是新台幣金額；總覽直接用這兩欄拆分顯示，不做匯率換算。
+  const currentTwValue = latest ? Number(latest.twValue || 0) : 0;
+  const currentUsValue = latest ? Number(latest.usValue || 0) : 0;
+  const totalToday = currentTwValue + currentUsValue;
+  const totalPrev = prev ? Number(prev.twValue || 0) + Number(prev.usValue || 0) : null;
   const dailyChange = totalPrev != null ? totalToday - totalPrev : 0;
   const dailyChangePct = totalPrev ? (dailyChange / totalPrev) * 100 : 0;
 
@@ -1702,7 +1707,8 @@ function AssetTracker() {
               case "dashboard":
                 return (
                   <Dashboard
-                    totalToday={totalToday} dailyChange={dailyChange} dailyChangePct={dailyChangePct}
+                    totalToday={totalToday} currentTwValue={currentTwValue} currentUsValue={currentUsValue}
+                    dailyChange={dailyChange} dailyChangePct={dailyChangePct}
                     capitalGain={capitalGain} totalDividends={totalDividends} totalReturn={totalReturn}
                     totalReturnPct={totalReturnPct} highPoint={highPoint} drawdown={drawdown}
                     ytdGain={ytdGain} ytdPct={ytdPct}
@@ -3716,7 +3722,7 @@ function PortfolioPerformanceCard({
   );
 }
 
-function Dashboard({ totalToday, dailyChange, dailyChangePct, capitalGain, totalDividends,
+function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, dailyChangePct, capitalGain, totalDividends,
   totalReturn, totalReturnPct, highPoint, drawdown, ytdGain, ytdPct, chartData, goal, totalInvested, holdingCostTotal, holdings,
   dailyRecords, dividends, yesterdayTwValue, onFillDailyTw }) {
   const up = dailyChange >= 0;
@@ -3754,6 +3760,19 @@ function Dashboard({ totalToday, dailyChange, dailyChangePct, capitalGain, total
           style={{ color: up ? COLORS.gain : COLORS.loss }}>
           {up ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
           {UI_SHOW_ENGLISH ? <>{pf(dailyChangePct)} {nf(dailyChange)} Today</> : <>{nf(dailyChange)}（{pf(dailyChangePct)}）今日</>}
+        </div>
+
+        <div className="mt-3 pt-3 space-y-2" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
+          <div className="flex items-center justify-between">
+            <span className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="台股資產" /></span>
+            <span className="text-sm font-bold mono">NT$ {nf(currentTwValue)}</span>
+          </div>
+          {currentUsValue > 0 && (
+            <div className="flex items-center justify-between">
+              <span className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="美股資產" /></span>
+              <span className="text-sm font-bold mono">NT$ {nf(currentUsValue)}</span>
+            </div>
+          )}
         </div>
       </div>
 
