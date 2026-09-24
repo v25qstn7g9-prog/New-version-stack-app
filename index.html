@@ -1992,6 +1992,55 @@ function MiniSparkline({ values, width=120, height=18, tone=null, showArea=true,
   );
 }
 
+function SessionSparkline({ points, baseline=null, width=300, height=34, tone=null, showDot=true }) {
+  const startMin=9*60, closeMin=13*60+30, endMin=14*60;
+  const plotBottom=height-10;
+  const raw=(points||[]).map(p=>({ts:Number(p?.ts),value:Number(p?.value)}))
+    .filter(p=>Number.isFinite(p.ts)&&Number.isFinite(p.value)&&p.value>0)
+    .map(p=>{
+      const d=new Date(p.ts);
+      return {...p,minute:d.getHours()*60+d.getMinutes()+d.getSeconds()/60};
+    })
+    .filter(p=>p.minute>=startMin&&p.minute<=endMin)
+    .sort((a,b)=>a.ts-b.ts);
+  if(raw.length<2) return <span className="text-[9px]" style={{color:COLORS.sub}}><UiLabel zh="趨勢累積中" /></span>;
+
+  const base=Number(baseline);
+  const vals=raw.map(p=>p.value);
+  if(Number.isFinite(base)&&base>0) vals.push(base);
+  let min=Math.min(...vals), max=Math.max(...vals);
+  let span=max-min;
+  if(!(span>0)){
+    span=Math.max(1,Math.abs(max||1)*0.002);
+    min-=span/2; max+=span/2;
+  }else{
+    const pad=span*0.12;
+    min-=pad; max+=pad; span=max-min;
+  }
+  const xFor=(minute)=>((Math.max(startMin,Math.min(endMin,minute))-startMin)/(endMin-startMin))*width;
+  const yFor=(v)=>2+((max-v)/span)*(plotBottom-4);
+  const xy=raw.map(p=>({x:xFor(p.minute),y:yFor(p.value),value:p.value}));
+  const coords=xy.map(p=>`${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+  const first=raw[0].value,lastValue=raw[raw.length-1].value;
+  const up=Number.isFinite(base)&&base>0?lastValue>=base:lastValue>=first;
+  const stroke=tone || (up?COLORS.gain:COLORS.loss);
+  const last=xy[xy.length-1];
+  const baseY=Number.isFinite(base)&&base>0?yFor(base):null;
+  const closeX=xFor(closeMin);
+
+  return (
+    <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-label={uiText(up?"上升趨勢":"下降趨勢")}>
+      {baseY!=null&&<line x1="0" y1={baseY} x2={width} y2={baseY} stroke={COLORS.sub} strokeWidth="1" strokeDasharray="3 3" opacity="0.5" vectorEffect="non-scaling-stroke" />}
+      <line x1={closeX} y1="1" x2={closeX} y2={plotBottom} stroke={COLORS.sub} strokeWidth="0.8" strokeDasharray="2 3" opacity="0.25" vectorEffect="non-scaling-stroke" />
+      <polyline points={coords} fill="none" stroke={stroke} strokeWidth="1.8" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
+      {showDot&&<circle cx={last.x} cy={last.y} r="2.1" fill={stroke} stroke={COLORS.panel} strokeWidth="1" vectorEffect="non-scaling-stroke" />}
+      <text x="0" y={height-1} textAnchor="start" fontSize="6.5" fill={COLORS.sub}>09:00</text>
+      <text x={closeX} y={height-1} textAnchor="middle" fontSize="6.5" fill={COLORS.sub}>13:30</text>
+      <text x={width} y={height-1} textAnchor="end" fontSize="6.5" fill={COLORS.sub}>14:00</text>
+    </svg>
+  );
+}
+
 function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
   const [live, setLive] = useState({});      // symbol -> { price, prevClose, isUS, asOfDate, isStale }
   const [liveStatus, setLiveStatus] = useState("idle"); // idle | loading | done | error
@@ -2186,7 +2235,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
     const value = l.price * h.current;
     const isFromCache = failedSymbols.includes(h.symbol);
     const quoteIsStale = Boolean(l.isStale);
-    return { ...h, price: l.price, high: l.high, low: l.low, chg, chgPct, value, isUS: l.isUS, fetchedAt: l.fetchedAt, isFromCache, quoteIsStale };
+    return { ...h, price: l.price, prevClose: l.prevClose, high: l.high, low: l.low, chg, chgPct, value, isUS: l.isUS, fetchedAt: l.fetchedAt, isFromCache, quoteIsStale };
   }).filter(Boolean);
 
   const totalValue = rows.reduce((s, r) => s + r.value, 0);
@@ -2211,7 +2260,8 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
 
   const todayKeyForSpark = new Date().toLocaleDateString("sv-SE");
   const todayTape = tapePoints.filter(p => p?.day === todayKeyForSpark);
-  const sparkFor = (sym) => todayTape.map(p => Number(p?.quotes?.[sym])).filter(v => Number.isFinite(v) && v>0);
+  const sparkFor = (sym) => todayTape.map(p => ({ts:Number(p?.ts),value:Number(p?.quotes?.[sym])}))
+    .filter(p => Number.isFinite(p.ts) && Number.isFinite(p.value) && p.value>0);
   const portfolioSpark = todayTape.map(p => {
     let total=0;
     let complete=activeHoldings.length>0;
@@ -2222,12 +2272,12 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
     });
     // 總市值曲線只接受「同一分鐘全部持股都有價格」的完整快照，
     // 避免某檔暫時缺值時把部分市值誤畫成突然下跌。
-    return complete?total:null;
-  }).filter(v=>Number.isFinite(v) && v>0);
+    return complete?{ts:Number(p?.ts),value:total}:null;
+  }).filter(p=>p && Number.isFinite(p.ts) && Number.isFinite(p.value) && p.value>0);
   const indexSpark = sparkFor("TAIEX");
   const portfolioDayUp = yesterdayTwValue != null
     ? totalValue >= yesterdayTwValue
-    : (portfolioSpark.length>1 ? portfolioSpark[portfolioSpark.length-1] >= portfolioSpark[0] : true);
+    : (portfolioSpark.length>1 ? portfolioSpark[portfolioSpark.length-1].value >= portfolioSpark[0].value : true);
 
   const recordToday = () => {
     if (!onFillDailyTw) return;
@@ -2273,7 +2323,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
             {rows.map((r) => (
               <div key={r.id}>
                 <div className="py-0.5">
-                  <div className="grid grid-cols-[36px_68px_76px_minmax(0,1fr)] grid-rows-[18px_18px_14px] gap-x-1 text-xs mono items-center">
+                  <div className="grid grid-cols-[36px_68px_76px_minmax(0,1fr)] grid-rows-[18px_18px_27px] gap-x-1 text-xs mono items-center">
                     <span className="row-start-1 col-start-1" style={{ color: COLORS.sub }}>{r.symbol}</span>
 
                     <span className="row-start-1 col-start-2 whitespace-nowrap leading-none" style={{color:COLORS.sub}}>
@@ -2294,8 +2344,8 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
                     <span className="row-start-2 col-start-4 text-right whitespace-nowrap leading-none min-w-0" style={{ color: r.quoteIsStale ? COLORS.sub : (r.chg >= 0 ? COLORS.gain : COLORS.loss) }}>
                       {!r.quoteIsStale ? <><UiLabel zh="今日損益" /> {r.chg >= 0 ? "+" : ""}{nf(Math.round(r.chg * r.current))}</> : ""}
                     </span>
-                    <div className="row-start-3 col-start-2 col-span-3 h-[12px] opacity-80">
-                      <MiniSparkline values={sparkFor(r.symbol)} width={240} height={12} tone={r.chg>=0?COLORS.gain:COLORS.loss} showArea={true} showDot={true} />
+                    <div className="row-start-3 col-start-2 col-span-3 h-[27px] opacity-90">
+                      <SessionSparkline points={sparkFor(r.symbol)} baseline={r.prevClose} width={240} height={27} tone={r.chg>=0?COLORS.gain:COLORS.loss} />
                     </div>
                   </div>
                 </div>
@@ -2313,8 +2363,8 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
             <span style={{ color: COLORS.sub }}><UiLabel zh={quoteComplete ? "今日台股總市值" : "目前可得市值（部分）"} /></span>
             <span style={{ color: COLORS.gold }}>NT$ {nf(totalValue)}</span>
           </div>
-          <div className="h-[20px] mt-1 opacity-85">
-            <MiniSparkline values={portfolioSpark} width={300} height={20} tone={portfolioDayUp?COLORS.gain:COLORS.loss} />
+          <div className="h-[34px] mt-1 opacity-90">
+            <SessionSparkline points={portfolioSpark} baseline={yesterdayTwValue} width={300} height={34} tone={portfolioDayUp?COLORS.gain:COLORS.loss} />
           </div>
           {yesterdayTwValue != null && (
             <>
@@ -2344,8 +2394,8 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
                 <span className="text-[9px] whitespace-nowrap" style={{color:COLORS.sub}}>{Number.isFinite(Number(marketIndex?.high))&&Number.isFinite(Number(marketIndex?.low)) ? (UI_SHOW_ENGLISH ? <>High {nf(Math.round(Number(marketIndex.high)))} | Low {nf(Math.round(Number(marketIndex.low)))}</> : <>高 {nf(Math.round(Number(marketIndex.high)))}｜低 {nf(Math.round(Number(marketIndex.low)))}</>) : (UI_SHOW_ENGLISH ? "High/Low --" : "高低點 --")}</span>
                 <span style={{ color: indexChange >= 0 ? COLORS.gain : COLORS.loss }}>{nf(Math.round(indexPrice))}　{indexChange >= 0 ? "▲" : "▼"} {indexChangePct >= 0 ? "+" : ""}{indexChangePct.toFixed(2)}%</span>
               </div>
-              <div className="h-[18px] mt-0.5 opacity-85">
-                <MiniSparkline values={indexSpark} width={300} height={18} tone={indexChange>=0?COLORS.gain:COLORS.loss} />
+              <div className="h-[34px] mt-0.5 opacity-90">
+                <SessionSparkline points={indexSpark} baseline={indexPrevClose} width={300} height={34} tone={indexChange>=0?COLORS.gain:COLORS.loss} />
               </div>
               {vsMarketPct != null && (
                 <div className="flex justify-between text-xs mono mt-1">
