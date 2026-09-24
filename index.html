@@ -159,6 +159,13 @@ const UI_EN = {
   "Sharpe / Sortino": "Sharpe / Sortino",
   "風險白話說明": "Risk in Plain Language",
   "AI 一句話評論": "AI One-line Comment",
+  "今日 AI 收盤報告": "AI Closing Report",
+  "今日盤勢分析": "Today Market Analysis",
+  "明日台股展望": "Tomorrow TW Market Outlook",
+  "14:00 後每日自動更新一次": "Auto-updates once daily after 14:00",
+  "重新分析": "Re-analyze",
+  "分析中…": "Analyzing…",
+  "尚未到收盤分析時間": "Closing analysis starts after 14:00",
   "請 AI 評論": "Ask AI",
   "AI 評論中…": "AI Commenting…",
   "AI 暫時無法評論": "AI comment unavailable",
@@ -3927,6 +3934,205 @@ function PortfolioPerformanceCard({
   );
 }
 
+function DailyClosingAiReport({ holdings, dailyRecords }) {
+  const [report, setReport] = useState(null);
+  const [status, setStatus] = useState("idle");
+  const [error, setError] = useState("");
+
+  const reportKeyFor = (date) => `dailyClosingAiReport:${date}`;
+
+  const buildAndAsk = async (force = false) => {
+    const p = taiwanDateParts();
+    const day = `${p.year}-${p.month}-${p.day}`;
+    const afterClose = p.hour > 14 || (p.hour === 14 && p.minute >= 0);
+    if (!afterClose && !force) return;
+
+    setStatus("loading");
+    setError("");
+    try {
+      if (!force) {
+        const cached = await loadKey(reportKeyFor(day), null);
+        if (cached?.day === day && cached?.text) {
+          setReport(cached);
+          setStatus("done");
+          return;
+        }
+      }
+
+      const [radar, live, instHist, tomorrowHist] = await Promise.all([
+        loadKey("trendRadarCurrentSnapshot", null),
+        loadKey("livePrices", null),
+        loadKey("trendRadarHistory", { records: [] }),
+        loadKey("trendRadarTomorrowHistory", { records: [] }),
+      ]);
+
+      const twHoldings = (holdings || []).filter(h => isTaiwanSymbol(h.symbol) && Number(h.current || 0) > 0);
+      const latestDaily = [...(dailyRecords || [])].sort((a,b)=>a.date.localeCompare(b.date)).slice(-2);
+      const liveMap = live?.map || {};
+      const holdingLines = twHoldings.map(h => {
+        const q = liveMap[h.symbol] || {};
+        const price = Number(q.price);
+        const prev = Number(q.prevClose);
+        const pct = price > 0 && prev > 0 ? ((price - prev) / prev) * 100 : null;
+        return `${h.symbol} ${h.name || ""}：${pct == null ? "漲跌未知" : (pct>=0?"+":"")+pct.toFixed(2)+"%"}，持股 ${nf(h.current)} 股`;
+      });
+
+      const r = radar || {};
+      const market = r.market || {};
+      const marketLine = [
+        Number.isFinite(Number(market.indexPct)) ? `大盤 ${Number(market.indexPct)>=0?"+":""}${Number(market.indexPct).toFixed(2)}%` : "大盤漲跌未知",
+        market.direction ? `雷達方向 ${market.direction}` : null,
+        Number.isFinite(Number(market.probability)) ? `機率 ${Number(market.probability).toFixed(0)}%` : null,
+        market.confidence ? `信心 ${market.confidence}` : null,
+      ].filter(Boolean).join("；");
+
+      const radarRows = Array.isArray(r.rows) ? r.rows.slice(0,12).map(x => {
+        const instNet = [x.f1,x.t1,x.d1].reduce((s,v)=>s+(Number(v)||0),0);
+        return `${x.symbol}：今日 ${Number(x.stockPct||0)>=0?"+":""}${Number(x.stockPct||0).toFixed(2)}%；方向 ${x.direction||"—"}；機率 ${Number(x.probability||0).toFixed(0)}%；法人淨訊號 ${instNet>=0?"+":""}${Math.round(instNet)}；KD 5/15/60 ${x.kd5?.state||"—"}/${x.kd15?.state||"—"}/${x.kd60?.state||"—"}`;
+      }) : [];
+
+      const tomorrowLines = r.tomorrow && typeof r.tomorrow === "object"
+        ? Object.entries(r.tomorrow).slice(0,12).map(([sym,x]) => `${sym}：${x?.direction||"—"}，機率 ${Number(x?.probability||0).toFixed(0)}%，信心 ${x?.confidence||"—"}`)
+        : [];
+
+      const global = r.global || {};
+      const globalLine = global ? [
+        Number.isFinite(Number(global.spxPct)) ? `S&P500 ${Number(global.spxPct)>=0?"+":""}${Number(global.spxPct).toFixed(2)}%` : null,
+        Number.isFinite(Number(global.soxPct)) ? `SOX ${Number(global.soxPct)>=0?"+":""}${Number(global.soxPct).toFixed(2)}%` : null,
+        Number.isFinite(Number(global.txfPct)) ? `台指期 ${Number(global.txfPct)>=0?"+":""}${Number(global.txfPct).toFixed(2)}%` : null,
+        Number.isFinite(Number(global.usdtwdPct)) ? `美元台幣 ${Number(global.usdtwdPct)>=0?"+":""}${Number(global.usdtwdPct).toFixed(2)}%` : null,
+      ].filter(Boolean).join("；") : "";
+
+      const recentAccuracy = (arr, phase) => {
+        const rows=(arr?.records||[]).filter(x=>x.actual&&typeof x.actual.hit==="boolean"&&(!phase||x.phase===phase)&&x.direction!=="方向不明").slice(-30);
+        return rows.length ? `${rows.filter(x=>x.actual.hit).length}/${rows.length}（${(rows.filter(x=>x.actual.hit).length/rows.length*100).toFixed(0)}%）` : "資料不足";
+      };
+
+      const payload = [
+        `日期：${day}（台北時間 14:00 後）`,
+        `市場：${marketLine}`,
+        globalLine ? `外部/期貨訊號：${globalLine}` : null,
+        `我的台股持股：\n${holdingLines.join("\n") || "無台股持股資料"}`,
+        `Trend Radar 個股：\n${radarRows.join("\n") || "尚無雷達資料"}`,
+        `明日模型預測：\n${tomorrowLines.join("\n") || "尚無明日預測資料"}`,
+        `最近準確度：上午 ${recentAccuracy(instHist,"morning")}；收盤前 ${recentAccuracy(instHist,"closeLock")}；明日預測 ${recentAccuracy(tomorrowHist,null)}`,
+        `最近每日資產紀錄：${JSON.stringify(latestDaily)}`,
+      ].filter(Boolean).join("\n\n");
+
+      const deviceIdKey = "stockTrackerDeviceId";
+      let deviceId = localStorage.getItem(deviceIdKey);
+      if (!deviceId) {
+        deviceId = `d_${uid()}_${uid()}`;
+        localStorage.setItem(deviceIdKey, deviceId);
+      }
+
+      const prompt = UI_SHOW_ENGLISH
+        ? `Write a substantive Taiwan stock market closing report from the supplied app data. Do not be superficial. Explain what drove today's market, whether price/technical/institutional signals agree or conflict, how the user's TW holdings behaved versus the market, and tomorrow's outlook with bull/base/bear scenarios and concrete signals to watch. Distinguish facts from inference. Avoid buy/sell advice. Use clear headings and about 450-700 words.\n\nDATA:\n${payload}`
+        : `請根據以下 App 資料，做一份「真的有分析」的台股收盤報告，不要只寫兩三句帶過。請至少包含：1. 今日盤勢主軸與強弱來源；2. 價格、盤中技術、KD、法人、Trend Radar 是否互相確認或有背離；3. 我的台股持股相對大盤表現與主要拖累/貢獻；4. 明日台股展望，分成偏多情境、基準情境、偏空情境，說明各自觸發條件與明天最該觀察的訊號；5. 明確區分「資料事實」與「模型推論」，不要把預測寫成必然；6. 不要提供買賣建議。請用繁體中文、具體、有內容，約 700～1100 字。\n\n資料如下：\n${payload}`;
+
+      const res = await fetchWithTimeout("/ask", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-device-id": deviceId },
+        body: JSON.stringify({
+          message: prompt,
+          history: [],
+          context: "這是台股每日 14:00 收盤後的完整分析報告。只能依提供的 App 資料分析，不要虛構新聞或數字，不需要呼叫工具。",
+          forceAnswer: true,
+        }),
+        cache: "no-store",
+      }, 30000);
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok || !data?.reply) throw new Error(data?.error || "AI unavailable");
+
+      const saved = {
+        day,
+        at: new Date().toISOString(),
+        text: cleanAiDisplayText(data.reply),
+        provider: data.provider || "",
+        model: data.model || "",
+      };
+      await saveKey(reportKeyFor(day), saved);
+      setReport(saved);
+      setStatus("done");
+    } catch (e) {
+      setError(UI_SHOW_ENGLISH ? "AI closing report is temporarily unavailable." : "AI 收盤報告暫時產生失敗，可稍後重試。");
+      setStatus("error");
+    }
+  };
+
+  useEffect(() => {
+    let dead = false;
+    let timer = null;
+    const check = async () => {
+      if (dead) return;
+      const p = taiwanDateParts();
+      const day = `${p.year}-${p.month}-${p.day}`;
+      const cached = await loadKey(reportKeyFor(day), null);
+      if (cached?.day === day && cached?.text) {
+        setReport(cached);
+        setStatus("done");
+        return;
+      }
+      if (p.hour >= 14) await buildAndAsk(false);
+    };
+    check();
+    timer = setInterval(check, 60 * 1000);
+    return () => { dead = true; if (timer) clearInterval(timer); };
+  }, [holdings, dailyRecords]);
+
+  const p = taiwanDateParts();
+  const afterClose = p.hour >= 14;
+
+  return (
+    <div className="rounded-2xl p-4" style={{
+      background: COLORS.panel,
+      border: `1px solid ${COLORS.panelBorder}`,
+      boxShadow: "0 4px 16px rgba(0,0,0,0.24)",
+    }}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-bold" style={{ color: COLORS.gold }}>
+            🤖 <UiLabel zh="今日 AI 收盤報告" />
+          </div>
+          <div className="text-[10px] mt-0.5" style={{ color: COLORS.sub }}>
+            <UiLabel zh="14:00 後每日自動更新一次" />
+          </div>
+        </div>
+        {afterClose && (
+          <button onClick={() => buildAndAsk(true)} disabled={status === "loading"}
+            className="rounded-lg px-2.5 py-1 text-[10px] font-bold"
+            style={{ color: COLORS.gold, border: `1px solid ${COLORS.gold}`, opacity: status === "loading" ? 0.55 : 1 }}>
+            <UiLabel zh={status === "loading" ? "分析中…" : "重新分析"} />
+          </button>
+        )}
+      </div>
+
+      {!afterClose && !report && (
+        <div className="text-xs mt-3" style={{ color: COLORS.sub }}>
+          <UiLabel zh="尚未到收盤分析時間" />
+        </div>
+      )}
+
+      {status === "loading" && !report && (
+        <div className="text-xs mt-3" style={{ color: COLORS.sub }}><UiLabel zh="分析中…" /></div>
+      )}
+
+      {report?.text && (
+        <>
+          <div className="text-[10px] mono mt-3" style={{ color: COLORS.sub }}>
+            {report.day} · {new Date(report.at).toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit",hour12:false})}
+          </div>
+          <div className="text-[12px] leading-[1.75] mt-2 whitespace-pre-wrap" style={{ color: COLORS.text }}>
+            {report.text}
+          </div>
+        </>
+      )}
+
+      {error && <div className="text-[11px] mt-2" style={{ color: COLORS.sub }}>{error}</div>}
+    </div>
+  );
+}
+
 function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, dailyChangePct, capitalGain, totalDividends,
   totalReturn, totalReturnPct, twTotalReturn, twTotalReturnPct, usTotalReturn, usTotalReturnPct, hasUsAssets,
   highPoint, drawdown, ytdGain, ytdPct, chartData, goal, totalInvested, holdings,
@@ -4051,6 +4257,8 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
       )}
 
       <TrendRadar holdings={holdings} />
+
+      <DailyClosingAiReport holdings={holdings} dailyRecords={dailyRecords} />
 
       <FactorBacktest />
 
