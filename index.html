@@ -152,6 +152,19 @@ const COLORS = {
 
 const UI_EN = {
   "即時股價": "Live Quotes",
+  "投資體質": "Portfolio Health",
+  "XIRR 年化報酬": "XIRR Annualized Return",
+  "最大回撤": "Max Drawdown",
+  "年化波動": "Annualized Volatility",
+  "Sharpe / Sortino": "Sharpe / Sortino",
+  "匯率曝險": "FX Exposure",
+  "依每日成本變動估算": "Estimated from Daily Cost Changes",
+  "資產曲線全期間": "Full Asset-Curve History",
+  "依每日紀錄年化": "Annualized from Daily Records",
+  "Rf=0%・全期間": "Rf=0% · Full History",
+  "目前美股市值占比": "Current US-Asset Share",
+  "資料不足": "Not Enough Data",
+  "風險指標依每日紀錄估算，僅供自我追蹤": "Risk metrics are estimated from Daily Records for personal tracking only",
   "新增每日紀錄": "Add Daily Record",
   "區間查詢（精算，非AI）": "Period Analysis",
   "週度損益": "Weekly P/L",
@@ -1682,7 +1695,8 @@ function AssetTracker() {
                     totalReturnPct={totalReturnPct} highPoint={highPoint} drawdown={drawdown}
                     ytdGain={ytdGain} ytdPct={ytdPct}
                     chartData={chartData} goal={goal} totalInvested={totalInvested}
-                    holdings={holdingsWithShares} yesterdayTwValue={yesterdayTwValue}
+                    holdings={holdingsWithShares} dailyRecords={sortedDaily} dividends={dividends}
+                    yesterdayTwValue={yesterdayTwValue}
                     onFillDailyTw={(value) => { setDailyPrefill({ twValue: value, nonce: Date.now() }); goToTab("daily"); }}
                   />
                 );
@@ -3466,9 +3480,204 @@ const CHART_RANGES = [
   { id: "all", label: "全部", days: null },
 ];
 
+function solveXirr(flows) {
+  const DAY = 24 * 60 * 60 * 1000;
+  const YEAR = 365.2425 * DAY;
+  const merged = new Map();
+  (flows || []).forEach((f) => {
+    const t = Number(f?.t);
+    const amount = Number(f?.amount);
+    if (!Number.isFinite(t) || !Number.isFinite(amount) || Math.abs(amount) < 0.01) return;
+    merged.set(t, (merged.get(t) || 0) + amount);
+  });
+  const xs = [...merged.entries()].map(([t, amount]) => ({ t, amount })).sort((a, b) => a.t - b.t);
+  if (xs.length < 2 || !xs.some((x) => x.amount < 0) || !xs.some((x) => x.amount > 0)) return null;
+  const t0 = xs[0].t;
+  const npv = (rate) => {
+    if (!(rate > -1)) return Number.POSITIVE_INFINITY;
+    return xs.reduce((sum, x) => sum + x.amount / Math.pow(1 + rate, (x.t - t0) / YEAR), 0);
+  };
+  let lo = -0.9999, hi = 10;
+  let flo = npv(lo), fhi = npv(hi);
+  for (let i = 0; i < 18 && Number.isFinite(flo) && Number.isFinite(fhi) && flo * fhi > 0; i++) {
+    hi *= 2;
+    fhi = npv(hi);
+  }
+  if (!Number.isFinite(flo) || !Number.isFinite(fhi) || flo * fhi > 0) return null;
+  for (let i = 0; i < 100; i++) {
+    const mid = (lo + hi) / 2;
+    const fm = npv(mid);
+    if (!Number.isFinite(fm)) return null;
+    if (Math.abs(fm) < 0.01) return mid * 100;
+    if (flo * fm <= 0) {
+      hi = mid;
+      fhi = fm;
+    } else {
+      lo = mid;
+      flo = fm;
+    }
+  }
+  return ((lo + hi) / 2) * 100;
+}
+
+function calcPortfolioHealth(records, dividends) {
+  const DAY = 24 * 60 * 60 * 1000;
+  const rows = (records || [])
+    .map((r) => ({
+      t: new Date(r.date).getTime(),
+      date: r.date,
+      total: Number(r.twValue || 0) + Number(r.usValue || 0),
+      cost: Number(r.twCost || 0) + Number(r.usCost || 0),
+      tw: Number(r.twValue || 0),
+      us: Number(r.usValue || 0),
+    }))
+    .filter((r) => Number.isFinite(r.t) && r.total > 0)
+    .sort((a, b) => a.t - b.t);
+
+  if (!rows.length) {
+    return { xirr:null, maxDrawdown:null, volatility:null, sharpe:null, sortino:null, usdPct:0, twdPct:100, observations:0 };
+  }
+
+  let peak = rows[0].total;
+  let maxDrawdown = 0;
+  rows.forEach((r) => {
+    peak = Math.max(peak, r.total);
+    if (peak > 0) maxDrawdown = Math.min(maxDrawdown, ((r.total - peak) / peak) * 100);
+  });
+
+  const trackedStart = rows.findIndex((r) => r.cost > 0);
+  const flows = [];
+  if (trackedStart >= 0) {
+    let prevCost = rows[trackedStart].cost;
+    flows.push({ t: rows[trackedStart].t, amount: -prevCost });
+    for (let i = trackedStart + 1; i < rows.length; i++) {
+      if (rows[i].cost <= 0) continue;
+      const deltaCost = rows[i].cost - prevCost;
+      if (Math.abs(deltaCost) >= 1) flows.push({ t: rows[i].t, amount: -deltaCost });
+      prevCost = rows[i].cost;
+    }
+    const firstT = rows[trackedStart].t;
+    const lastT = rows[rows.length - 1].t;
+    (dividends || []).forEach((d) => {
+      const t = new Date(d.date).getTime();
+      const amount = Number(d.amount || 0);
+      if (Number.isFinite(t) && t >= firstT && t <= lastT && amount > 0) flows.push({ t, amount });
+    });
+    flows.push({ t: rows[rows.length - 1].t, amount: rows[rows.length - 1].total });
+  }
+  const xirr = trackedStart >= 0 ? solveXirr(flows) : null;
+
+  const dailyized = [];
+  for (let i = 1; i < rows.length; i++) {
+    const a = rows[i - 1], b = rows[i];
+    const days = Math.max(1, (b.t - a.t) / DAY);
+    let periodReturn;
+    if (a.cost > 0 && b.cost > 0) {
+      periodReturn = ((b.total - b.cost) - (a.total - a.cost)) / a.total;
+    } else {
+      periodReturn = (b.total - a.total) / a.total;
+    }
+    if (!Number.isFinite(periodReturn) || periodReturn <= -0.99 || periodReturn > 5) continue;
+    const daily = Math.pow(1 + periodReturn, 1 / days) - 1;
+    if (Number.isFinite(daily)) dailyized.push(daily);
+  }
+
+  let volatility = null, sharpe = null, sortino = null;
+  if (dailyized.length >= 3) {
+    const mean = dailyized.reduce((s, x) => s + x, 0) / dailyized.length;
+    const variance = dailyized.reduce((s, x) => s + Math.pow(x - mean, 2), 0) / Math.max(1, dailyized.length - 1);
+    const dailyVol = Math.sqrt(Math.max(0, variance));
+    const annualVol = dailyVol * Math.sqrt(252);
+    volatility = annualVol * 100;
+
+    const avgLog = dailyized.reduce((s, x) => s + Math.log(1 + x), 0) / dailyized.length;
+    const annualReturn = Math.exp(avgLog * 252) - 1;
+    if (annualVol > 0.000001) sharpe = annualReturn / annualVol;
+
+    const downside = dailyized.filter((x) => x < 0);
+    if (downside.length) {
+      const downsideDaily = Math.sqrt(downside.reduce((s, x) => s + x * x, 0) / downside.length);
+      const downsideAnnual = downsideDaily * Math.sqrt(252);
+      if (downsideAnnual > 0.000001) sortino = annualReturn / downsideAnnual;
+    }
+  }
+
+  const latest = rows[rows.length - 1];
+  const usdPct = latest.total > 0 ? Math.max(0, Math.min(100, (latest.us / latest.total) * 100)) : 0;
+  return {
+    xirr, maxDrawdown, volatility, sharpe, sortino,
+    usdPct, twdPct: Math.max(0, 100 - usdPct),
+    observations: dailyized.length,
+  };
+}
+
+function PortfolioHealthCard({ records, dividends }) {
+  const m = useMemo(() => calcPortfolioHealth(records, dividends), [records, dividends]);
+  const pctOrDash = (v) => Number.isFinite(v) ? pf(v) : uiText("資料不足");
+  const ratioOrDash = (v) => Number.isFinite(v) ? v.toFixed(2) : "—";
+  const tile = (label, value, sub, color = COLORS.text) => (
+    <div className="rounded-xl p-3 min-w-0" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
+      <div className="text-[11px] leading-tight" style={{ color: COLORS.sub }}><UiLabel zh={label} /></div>
+      <div className="text-lg font-black mono mt-1 truncate" style={{ color }}>{value}</div>
+      <div className="text-[10px] mt-1 leading-tight" style={{ color: COLORS.sub }}><UiLabel zh={sub} /></div>
+    </div>
+  );
+
+  const xirrColor = Number.isFinite(m.xirr) ? (m.xirr >= 0 ? COLORS.gain : COLORS.loss) : COLORS.text;
+
+  return (
+    <div className="rounded-2xl p-4" style={{
+      background: COLORS.panel,
+      border: `1px solid ${COLORS.panelBorder}`,
+      boxShadow: "0 4px 16px rgba(0,0,0,0.22)",
+    }}>
+      <div className="flex items-end justify-between gap-2 mb-3">
+        <div>
+          <div className="text-sm font-bold" style={{ color: COLORS.gold }}><UiLabel zh="投資體質" /></div>
+          <div className="text-[10px] mt-0.5" style={{ color: COLORS.sub }}>
+            {UI_SHOW_ENGLISH ? "Return · Risk · Currency" : "報酬・風險・幣別，一眼看完"}
+          </div>
+        </div>
+        <div className="text-[10px] mono" style={{ color: COLORS.sub }}>
+          {m.observations > 0 ? (UI_SHOW_ENGLISH ? `${m.observations} return intervals` : `${m.observations} 段報酬資料`) : ""}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        {tile("XIRR 年化報酬", pctOrDash(m.xirr), "依每日成本變動估算", xirrColor)}
+        {tile("最大回撤", pctOrDash(m.maxDrawdown), "資產曲線全期間", COLORS.gold)}
+        {tile("年化波動", pctOrDash(m.volatility), "依每日紀錄年化")}
+        {tile("Sharpe / Sortino", `${ratioOrDash(m.sharpe)} / ${ratioOrDash(m.sortino)}`, "Rf=0%・全期間")}
+      </div>
+
+      <div className="rounded-xl p-3 mt-2" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="匯率曝險" /></div>
+            <div className="text-base font-black mono mt-0.5" style={{ color: m.usdPct > 0 ? COLORS.gold : COLORS.text }}>
+              USD {m.usdPct.toFixed(1)}%
+            </div>
+          </div>
+          <div className="text-right text-[10px] mono" style={{ color: COLORS.sub }}>
+            TWD {m.twdPct.toFixed(1)}%<br/>
+            <UiLabel zh="目前美股市值占比" />
+          </div>
+        </div>
+        <div className="h-2 rounded-full overflow-hidden mt-2" style={{ background: "#22304B" }}>
+          <div className="h-full rounded-full" style={{ width: `${m.usdPct}%`, background: COLORS.gold, transition: "width .35s ease" }} />
+        </div>
+      </div>
+
+      <div className="text-[10px] leading-relaxed mt-2" style={{ color: COLORS.sub }}>
+        <UiLabel zh="風險指標依每日紀錄估算，僅供自我追蹤" />
+      </div>
+    </div>
+  );
+}
+
 function Dashboard({ totalToday, dailyChange, dailyChangePct, capitalGain, totalDividends,
   totalReturn, totalReturnPct, highPoint, drawdown, ytdGain, ytdPct, chartData, goal, totalInvested, holdings,
-  yesterdayTwValue, onFillDailyTw }) {
+  dailyRecords, dividends, yesterdayTwValue, onFillDailyTw }) {
   const up = dailyChange >= 0;
   // Defaults to "1年" rather than "全部": with 3+ sparse years plotted
   // proportionally to real time (see pickEvenTimeTicks above), the last
@@ -3506,9 +3715,7 @@ function Dashboard({ totalToday, dailyChange, dailyChangePct, capitalGain, total
 
       <LivePricePanel holdings={holdings} onFillDailyTw={onFillDailyTw} yesterdayTwValue={yesterdayTwValue} />
 
-      <TrendRadar holdings={holdings} />
-
-      <FactorBacktest />
+      <PortfolioHealthCard records={dailyRecords} dividends={dividends} />
 
       {chartData.length > 1 && (
         <div className="rounded-2xl p-4" style={{
@@ -3554,6 +3761,10 @@ function Dashboard({ totalToday, dailyChange, dailyChangePct, capitalGain, total
           </div>
         </div>
       )}
+
+      <TrendRadar holdings={holdings} />
+
+      <FactorBacktest />
 
       <div className="grid grid-cols-2 gap-3">
         <StatCard label="持倉損益(估)" value={`NT$ ${nf(capitalGain)}`} tone={capitalGain >= 0 ? "gain" : "loss"} />
