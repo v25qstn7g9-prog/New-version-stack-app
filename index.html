@@ -1578,7 +1578,9 @@ function AssetTracker() {
     .reduce((s, h) => s + Number(h.estCostBasis || 0), 0);
 
   const currentTwCost = twHoldingCost > 0 ? twHoldingCost : latestTwCost;
-  const hasUsAssets = currentUsValue > 0 || latestUsCost > 0;
+  // 總覽是否顯示「美股」只看最新每日紀錄的美股市值；
+  // usValue = 0 代表目前沒有美股，整個總覽都不出現美股字樣。
+  const hasUsAssets = currentUsValue > 0;
   const currentUsCost = hasUsAssets
     ? (latestUsCost > 0 ? latestUsCost : usHoldingCostFallback)
     : 0;
@@ -2112,7 +2114,7 @@ function SessionSparkline({ points, baseline=null, width=300, height=34, tone=nu
   );
 }
 
-function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUsValue }) {
+function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUsValue, hasUsAssets }) {
   const [live, setLive] = useState({});      // symbol -> { price, prevClose, isUS, asOfDate, isStale }
   const [liveStatus, setLiveStatus] = useState("idle"); // idle | loading | done | error
   const [liveAt, setLiveAt] = useState(null);
@@ -2454,7 +2456,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
                 <span style={{ color: COLORS.sub }}><UiLabel zh="昨日台股總市值" /></span>
                 <span style={{ color: COLORS.sub }}>NT$ {nf(yesterdayTwValue)}</span>
               </div>
-              {Number(yesterdayUsValue || 0) > 0 && (
+              {hasUsAssets && Number(yesterdayUsValue || 0) > 0 && (
                 <div className="flex justify-between text-xs mono mt-1">
                   <span style={{ color: COLORS.sub }}><UiLabel zh="昨日美股總市值" /></span>
                   <span style={{ color: COLORS.sub }}>NT$ {nf(yesterdayUsValue)}</span>
@@ -2504,7 +2506,9 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
               </button>
               <div className="text-[10px] mt-1" style={{ color: COLORS.sub }}>
                 <UiLabel zh={quoteComplete
-                  ? "會跳到「每日紀錄」並自動填好台股市值，美股記得手動補上再儲存"
+                  ? (hasUsAssets
+                    ? "會跳到「每日紀錄」並自動填好台股市值，美股記得手動補上再儲存"
+                    : "會跳到「每日紀錄」並自動填好台股市值，可直接儲存")
                   : "目前報價不完整：已禁止把部分市值寫入每日紀錄"} />
               </div>
             </>
@@ -3825,7 +3829,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
         <div className="flex items-center gap-2">
           <div className="text-xs" style={{ color: COLORS.sub }}><UiLabel zh="目前總資產" /></div>
           <div className="text-[10px]" style={{ color: COLORS.sub, opacity: 0.85 }}>
-            <UiLabel zh={currentUsValue > 0 ? "台股＋美股合計" : "台股合計"} />
+            <UiLabel zh={hasUsAssets ? "台股＋美股合計" : "台股合計"} />
           </div>
         </div>
         <div className="text-3xl font-black mono mt-1"><AnimatedNumber value={totalToday} prefix="NT$ " /></div>
@@ -3840,7 +3844,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
             <span className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="台股資產" /></span>
             <span className="text-sm font-bold mono">NT$ {nf(currentTwValue)}</span>
           </div>
-          {currentUsValue > 0 && (
+          {hasUsAssets && (
             <div className="flex items-center justify-between">
               <span className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="美股資產" /></span>
               <span className="text-sm font-bold mono">NT$ {nf(currentUsValue)}</span>
@@ -3849,7 +3853,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
         </div>
       </div>
 
-      <LivePricePanel holdings={holdings} onFillDailyTw={onFillDailyTw} yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue} />
+      <LivePricePanel holdings={holdings} onFillDailyTw={onFillDailyTw} yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue} hasUsAssets={hasUsAssets} />
 
 
       {chartData.length > 1 && (
