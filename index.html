@@ -157,6 +157,7 @@ const UI_EN = {
   "最大回撤": "Max Drawdown",
   "年化波動": "Annualized Volatility",
   "Sharpe / Sortino": "Sharpe / Sortino",
+  "風險白話說明": "Risk in Plain Language",
   "依每日成本變動估算": "Estimated from Daily Cost Changes",
   "資產曲線全期間": "Full Asset-Curve History",
   "依每日紀錄年化": "Annualized from Daily Records",
@@ -3684,6 +3685,39 @@ function PortfolioPerformanceCard({
   const totalTone = totalReturn >= 0 ? COLORS.gain : COLORS.loss;
   const xirrTone = Number.isFinite(m.xirr) ? (m.xirr >= 0 ? COLORS.gain : COLORS.loss) : COLORS.text;
 
+  // 白話風險說明：跟下面的波動／回撤／Sharpe 同一組每日紀錄資料，
+  // 每次新增或更新每日紀錄都會自動重算；歷史越長，通常單日變動越平滑。
+  const riskPlainText = (() => {
+    if (!Number.isFinite(m.volatility) || !Number.isFinite(m.maxDrawdown)) {
+      return UI_SHOW_ENGLISH
+        ? "Not enough history yet. Keep adding Daily Records."
+        : "資料還不夠，持續累積每日紀錄後會更準。";
+    }
+
+    let riskPart;
+    if (m.volatility >= 30 || m.maxDrawdown <= -25) {
+      riskPart = UI_SHOW_ENGLISH ? "Volatility is relatively high" : "目前波動偏高";
+    } else if (m.volatility >= 18 || m.maxDrawdown <= -15) {
+      riskPart = UI_SHOW_ENGLISH ? "There is noticeable volatility" : "目前有一定波動";
+    } else {
+      riskPart = UI_SHOW_ENGLISH ? "Volatility is relatively mild" : "目前波動相對溫和";
+    }
+
+    let efficiencyPart = "";
+    if (Number.isFinite(m.sharpe)) {
+      if (m.sharpe >= 1.5) {
+        efficiencyPart = UI_SHOW_ENGLISH ? ", but returns are compensating for the risk well." : "，但目前報酬有補償這些風險。";
+      } else if (m.sharpe >= 1) {
+        efficiencyPart = UI_SHOW_ENGLISH ? ", and risk-adjusted return is acceptable." : "，風險報酬效率尚可。";
+      } else {
+        efficiencyPart = UI_SHOW_ENGLISH ? ", while return compensation for the risk is currently limited." : "，目前報酬對風險的補償較弱。";
+      }
+    } else {
+      efficiencyPart = UI_SHOW_ENGLISH ? "." : "。";
+    }
+    return riskPart + efficiencyPart;
+  })();
+
   const mini = (label, value, color = COLORS.text, sub = null) => (
     <div className="rounded-xl p-3 min-w-0" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
       <div className="text-[11px] leading-tight" style={{ color: COLORS.sub }}><UiLabel zh={label} /></div>
@@ -3772,6 +3806,22 @@ function PortfolioPerformanceCard({
         {mini("最大回撤", pctOrDash(m.maxDrawdown), m.maxDrawdown < 0 ? COLORS.loss : COLORS.text, "資產曲線全期間")}
         {mini("年化波動", pctOrDash(m.volatility), COLORS.text, "依每日紀錄年化")}
         {mini("Sharpe / Sortino", `${ratioOrDash(m.sharpe)} / ${ratioOrDash(m.sortino)}`, COLORS.text, "Rf=0%・全期間")}
+      </div>
+
+      <div className="rounded-xl px-3 py-3 mt-2" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
+        <div className="text-[11px] font-bold" style={{ color: COLORS.gold }}>
+          <UiLabel zh="風險白話說明" />
+        </div>
+        <div className="text-sm font-bold mt-1.5 leading-relaxed" style={{ color: COLORS.text }}>
+          {riskPlainText}
+        </div>
+        {Number.isFinite(m.maxDrawdown) && Number.isFinite(m.volatility) && (
+          <div className="text-[10px] mono mt-1.5" style={{ color: COLORS.sub }}>
+            {UI_SHOW_ENGLISH
+              ? `Max drawdown ${pf(m.maxDrawdown)} · Annualized volatility ${pf(m.volatility)}`
+              : `最大回撤 ${pf(m.maxDrawdown)}・年化波動 ${pf(m.volatility)}`}
+          </div>
+        )}
       </div>
 
       <div className="rounded-xl px-3 py-2.5 mt-2" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
