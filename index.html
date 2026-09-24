@@ -149,6 +149,25 @@
       .premium-tab-progress .text-lg{font-size:1rem!important}
       .premium-tab-plan .grid.grid-cols-3.gap-2{gap:.4rem!important}
     }
+
+    /* Final premium system — shared panels, rows, actions */
+    .premium-panel{position:relative;overflow:hidden}
+    .premium-panel:before{content:"";position:absolute;left:14px;right:14px;top:0;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.055),transparent)}
+    .premium-panel>.text-xs.font-bold:first-child{letter-spacing:.01em}
+    .premium-row{transition:background-color .14s ease,border-color .14s ease}
+    .premium-row:focus-within{border-color:#2d3b55!important;background:#101827!important}
+    .premium-row-delete{width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:10px;flex:0 0 auto}
+    .premium-row-delete:active{background:#172033}
+    .premium-add-button{min-height:44px;letter-spacing:.01em;box-shadow:0 6px 18px rgba(201,162,75,.10)!important}
+    .premium-empty{border:1px dashed #25324a;border-radius:13px;background:#0d1422;padding:1rem!important}
+    @media(max-width:640px){
+      .premium-panel{border-radius:16px!important}
+      .premium-panel:before{left:12px;right:12px}
+      .premium-row{padding:.6rem!important;border-radius:12px!important}
+      .premium-row-delete{width:32px;height:32px}
+      .premium-add-button{min-height:42px;font-size:12.5px!important}
+      .premium-empty{padding:.85rem!important}
+    }
     @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
 
   </style>
@@ -6061,7 +6080,7 @@ function ProgressPanel({ planSchedule, setPlanSchedule, planTotal, schedule, tot
 // ---------------- shared bits ----------------
 function Panel({ title, children }) {
   return (
-    <div className="rounded-2xl p-4" style={{
+    <div className="premium-panel rounded-2xl p-4" style={{
       background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`,
       boxShadow: "0 4px 16px rgba(0,0,0,0.28)",
     }}>
@@ -6088,7 +6107,7 @@ function Field({ label, children }) {
 }
 function AddButton({ onClick, label }) {
   return (
-    <button onClick={onClick} className="mt-3 w-full flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-bold"
+    <button onClick={onClick} className="premium-add-button mt-3 w-full flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-bold"
       style={{ background: COLORS.gold, color: "#0A0F1C" }}>
       <Plus size={16} /> <UiLabel zh={label} inline />
     </button>
@@ -6096,14 +6115,14 @@ function AddButton({ onClick, label }) {
 }
 function Row({ children, onDelete }) {
   return (
-    <div className="flex items-center gap-2 rounded-xl p-2.5" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
+    <div className="premium-row flex items-center gap-2 rounded-xl p-2.5" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
       {children}
-      <button onClick={onDelete} style={{ color: COLORS.sub }}><TrashIcon size={14} /></button>
+      <button className="premium-row-delete" onClick={onDelete} style={{ color: COLORS.sub }} aria-label={uiText("刪除")}><TrashIcon size={14} /></button>
     </div>
   );
 }
 function Empty({ text }) {
-  return <div className="text-center text-xs py-6" style={{ color: COLORS.sub }}><UiLabel zh={text} /></div>;
+  return <div className="premium-empty text-center text-xs py-6" style={{ color: COLORS.sub }}><UiLabel zh={text} /></div>;
 }
 
 // ---------------- AI 聊天/問答（浮動按鈕，任何分頁都叫得出來） ----------------
