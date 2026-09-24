@@ -164,6 +164,8 @@ const UI_EN = {
   "明日台股展望": "Tomorrow TW Market Outlook",
   "14:00 後每日自動更新一次": "Auto-updates once daily after 14:00",
   "重新分析": "Re-analyze",
+  "展開全文": "Show Full Report",
+  "收合": "Collapse",
   "分析中…": "Analyzing…",
   "尚未到收盤分析時間": "Closing analysis starts after 14:00",
   "請 AI 評論": "Ask AI",
@@ -3938,8 +3940,10 @@ function DailyClosingAiReport({ holdings, dailyRecords }) {
   const [report, setReport] = useState(null);
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState("");
+  const [expanded, setExpanded] = useState(false);
 
   const reportKeyFor = (date) => `dailyClosingAiReport:${date}`;
+  const expandedKeyFor = (date) => `dailyClosingAiReportExpanded:${date}`;
 
   const buildAndAsk = async (force = false) => {
     const p = taiwanDateParts();
@@ -4053,6 +4057,8 @@ function DailyClosingAiReport({ holdings, dailyRecords }) {
       };
       await saveKey(reportKeyFor(day), saved);
       setReport(saved);
+      const savedExpanded = localStorage.getItem(expandedKeyFor(day));
+      setExpanded(savedExpanded === "1");
       setStatus("done");
     } catch (e) {
       setError(UI_SHOW_ENGLISH ? "AI closing report is temporarily unavailable." : "AI 收盤報告暫時產生失敗，可稍後重試。");
@@ -4070,6 +4076,8 @@ function DailyClosingAiReport({ holdings, dailyRecords }) {
       const cached = await loadKey(reportKeyFor(day), null);
       if (cached?.day === day && cached?.text) {
         setReport(cached);
+        const savedExpanded = localStorage.getItem(expandedKeyFor(day));
+        setExpanded(savedExpanded === "1");
         setStatus("done");
         return;
       }
@@ -4122,9 +4130,35 @@ function DailyClosingAiReport({ holdings, dailyRecords }) {
           <div className="text-[10px] mono mt-3" style={{ color: COLORS.sub }}>
             {report.day} · {new Date(report.at).toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit",hour12:false})}
           </div>
-          <div className="text-[12px] leading-[1.75] mt-2 whitespace-pre-wrap" style={{ color: COLORS.text }}>
-            {report.text}
+
+          <div className="relative mt-2">
+            <div
+              className="text-[12px] leading-[1.75] whitespace-pre-wrap overflow-hidden transition-[max-height] duration-300"
+              style={{
+                color: COLORS.text,
+                maxHeight: expanded ? "none" : "15.5em",
+              }}>
+              {report.text}
+            </div>
+
+            {!expanded && (
+              <div
+                className="pointer-events-none absolute left-0 right-0 bottom-0 h-12"
+                style={{ background: `linear-gradient(to bottom, rgba(0,0,0,0), ${COLORS.panel})` }}
+              />
+            )}
           </div>
+
+          <button
+            onClick={() => {
+              const next = !expanded;
+              setExpanded(next);
+              localStorage.setItem(expandedKeyFor(report.day), next ? "1" : "0");
+            }}
+            className="mt-2 w-full rounded-lg py-2 text-[11px] font-bold"
+            style={{ color: COLORS.gold, border: `1px solid ${COLORS.panelBorder}`, background: COLORS.bg }}>
+            <UiLabel zh={expanded ? "收合" : "展開全文"} /> {expanded ? "▲" : "▼"}
+          </button>
         </>
       )}
 
