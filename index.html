@@ -1924,15 +1924,11 @@ function Header({ goal, totalToday, goalDate, backupOverdue, backupAgeDays, show
       className="px-4 pb-3"
       style={{
         borderBottom: `1px solid ${COLORS.panelBorder}`,
-        // Header padding-top only needs to clear the safe-area notch/Dynamic
-        // Island, not reproduce its full height as blank space above the
-        // title. `env(safe-area-inset-top)` on iPhones with a notch/Dynamic
-        // Island is typically 44–59px — subtracting only 4px left roughly a
-        // line and a half of dead space above "存股資產追蹤". Subtracting
-        // more claws that back, while `max(4px, ...)` keeps a small minimum
-        // gap on devices with zero safe-area inset (Android, older iPhones)
-        // so the title never touches the very top edge.
-        paddingTop: "max(4px, calc(env(safe-area-inset-top, 0px) - 20px))",
+        // Start the header fully below the status bar. With viewport-fit=cover
+        // and a black-translucent status bar, iOS frosts/blurs whatever sits
+        // inside the safe-area strip, so the old "inset - 20px" offset left
+        // the title and 中/EN button fogged and hard to read or tap.
+        paddingTop: "calc(env(safe-area-inset-top, 0px) + 10px)",
       }}
     >
       <div className="max-w-none mx-auto px-0">
