@@ -4242,7 +4242,9 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
     return filtered.length > 1 ? filtered : chartData;
   }, [chartData, chartRangeId]);
   return (
-    <div className="space-y-4">
+    <div className="space-y-2">
+      <NewsCarousel holdings={holdings} />
+
       <div className="rounded-2xl p-4" style={{
         background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`,
         boxShadow: "0 4px 16px rgba(0,0,0,0.28)",
@@ -4333,8 +4335,6 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
           </div>
         )}
       </div>
-
-      <NewsCarousel holdings={holdings} />
 
       <LivePricePanel holdings={holdings} onFillDailyTw={onFillDailyTw} yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue} hasUsAssets={hasUsAssets} />
 
