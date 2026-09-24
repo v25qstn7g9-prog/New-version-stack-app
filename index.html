@@ -160,6 +160,10 @@ const UI_EN = {
   "風險白話說明": "Risk in Plain Language",
   "AI 一句話評論": "AI One-line Comment",
   "今日 AI 收盤報告": "AI Closing Report",
+  "今日趨勢雷達": "Today Trend Radar",
+  "進階績效分析": "Advanced Performance Analysis",
+  "展開": "Expand",
+  "收合": "Collapse",
   "今日盤勢分析": "Today Market Analysis",
   "明日台股展望": "Tomorrow TW Market Outlook",
   "14:00 後每日自動更新一次": "Auto-updates once daily after 14:00",
@@ -4136,7 +4140,7 @@ function DailyClosingAiReport({ holdings, dailyRecords }) {
               className="text-[12px] leading-[1.75] whitespace-pre-wrap overflow-hidden transition-[max-height] duration-300"
               style={{
                 color: COLORS.text,
-                maxHeight: expanded ? "none" : "15.5em",
+                maxHeight: expanded ? "none" : "8.5em",
               }}>
               {report.text}
             </div>
@@ -4163,6 +4167,34 @@ function DailyClosingAiReport({ holdings, dailyRecords }) {
       )}
 
       {error && <div className="text-[11px] mt-2" style={{ color: COLORS.sub }}>{error}</div>}
+    </div>
+  );
+}
+
+function DashboardCollapsibleSection({ storageKey, title, subtitle, children, defaultOpen = false }) {
+  const [open, setOpen] = useState(() => localStorage.getItem(storageKey) === "1" || (localStorage.getItem(storageKey) == null && defaultOpen));
+
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    localStorage.setItem(storageKey, next ? "1" : "0");
+  };
+
+  return (
+    <div>
+      <button
+        onClick={toggle}
+        className="w-full rounded-2xl px-4 py-3 flex items-center justify-between gap-3 text-left"
+        style={{ background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`, boxShadow: "0 4px 16px rgba(0,0,0,0.20)" }}>
+        <div className="min-w-0">
+          <div className="text-xs font-bold" style={{ color: COLORS.gold }}><UiLabel zh={title} /></div>
+          {subtitle && <div className="text-[10px] mt-0.5 truncate" style={{ color: COLORS.sub }}><UiLabel zh={subtitle} /></div>}
+        </div>
+        <div className="text-[11px] font-bold whitespace-nowrap" style={{ color: COLORS.sub }}>
+          <UiLabel zh={open ? "收合" : "展開"} /> {open ? "▲" : "▼"}
+        </div>
+      </button>
+      {open && <div className="mt-2">{children}</div>}
     </div>
   );
 }
@@ -4288,28 +4320,42 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
 
 
 
-      <TrendRadar holdings={holdings} />
+      <DashboardCollapsibleSection
+        storageKey="dashboardTrendRadarOpen"
+        title="今日趨勢雷達"
+        subtitle="盤中訊號、KD、法人與明日方向"
+        defaultOpen={false}>
+        <TrendRadar holdings={holdings} />
+      </DashboardCollapsibleSection>
 
       <DailyClosingAiReport holdings={holdings} dailyRecords={dailyRecords} />
 
-      <FactorBacktest />
+      <DashboardCollapsibleSection
+        storageKey="dashboardAdvancedPerformanceOpen"
+        title="進階績效分析"
+        subtitle="回測、XIRR、回撤、波動與風險效率"
+        defaultOpen={false}>
+        <div className="space-y-4">
+          <FactorBacktest />
 
-      <PortfolioPerformanceCard
-        records={dailyRecords}
-        dividends={dividends}
-        capitalGain={capitalGain}
-        totalDividends={totalDividends}
-        totalReturn={totalReturn}
-        totalReturnPct={totalReturnPct}
-        twTotalReturn={twTotalReturn}
-        twTotalReturnPct={twTotalReturnPct}
-        usTotalReturn={usTotalReturn}
-        usTotalReturnPct={usTotalReturnPct}
-        hasUsAssets={hasUsAssets}
-        ytdGain={ytdGain}
-        ytdPct={ytdPct}
-        totalInvested={totalInvested}
-      />
+          <PortfolioPerformanceCard
+            records={dailyRecords}
+            dividends={dividends}
+            capitalGain={capitalGain}
+            totalDividends={totalDividends}
+            totalReturn={totalReturn}
+            totalReturnPct={totalReturnPct}
+            twTotalReturn={twTotalReturn}
+            twTotalReturnPct={twTotalReturnPct}
+            usTotalReturn={usTotalReturn}
+            usTotalReturnPct={usTotalReturnPct}
+            hasUsAssets={hasUsAssets}
+            ytdGain={ytdGain}
+            ytdPct={ytdPct}
+            totalInvested={totalInvested}
+          />
+        </div>
+      </DashboardCollapsibleSection>
 
     </div>
   );
