@@ -258,6 +258,7 @@ const UI_EN = {
   "市值／今日損益": "Value / Today P&L",
   "今日損益": "Today P&L",
   "今日台股總市值": "Today TW Market Value",
+  "今日摘要": "Today Summary",
   "昨日台股總市值": "Yesterday TW Market Value",
   "昨日美股總市值": "Yesterday US Market Value",
   "今/昨日盈虧": "Today vs Yesterday",
@@ -2425,7 +2426,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
             {rows.map((r) => (
               <div key={r.id}>
                 <div className="py-0.5">
-                  <div className="grid grid-cols-[36px_68px_76px_minmax(0,1fr)] grid-rows-[18px_18px_27px] gap-x-1 text-xs mono items-center">
+                  <div className="grid grid-cols-[36px_68px_76px_minmax(0,1fr)] grid-rows-[18px_18px_18px] gap-x-1 text-xs mono items-center">
                     <span className="row-start-1 col-start-1" style={{ color: COLORS.sub }}>{r.symbol}</span>
 
                     <span className="row-start-1 col-start-2 whitespace-nowrap leading-none" style={{color:COLORS.sub}}>
@@ -2446,8 +2447,8 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
                     <span className="row-start-2 col-start-4 text-right whitespace-nowrap leading-none min-w-0" style={{ color: r.quoteIsStale ? COLORS.sub : (r.chg >= 0 ? COLORS.gain : COLORS.loss) }}>
                       {!r.quoteIsStale ? <><UiLabel zh="今日損益" /> {r.chg >= 0 ? "+" : ""}{nf(Math.round(r.chg * r.current))}</> : ""}
                     </span>
-                    <div className="row-start-3 col-start-2 col-span-3 h-[27px] opacity-90">
-                      <SessionSparkline points={withLive(sparkFor(r.symbol), r.quoteIsStale || r.isFromCache ? null : r.price)} baseline={r.prevClose} width={240} height={27} tone={r.chg>=0?COLORS.gain:COLORS.loss} />
+                    <div className="row-start-3 col-start-2 col-span-3 h-[18px] opacity-80">
+                      <SessionSparkline points={withLive(sparkFor(r.symbol), r.quoteIsStale || r.isFromCache ? null : r.price)} baseline={r.prevClose} width={240} height={18} tone={r.chg>=0?COLORS.gain:COLORS.loss} />
                     </div>
                   </div>
                 </div>
@@ -2461,60 +2462,88 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
               </div>
             ))}
           </div>
+          <div className="rounded-xl px-3 py-2.5 mt-2.5" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
+            <div className="text-[11px] font-bold mb-1.5" style={{ color: COLORS.gold }}>
+              <UiLabel zh="今日摘要" />
+            </div>
+
+            {yesterdayTwValue != null && (
+              <>
+                <div className="flex justify-between text-[11px] mono">
+                  <span style={{ color: COLORS.sub }}><UiLabel zh="昨日台股總市值" /></span>
+                  <span style={{ color: COLORS.sub }}>NT$ {nf(yesterdayTwValue)}</span>
+                </div>
+                {hasUsAssets && Number(yesterdayUsValue || 0) > 0 && (
+                  <div className="flex justify-between text-[11px] mono mt-1">
+                    <span style={{ color: COLORS.sub }}><UiLabel zh="昨日美股總市值" /></span>
+                    <span style={{ color: COLORS.sub }}>NT$ {nf(yesterdayUsValue)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-[11px] mono mt-1 font-bold">
+                  <span style={{ color: COLORS.sub }}><UiLabel zh="今/昨日盈虧" /></span>
+                  {(() => {
+                    const diff = totalValue - yesterdayTwValue;
+                    const diffPct = yesterdayTwValue ? (diff / yesterdayTwValue) * 100 : 0;
+                    const up = diff >= 0;
+                    return (
+                      <span style={{ color: up ? COLORS.gain : COLORS.loss }}>
+                        {up ? "+" : ""}{nf(diff)}（{up ? "+" : ""}{diffPct.toFixed(2)}%）
+                      </span>
+                    );
+                  })()}
+                </div>
+              </>
+            )}
+
+            {hasMarketIndex && (
+              <div className="mt-1.5 pt-1.5" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
+                <div className="flex justify-between text-[11px] mono">
+                  <span style={{ color: COLORS.sub }}><UiLabel zh="加權指數" /></span>
+                  <span style={{ color: indexChange >= 0 ? COLORS.gain : COLORS.loss }}>
+                    {nf(Math.round(indexPrice))}　{indexChange >= 0 ? "▲" : "▼"} {indexChangePct >= 0 ? "+" : ""}{indexChangePct.toFixed(2)}%
+                  </span>
+                </div>
+                {vsMarketPct != null && (
+                  <div className="flex justify-between text-[11px] mono mt-1">
+                    <span style={{ color: COLORS.sub }}><UiLabel zh="今日 vs 大盤" /></span>
+                    <span style={{ color: vsMarketPct >= 0 ? COLORS.gain : COLORS.loss }}>
+                      <UiLabel zh={vsMarketPct >= 0 ? "贏大盤" : "輸大盤"} inline /> {vsMarketPct >= 0 ? "+" : ""}{vsMarketPct.toFixed(2)}%
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           <div className="flex justify-between text-xs mono pt-2 mt-2 font-bold" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
             <span style={{ color: COLORS.sub }}><UiLabel zh={quoteComplete ? "今日台股總市值" : "目前可得市值（部分）"} /></span>
             <span style={{ color: COLORS.gold }}>NT$ {nf(totalValue)}</span>
           </div>
-          <div className="h-[34px] mt-1 opacity-90">
-            <SessionSparkline points={portfolioSpark} baseline={yesterdayTwValue} width={300} height={34} tone={portfolioDayUp?COLORS.gain:COLORS.loss} />
+          <div className="h-[24px] mt-1 opacity-85">
+            <SessionSparkline points={portfolioSpark} baseline={yesterdayTwValue} width={300} height={24} tone={portfolioDayUp?COLORS.gain:COLORS.loss} />
           </div>
-          {yesterdayTwValue != null && (
-            <>
-              <div className="flex justify-between text-xs mono mt-1">
-                <span style={{ color: COLORS.sub }}><UiLabel zh="昨日台股總市值" /></span>
-                <span style={{ color: COLORS.sub }}>NT$ {nf(yesterdayTwValue)}</span>
-              </div>
-              {hasUsAssets && Number(yesterdayUsValue || 0) > 0 && (
-                <div className="flex justify-between text-xs mono mt-1">
-                  <span style={{ color: COLORS.sub }}><UiLabel zh="昨日美股總市值" /></span>
-                  <span style={{ color: COLORS.sub }}>NT$ {nf(yesterdayUsValue)}</span>
-                </div>
-              )}
-              <div className="flex justify-between text-xs mono mt-1 font-bold">
-                <span style={{ color: COLORS.sub }}><UiLabel zh="今/昨日盈虧" /></span>
-                {(() => {
-                  const diff = totalValue - yesterdayTwValue;
-                  const diffPct = yesterdayTwValue ? (diff / yesterdayTwValue) * 100 : 0;
-                  const up = diff >= 0;
-                  return (
-                    <span style={{ color: up ? COLORS.gain : COLORS.loss }}>
-                      {up ? "+" : ""}{nf(diff)}（{up ? "+" : ""}{diffPct.toFixed(2)}%）
-                    </span>
-                  );
-                })()}
-              </div>
-            </>
-          )}
+
           {hasMarketIndex && (
-            <>
-              <div className="grid grid-cols-[72px_1fr_auto] gap-2 text-xs mono mt-1 items-center">
-                <span style={{ color: COLORS.sub }}><UiLabel zh="加權指數" /></span>
-                <span className="text-[9px] whitespace-nowrap" style={{color:COLORS.sub}}>{Number.isFinite(Number(marketIndex?.high))&&Number.isFinite(Number(marketIndex?.low)) ? (UI_SHOW_ENGLISH ? <>High {nf(Math.round(Number(marketIndex.high)))} | Low {nf(Math.round(Number(marketIndex.low)))}</> : <>高 {nf(Math.round(Number(marketIndex.high)))}｜低 {nf(Math.round(Number(marketIndex.low)))}</>) : (UI_SHOW_ENGLISH ? "High/Low --" : "高低點 --")}</span>
-                <span style={{ color: indexChange >= 0 ? COLORS.gain : COLORS.loss }}>{nf(Math.round(indexPrice))}　{indexChange >= 0 ? "▲" : "▼"} {indexChangePct >= 0 ? "+" : ""}{indexChangePct.toFixed(2)}%</span>
+            <div className="mt-1.5 pt-1.5" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
+              <div className="flex justify-between items-center text-[11px] mono">
+                <span style={{ color: COLORS.sub }}>
+                  <UiLabel zh="加權指數" />
+                  {Number.isFinite(Number(marketIndex?.high))&&Number.isFinite(Number(marketIndex?.low))
+                    ? (UI_SHOW_ENGLISH
+                      ? <>　High {nf(Math.round(Number(marketIndex.high)))} | Low {nf(Math.round(Number(marketIndex.low)))}</>
+                      : <>　高 {nf(Math.round(Number(marketIndex.high)))}｜低 {nf(Math.round(Number(marketIndex.low)))}</>)
+                    : null}
+                </span>
+                <span style={{ color: indexChange >= 0 ? COLORS.gain : COLORS.loss }}>
+                  {nf(Math.round(indexPrice))}　{indexChange >= 0 ? "▲" : "▼"} {indexChangePct >= 0 ? "+" : ""}{indexChangePct.toFixed(2)}%
+                </span>
               </div>
-              <div className="h-[34px] mt-0.5 opacity-90">
-                <SessionSparkline points={indexSpark} baseline={indexPrevClose} width={300} height={34} tone={indexChange>=0?COLORS.gain:COLORS.loss} />
+              <div className="h-[22px] mt-0.5 opacity-80">
+                <SessionSparkline points={indexSpark} baseline={indexPrevClose} width={300} height={22} tone={indexChange>=0?COLORS.gain:COLORS.loss} />
               </div>
-              {vsMarketPct != null && (
-                <div className="flex justify-between text-xs mono mt-1">
-                  <span style={{ color: COLORS.sub }}><UiLabel zh="今日 vs 大盤" /></span>
-                  <span style={{ color: vsMarketPct >= 0 ? COLORS.gain : COLORS.loss }}>
-                    <UiLabel zh={vsMarketPct >= 0 ? "贏大盤" : "輸大盤"} inline /> {vsMarketPct >= 0 ? "+" : ""}{vsMarketPct.toFixed(2)}%
-                  </span>
-                </div>
-              )}
-            </>
+            </div>
           )}
+
           {onFillDailyTw && (
             <>
               <button onClick={recordToday} disabled={!quoteComplete}
