@@ -103,6 +103,52 @@
       .premium-tabbar button{opacity:.86}
       .premium-tabbar button[style*="#C9A24B"]{opacity:1}
     }
+
+    /* Premium pass 5 — holdings / trades / dividends / settings */
+    .premium-tab>.space-y-2{row-gap:.55rem}
+    .premium-tab>.space-y-2>div.rounded-2xl{
+      border-radius:17px!important;
+      box-shadow:0 5px 18px rgba(0,0,0,.18)!important;
+    }
+    .premium-tab>.space-y-2>div.rounded-2xl>div:first-child.text-xs{
+      font-size:11px!important;letter-spacing:.01em;text-transform:none;
+    }
+    .premium-tab .input{
+      min-height:42px!important;border-radius:11px!important;
+      background:#0d1422!important;border-color:#22304a!important;
+      padding:9px 10px!important;font-size:12.5px!important;
+    }
+    .premium-tab .input:focus{box-shadow:0 0 0 3px rgba(201,162,75,.08)!important}
+    .premium-tab button{box-shadow:none}
+    .premium-tab .rounded-xl{border-radius:13px!important}
+    .premium-tab-holdings .space-y-3{row-gap:.55rem}
+    .premium-tab-holdings .space-y-3>div.rounded-xl,
+    .premium-tab-trades .space-y-2.max-h-96>div,
+    .premium-tab-dividends .space-y-2>div{
+      background:#0d1422!important;border-color:#202b3e!important;
+    }
+    .premium-tab-holdings [style*="height: 180"]{height:150px!important}
+    .premium-tab-progress .grid.grid-cols-2.gap-3{gap:.55rem!important}
+    .premium-tab-progress .grid.grid-cols-2.gap-3>div{
+      border-radius:14px!important;background:#0d1422!important;
+    }
+    .premium-tab-progress .max-h-96{border-radius:12px}
+    .premium-tab-plan .grid.grid-cols-3.gap-2 button{min-height:42px}
+    .premium-tab-plan label.flex.items-start{padding:9px 10px;border:1px solid #202b3e;border-radius:12px;background:#0d1422}
+    @media(max-width:640px){
+      .premium-tab>.space-y-2{row-gap:.48rem}
+      .premium-tab>.space-y-2>div.rounded-2xl{padding:.78rem!important}
+      .premium-tab .grid.grid-cols-2.gap-2{gap:.45rem!important}
+      .premium-tab .input{min-height:40px!important;padding:8px 9px!important;font-size:12px!important}
+      .premium-tab-holdings [style*="height: 180"]{height:132px!important}
+      .premium-tab-holdings .space-y-3>div.rounded-xl{padding:.7rem!important}
+      .premium-tab-trades .max-h-96{max-height:340px!important}
+      .premium-tab-dividends .max-h-96{max-height:340px!important}
+      .premium-tab-progress .grid.grid-cols-2.gap-3{grid-template-columns:1fr 1fr!important}
+      .premium-tab-progress .grid.grid-cols-2.gap-3>div{padding:.72rem!important}
+      .premium-tab-progress .text-lg{font-size:1rem!important}
+      .premium-tab-plan .grid.grid-cols-3.gap-2{gap:.4rem!important}
+    }
     @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
 
   </style>
@@ -1958,7 +2004,7 @@ function AssetTracker() {
                   perspective: 1000,
                 }}>
                 {panelIds.map((id) => (
-                  <div key={id} style={{
+                  <div key={id} className={`premium-tab premium-tab-${id}`} style={{
                     width: childWidthPct, flexShrink: 0, minWidth: 0,
                     WebkitTransform: "translateZ(0)", transform: "translateZ(0)",
                   }}>
