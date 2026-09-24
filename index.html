@@ -158,6 +158,10 @@ const UI_EN = {
   "年化波動": "Annualized Volatility",
   "Sharpe / Sortino": "Sharpe / Sortino",
   "風險白話說明": "Risk in Plain Language",
+  "AI 一句話評論": "AI One-line Comment",
+  "請 AI 評論": "Ask AI",
+  "AI 評論中…": "AI Commenting…",
+  "AI 暫時無法評論": "AI comment unavailable",
   "依每日成本變動估算": "Estimated from Daily Cost Changes",
   "資產曲線全期間": "Full Asset-Curve History",
   "依每日紀錄年化": "Annualized from Daily Records",
@@ -3718,6 +3722,58 @@ function PortfolioPerformanceCard({
     return riskPart + efficiencyPart;
   })();
 
+  // AI 評論採「按一下才呼叫」：不會每次開 App 或每筆每日紀錄都燒 AI 額度。
+  // 傳給 AI 的只有風險指標，不需要整份投資明細。
+  const [aiRiskComment, setAiRiskComment] = useState("");
+  const [aiRiskLoading, setAiRiskLoading] = useState(false);
+  const [aiRiskError, setAiRiskError] = useState("");
+
+  const askAiRiskComment = async () => {
+    if (aiRiskLoading || !Number.isFinite(m.volatility) || !Number.isFinite(m.maxDrawdown)) return;
+    setAiRiskLoading(true);
+    setAiRiskError("");
+    try {
+      const deviceIdKey = "stockTrackerDeviceId";
+      let deviceId = localStorage.getItem(deviceIdKey);
+      if (!deviceId) {
+        deviceId = `d_${uid()}_${uid()}`;
+        localStorage.setItem(deviceIdKey, deviceId);
+      }
+
+      const metricText = [
+        `最大回撤 ${Number(m.maxDrawdown).toFixed(2)}%`,
+        `年化波動 ${Number(m.volatility).toFixed(2)}%`,
+        Number.isFinite(m.sharpe) ? `Sharpe ${Number(m.sharpe).toFixed(2)}` : null,
+        Number.isFinite(m.sortino) ? `Sortino ${Number(m.sortino).toFixed(2)}` : null,
+        Number.isFinite(m.xirr) ? `XIRR ${Number(m.xirr).toFixed(2)}%` : null,
+      ].filter(Boolean).join("；");
+
+      const message = UI_SHOW_ENGLISH
+        ? `Based only on these portfolio risk metrics: ${metricText}. Give one plain-language sentence, max 25 words, explaining the current risk/return balance. Do not give buy/sell advice and do not repeat all the numbers.`
+        : `只根據這些投資組合風險指標：${metricText}。請用繁體中文一句白話、35字內，說明目前風險與報酬是否匹配。不要提供買賣建議，也不要把所有數字重複一次。`;
+
+      const res = await fetchWithTimeout("/ask", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-device-id": deviceId },
+        body: JSON.stringify({
+          message,
+          history: [],
+          context: "這是 App 內的風險指標一句話解讀；只需回答一句，不需要工具。",
+          forceAnswer: true,
+        }),
+        cache: "no-store",
+      }, 20000);
+
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok || !data?.reply) throw new Error(data?.error || "AI unavailable");
+      setAiRiskComment(cleanAiDisplayText(data.reply).replace(/\n+/g, " ").trim());
+    } catch (e) {
+      setAiRiskError(uiText("AI 暫時無法評論"));
+    } finally {
+      setAiRiskLoading(false);
+    }
+  };
+
   const mini = (label, value, color = COLORS.text, sub = null) => (
     <div className="rounded-xl p-3 min-w-0" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
       <div className="text-[11px] leading-tight" style={{ color: COLORS.sub }}><UiLabel zh={label} /></div>
@@ -3822,6 +3878,31 @@ function PortfolioPerformanceCard({
               : `最大回撤 ${pf(m.maxDrawdown)}・年化波動 ${pf(m.volatility)}`}
           </div>
         )}
+
+        <div className="mt-2.5 pt-2.5" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-[11px] font-bold" style={{ color: COLORS.sub }}><UiLabel zh="AI 一句話評論" /></span>
+            <button
+              onClick={askAiRiskComment}
+              disabled={aiRiskLoading || !Number.isFinite(m.volatility)}
+              className="rounded-lg px-2.5 py-1 text-[10px] font-bold"
+              style={{
+                color: COLORS.gold,
+                border: `1px solid ${COLORS.gold}`,
+                opacity: aiRiskLoading || !Number.isFinite(m.volatility) ? 0.55 : 1,
+              }}>
+              <UiLabel zh={aiRiskLoading ? "AI 評論中…" : "請 AI 評論"} />
+            </button>
+          </div>
+          {aiRiskComment && (
+            <div className="text-[12px] mt-2 leading-relaxed" style={{ color: COLORS.text }}>
+              {aiRiskComment}
+            </div>
+          )}
+          {aiRiskError && (
+            <div className="text-[10px] mt-1.5" style={{ color: COLORS.sub }}>{aiRiskError}</div>
+          )}
+        </div>
       </div>
 
       <div className="rounded-xl px-3 py-2.5 mt-2" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
