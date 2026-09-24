@@ -237,6 +237,17 @@ const UI_EN = {
   "明日": "Tomorrow",
   "持股上漲廣度": "Holding Breadth",
   "盤中趨勢": "Intraday Trend",
+  "盤勢總結": "Market Summary",
+  "弱中回穩": "Recovering from Weakness",
+  "偏弱": "Weak",
+  "偏弱盤整": "Weak / Sideways",
+  "強中轉弱": "Fading from Strength",
+  "偏強": "Strong",
+  "偏強盤整": "Strong / Sideways",
+  "回穩中": "Stabilizing",
+  "轉弱中": "Weakening",
+  "等待方向形成": "Waiting for Direction",
+  "觀察": "Watch",
   "偏多": "Bullish",
   "偏空": "Bearish",
   "盤整": "Mixed",
@@ -2372,8 +2383,8 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue }) {
 
 
 // ---------------- Today Trend Radar (dashboard) ----------------
-const TREND_RADAR_VERSION = "2.44";
-const TREND_MODEL_VERSION = "2.44-taifex-tx";
+const TREND_RADAR_VERSION = "2.44.1";
+const TREND_MODEL_VERSION = "2.44.1-readable-radar";
 function TrendRadar({ holdings }) {
   const [rows, setRows] = useState([]);
   const [asOf, setAsOf] = useState(null);
@@ -2953,6 +2964,27 @@ function TrendRadar({ holdings }) {
     const sum=list.reduce((a,k)=>a+k.bull,0);
     return sum>=2?"偏多":sum<=-2?"偏空":"盤整";
   };
+  // Human-readable layer: translate "price now + short KD" into one phrase
+  // that can be understood at a glance. This does NOT change model scoring.
+  const easyState=(pct,kd5,kd15,kd60)=>{
+    const trend=intradayTrend(kd5,kd15,kd60);
+    if(trend==="累積中") return {label:"資料累積中",arrow:"→",tone:COLORS.sub,watch:"等待更多盤中資料"};
+    if(pct<=-0.15 && trend==="偏多") return {label:"弱中回穩",arrow:"↗",tone:COLORS.gold,watch:"短線續強才算真正轉強"};
+    if(pct<=-0.15 && trend==="偏空") return {label:"偏弱",arrow:"↘",tone:COLORS.loss,watch:"短線KD翻多才算止弱"};
+    if(pct<=-0.05) return {label:"偏弱盤整",arrow:"→",tone:COLORS.loss,watch:"先看能否持續回收跌幅"};
+    if(pct>=0.15 && trend==="偏空") return {label:"強中轉弱",arrow:"↘",tone:COLORS.gold,watch:"短線重新轉多才算續強"};
+    if(pct>=0.15 && trend==="偏多") return {label:"偏強",arrow:"↗",tone:COLORS.gain,watch:"短線維持偏多可延續強勢"};
+    if(pct>=0.05) return {label:"偏強盤整",arrow:"→",tone:COLORS.gain,watch:"觀察是否出現第二波上攻"};
+    if(trend==="偏多") return {label:"回穩中",arrow:"↗",tone:COLORS.gold,watch:"價格轉正會更確認"};
+    if(trend==="偏空") return {label:"轉弱中",arrow:"↘",tone:COLORS.loss,watch:"價格守穩才有機會止弱"};
+    return {label:"盤整",arrow:"→",tone:COLORS.sub,watch:"等待方向形成"};
+  };
+  const easyMarketSummary=(r)=>{
+    if(!r) return null;
+    const st=easyState(r.indexPct,r.kd5,r.kd15,r.kd60);
+    const lead=r.indexPct<=-0.15?"開低後":r.indexPct>=0.15?"開高後":"目前";
+    return {...st,text:`${lead}${st.label}；尚未形成明確單邊趨勢`};
+  };
   // Plain-language one-liner for each holding: spells out in words why the
   // call agrees or disagrees with the stock's own real-time move, so a
   // "跌但稍偏漲"-looking card is self-explanatory instead of confusing.
@@ -3012,6 +3044,14 @@ function TrendRadar({ holdings }) {
             </div>
           </>}
         </div>}
+        {marketRow&&(()=>{
+          const ms=easyMarketSummary(marketRow);
+          return <div className="rounded-xl px-3 py-2" style={{background:"rgba(201,162,75,0.07)",border:"1px solid rgba(201,162,75,0.45)"}}>
+            <div className="text-[9px] font-bold" style={{color:COLORS.gold}}><UiLabel zh="盤勢總結" /></div>
+            <div className="mt-0.5 text-[12px] font-black" style={{color:ms.tone}}>{ms.arrow} {ms.text}</div>
+            <div className="mt-0.5 text-[9px]" style={{color:COLORS.sub}}>TAIEX {marketRow.indexPct>=0?"+":""}{marketRow.indexPct.toFixed(2)}% · {ms.watch}</div>
+          </div>;
+        })()}
         {marketRow&&<div className="rounded-xl px-3 py-2" style={{background:COLORS.bg,border:"1px solid "+COLORS.gold}}>
           <div className="flex items-center justify-between"><div className="text-xs font-bold"><UiLabel zh="加權指數" inline /> <span className="font-normal" style={{color:COLORS.sub}}>TAIEX</span></div><div className="text-[10px] font-black mono text-right" style={{color:marketRow.direction.includes("漲")?COLORS.gain:marketRow.direction.includes("跌")?COLORS.loss:COLORS.sub}}><span><UiLabel zh="今日" inline /> <UiLabel zh={marketRow.direction} inline /> {marketRow.probability.toFixed(0)}%</span><span className="ml-2" style={{color:tomorrowMap.TAIEX?.direction?.includes("漲")?COLORS.gain:tomorrowMap.TAIEX?.direction?.includes("跌")?COLORS.loss:COLORS.sub}}><UiLabel zh="明日" inline /> {tomorrowMap.TAIEX?<><UiLabel zh={tomorrowMap.TAIEX.direction} inline />{" "+tomorrowMap.TAIEX.probability.toFixed(0)+"%"}</>:<UiLabel zh="資料累積中" inline />}</span></div></div>
           <div className="flex justify-between mt-1 text-[9px]" style={{color:COLORS.sub}}><span><UiLabel zh="目前" inline /> {marketRow.indexPct>=0?"+":""}{marketRow.indexPct.toFixed(2)}%</span><span><UiLabel zh="持股上漲廣度" inline /> {(marketRow.breadth*100).toFixed(0)}%</span><span><UiLabel zh="盤中趨勢" inline /> <UiLabel zh={intradayTrend(marketRow.kd5,marketRow.kd15,marketRow.kd60)} inline /></span></div>
@@ -3026,11 +3066,21 @@ function TrendRadar({ holdings }) {
         {rows.map((r)=>{
 
           const tone=r.direction.includes("漲")?COLORS.gain:r.direction.includes("跌")?COLORS.loss:COLORS.sub;
+          const easy=easyState(r.stockPct,r.kd5,r.kd15,r.kd60);
           return <div key={r.symbol} className="rounded-xl px-3 py-2" style={{background:COLORS.bg,border:"1px solid "+COLORS.panelBorder}}>
-            <div className="flex items-center justify-between"><div className="text-xs font-bold mono">{r.symbol}<span className="ml-1 font-normal" style={{color:COLORS.sub}}>{r.name}</span></div><div className="text-[10px] font-black mono text-right"><span style={{color:tone}}><UiLabel zh="今日" inline /> <UiLabel zh={r.direction} inline /> {r.probability.toFixed(0)}%</span><span className="ml-2" style={{color:tomorrowMap[r.symbol]?.direction?.includes("漲")?COLORS.gain:tomorrowMap[r.symbol]?.direction?.includes("跌")?COLORS.loss:COLORS.sub}}><UiLabel zh="明日" inline /> {tomorrowMap[r.symbol]?<><UiLabel zh={tomorrowMap[r.symbol].direction} inline />{" "+tomorrowMap[r.symbol].probability.toFixed(0)+"%"}</>:<UiLabel zh="資料累積中" inline />}</span></div></div>
-            <div className="flex justify-between mt-1 text-[9px]" style={{color:COLORS.sub}}><span><UiLabel zh="大盤" inline /> {r.indexPct>=0?"+":""}{r.indexPct.toFixed(2)}%</span><span><UiLabel zh="個股" inline /> {r.stockPct>=0?"+":""}{r.stockPct.toFixed(2)}%</span><span><UiLabel zh="新聞" inline /> <UiLabel zh={r.newsScore>0?"偏正":r.newsScore<0?"偏負":"中性"} inline /></span><span><UiLabel zh="信心" inline /> <UiLabel zh={r.confidence} inline /></span></div>
-            <div className="mt-0.5 text-[9px]" style={{color:COLORS.sub}}><span><UiLabel zh="盤中趨勢" inline /> <UiLabel zh={intradayTrend(r.kd5,r.kd15,r.kd60)} inline /></span></div>
-            <div className="mt-1 text-[9px] leading-snug" style={{color:COLORS.sub}}>{explainRow(r)}</div>
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-bold mono">{r.symbol}<span className="ml-1 font-normal" style={{color:COLORS.sub}}>{r.name}</span></div>
+              <div className="text-[12px] font-black" style={{color:easy.tone}}>{easy.arrow} <UiLabel zh={easy.label} inline /></div>
+            </div>
+            <div className="flex justify-between mt-1 text-[9px]" style={{color:COLORS.sub}}>
+              <span><UiLabel zh="目前" inline /> {r.stockPct>=0?"+":""}{r.stockPct.toFixed(2)}%</span>
+              <span><UiLabel zh="觀察" inline />：{easy.watch}</span>
+            </div>
+            <div className="flex justify-between mt-1 text-[9px] mono" style={{color:COLORS.sub}}>
+              <span><UiLabel zh="今日" inline /> <span style={{color:tone}}><UiLabel zh={r.direction} inline /> {r.probability.toFixed(0)}%</span></span>
+              <span><UiLabel zh="明日" inline /> {tomorrowMap[r.symbol]?<span style={{color:tomorrowMap[r.symbol]?.direction?.includes("漲")?COLORS.gain:tomorrowMap[r.symbol]?.direction?.includes("跌")?COLORS.loss:COLORS.sub}}><UiLabel zh={tomorrowMap[r.symbol].direction} inline />{" "+tomorrowMap[r.symbol].probability.toFixed(0)+"%"}</span>:<UiLabel zh="資料累積中" inline />}</span>
+            </div>
+            {detailsOpen&&<div className="mt-1 text-[9px] leading-snug" style={{color:COLORS.sub}}>{explainRow(r)}</div>}
             {detailsOpen&&<><div className="mt-1.5 pt-1.5 text-[9px] mono" style={{color:COLORS.sub,borderTop:"1px solid "+COLORS.panelBorder}}>
               <div className="flex justify-between"><span><UiLabel zh="KD 5分" /></span><span>{kdCell(r.kd5)}</span></div>
               <div className="flex justify-between"><span><UiLabel zh="KD 15分" /></span><span>{kdCell(r.kd15)}</span></div>
