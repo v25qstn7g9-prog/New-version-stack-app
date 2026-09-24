@@ -4355,7 +4355,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
         title="進階績效分析"
         subtitle="回測、XIRR、回撤、波動與風險效率"
         defaultOpen={false}>
-        <div className="space-y-4">
+        <div className="space-y-2">
           <FactorBacktest />
 
           <PortfolioPerformanceCard
@@ -4587,7 +4587,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
   })() : null;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-2">
       <Panel title="新增每日紀錄">
         <div className="grid grid-cols-2 gap-2">
           <Field label="日期"><input type="date" value={form.date}
@@ -4947,7 +4947,7 @@ function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
   const hasCostFallback = allocationData.some((x) => x.usedCostFallback);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-2">
       <Panel title="持股進度">
         <div className="flex items-center justify-between rounded-xl p-3 mb-3"
           style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
@@ -5211,7 +5211,7 @@ function TradesPanel({ trades, setTrades, holdings, costBasis, setCostBasis, acc
   })() : [];
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-2">
       {costBasis && (
         <Panel title="成本追蹤">
           <Field label="起始成本（交易紀錄開始追蹤之前，已經投入的成本）">
@@ -5566,7 +5566,7 @@ function DividendsPanel({ dividends, setDividends, holdings }) {
   const total = dividends.reduce((s, d) => s + d.amount, 0);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-2">
       <UpcomingDividendReminder holdings={holdings} />
 
       <Panel title="新增配息">
@@ -5650,7 +5650,7 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
   const remove = (id) => setPlanItems((p) => p.filter((x) => x.id !== id));
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-2">
       <Panel title="退休目標設定">
         <div className="grid grid-cols-2 gap-2">
           <Field label="目標金額 (NTD)"><input type="number" value={goal.targetAmount}
@@ -5793,7 +5793,7 @@ function ProgressPanel({ planSchedule, setPlanSchedule, planTotal, schedule, tot
   const assetBeyond = assetCrossing?.beyond;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-2">
       <Panel title="計畫進度追蹤">
         <div className="grid grid-cols-2 gap-3">
           <div className="rounded-xl p-3" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
