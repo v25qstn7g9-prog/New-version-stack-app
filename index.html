@@ -1448,7 +1448,7 @@ function AssetTracker() {
     if (!transitionState) return;
     if (transitionState.mode === "drag" && transitionState.phase === "dragging") return;
     if (transitionState.mode === "tap" && !settled) return;
-    const ms = (transitionState.mode === "drag" ? transitionState.duration : 280) + 120;
+    const ms = (transitionState.mode === "drag" ? transitionState.duration : 240) + 120;
     const timer = setTimeout(finishTransition, ms);
     return () => clearTimeout(timer);
   }, [transitionState, settled]);
@@ -1472,8 +1472,8 @@ function AssetTracker() {
       const dx = t.clientX - g.x;
       const dy = t.clientY - g.y;
       if (!g.axis) {
-        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
-        if (Math.abs(dx) <= Math.abs(dy) * 1.2) { g = null; return; } // vertical scroll: let it be
+        if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+        if (Math.abs(dx) <= Math.abs(dy)) { g = null; return; } // mostly vertical: let the page scroll
         g.axis = "x";
         g.dir = dx < 0 ? "left" : "right";
         const idx = TABS.findIndex((x) => x.id === tabRef.current);
@@ -1493,9 +1493,15 @@ function AssetTracker() {
         // Only move toward the neighbour; pulling back past the start just stops at 0.
         g.eff = g.dir === "left" ? Math.min(dx, 0) : Math.max(dx, 0);
         dragDxRef.current = g.eff;
-        if (strip && transitionRef.current?.mode === "drag") {
+        if (strip) {
           strip.style.transition = "none";
-          strip.style.transform = `translate3d(calc(${g.dir === "left" ? "0%" : "-50%"} + ${g.eff}px), 0, 0)`;
+          // Move with the finger right away. Until React has mounted the
+          // neighbouring tab the strip is still one panel wide, so shift it by
+          // pixels only; once mounted the base offset for the two-panel strip
+          // applies (the layout effect writes the same position on that render).
+          strip.style.transform = transitionRef.current?.mode === "drag"
+            ? `translate3d(calc(${g.dir === "left" ? "0%" : "-50%"} + ${g.eff}px), 0, 0)`
+            : `translate3d(${g.eff}px, 0, 0)`;
         }
       } else {
         // First/last tab: rubber-band resistance.
@@ -1526,11 +1532,11 @@ function AssetTracker() {
       }
       const dist = Math.abs(gg.eff);
       const towardNeighbor = gg.dir === "left" ? gg.vx < 0 : gg.vx > 0;
-      const flick = towardNeighbor && Math.abs(gg.vx) > 0.3 && dist > 20;
-      const commit = dist > gg.width * 0.3 || flick;
+      const flick = towardNeighbor && Math.abs(gg.vx) > 0.2 && dist > 12;
+      const commit = dist > gg.width * 0.18 || flick;
       const remaining = commit ? gg.width - dist : dist;
-      const speed = Math.max(Math.abs(gg.vx), 1.4); // px/ms, keeps a flick feeling fast
-      const duration = Math.round(Math.max(150, Math.min(320, remaining / speed)));
+      const speed = Math.max(Math.abs(gg.vx), 1.8); // px/ms, keeps a flick feeling fast
+      const duration = Math.round(Math.max(120, Math.min(260, remaining / speed)));
       dragDxRef.current = 0;
       setTransitionState((st) => (st && st.mode === "drag" ? { ...st, phase: commit ? "commit" : "cancel", duration } : st));
     };
@@ -2256,7 +2262,7 @@ function AssetTracker() {
               }
             } else {
               offsetPct = settled ? endOffset : startOffset;
-              if (settled) stripTransition = "transform 0.28s cubic-bezier(.22,.61,.36,1)";
+              if (settled) stripTransition = "transform 0.24s cubic-bezier(.22,.61,.36,1)";
             }
           }
           stripStyleRef.current = {
