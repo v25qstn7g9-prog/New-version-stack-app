@@ -375,7 +375,8 @@ function geminiText(data) {
 async function callGemini(env, contents, systemInstruction, tools = true) {
   const apiKey = String(env?.GEMINI_API_KEY || "").trim();
   if (!apiKey) throw new Error("Gemini 備援未設定 GEMINI_API_KEY");
-  const model = String(env?.GEMINI_MODEL || GEMINI_MODEL_DEFAULT).trim() || GEMINI_MODEL_DEFAULT;
+  const configuredModel = String(env?.GEMINI_MODEL || "").trim();
+  const model = (!configuredModel || /^gemini-(?:2|3\.5)(?:\.|-|$)/i.test(configuredModel)) ? GEMINI_MODEL_DEFAULT : configuredModel;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
   const body = {
     systemInstruction: { parts: [{ text: systemInstruction }] },
