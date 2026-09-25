@@ -1,8 +1,8 @@
 import { onRequestPost } from "../lib/ask-core.js";
 
-const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
+const DEFAULT_GEMINI_MODEL = "gemini-3.6-flash";
 
-// 預設使用 Gemini 3.5 Flash-Lite。若 Vercel 還留著舊的 Gemini 2.x 環境變數，
+// 預設使用 Gemini 3.6 Flash。若 Vercel 還留著舊的 Gemini 2.x 環境變數，
 // 自動改用 3.5，避免舊部署偷偷退回已淘汰的 2.5。
 function resolvedGeminiModel() {
   const configured = String(process.env.GEMINI_MODEL || "").trim();
@@ -79,7 +79,7 @@ function toGeminiRequest(messages, tools) {
             ...(tc.id ? { id: String(tc.id) } : {}),
           } };
           // 若未來環境變數又切回需要 thoughtSignature 的模型，仍保留相容處理；
-          // Gemini 3.5 使用 thinkingLevel；工具回合保留 thoughtSignature。
+          // Gemini 3.6 使用 thinkingLevel；工具回合保留 thoughtSignature。
           if (tc._geminiThoughtSignature) part.thoughtSignature = tc._geminiThoughtSignature;
           return part;
         });
@@ -107,7 +107,7 @@ function toGeminiRequest(messages, tools) {
 
   const body = {
     contents,
-    // Gemini 3.5 Flash-Lite 使用 minimal thinking，以降低延遲；工具回合仍保留
+    // Gemini 3.6 Flash 使用 minimal thinking，以降低延遲；工具回合仍保留
     // thoughtSignature，讓多輪 function calling 可以正確延續。
     generationConfig: {
       thinkingConfig: { thinkingLevel: "minimal" },
