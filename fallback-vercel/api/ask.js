@@ -6,7 +6,7 @@ const DEFAULT_GEMINI_MODEL = "gemini-3.6-flash";
 // 自動改用 3.5，避免舊部署偷偷退回已淘汰的 2.5。
 function resolvedGeminiModel() {
   const configured = String(process.env.GEMINI_MODEL || "").trim();
-  if (!configured || /^gemini-2(?:\.|-|$)/i.test(configured)) return DEFAULT_GEMINI_MODEL;
+  if (!configured || /^gemini-(?:2|3\.5)(?:\.|-|$)/i.test(configured)) return DEFAULT_GEMINI_MODEL;
   return configured;
 }
 
