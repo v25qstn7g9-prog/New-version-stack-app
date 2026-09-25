@@ -10,11 +10,11 @@
  * 回傳: { ok: true, reply } 或 { ok: true, toolCalls: [{ name, arguments }] }
  *
  * Cloudflare AI Binding：Variable name = AI
- * Cloudflare 為主模型；Cloudflare 失敗時由同一個 Worker 直接切 Gemini 3.5 Flash-Lite。
+ * Cloudflare 為主模型；Cloudflare 失敗時由同一個 Worker 直接切 Gemini 3.6 Flash。
  * 舊 fallback-vercel 仍保留作最後一道相容備援。
  */
-const ASK_VERSION = "4.6-ask-free-23-gemini35-direct-fallback";
-const GEMINI_MODEL_DEFAULT = "gemini-3.5-flash-lite";
+const ASK_VERSION = "4.6-ask-free-23-gemini36-direct-fallback";
+const GEMINI_MODEL_DEFAULT = "gemini-3.6-flash";
 const GEMINI_MAX_OUTPUT_TOKENS = 1000;
 // 從 120b 換成同系列的 20b：一樣支援 function calling、訊息格式完全相容，不用改其他程式碼。
 // 20b 運算量小很多，回應通常比較快，換算下來單次問答用掉的神經元也比較少，
