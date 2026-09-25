@@ -2496,24 +2496,16 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
     isFetchingRef.current = false;
   };
 
-  // Auto-refresh when the panel is ready, then every 15 seconds — but only
-  // during TWSE trading hours. Outside those hours the price wouldn't be
-  // changing anyway, so this avoids hitting the price source for nothing
-  // all evening/overnight/weekends — it falls back to fully manual then.
-  // The manual "<UiLabel zh="抓取即時股價" /> / Refresh" button is unaffected by this — you can still
-  // press it any time to check the last close. If we just loaded a cache
-  // that's still fresh (e.g. you switched tabs and back within a few
-  // seconds), skip the immediate refetch and just let the interval pick up
-  // from there. The effect keys off activeSymbolsKey (not the array itself)
-  // so it resets the interval when holdings actually change, not on every
-  // render.
+  // Auto-refresh when the panel is ready, then every 15 seconds, but only on
+  // an actual TWSE trading day during trading hours. Once quote data confirms
+  // today is a market holiday / closure, automatic quote requests stop for
+  // the rest of the Taiwan calendar day. Manual refresh remains available.
+  // A fresh browser that has not detected the closure yet may make one quote
+  // request after 09:15; that request is what establishes the closed-day flag.
   useEffect(() => {
     if (!cacheLoaded || !activeSymbolsKey) return;
     const isFresh = Date.now() - lastFetchAtRef.current < 12000;
-    // On a detected market holiday, only re-check every 30 minutes (in case
-    // the market did open after all); manual refresh still works any time.
-    const shouldAutoFetch = () => isTwseTradingHours()
-      && (!isMarketClosedToday() || Date.now() - lastFetchAtRef.current >= 30 * 60 * 1000);
+    const shouldAutoFetch = () => isTwseTradingHours() && !isMarketClosedToday();
     if (!isFresh && shouldAutoFetch()) fetchAllLive();
     const timer = setInterval(() => {
       if (shouldAutoFetch()) fetchAllLive();
@@ -2597,14 +2589,16 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
     <Panel title="即時股價">
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="text-[11px]" style={{ color: COLORS.sub }}>
-          {liveStatus === "idle" && (UI_SHOW_ENGLISH
-            ? `Auto-fetching ${activeHoldings.length} TW holdings (updates every 15s 09:00-13:45; manual refresh otherwise)`
-            : `自動抓取目前持有的 ${activeHoldings.length} 檔台股（09:00–13:45 每 15 秒更新，其他時間可手動更新）`)}
+          {liveStatus === "idle" && (isMarketClosedToday()
+            ? (UI_SHOW_ENGLISH ? "Market closed today · auto refresh paused" : "今日休市・已停止自動更新")
+            : (UI_SHOW_ENGLISH
+              ? `Auto-fetching ${activeHoldings.length} TW holdings (updates every 15s 09:00-13:45; manual refresh otherwise)`
+              : `自動抓取目前持有的 ${activeHoldings.length} 檔台股（09:00–13:45 每 15 秒更新，其他時間可手動更新）`))}
           {liveStatus === "loading" && <UiLabel zh="更新中…" />}
           {liveStatus === "done" && liveAt && isTwseTradingHours() && isMarketClosedToday()
             ? (UI_SHOW_ENGLISH
-              ? `Market closed today · auto-check every 30 min (checked ${liveAt.toLocaleTimeString("zh-TW", { hour12: false })})`
-              : `今日休市・每 30 分鐘自動確認一次（查詢 ${liveAt.toLocaleTimeString("zh-TW", { hour12: false })}）`)
+              ? `Market closed today · auto refresh paused (last checked ${liveAt.toLocaleTimeString("zh-TW", { hour12: false })})`
+              : `今日休市・已停止自動更新（最後查詢 ${liveAt.toLocaleTimeString("zh-TW", { hour12: false })}）`)
             : liveStatus === "done" && liveAt && (staleOne
             ? (UI_SHOW_ENGLISH
               ? `Market closed, showing ${staleOne.asOfDate.getFullYear()}/${String(staleOne.asOfDate.getMonth()+1).padStart(2,"0")}/${String(staleOne.asOfDate.getDate()).padStart(2,"0")} close (checked ${liveAt.toLocaleTimeString("zh-TW", { hour12: false })})`
