@@ -24,11 +24,36 @@
        在這個 PWA 獨立模式下 interactive-widget 沒有真的讓 dvh 跟著鍵盤縮小
        ——鍵盤彈起後面板還是卡在原本大小，所以改回這個已經驗證有效的
        env(keyboard-inset-height) 機制。 */
-    .ai-panel-wrap { padding-bottom: max(0px, calc(env(keyboard-inset-height, 0px) - 36px)); }
-    .ai-panel-h { height: 65svh; }
-    @supports (height: 65dvh) {
-      .ai-panel-h { height: 65dvh; }
+    /* AI 助手屬於全 App 共用的頂層 modal：
+       - 永遠高於底部分頁列，避免導覽列蓋住輸入區。
+       - 沒有鍵盤時不預留 keyboard inset，避免 iOS/PWA 殘留 inset 造成底部黑洞。
+       - 只有輸入區實際聚焦時才套用鍵盤 inset。 */
+    .ai-panel-wrap {
+      z-index: 1000 !important;
+      padding-bottom: 0;
+      overflow: hidden;
+      isolation: isolate;
     }
+    .ai-panel-wrap:focus-within {
+      padding-bottom: max(0px, calc(env(keyboard-inset-height, 0px) - 36px));
+    }
+    .ai-panel-h {
+      height: 65svh;
+      max-height: calc(100svh - env(safe-area-inset-top, 0px));
+    }
+    @supports (height: 65dvh) {
+      .ai-panel-h {
+        height: 65dvh;
+        max-height: calc(100dvh - env(safe-area-inset-top, 0px));
+      }
+    }
+    html.ai-chat-open .premium-tabbar {
+      opacity: 0 !important;
+      visibility: hidden !important;
+      pointer-events: none !important;
+      transform: translateY(110%);
+    }
+    .premium-tab { min-width: 0; overflow-x: clip; }
     #boot-error {
       display:none; position:fixed; inset:0; z-index:99999; padding:24px;
       background:#0A0F1C; color:#E9EEF7; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
@@ -336,7 +361,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.46.0-bilingual-full-coverage";
+const APP_VERSION = "4.7-personal-advisor-v2.46.1-mobile-overlay-stability";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -2173,7 +2198,9 @@ function AssetTracker() {
     const measure = () => {
       const headerH = headerRef.current?.offsetHeight || 0;
       const tabBarH = tabBarRef.current?.offsetHeight || 0;
-      const viewportH = window.visualViewport?.height || window.innerHeight;
+      // 分頁本體用 layout viewport，不跟著鍵盤造成的 visualViewport 縮放改高度。
+      // AI 開啟/打字時，背景七個分頁與底部列都不應被「拉上來」。
+      const viewportH = window.innerHeight || document.documentElement.clientHeight || 0;
       setMainMinHeight(Math.max(0, viewportH - headerH - tabBarH));
     };
     measure();
@@ -2181,11 +2208,9 @@ function AssetTracker() {
     if (ro && headerRef.current) ro.observe(headerRef.current);
     if (ro && tabBarRef.current) ro.observe(tabBarRef.current);
     window.addEventListener("resize", measure);
-    window.visualViewport?.addEventListener("resize", measure);
     return () => {
       if (ro) ro.disconnect();
       window.removeEventListener("resize", measure);
-      window.visualViewport?.removeEventListener("resize", measure);
     };
   }, [backupOverdue]);
 
@@ -2201,7 +2226,7 @@ function AssetTracker() {
 
   return (
     <div style={{ background: COLORS.bg, color: COLORS.text }}
-      className="min-h-screen font-sans pb-24">
+      className="min-h-screen font-sans">
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
@@ -6931,6 +6956,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
   useEffect(() => {
     if (!open) return;
 
+    document.documentElement.classList.add("ai-chat-open");
     const scrollY = window.scrollY;
     const htmlStyle = document.documentElement.style;
     const bodyStyle = document.body.style;
@@ -6949,6 +6975,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
     bodyStyle.overflow = "hidden";
 
     return () => {
+      document.documentElement.classList.remove("ai-chat-open");
       htmlStyle.overflow = prevHtml.overflow;
       htmlStyle.height = prevHtml.height;
       bodyStyle.position = prevBody.position;
@@ -7215,8 +7242,8 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
       </button>
 
       {open && (
-        <div className="ai-panel-wrap fixed inset-x-0 bottom-0 z-50 flex flex-col justify-end"
-          style={{ background: "rgba(0,0,0,0.5)" }}
+        <div className="ai-panel-wrap fixed inset-0 flex flex-col justify-end"
+          style={{ background: "rgba(0,0,0,0.5)", zIndex: 1000 }}
           onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}>
           <div className="ai-panel-h flex flex-col rounded-t-2xl" style={{
             background: COLORS.bg,
