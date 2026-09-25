@@ -170,7 +170,88 @@
     }
     @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
 
-  </style>
+  
+    /* Premium pass 7 — compact finance polish (keep density, improve hierarchy) */
+    .premium-dashboard{
+      --num-weight:650;
+      --label-muted:#8390a6;
+    }
+    .premium-dashboard .mono,
+    .premium-dashboard [class*="text-right"]{
+      font-variant-numeric:tabular-nums;
+      font-feature-settings:"tnum" 1;
+    }
+    .premium-dashboard .text-2xl,
+    .premium-dashboard .text-3xl,
+    .premium-dashboard .font-black{
+      letter-spacing:-.025em;
+    }
+    .premium-dashboard .text-\[10px\],
+    .premium-dashboard .text-\[11px\]{
+      letter-spacing:.005em;
+    }
+    .premium-dashboard>.rounded-xl,
+    .premium-dashboard .premium-panel{
+      border-color:#202a3b!important;
+      box-shadow:0 3px 12px rgba(0,0,0,.14)!important;
+    }
+    .premium-dashboard .premium-panel:before{
+      opacity:.7;
+    }
+    .live-status-line{
+      display:inline-flex;
+      align-items:center;
+      min-height:24px;
+      line-height:1.35;
+      border-radius:999px;
+      padding:2px 0;
+      transition:background-color .15s ease,color .15s ease,padding .15s ease;
+    }
+    .live-status-line.is-closed{
+      padding:3px 8px;
+      background:rgba(201,162,75,.09);
+      border:1px solid rgba(201,162,75,.18);
+      color:#c9ad70!important;
+    }
+    .live-refresh-btn{
+      min-height:34px!important;
+      border-radius:10px!important;
+      box-shadow:0 2px 8px rgba(201,162,75,.10)!important;
+    }
+    .premium-tabbar button{
+      position:relative;
+    }
+    .premium-tabbar button>span:first-child{
+      border:1px solid transparent;
+      transition:background-color .15s ease,border-color .15s ease,transform .15s ease;
+    }
+    .premium-tabbar button[data-active="true"]>span:first-child{
+      border-color:rgba(201,162,75,.22);
+      background:rgba(201,162,75,.17)!important;
+      box-shadow:inset 0 0 0 1px rgba(255,255,255,.015);
+    }
+    .premium-tabbar button[data-active="true"]>span:last-child{
+      font-weight:700;
+      letter-spacing:.01em;
+    }
+    .premium-tabbar button[data-active="false"]{
+      opacity:.72;
+    }
+    .premium-tabbar button[data-active="false"]:active{
+      opacity:.95;
+    }
+    @media(max-width:640px){
+      .premium-dashboard{row-gap:.46rem}
+      .premium-dashboard>.rounded-xl{padding-left:.62rem!important;padding-right:.62rem!important}
+      .premium-dashboard>.premium-asset-hero{padding:.82rem!important}
+      .premium-dashboard>.premium-asset-hero [style*="height: 148"]{height:142px!important}
+      .premium-dashboard>.premium-asset-hero [style*="height: 180"]{height:142px!important}
+      .premium-tabbar button{min-height:43px;padding-top:3px!important;padding-bottom:2px!important}
+      .premium-tabbar button>span:first-child{width:34px!important;height:19px!important}
+      .live-status-line{font-size:10.5px}
+      .live-refresh-btn{padding-left:.7rem!important;padding-right:.7rem!important}
+    }
+</style>
 
   <script>
     window.addEventListener("error", function(e) {
@@ -2588,7 +2669,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
   return (
     <Panel title="即時股價">
       <div className="flex items-center justify-between gap-2 mb-2">
-        <div className="text-[11px]" style={{ color: COLORS.sub }}>
+        <div className={`live-status-line text-[11px] ${isMarketClosedToday() ? "is-closed" : ""}`} style={{ color: COLORS.sub }}>
           {liveStatus === "idle" && (isMarketClosedToday()
             ? (UI_SHOW_ENGLISH ? "Market closed today · auto refresh paused" : "今日休市・已停止自動更新")
             : (UI_SHOW_ENGLISH
@@ -2609,7 +2690,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
         <button
           onClick={() => fetchAllLive(true)}
           disabled={liveStatus === "loading" || !activeHoldings.length}
-          className="text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 flex-shrink-0"
+          className="live-refresh-btn text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 flex-shrink-0"
           style={{ background: COLORS.gold, color: COLORS.bg, opacity: (liveStatus === "loading" || !activeHoldings.length) ? 0.5 : 1 }}
         >
           {liveStatus === "loading" ? <Loader2 size={13} className="animate-spin" /> : null}
