@@ -24,6 +24,22 @@ const MAX_CONTEXT_LEN = 12000;
 const MAX_TOKENS = 1000;
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_SERVER_SEARCH_ROUNDS = 2;
+const PRIMARY_AI_TIMEOUT_MS = 12000;
+const GEMINI_AI_TIMEOUT_MS = 18000;
+
+async function withTimeout(promise, ms, label) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} 逾時（超過 ${Math.round(ms / 1000)} 秒未回應）`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 const ASK_CACHE_TTL_MS = 5 * 60 * 1000;
 const ASK_CACHE = new Map();
@@ -376,6 +392,7 @@ async function callGemini(env, contents, systemInstruction, tools = true) {
     method: "POST",
     headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(GEMINI_AI_TIMEOUT_MS),
   });
   const data = await res.json().catch(() => null);
   if (!res.ok || !data) {
@@ -549,9 +566,10 @@ export async function onRequestPost(context) {
     if (!ai) throw new Error("尚未設定 Cloudflare AI Binding（AI）");
 
     async function runModel() {
-      return forceAnswer
-        ? await ai.run(MODEL, { messages, max_tokens: MAX_TOKENS })
-        : await ai.run(MODEL, { messages, max_tokens: MAX_TOKENS, tools: TOOLS });
+      const request = forceAnswer
+        ? ai.run(MODEL, { messages, max_tokens: MAX_TOKENS })
+        : ai.run(MODEL, { messages, max_tokens: MAX_TOKENS, tools: TOOLS });
+      return await withTimeout(request, PRIMARY_AI_TIMEOUT_MS, "Cloudflare Workers AI");
     }
 
     let result;
@@ -577,7 +595,11 @@ export async function onRequestPost(context) {
         }
         if (toolCalls.length > 0 && toolCalls.some((tc) => tc.name === "web_search")) {
           messages.push({ role: "user", content: "（系統提示：已達自動查詢次數上限，請直接根據目前已經查到的資料用文字回答，不要再要求呼叫任何工具。）" });
-          result = await ai.run(MODEL, { messages, max_tokens: MAX_TOKENS });
+          result = await withTimeout(
+            ai.run(MODEL, { messages, max_tokens: MAX_TOKENS }),
+            PRIMARY_AI_TIMEOUT_MS,
+            "Cloudflare Workers AI"
+          );
           toolCalls = parseToolCalls(result).filter((tc) => tc.name !== "web_search");
         }
         if (toolCalls.length > 0) {
