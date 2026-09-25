@@ -1,9 +1,9 @@
 {
-  "app": "2.46.0",
-  "lastUpdated": "2026-09-23",
-  "status": "personal-investment-advisor-gemini-direct-fallback",
+  "app": "2.46.1",
+  "lastUpdated": "2026-09-25",
+  "status": "personal-investment-advisor-mobile-overlay-stable",
   "cloudflare": {
-    "index.html": "4.7-personal-advisor-v2.46.0-bilingual-full-coverage",
+    "index.html": "4.7-personal-advisor-v2.46.1-mobile-overlay-stability",
     "quote.js": "4.7-quote-schedule-5-high-low-overnight-fix",
     "ask.js": "4.7-personal-advisor-v3.1-polished-analysis",
     "news.js": "4.6-news-stable-6",
@@ -13,18 +13,18 @@
   "vercel": {
     "package": "2.21.4",
     "ask-core.js": "4.7-personal-advisor-v3.1-polished-analysis",
-    "model": "gemini-3.5-flash",
+    "model": "gemini-3.6-flash",
     "thinkingLevel": "minimal"
   },
   "features": {
     "quote": "TAIEX + 台股即時報價（含盤中最高/最低）+ S&P500/費半SOX/美元台幣等海外隔夜訊號",
-    "ask": "使用者專用投資顧問助手：以 App 個人資產資料為優先，支援即時行情、歷史分析、新聞與情境比較；Cloudflare GPT-OSS 主 AI + Gemini 3.5 備援",
-    "fallback": "Cloudflare Worker 內建 Gemini 3.5 Flash 備援；舊 Vercel 備援可作最後一道相容備援",
+    "ask": "使用者專用投資顧問助手：以 App 個人資產資料為優先，支援即時行情、歷史分析、新聞與情境比較；Cloudflare GPT-OSS 主 AI + Gemini 3.6 備援",
+    "fallback": "Cloudflare Worker 內建 Gemini 3.6 Flash 備援；舊 Vercel 備援可作最後一道相容備援",
     "news": "台股市場新聞",
     "health": "自動健康檢查卡片",
     "backup": "JSON 備份／匯入",
     "trendRadar": "AI 今日／明日趨勢雷達：時間自適應權重＋13:25收盤前鎖定＋真實日/月KD（歷史K線）＋盤中5/15/60分KD＋全市場三大法人＋新聞情緒（含否定語氣判斷）＋S&P500/費半SOX/美元台幣隔夜訊號（依各持股對TAIEX的實測beta縮放曝險）；上午／收盤前鎖定／明日 三種預測分開驗證命中率，並排除方向不明的預測",
     "factorBacktest": "研究用因子回測（總覽頁，雷達卡片下方）：把雷達用到的每個原始因子跟實際漲跌幅算皮爾森相關係數，樣本數不足時不顯示係數，用來判斷哪些因子真的有解釋力"
   },
-  "package": "2.46.0"
+  "package": "2.46.1"
 }
