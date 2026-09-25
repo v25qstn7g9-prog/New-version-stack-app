@@ -289,7 +289,7 @@
   <div id="boot-error"></div>
 
   <script type="text/babel" data-presets="env,react">
-const { useState, useEffect, useMemo, useRef } = window.React;
+const { useState, useEffect, useLayoutEffect, useMemo, useRef } = window.React;
 
 const RC = window.Recharts;
 if (!RC) throw new Error("Recharts 載入失敗");
@@ -1341,38 +1341,95 @@ function AssetTracker() {
   // had just filled in). Owning it here means it survives tab switches.
   const [dailyForm, setDailyForm] = useState({ date: todayStr(), twValue: "", usValue: "", twCost: "", usCost: "" });
 
-  // 左右滑動切換分頁：只在明確的水平手勢時觸發，避免正常上下捲動誤換頁。
-  // 從輸入框、按鈕、連結、圖表等互動區開始的手勢一律不接管。
-  const swipeStartRef = useRef(null);
-  const swipeBlockedRef = useRef(false);
+  // 左右滑動切換分頁（仿 iOS 分頁）：頁面會跟著手指走、下一頁從旁邊露出來；
+  // 放開時依「滑動距離」或「甩動速度」決定換頁或彈回。只有明確的水平手勢
+  // 才接管，上下捲動照常。從按鈕或未聚焦的輸入框開始滑也可以換頁（手指一動
+  // 手機就不會觸發點擊）；只有圖表、新聞輪播、下拉選單、滑桿、正在輸入的文字
+  // 欄位、以及本身可以左右捲動的區塊，會保留給它們自己的手勢。
+  // 第一頁往右／最後一頁往左拉時只會有橡皮筋回彈，不會循環。
+  const SWIPE_BLOCK_SELECTOR = '.recharts-wrapper, [data-no-page-swipe="true"], select, input[type="range"]';
+  const swipeBlockedAt = (target, root) => {
+    if (!target?.closest) return false;
+    if (target.closest(SWIPE_BLOCK_SELECTOR)) return true;
+    const field = target.closest('input, textarea, [contenteditable="true"]');
+    if (field && document.activeElement === field) return true;
+    for (let el = target; el && el !== root; el = el.parentElement) {
+      if (el.scrollWidth > el.clientWidth + 2) {
+        const ox = getComputedStyle(el).overflowX;
+        if (ox === "auto" || ox === "scroll") return true;
+      }
+    }
+    return false;
+  };
+  const [mainEl, setMainEl] = useState(null);
+  const stripRef = useRef(null);
+  // The strip's transform/transition are written imperatively after every
+  // render (see the layout effect below), never through React's style prop:
+  // during a drag the finger moves the strip directly, so React's idea of the
+  // "current" transform goes stale and it would skip a snap-back whose target
+  // string happens to equal the last one it rendered.
+  const stripStyleRef = useRef({ transform: "translate3d(0, 0, 0)", transition: "none" });
+  const dragDxRef = useRef(0);          // live finger offset (px) while dragging
+  const scrollMemRef = useRef({});      // each tab keeps its own scroll position
+  const pendingScrollRef = useRef(null);
 
-  // 換頁動畫：仿 iPhone 主畫面切頁——舊、新兩頁接在一起變成一條「長條」，
-  // 整條一起橫向平移一個畫面寬度，不是各自淡入淡出。這樣兩頁之間不會疊
-  // 在一起看到底層的殘影，因為同一時間畫面上永遠只看得到「半條」內容。
-  // transitionState 非 null 的這段期間，畫面上同時掛著新舊兩頁；
-  // settled 控制的是「有沒有套用 transition + 移到定位」，靠兩次
-  // requestAnimationFrame 確保瀏覽器先畫出起始位置、才套用動畫，
-  // 不然兩個狀態擠在同一幀會被瀏覽器直接跳過，看起來就是瞬間切換。
-  const [transitionState, setTransitionState] = useState(null); // { from, to, dir } | null
+  // 換頁動畫：舊、新兩頁接成一條「長條」一起平移，不是各自淡入淡出。
+  // mode "tap"：點分頁按鈕，settled 靠兩次 requestAnimationFrame 先畫起點再動畫。
+  // mode "drag"：手指拖曳中 phase="dragging"，放開後 phase 變成 "commit"（換頁）
+  // 或 "cancel"（彈回），duration 依剩下的距離決定。
+  const [transitionState, setTransitionState] = useState(null); // { from, to, dir, mode, phase?, duration?, toShift }
   const [settled, setSettled] = useState(true);
   const tabTransitionRaf1Ref = useRef(null);
   const tabTransitionRaf2Ref = useRef(null);
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
+  const transitionRef = useRef(transitionState);
+  transitionRef.current = transitionState;
 
-  // 統一的換頁入口：不管是滑手勢還是點下面的分頁按鈕，都走這裡，
-  // 這樣兩種切換方式的動畫才會一致。
+  // 進場那一頁先往下偏移，讓它停在「上次看到的位置」，換頁完成再真的捲過去。
+  const beginTransition = (from, to, dir, extra) => {
+    const y = window.scrollY || 0;
+    scrollMemRef.current[from] = y;
+    const targetY = scrollMemRef.current[to] ?? 0;
+    setTransitionState({ from, to, dir, toShift: y - targetY, ...extra });
+  };
+
+  // 統一的換頁入口：點下面的分頁按鈕、或程式內部跳頁，都走這裡。
   const goToTab = (nextId) => {
     if (nextId === tab || transitionState) return;
     const fromIndex = TABS.findIndex((x) => x.id === tab);
     const toIndex = TABS.findIndex((x) => x.id === nextId);
     if (toIndex < 0) return;
-    const dir = toIndex > fromIndex ? "left" : "right";
-    setTransitionState({ from: tab, to: nextId, dir });
+    beginTransition(tab, nextId, toIndex > fromIndex ? "left" : "right", { mode: "tap" });
     setSettled(false);
     setTab(nextId);
   };
 
+  const finishTransition = () => {
+    const st = transitionRef.current;
+    if (!st || (st.mode === "drag" && st.phase === "dragging")) return;
+    const landed = st.mode === "drag" && st.phase === "cancel" ? st.from : st.to;
+    pendingScrollRef.current = scrollMemRef.current[landed] ?? 0;
+    if (st.mode === "drag" && st.phase === "commit") setTab(st.to);
+    setTransitionState(null);
+  };
+
+  useLayoutEffect(() => {
+    const el = stripRef.current;
+    if (!el) return;
+    el.style.transition = stripStyleRef.current.transition;
+    el.style.transform = stripStyleRef.current.transform;
+  });
+
+  // 換頁結束後、畫面繪製前，捲到那一頁自己記住的位置，避免跳一下。
+  useLayoutEffect(() => {
+    if (transitionState || pendingScrollRef.current == null) return;
+    window.scrollTo(0, pendingScrollRef.current);
+    pendingScrollRef.current = null;
+  }, [transitionState]);
+
   useEffect(() => {
-    if (!transitionState || settled) return;
+    if (!transitionState || transitionState.mode !== "tap" || settled) return;
     // 第一幀先讓瀏覽器畫出起點，第二幀才移到終點，CSS transition 才會真的跑。
     tabTransitionRaf1Ref.current = requestAnimationFrame(() => {
       tabTransitionRaf2Ref.current = requestAnimationFrame(() => setSettled(true));
@@ -1385,43 +1442,109 @@ function AssetTracker() {
     };
   }, [transitionState, settled]);
 
-  const onPageTouchStart = (e) => {
-    if (!e.touches || e.touches.length !== 1) {
-      swipeStartRef.current = null;
-      swipeBlockedRef.current = true;
-      return;
-    }
-    const target = e.target;
-    swipeBlockedRef.current = Boolean(
-      target?.closest?.('input, textarea, select, button, a, [role="button"], .recharts-wrapper, [data-no-page-swipe="true"]')
-    );
-    const t = e.touches[0];
-    swipeStartRef.current = { x: t.clientX, y: t.clientY };
-  };
+  // 保險：transitionend 沒觸發時（例如 iOS「減少動態效果」會關掉 transition），
+  // 也要在動畫時間後收尾，不然之後所有換頁都會被擋住。
+  useEffect(() => {
+    if (!transitionState) return;
+    if (transitionState.mode === "drag" && transitionState.phase === "dragging") return;
+    if (transitionState.mode === "tap" && !settled) return;
+    const ms = (transitionState.mode === "drag" ? transitionState.duration : 280) + 120;
+    const timer = setTimeout(finishTransition, ms);
+    return () => clearTimeout(timer);
+  }, [transitionState, settled]);
 
-  const onPageTouchEnd = (e) => {
-    const start = swipeStartRef.current;
-    swipeStartRef.current = null;
-    if (!start || swipeBlockedRef.current || !e.changedTouches || e.changedTouches.length !== 1) return;
-
-    const t = e.changedTouches[0];
-    const dx = t.clientX - start.x;
-    const dy = t.clientY - start.y;
-    const absX = Math.abs(dx);
-    const absY = Math.abs(dy);
-
-    // 至少滑 70px，而且水平位移要明顯大於垂直位移，才算換頁手勢。
-    if (absX < 70 || absX < absY * 1.35) return;
-
-    const currentIndex = TABS.findIndex((x) => x.id === tab);
-    if (currentIndex < 0) return;
-
-    // 左滑 = 下一頁；右滑 = 上一頁。第一頁/最後一頁不循環。
-    const nextIndex = dx < 0 ? currentIndex + 1 : currentIndex - 1;
-    if (nextIndex < 0 || nextIndex >= TABS.length) return;
-
-    goToTab(TABS[nextIndex].id);
-  };
+  // 原生 touch 監聽（touchmove 要能 preventDefault，鎖定水平後不再上下捲動）。
+  useEffect(() => {
+    if (!mainEl) return;
+    let g = null;
+    const onStart = (e) => {
+      g = null;
+      if (transitionRef.current || !e.touches || e.touches.length !== 1) return;
+      if (swipeBlockedAt(e.target, mainEl)) return;
+      const t = e.touches[0];
+      g = { x: t.clientX, y: t.clientY, samples: [{ x: t.clientX, t: e.timeStamp }], axis: null,
+            width: mainEl.clientWidth || window.innerWidth, neighbor: null, dir: null, eff: 0 };
+    };
+    const onMove = (e) => {
+      if (!g) return;
+      if (!e.touches || e.touches.length !== 1) { g = null; return; }
+      const t = e.touches[0];
+      const dx = t.clientX - g.x;
+      const dy = t.clientY - g.y;
+      if (!g.axis) {
+        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+        if (Math.abs(dx) <= Math.abs(dy) * 1.2) { g = null; return; } // vertical scroll: let it be
+        g.axis = "x";
+        g.dir = dx < 0 ? "left" : "right";
+        const idx = TABS.findIndex((x) => x.id === tabRef.current);
+        const nIdx = g.dir === "left" ? idx + 1 : idx - 1;
+        if (idx >= 0 && nIdx >= 0 && nIdx < TABS.length) {
+          g.neighbor = TABS[nIdx].id;
+          dragDxRef.current = 0;
+          beginTransition(tabRef.current, g.neighbor, g.dir, { mode: "drag", phase: "dragging" });
+          setSettled(true);
+        }
+      }
+      if (e.cancelable) e.preventDefault();
+      g.samples.push({ x: t.clientX, t: e.timeStamp });
+      if (g.samples.length > 8) g.samples.shift();
+      const strip = stripRef.current;
+      if (g.neighbor) {
+        // Only move toward the neighbour; pulling back past the start just stops at 0.
+        g.eff = g.dir === "left" ? Math.min(dx, 0) : Math.max(dx, 0);
+        dragDxRef.current = g.eff;
+        if (strip && transitionRef.current?.mode === "drag") {
+          strip.style.transition = "none";
+          strip.style.transform = `translate3d(calc(${g.dir === "left" ? "0%" : "-50%"} + ${g.eff}px), 0, 0)`;
+        }
+      } else {
+        // First/last tab: rubber-band resistance.
+        g.eff = dx * 0.28;
+        if (strip) {
+          strip.style.transition = "none";
+          strip.style.transform = `translate3d(${g.eff}px, 0, 0)`;
+        }
+      }
+    };
+    const onEnd = (e) => {
+      const gg = g;
+      g = null;
+      if (!gg || gg.axis !== "x") return;
+      // Release velocity over the last ~100ms (a pause before lifting = no flick).
+      const endT = e?.timeStamp ?? gg.samples[gg.samples.length - 1].t;
+      const recent = gg.samples.filter((p) => endT - p.t <= 100);
+      const first = recent[0], last = recent[recent.length - 1];
+      gg.vx = recent.length >= 2 && last.t > first.t ? (last.x - first.x) / (last.t - first.t) : 0;
+      if (!gg.neighbor) {
+        const strip = stripRef.current;
+        if (strip) {
+          strip.style.transition = "transform 0.32s cubic-bezier(.22,.61,.36,1)";
+          strip.style.transform = "translate3d(0, 0, 0)";
+          setTimeout(() => { if (stripRef.current && !transitionRef.current) stripRef.current.style.transition = "none"; }, 360);
+        }
+        return;
+      }
+      const dist = Math.abs(gg.eff);
+      const towardNeighbor = gg.dir === "left" ? gg.vx < 0 : gg.vx > 0;
+      const flick = towardNeighbor && Math.abs(gg.vx) > 0.3 && dist > 20;
+      const commit = dist > gg.width * 0.3 || flick;
+      const remaining = commit ? gg.width - dist : dist;
+      const speed = Math.max(Math.abs(gg.vx), 1.4); // px/ms, keeps a flick feeling fast
+      const duration = Math.round(Math.max(150, Math.min(320, remaining / speed)));
+      dragDxRef.current = 0;
+      setTransitionState((st) => (st && st.mode === "drag" ? { ...st, phase: commit ? "commit" : "cancel", duration } : st));
+    };
+    mainEl.addEventListener("touchstart", onStart, { passive: true });
+    mainEl.addEventListener("touchmove", onMove, { passive: false });
+    mainEl.addEventListener("touchend", onEnd);
+    mainEl.addEventListener("touchcancel", onEnd);
+    return () => {
+      mainEl.removeEventListener("touchstart", onStart);
+      mainEl.removeEventListener("touchmove", onMove);
+      mainEl.removeEventListener("touchend", onEnd);
+      mainEl.removeEventListener("touchcancel", onEnd);
+    };
+  }, [mainEl]);
 
   const [dailyRecords, setDailyRecords] = useState([]);
   const [holdings, setHoldings] = useState([]);
@@ -2037,10 +2160,9 @@ function AssetTracker() {
       </div>
 
       <main
+        ref={setMainEl}
         className="relative px-0 pt-4 pb-24 max-w-none mx-auto overflow-x-hidden"
         style={{ touchAction: "pan-y", ...(mainMinHeight != null ? { minHeight: `${mainMinHeight}px` } : {}) }}
-        onTouchStart={onPageTouchStart}
-        onTouchEnd={onPageTouchEnd}
       >
         {(() => {
           const renderTabContent = (id) => {
@@ -2119,37 +2241,58 @@ function AssetTracker() {
           const stripWidthPct = panelIds.length === 2 ? "200%" : "100%";
           const childWidthPct = panelIds.length === 2 ? "50%" : "100%";
           let offsetPct = "0%";
+          let dragPx = 0;
+          let stripTransition = "none";
           if (transitionState) {
             const startOffset = transitionState.dir === "left" ? "0%" : "-50%";
             const endOffset = transitionState.dir === "left" ? "-50%" : "0%";
-            offsetPct = settled ? endOffset : startOffset;
+            if (transitionState.mode === "drag") {
+              if (transitionState.phase === "dragging") {
+                offsetPct = startOffset;
+                dragPx = dragDxRef.current;
+              } else {
+                offsetPct = transitionState.phase === "commit" ? endOffset : startOffset;
+                stripTransition = `transform ${transitionState.duration}ms cubic-bezier(.22,.61,.36,1)`;
+              }
+            } else {
+              offsetPct = settled ? endOffset : startOffset;
+              if (settled) stripTransition = "transform 0.28s cubic-bezier(.22,.61,.36,1)";
+            }
           }
+          stripStyleRef.current = {
+            transform: `translate3d(calc(${offsetPct} + ${dragPx}px), 0, 0)`,
+            transition: stripTransition,
+          };
           return (
             <div style={{ overflow: "hidden", position: "relative" }}>
               <div
+                ref={stripRef}
                 onTransitionEnd={(e) => {
-                  if (e.propertyName === "transform" && transitionState) setTransitionState(null);
+                  // Only the strip's own slide — buttons inside animate transform too.
+                  if (e.target === e.currentTarget && e.propertyName === "transform") finishTransition();
                 }}
                 style={{
                   display: "flex",
                   alignItems: "flex-start",
                   width: stripWidthPct,
-                  transform: `translate3d(${offsetPct}, 0, 0)`,
-                  transition: transitionState && settled ? "transform 0.28s cubic-bezier(.22,.61,.36,1)" : "none",
                   willChange: transitionState ? "transform" : "auto",
                   WebkitBackfaceVisibility: "hidden",
                   backfaceVisibility: "hidden",
                   WebkitPerspective: 1000,
                   perspective: 1000,
                 }}>
-                {panelIds.map((id) => (
+                {panelIds.map((id) => {
+                  // The incoming tab is shifted so it shows at its own remembered scroll position.
+                  const shift = transitionState && id === transitionState.to ? (transitionState.toShift || 0) : 0;
+                  return (
                   <div key={id} className={`premium-tab premium-tab-${id}`} style={{
                     width: childWidthPct, flexShrink: 0, minWidth: 0,
-                    WebkitTransform: "translateZ(0)", transform: "translateZ(0)",
+                    WebkitTransform: `translate3d(0, ${shift}px, 0)`, transform: `translate3d(0, ${shift}px, 0)`,
                   }}>
                     {renderTabContent(id)}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           );
