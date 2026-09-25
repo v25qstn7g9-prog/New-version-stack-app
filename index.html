@@ -2822,6 +2822,8 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
     return () => clearInterval(timer);
   }, [cacheLoaded, activeSymbolsKey, marketCalendarReady, marketClosure?.date]);
 
+  const marketClosedNow = Boolean(marketClosure || isMarketClosedToday());
+
   const rows = activeHoldings.map((h) => {
     const l = live[h.symbol];
     if (!l) return null;
@@ -2930,14 +2932,14 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
 
       {hasLive && (
         <div>
-          <div className="grid grid-cols-[36px_68px_76px_minmax(0,1fr)] gap-1 text-[10px] pb-1.5 mb-1.5 items-center" style={{ color: COLORS.sub, borderBottom: `1px solid ${COLORS.panelBorder}` }}>
+          <div className="grid grid-cols-[36px_68px_96px_minmax(0,1fr)] gap-1 text-[10px] pb-1.5 mb-1.5 items-center" style={{ color: COLORS.sub, borderBottom: `1px solid ${COLORS.panelBorder}` }}>
             <span><UiLabel zh="代號" /></span><span><UiLabel zh="高／低價" /></span><span className="text-right"><UiLabel zh="股價／漲跌幅" /></span><span className="text-right"><UiLabel zh="市值／今日損益" /></span>
           </div>
           <div className="space-y-1 max-h-64 overflow-y-auto">
             {rows.map((r) => (
               <div key={r.id}>
                 <div className="py-0.5">
-                  <div className="grid grid-cols-[36px_68px_76px_minmax(0,1fr)] grid-rows-[18px_18px_18px] gap-x-1 text-xs mono items-center">
+                  <div className={`grid grid-cols-[36px_68px_96px_minmax(0,1fr)] ${marketClosedNow ? "grid-rows-[25px_18px_18px]" : "grid-rows-[18px_18px_18px]"} gap-x-1 text-xs mono items-center`}>
                     <span className="row-start-1 col-start-1" style={{ color: COLORS.sub }}>{r.symbol}</span>
 
                     <span className="row-start-1 col-start-2 whitespace-nowrap leading-none" style={{color:COLORS.sub}}>
@@ -2948,7 +2950,12 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
                     </span>
 
                     <span className="row-start-1 col-start-3 text-right whitespace-nowrap leading-none">
-                      {r.price.toFixed(2)}
+                      <span className="block">{r.price.toFixed(2)}</span>
+                      {marketClosedNow && (
+                        <span className="block mt-0.5 text-[7px] font-normal tracking-normal" style={{ color: COLORS.sub }}>
+                          <UiLabel zh="前一交易日收盤" />
+                        </span>
+                      )}
                     </span>
                     <span className="row-start-2 col-start-3 text-right whitespace-nowrap leading-none" style={{ color: r.quoteIsStale ? COLORS.sub : (r.chg >= 0 ? COLORS.gain : COLORS.loss) }}>
                       {r.quoteIsStale && isTwseTradingHours() && !isMarketClosedToday() ? <UiLabel zh="待更新" /> : <>{r.chg >= 0 ? "▲" : "▼"}{r.chgPct >= 0 ? "+" : ""}{r.chgPct.toFixed(2)}%</>}
