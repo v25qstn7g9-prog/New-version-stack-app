@@ -6983,7 +6983,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
       try {
         res = await fetchWithTimeout(url, {
           method: "POST", headers, body: JSON.stringify(body), cache: "no-store",
-        }, fallback ? 30000 : 20000);
+        }, fallback ? 30000 : 35000);
       } catch (e) {
         const err = new Error(e?.name === "AbortError" ? uiText("連線逾時") : (e?.message || uiText("網路連線失敗")));
         err.status = 0;
