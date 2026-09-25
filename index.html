@@ -824,16 +824,55 @@ function buildSchedule({ startDate, initialCapital, initialPrincipal, initialAss
 }
 // find the first schedule index whose `key` value reaches `target`, with linear interpolation
 // Whether it's currently within TWSE trading hours (weekdays 09:00–13:45,
-// using the device's local time — fine since this app is used in Taiwan).
-// Only checks weekday + time window; it doesn't know about public holidays,
-// so a market holiday will still count as "open" here and the auto-refresh
-// will fire a few extra times that day — harmless, just not perfectly precise.
+// Taiwan time). Public holidays are handled separately by the market-closed
+// flag below, which LivePricePanel sets from the quote data itself.
 function isTwseTradingHours(date = new Date()) {
   const tw = new Date(date.toLocaleString("en-US", { timeZone: "Asia/Taipei" }));
   const day = tw.getDay(); // 0 = Sunday, 6 = Saturday
   if (day === 0 || day === 6) return false;
   const minutes = tw.getHours() * 60 + tw.getMinutes();
   return minutes >= 9 * 60 && minutes <= 13 * 60 + 45;
+}
+
+// A weekday can still be a market holiday (national holidays, typhoon days,
+// ad-hoc closures). Instead of maintaining a holiday calendar, LivePricePanel
+// looks at the quotes: from 09:15 on a real trading day TAIEX has traded
+// today, so a last-trade date before today means the market is closed.
+const MARKET_CLOSED_KEY = "marketClosedDay";
+function taipeiDateKey(date = new Date()) {
+  return date.toLocaleDateString("sv-SE", { timeZone: "Asia/Taipei" });
+}
+function isMarketClosedToday(date = new Date()) {
+  try { return localStorage.getItem(MARKET_CLOSED_KEY) === taipeiDateKey(date); } catch { return false; }
+}
+function setMarketClosedToday(closed, date = new Date()) {
+  try {
+    if (closed) localStorage.setItem(MARKET_CLOSED_KEY, taipeiDateKey(date));
+    else if (localStorage.getItem(MARKET_CLOSED_KEY) === taipeiDateKey(date)) localStorage.removeItem(MARKET_CLOSED_KEY);
+  } catch {}
+}
+// Weekend or a detected market holiday — no session to record or validate.
+function isNonTradingDay(date = new Date()) {
+  const day = new Date(date.toLocaleString("en-US", { timeZone: "Asia/Taipei" })).getDay();
+  return day === 0 || day === 6 || isMarketClosedToday(date);
+}
+// true = closed today, false = open today, null = can't tell yet.
+function detectMarketClosed(quotes, now = new Date()) {
+  if (!quotes || !isTwseTradingHours(now)) return null;
+  const tw = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Taipei" }));
+  if (tw.getHours() * 60 + tw.getMinutes() < 9 * 60 + 15) return null;
+  const today = taipeiDateKey(now);
+  const tradeDay = (q) => {
+    const t = q?.asOfDate ? new Date(q.asOfDate) : null;
+    return t && !Number.isNaN(t.getTime()) ? taipeiDateKey(t) : null;
+  };
+  const indexDay = tradeDay(quotes.TAIEX);
+  if (indexDay) return indexDay < today;
+  // No usable TAIEX quote: fall back to the holdings, and only call it closed
+  // when none of them has traded today.
+  const days = Object.values(quotes).map(tradeDay).filter(Boolean);
+  if (!days.length) return null;
+  return days.every((d) => d < today);
 }
 
 function findCrossing(schedule, key, target) {
@@ -2391,6 +2430,8 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
     const failed = allMissing.filter((s) => s !== "TAIEX");
     const freshIndex = quotes?.TAIEX || null;
     const now = new Date();
+    const closedVerdict = detectMarketClosed(quotes, now);
+    if (closedVerdict !== null) setMarketClosedToday(closedVerdict, now);
     // Merge this refresh with the last known successful price for any
     // symbol that failed this round. This keeps the dashboard useful during
     // temporary proxy/API hiccups instead of making that holding disappear.
@@ -2469,9 +2510,13 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
   useEffect(() => {
     if (!cacheLoaded || !activeSymbolsKey) return;
     const isFresh = Date.now() - lastFetchAtRef.current < 12000;
-    if (!isFresh && isTwseTradingHours()) fetchAllLive();
+    // On a detected market holiday, only re-check every 30 minutes (in case
+    // the market did open after all); manual refresh still works any time.
+    const shouldAutoFetch = () => isTwseTradingHours()
+      && (!isMarketClosedToday() || Date.now() - lastFetchAtRef.current >= 30 * 60 * 1000);
+    if (!isFresh && shouldAutoFetch()) fetchAllLive();
     const timer = setInterval(() => {
-      if (isTwseTradingHours()) fetchAllLive();
+      if (shouldAutoFetch()) fetchAllLive();
     }, 15000);
     return () => clearInterval(timer);
   }, [cacheLoaded, activeSymbolsKey]);
@@ -2556,7 +2601,11 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
             ? `Auto-fetching ${activeHoldings.length} TW holdings (updates every 15s 09:00-13:45; manual refresh otherwise)`
             : `自動抓取目前持有的 ${activeHoldings.length} 檔台股（09:00–13:45 每 15 秒更新，其他時間可手動更新）`)}
           {liveStatus === "loading" && <UiLabel zh="更新中…" />}
-          {liveStatus === "done" && liveAt && (staleOne
+          {liveStatus === "done" && liveAt && isTwseTradingHours() && isMarketClosedToday()
+            ? (UI_SHOW_ENGLISH
+              ? `Market closed today · auto-check every 30 min (checked ${liveAt.toLocaleTimeString("zh-TW", { hour12: false })})`
+              : `今日休市・每 30 分鐘自動確認一次（查詢 ${liveAt.toLocaleTimeString("zh-TW", { hour12: false })}）`)
+            : liveStatus === "done" && liveAt && (staleOne
             ? (UI_SHOW_ENGLISH
               ? `Market closed, showing ${staleOne.asOfDate.getFullYear()}/${String(staleOne.asOfDate.getMonth()+1).padStart(2,"0")}/${String(staleOne.asOfDate.getDate()).padStart(2,"0")} close (checked ${liveAt.toLocaleTimeString("zh-TW", { hour12: false })})`
               : `休市中，顯示 ${staleOne.asOfDate.getFullYear()}/${String(staleOne.asOfDate.getMonth()+1).padStart(2,"0")}/${String(staleOne.asOfDate.getDate()).padStart(2,"0")} 收盤價（查詢 ${liveAt.toLocaleTimeString("zh-TW", { hour12: false })}）`)
@@ -2597,7 +2646,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
                       {r.price.toFixed(2)}
                     </span>
                     <span className="row-start-2 col-start-3 text-right whitespace-nowrap leading-none" style={{ color: r.quoteIsStale ? COLORS.sub : (r.chg >= 0 ? COLORS.gain : COLORS.loss) }}>
-                      {r.quoteIsStale && isTwseTradingHours() ? <UiLabel zh="待更新" /> : <>{r.chg >= 0 ? "▲" : "▼"}{r.chgPct >= 0 ? "+" : ""}{r.chgPct.toFixed(2)}%</>}
+                      {r.quoteIsStale && isTwseTradingHours() && !isMarketClosedToday() ? <UiLabel zh="待更新" /> : <>{r.chg >= 0 ? "▲" : "▼"}{r.chgPct >= 0 ? "+" : ""}{r.chgPct.toFixed(2)}%</>}
                     </span>
 
                     <span className="row-start-1 col-start-4 text-right font-bold whitespace-nowrap leading-none min-w-0">{nf(r.value)}</span>
@@ -2832,6 +2881,9 @@ function TrendRadar({ holdings, embedded = false }) {
       const lateProgress = Math.max(0, Math.min(1, (sessionClock - 630) / 180)); // 10:30 -> 13:30
       const closeProgress = Math.max(0, Math.min(1, (sessionClock - 750) / 60)); // 12:30 -> 13:30
       const todayKey = now.toLocaleDateString("sv-SE");
+      // Weekends and detected market holidays have no session: never record,
+      // lock or validate forecasts from last session's stale prices.
+      const nonTradingToday = isNonTradingDay(now);
       const kdFromBars=(bars)=>{
         if(!bars || bars.length<9) return null;
         let K=50,D=50,prevK=50,prevD=50;
@@ -3144,7 +3196,7 @@ function TrendRadar({ holdings, embedded = false }) {
       // the answer after the market has effectively finished. This creates a
       // genuinely auditable prediction for post-close validation.
       try {
-        if (sessionClock >= 805) {
+        if (sessionClock >= 805 && !nonTradingToday) {
           const lock = await loadKey("trendRadarCloseLock", null);
           if (lock?.day === todayKey && lock.market && Array.isArray(lock.rows)) {
             computedMarketRow = {...computedMarketRow, probability:lock.market.probability, direction:lock.market.direction, lockedAt:lock.at};
@@ -3172,8 +3224,11 @@ function TrendRadar({ holdings, embedded = false }) {
         const stamp=new Date();
         const day=stamp.toLocaleDateString("sv-SE");
         const mins=stamp.getHours()*60+stamp.getMinutes();
+        // A morning snapshot can be taken before the holiday is detected
+        // (09:00-09:15); once the day is known to be closed, drop it.
+        if(nonTradingToday) records=records.filter(rec=>rec.day!==day);
         // Keep a representative morning forecast (first one from 09:00-10:00).
-        if(mins>=540 && mins<=600){
+        if(mins>=540 && mins<=600 && !nonTradingToday){
           next.forEach(r=>{
             const key=day+"|"+r.symbol+"|morning";
             if(!records.some(x=>x.key===key)){
@@ -3183,7 +3238,7 @@ function TrendRadar({ holdings, embedded = false }) {
         }
         // Keep a dedicated close-lock snapshot (13:25+) so backtests can
         // compare the morning model with the final pre-close model fairly.
-        if(mins>=805){
+        if(mins>=805 && !nonTradingToday){
           next.forEach(r=>{
             const key=day+"|"+r.symbol+"|closeLock";
             if(!records.some(x=>x.key===key)){
@@ -3192,7 +3247,7 @@ function TrendRadar({ holdings, embedded = false }) {
           });
         }
         // At/after close, attach the actual close-vs-prev-close outcome when quote data is available.
-        if(mins>=810){
+        if(mins>=810 && !nonTradingToday){
           records=records.map(rec=>{
             if(rec.day!==day || rec.actual) return rec;
             const q=quoteMap[rec.symbol]||{};
@@ -3229,6 +3284,28 @@ function TrendRadar({ holdings, embedded = false }) {
       const clock=sessionClock;
       const toLabel=(p)=>p>=64?"明顯偏漲":p>=55?"稍偏漲":p<=36?"明顯偏跌":p<=45?"稍偏跌":"方向不明";
       const tomorrow={};
+      // No session today: a "tomorrow" forecast that targeted today moves to
+      // the next weekday instead of being scored against stale prices.
+      if(nonTradingToday){
+        try{
+          const tCache=await loadKey("trendRadarTomorrowHistory",{records:[]});
+          let tRecords=Array.isArray(tCache?.records)?tCache.records:[];
+          if(tRecords.some(rec=>!rec.actual&&rec.targetDay===todayKey)){
+            const nextSession=new Date(now);
+            do{ nextSession.setDate(nextSession.getDate()+1); }while(nextSession.getDay()===0||nextSession.getDay()===6);
+            const nextDay=nextSession.toLocaleDateString("sv-SE");
+            const taken=new Set(tRecords.map(rec=>rec.key));
+            tRecords=tRecords.map(rec=>{
+              if(rec.actual||rec.targetDay!==todayKey) return rec;
+              const key=nextDay+"|"+rec.symbol;
+              if(taken.has(key)) return rec;
+              taken.add(key);
+              return {...rec,key,targetDay:nextDay,retargetedFrom:todayKey};
+            });
+            await saveKey("trendRadarTomorrowHistory",{records:tRecords.slice(-1500),at:now.toISOString()});
+          }
+        }catch(e){}
+      }
       if(clock>=630){
         const previewProgress=Math.max(0,Math.min(1,(clock-630)/(805-630)));
         const overnightDecay=1-0.65*previewProgress;
@@ -3271,8 +3348,10 @@ function TrendRadar({ holdings, embedded = false }) {
           while(target.getDay()===0||target.getDay()===6) target.setDate(target.getDate()+1);
           const targetDay=target.toLocaleDateString("sv-SE");
 
-          // Freeze the final next-day forecast at/after 13:25.
-          if(clock>=805){
+          if(nonTradingToday){
+            // No new "tomorrow" forecast is locked from a non-trading day's stale data.
+          }else if(clock>=805){
+            // Freeze the final next-day forecast at/after 13:25.
             const existingLock=await loadKey("trendRadarTomorrowLock",null);
             if(existingLock?.targetDay===targetDay && existingLock?.predictions){
               Object.entries(existingLock.predictions).forEach(([sym,pred])=>{tomorrow[sym]=pred;});
