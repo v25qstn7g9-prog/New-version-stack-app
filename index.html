@@ -36,14 +36,163 @@
     }
     #boot-error h2 { color:#C9A24B; }
 
-    /* === Premium finance UI polish · 2026-09-24 === */
-    :root{--premium-bg:#090e19;--premium-panel:#111827;--premium-line:#202b3e;--premium-muted:#8b96aa;--premium-gold:#d4ad57}
+    /* === STOCK APP FINAL COMMERCIAL UI SYSTEM · 2026-09-25 === */
+    :root{
+      --premium-bg:#090e19;
+      --premium-panel:#111827;
+      --premium-panel-soft:#0d1422;
+      --premium-line:#202b3e;
+      --premium-line-focus:#31415d;
+      --premium-muted:#8996aa;
+      --premium-text:#e9eef7;
+      --premium-gold:#d4ad57;
+      --premium-gold-soft:rgba(212,173,87,.12);
+    }
     html,body,#root{background:var(--premium-bg)!important}
     body{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;letter-spacing:-.01em}
     .premium-shell{max-width:1180px;margin-inline:auto}
     button,input,select,textarea{font:inherit}
-    button{transition:transform .12s ease,opacity .15s ease,background-color .15s ease}
+    button{transition:transform .12s ease,opacity .15s ease,background-color .15s ease,border-color .15s ease}
     button:active{transform:scale(.985)}
+
+    /* Overview */
+    .premium-dashboard{gap:.46rem;--label-muted:#8390a6}
+    .premium-dashboard>div{scroll-margin-top:10px}
+    .premium-dashboard>.premium-asset-hero{
+      position:relative;overflow:hidden;border-radius:18px!important;
+      box-shadow:0 5px 18px rgba(0,0,0,.17)!important;
+    }
+    .premium-dashboard>.premium-asset-hero:before{
+      content:"";position:absolute;inset:0 0 auto 0;height:1px;
+      background:linear-gradient(90deg,transparent,rgba(212,173,87,.55),transparent)
+    }
+    .premium-dashboard>.premium-asset-hero .text-3xl{
+      letter-spacing:-.025em;font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;
+    }
+    .premium-dashboard>.premium-asset-hero svg{opacity:.92}
+    .premium-dashboard>.rounded-xl,
+    .premium-dashboard .premium-panel{
+      border-color:#202a3b!important;
+      box-shadow:0 3px 12px rgba(0,0,0,.14)!important;
+    }
+    .premium-dashboard .rounded-2xl{border-color:#202b3e!important}
+    .premium-dashboard .mono,
+    .premium-dashboard [class*="text-right"]{
+      font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;
+    }
+    .premium-dashboard .text-2xl,
+    .premium-dashboard .text-3xl,
+    .premium-dashboard .font-black{letter-spacing:-.025em}
+    .premium-dashboard .text-[10px],
+    .premium-dashboard .text-[11px]{letter-spacing:.005em}
+    .premium-dashboard button{box-shadow:none}
+    .premium-dashboard [class*="rounded-2xl"]{
+      transition:border-color .15s ease,background-color .15s ease;
+    }
+    .premium-dashboard [class*="rounded-2xl"]:focus-within{border-color:var(--premium-line-focus)!important}
+
+    /* Shared panels / rows / forms across all 7 tabs */
+    .premium-tab>.space-y-2{row-gap:.52rem}
+    .premium-tab>.space-y-2>div.rounded-2xl{
+      border-radius:17px!important;
+      box-shadow:0 5px 18px rgba(0,0,0,.17)!important;
+    }
+    .premium-tab>.space-y-2>div.rounded-2xl>div:first-child.text-xs{
+      font-size:11px!important;letter-spacing:.01em;text-transform:none;
+    }
+    .premium-panel{position:relative;overflow:hidden}
+    .premium-panel:before{
+      content:"";position:absolute;left:14px;right:14px;top:0;height:1px;
+      background:linear-gradient(90deg,transparent,rgba(255,255,255,.055),transparent);
+      opacity:.75;
+    }
+    .premium-panel>.text-xs.font-bold:first-child{letter-spacing:.01em}
+    .premium-tab .input{
+      min-height:42px!important;border-radius:11px!important;
+      background:var(--premium-panel-soft)!important;border-color:#22304a!important;
+      padding:9px 10px!important;font-size:12.5px!important;
+    }
+    .premium-tab .input:focus{
+      border-color:#5b4b2e!important;
+      box-shadow:0 0 0 3px rgba(201,162,75,.08)!important;
+    }
+    .premium-tab button{box-shadow:none}
+    .premium-tab .rounded-xl{border-radius:13px!important}
+    .premium-row{
+      transition:background-color .14s ease,border-color .14s ease;
+      background:var(--premium-panel-soft)!important;
+      border-color:#202b3e!important;
+    }
+    .premium-row:focus-within{border-color:#2d3b55!important;background:#101827!important}
+    .premium-row-delete{
+      width:34px;height:34px;display:flex;align-items:center;justify-content:center;
+      border-radius:10px;flex:0 0 auto;
+    }
+    .premium-row-delete:active{background:#172033}
+    .premium-add-button{
+      min-height:44px;letter-spacing:.01em;
+      box-shadow:0 6px 18px rgba(201,162,75,.10)!important;
+    }
+    .premium-empty{
+      border:1px dashed #25324a;border-radius:13px;background:var(--premium-panel-soft);
+      padding:1rem!important;
+    }
+
+    /* Holdings / trades / dividends / progress / plan */
+    .premium-tab-holdings .space-y-3{row-gap:.55rem}
+    .premium-tab-holdings .space-y-3>div.rounded-xl,
+    .premium-tab-trades .space-y-2.max-h-96>div,
+    .premium-tab-dividends .space-y-2>div{
+      background:var(--premium-panel-soft)!important;border-color:#202b3e!important;
+    }
+    .premium-tab-holdings [style*="height: 180"]{height:150px!important}
+    .premium-tab-progress .grid.grid-cols-2.gap-3{gap:.55rem!important}
+    .premium-tab-progress .grid.grid-cols-2.gap-3>div{
+      border-radius:14px!important;background:var(--premium-panel-soft)!important;
+    }
+    .premium-tab-progress .max-h-96{border-radius:12px}
+    .premium-tab-plan .grid.grid-cols-3.gap-2 button{min-height:42px}
+    .premium-tab-plan label.flex.items-start{
+      padding:9px 10px;border:1px solid #202b3e;border-radius:12px;background:var(--premium-panel-soft);
+    }
+
+    /* Live quote status */
+    .live-status-line{
+      display:inline-flex;align-items:center;min-height:24px;line-height:1.35;
+      border-radius:999px;padding:2px 0;
+      transition:background-color .15s ease,color .15s ease,padding .15s ease;
+    }
+    .live-status-line.is-closed{
+      padding:3px 8px;
+      background:rgba(201,162,75,.09);
+      border:1px solid rgba(201,162,75,.18);
+      color:#d6b76e!important;
+    }
+    .live-refresh-btn{
+      min-height:34px!important;border-radius:10px!important;
+      box-shadow:0 2px 8px rgba(201,162,75,.10)!important;
+    }
+
+    /* Bottom tab bar */
+    .premium-tabbar{
+      background:rgba(17,24,39,.95)!important;
+      backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+      box-shadow:0 -8px 28px rgba(0,0,0,.18);z-index:50;
+    }
+    .premium-tabbar button{position:relative;min-height:43px}
+    .premium-tabbar button>span:first-child{
+      border:1px solid transparent;
+      transition:background-color .15s ease,border-color .15s ease,transform .15s ease;
+    }
+    .premium-tabbar button[data-active="true"]>span:first-child{
+      border-color:rgba(201,162,75,.22);
+      background:rgba(201,162,75,.17)!important;
+      box-shadow:inset 0 0 0 1px rgba(255,255,255,.015);
+    }
+    .premium-tabbar button[data-active="true"]>span:last-child{font-weight:700;letter-spacing:.01em}
+    .premium-tabbar button[data-active="false"]{opacity:.72}
+    .premium-tabbar button[data-active="false"]:active{opacity:.95}
+
     @media(max-width:640px){
       body{font-size:14px}
       .min-h-screen{min-height:100svh!important}
@@ -56,202 +205,45 @@
       .text-3xl{font-size:1.65rem;line-height:1.15}
       .text-2xl{font-size:1.35rem;line-height:1.2}
       .shadow-xl,.shadow-lg{box-shadow:0 8px 24px rgba(0,0,0,.16)}
-    }
 
-    .premium-dashboard>.premium-asset-hero{position:relative;overflow:hidden}
-    .premium-dashboard>.premium-asset-hero:before{content:"";position:absolute;inset:0 0 auto 0;height:1px;background:linear-gradient(90deg,transparent,rgba(212,173,87,.55),transparent)}
-    .premium-dashboard>.premium-asset-hero .text-3xl{letter-spacing:-.02em;font-variant-numeric:tabular-nums}
-    .premium-dashboard{gap:.55rem}
-    .premium-dashboard>div{scroll-margin-top:10px}
-    .premium-dashboard .premium-asset-hero{border-radius:18px!important}
-    .premium-dashboard .premium-asset-hero>div:first-child{min-height:18px}
-    .premium-dashboard .premium-asset-hero svg{opacity:.9}
-    .premium-tabbar{background:rgba(17,24,39,.94)!important;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);box-shadow:0 -8px 28px rgba(0,0,0,.18);z-index:50}
-    .premium-tabbar button{min-height:43px}
-    @media(max-width:640px){
-      .premium-dashboard{padding-bottom:4px}
-      .premium-dashboard>.premium-asset-hero{padding:.9rem!important}
-      .premium-dashboard>.premium-asset-hero .text-3xl{font-size:1.65rem}
-      .premium-dashboard>.premium-asset-hero .mt-3{margin-top:.6rem}
-      .premium-dashboard>.premium-asset-hero .pt-3{padding-top:.6rem}
-      .premium-dashboard>.premium-asset-hero [style*="height: 180"]{height:148px!important}
-      .premium-dashboard>.rounded-xl{border-radius:12px!important;padding-top:.42rem!important;padding-bottom:.42rem!important}
-      .premium-tabbar button{min-height:45px;padding-top:4px!important;padding-bottom:3px!important}
-      .premium-tabbar svg{width:15px;height:15px}
-      .premium-tabbar span.text-\[8px\]{font-size:8.5px}
-    }
+      .premium-dashboard{padding-bottom:4px;row-gap:.46rem}
+      .premium-dashboard>.premium-asset-hero{padding:.82rem!important;border-radius:17px!important}
+      .premium-dashboard>.premium-asset-hero [style*="height: 180"],
+      .premium-dashboard>.premium-asset-hero [style*="height: 148"]{height:142px!important}
+      .premium-dashboard>.rounded-xl{padding-left:.62rem!important;padding-right:.62rem!important}
+      .premium-dashboard>.rounded-xl .text-[11px]{font-size:10.5px}
+      .premium-dashboard>.rounded-xl .text-[10px]{font-size:9.5px}
 
-    /* Premium pass 4 — denser overview + cleaner cards */
-    .premium-dashboard>.rounded-xl{box-shadow:0 4px 14px rgba(0,0,0,.14)}
-    .premium-dashboard>.rounded-xl a{min-width:0}
-    .premium-dashboard>.rounded-xl button{padding:.15rem}
-    .premium-dashboard .rounded-2xl{border-color:#202b3e!important}
-    .premium-dashboard .text-xs{letter-spacing:-.01em}
-    .premium-dashboard .mono{font-variant-numeric:tabular-nums}
-    .premium-dashboard button{box-shadow:none}
-    .premium-dashboard [class*="rounded-2xl"]{transition:border-color .15s ease,background-color .15s ease}
-    .premium-dashboard [class*="rounded-2xl"]:focus-within{border-color:#31415d!important}
-    @media(max-width:640px){
-      .premium-dashboard{row-gap:.5rem}
-      .premium-dashboard>.rounded-xl{padding-left:.65rem!important;padding-right:.65rem!important}
-      .premium-dashboard>.rounded-xl .text-\[11px\]{font-size:10.5px}
-      .premium-dashboard>.rounded-xl .text-\[10px\]{font-size:9.5px}
-      .premium-dashboard>.premium-asset-hero{border-radius:17px!important}
-      .premium-dashboard>.premium-asset-hero .text-xs{font-size:11px}
-      .premium-dashboard>.premium-asset-hero .text-sm{font-size:12px}
-      .premium-tabbar{border-top-color:#273247!important}
-      .premium-tabbar button{opacity:.86}
-      .premium-tabbar button[data-active="true"]{opacity:1}
-    }
-
-    /* Premium pass 5 — holdings / trades / dividends / settings */
-    .premium-tab>.space-y-2{row-gap:.55rem}
-    .premium-tab>.space-y-2>div.rounded-2xl{
-      border-radius:17px!important;
-      box-shadow:0 5px 18px rgba(0,0,0,.18)!important;
-    }
-    .premium-tab>.space-y-2>div.rounded-2xl>div:first-child.text-xs{
-      font-size:11px!important;letter-spacing:.01em;text-transform:none;
-    }
-    .premium-tab .input{
-      min-height:42px!important;border-radius:11px!important;
-      background:#0d1422!important;border-color:#22304a!important;
-      padding:9px 10px!important;font-size:12.5px!important;
-    }
-    .premium-tab .input:focus{box-shadow:0 0 0 3px rgba(201,162,75,.08)!important}
-    .premium-tab button{box-shadow:none}
-    .premium-tab .rounded-xl{border-radius:13px!important}
-    .premium-tab-holdings .space-y-3{row-gap:.55rem}
-    .premium-tab-holdings .space-y-3>div.rounded-xl,
-    .premium-tab-trades .space-y-2.max-h-96>div,
-    .premium-tab-dividends .space-y-2>div{
-      background:#0d1422!important;border-color:#202b3e!important;
-    }
-    .premium-tab-holdings [style*="height: 180"]{height:150px!important}
-    .premium-tab-progress .grid.grid-cols-2.gap-3{gap:.55rem!important}
-    .premium-tab-progress .grid.grid-cols-2.gap-3>div{
-      border-radius:14px!important;background:#0d1422!important;
-    }
-    .premium-tab-progress .max-h-96{border-radius:12px}
-    .premium-tab-plan .grid.grid-cols-3.gap-2 button{min-height:42px}
-    .premium-tab-plan label.flex.items-start{padding:9px 10px;border:1px solid #202b3e;border-radius:12px;background:#0d1422}
-    @media(max-width:640px){
       .premium-tab>.space-y-2{row-gap:.48rem}
       .premium-tab>.space-y-2>div.rounded-2xl{padding:.78rem!important}
       .premium-tab .grid.grid-cols-2.gap-2{gap:.45rem!important}
       .premium-tab .input{min-height:40px!important;padding:8px 9px!important;font-size:12px!important}
-      .premium-tab-holdings [style*="height: 180"]{height:132px!important}
-      .premium-tab-holdings .space-y-3>div.rounded-xl{padding:.7rem!important}
-      .premium-tab-trades .max-h-96{max-height:340px!important}
-      .premium-tab-dividends .max-h-96{max-height:340px!important}
-      .premium-tab-progress .grid.grid-cols-2.gap-3{grid-template-columns:1fr 1fr!important}
-      .premium-tab-progress .grid.grid-cols-2.gap-3>div{padding:.72rem!important}
-      .premium-tab-progress .text-lg{font-size:1rem!important}
-      .premium-tab-plan .grid.grid-cols-3.gap-2{gap:.4rem!important}
-    }
-
-    /* Final premium system — shared panels, rows, actions */
-    .premium-panel{position:relative;overflow:hidden}
-    .premium-panel:before{content:"";position:absolute;left:14px;right:14px;top:0;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.055),transparent)}
-    .premium-panel>.text-xs.font-bold:first-child{letter-spacing:.01em}
-    .premium-row{transition:background-color .14s ease,border-color .14s ease}
-    .premium-row:focus-within{border-color:#2d3b55!important;background:#101827!important}
-    .premium-row-delete{width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:10px;flex:0 0 auto}
-    .premium-row-delete:active{background:#172033}
-    .premium-add-button{min-height:44px;letter-spacing:.01em;box-shadow:0 6px 18px rgba(201,162,75,.10)!important}
-    .premium-empty{border:1px dashed #25324a;border-radius:13px;background:#0d1422;padding:1rem!important}
-    @media(max-width:640px){
       .premium-panel{border-radius:16px!important}
       .premium-panel:before{left:12px;right:12px}
       .premium-row{padding:.6rem!important;border-radius:12px!important}
       .premium-row-delete{width:32px;height:32px}
       .premium-add-button{min-height:42px;font-size:12.5px!important}
       .premium-empty{padding:.85rem!important}
-    }
-    @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
 
-  
-    /* Premium pass 7 — compact finance polish (keep density, improve hierarchy) */
-    .premium-dashboard{
-      --num-weight:650;
-      --label-muted:#8390a6;
-    }
-    .premium-dashboard .mono,
-    .premium-dashboard [class*="text-right"]{
-      font-variant-numeric:tabular-nums;
-      font-feature-settings:"tnum" 1;
-    }
-    .premium-dashboard .text-2xl,
-    .premium-dashboard .text-3xl,
-    .premium-dashboard .font-black{
-      letter-spacing:-.025em;
-    }
-    .premium-dashboard .text-\[10px\],
-    .premium-dashboard .text-\[11px\]{
-      letter-spacing:.005em;
-    }
-    .premium-dashboard>.rounded-xl,
-    .premium-dashboard .premium-panel{
-      border-color:#202a3b!important;
-      box-shadow:0 3px 12px rgba(0,0,0,.14)!important;
-    }
-    .premium-dashboard .premium-panel:before{
-      opacity:.7;
-    }
-    .live-status-line{
-      display:inline-flex;
-      align-items:center;
-      min-height:24px;
-      line-height:1.35;
-      border-radius:999px;
-      padding:2px 0;
-      transition:background-color .15s ease,color .15s ease,padding .15s ease;
-    }
-    .live-status-line.is-closed{
-      padding:3px 8px;
-      background:rgba(201,162,75,.09);
-      border:1px solid rgba(201,162,75,.18);
-      color:#c9ad70!important;
-    }
-    .live-refresh-btn{
-      min-height:34px!important;
-      border-radius:10px!important;
-      box-shadow:0 2px 8px rgba(201,162,75,.10)!important;
-    }
-    .premium-tabbar button{
-      position:relative;
-    }
-    .premium-tabbar button>span:first-child{
-      border:1px solid transparent;
-      transition:background-color .15s ease,border-color .15s ease,transform .15s ease;
-    }
-    .premium-tabbar button[data-active="true"]>span:first-child{
-      border-color:rgba(201,162,75,.22);
-      background:rgba(201,162,75,.17)!important;
-      box-shadow:inset 0 0 0 1px rgba(255,255,255,.015);
-    }
-    .premium-tabbar button[data-active="true"]>span:last-child{
-      font-weight:700;
-      letter-spacing:.01em;
-    }
-    .premium-tabbar button[data-active="false"]{
-      opacity:.72;
-    }
-    .premium-tabbar button[data-active="false"]:active{
-      opacity:.95;
-    }
-    @media(max-width:640px){
-      .premium-dashboard{row-gap:.46rem}
-      .premium-dashboard>.rounded-xl{padding-left:.62rem!important;padding-right:.62rem!important}
-      .premium-dashboard>.premium-asset-hero{padding:.82rem!important}
-      .premium-dashboard>.premium-asset-hero [style*="height: 148"]{height:142px!important}
-      .premium-dashboard>.premium-asset-hero [style*="height: 180"]{height:142px!important}
+      .premium-tab-holdings [style*="height: 180"]{height:132px!important}
+      .premium-tab-holdings .space-y-3>div.rounded-xl{padding:.7rem!important}
+      .premium-tab-trades .max-h-96,.premium-tab-dividends .max-h-96{max-height:340px!important}
+      .premium-tab-progress .grid.grid-cols-2.gap-3{grid-template-columns:1fr 1fr!important}
+      .premium-tab-progress .grid.grid-cols-2.gap-3>div{padding:.72rem!important}
+      .premium-tab-progress .text-lg{font-size:1rem!important}
+      .premium-tab-plan .grid.grid-cols-3.gap-2{gap:.4rem!important}
+
       .premium-tabbar button{min-height:43px;padding-top:3px!important;padding-bottom:2px!important}
       .premium-tabbar button>span:first-child{width:34px!important;height:19px!important}
+      .premium-tabbar svg{width:15px;height:15px}
+      .premium-tabbar span.text-[8px]{font-size:8.5px}
       .live-status-line{font-size:10.5px}
       .live-refresh-btn{padding-left:.7rem!important;padding-right:.7rem!important}
     }
-</style>
+    @media(prefers-reduced-motion:reduce){
+      *{scroll-behavior:auto!important;transition:none!important}
+    }
+  </style>
 
   <script>
     window.addEventListener("error", function(e) {
@@ -915,15 +907,85 @@ function isTwseTradingHours(date = new Date()) {
   return minutes >= 9 * 60 && minutes <= 13 * 60 + 45;
 }
 
-// A weekday can still be a market holiday (national holidays, typhoon days,
-// ad-hoc closures). Instead of maintaining a holiday calendar, LivePricePanel
-// looks at the quotes: from 09:15 on a real trading day TAIEX has traded
-// today, so a last-trade date before today means the market is closed.
+// Market-closure calendar:
+// 1) weekends are known immediately;
+// 2) official TWSE holiday schedule is loaded/cached from TWSE OpenAPI;
+// 3) quote-based detection remains as a fallback for ad-hoc closures.
 const MARKET_CLOSED_KEY = "marketClosedDay";
+const TWSE_HOLIDAY_CACHE_KEY = "twseHolidaySchedule:v1";
+const TWSE_HOLIDAY_API = "https://openapi.twse.com.tw/v1/holidaySchedule/holidaySchedule";
+
 function taipeiDateKey(date = new Date()) {
   return date.toLocaleDateString("sv-SE", { timeZone: "Asia/Taipei" });
 }
+function taipeiDateParts(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit", weekday: "short",
+  }).formatToParts(date);
+  return Object.fromEntries(parts.map((p) => [p.type, p.value]));
+}
+function rocHolidayDateToIso(raw) {
+  const s = String(raw || "").replace(/\D/g, "");
+  if (s.length !== 7) return null;
+  const y = Number(s.slice(0, 3)) + 1911;
+  const m = s.slice(3, 5), d = s.slice(5, 7);
+  return Number.isFinite(y) ? `${y}-${m}-${d}` : null;
+}
+function isClosedHolidayScheduleItem(item) {
+  const name = String(item?.Name || "").trim();
+  // These are reference/opening markers, not closure dates.
+  if (/開始交易|最後交易/.test(name)) return false;
+  return Boolean(rocHolidayDateToIso(item?.Date));
+}
+function readTwseHolidayCache() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(TWSE_HOLIDAY_CACHE_KEY) || "null");
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch { return null; }
+}
+function cachedTwseHoliday(date = new Date()) {
+  const key = taipeiDateKey(date);
+  const cached = readTwseHolidayCache();
+  return cached?.days?.[key] || null;
+}
+async function refreshTwseHolidaySchedule(date = new Date()) {
+  const year = Number(taipeiDateParts(date).year);
+  const cached = readTwseHolidayCache();
+  const cacheFresh = cached?.year === year && cached?.at && Date.now() - Number(cached.at) < 7 * 24 * 3600 * 1000;
+  if (cacheFresh) return cached.days || {};
+  try {
+    const res = await fetchWithTimeout(TWSE_HOLIDAY_API, { cache: "no-store" }, 6000);
+    if (!res.ok) throw new Error(`TWSE holiday HTTP ${res.status}`);
+    const list = await res.json();
+    const days = {};
+    (Array.isArray(list) ? list : []).forEach((item) => {
+      if (!isClosedHolidayScheduleItem(item)) return;
+      const iso = rocHolidayDateToIso(item.Date);
+      if (!iso || !iso.startsWith(String(year))) return;
+      days[iso] = {
+        date: iso,
+        name: String(item.Name || "市場休市").trim(),
+        description: String(item.Description || "").replace(/<br\s*\/?>/gi, " ").replace(/\s+/g, " ").trim(),
+        source: "twse",
+      };
+    });
+    localStorage.setItem(TWSE_HOLIDAY_CACHE_KEY, JSON.stringify({ year, at: Date.now(), days }));
+    return days;
+  } catch {
+    return cached?.year === year ? (cached.days || {}) : {};
+  }
+}
+function weekendClosure(date = new Date()) {
+  const tw = new Date(date.toLocaleString("en-US", { timeZone: "Asia/Taipei" }));
+  const day = tw.getDay();
+  if (day !== 0 && day !== 6) return null;
+  return { date: taipeiDateKey(date), name: "例假日", description: day === 6 ? "星期六" : "星期日", source: "weekend" };
+}
+function marketClosureFromCache(date = new Date()) {
+  return cachedTwseHoliday(date) || weekendClosure(date);
+}
 function isMarketClosedToday(date = new Date()) {
+  if (marketClosureFromCache(date)) return true;
   try { return localStorage.getItem(MARKET_CLOSED_KEY) === taipeiDateKey(date); } catch { return false; }
 }
 function setMarketClosedToday(closed, date = new Date()) {
@@ -932,10 +994,8 @@ function setMarketClosedToday(closed, date = new Date()) {
     else if (localStorage.getItem(MARKET_CLOSED_KEY) === taipeiDateKey(date)) localStorage.removeItem(MARKET_CLOSED_KEY);
   } catch {}
 }
-// Weekend or a detected market holiday — no session to record or validate.
 function isNonTradingDay(date = new Date()) {
-  const day = new Date(date.toLocaleString("en-US", { timeZone: "Asia/Taipei" })).getDay();
-  return day === 0 || day === 6 || isMarketClosedToday(date);
+  return Boolean(marketClosureFromCache(date)) || isMarketClosedToday(date);
 }
 // true = closed today, false = open today, null = can't tell yet.
 function detectMarketClosed(quotes, now = new Date()) {
@@ -2567,6 +2627,8 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
   const [marketIndex, setMarketIndex] = useState(null); // { price, prevClose, ... } 加權指數
   const [cacheLoaded, setCacheLoaded] = useState(false);
   const [tapePoints, setTapePoints] = useState([]);
+  const [marketClosure, setMarketClosure] = useState(() => marketClosureFromCache(new Date()));
+  const [marketCalendarReady, setMarketCalendarReady] = useState(false);
   const liveRef = useRef({});
   const isFetchingRef = useRef(false);
   const lastFetchAtRef = useRef(0);
@@ -2574,6 +2636,21 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
   useEffect(() => {
     liveRef.current = live;
   }, [live]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const days = await refreshTwseHolidaySchedule(new Date());
+      if (cancelled) return;
+      const today = taipeiDateKey(new Date());
+      const official = days?.[today] || null;
+      const closure = official || weekendClosure(new Date());
+      setMarketClosure(closure);
+      if (closure) setMarketClosedToday(true, new Date());
+      setMarketCalendarReady(true);
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     let dead=false;
@@ -2733,15 +2810,15 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
   // A fresh browser that has not detected the closure yet may make one quote
   // request after 09:15; that request is what establishes the closed-day flag.
   useEffect(() => {
-    if (!cacheLoaded || !activeSymbolsKey) return;
+    if (!cacheLoaded || !activeSymbolsKey || !marketCalendarReady) return;
     const isFresh = Date.now() - lastFetchAtRef.current < 12000;
-    const shouldAutoFetch = () => isTwseTradingHours() && !isMarketClosedToday();
+    const shouldAutoFetch = () => isTwseTradingHours() && !marketClosure && !isMarketClosedToday();
     if (!isFresh && shouldAutoFetch()) fetchAllLive();
     const timer = setInterval(() => {
       if (shouldAutoFetch()) fetchAllLive();
     }, 15000);
     return () => clearInterval(timer);
-  }, [cacheLoaded, activeSymbolsKey]);
+  }, [cacheLoaded, activeSymbolsKey, marketCalendarReady, marketClosure?.date]);
 
   const rows = activeHoldings.map((h) => {
     const l = live[h.symbol];
@@ -2818,17 +2895,19 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
   return (
     <Panel title="即時股價">
       <div className="flex items-center justify-between gap-2 mb-2">
-        <div className={`live-status-line text-[11px] ${isMarketClosedToday() ? "is-closed" : ""}`} style={{ color: COLORS.sub }}>
-          {liveStatus === "idle" && (isMarketClosedToday()
-            ? (UI_SHOW_ENGLISH ? "Market closed today · auto refresh paused" : "今日休市・已停止自動更新")
+        <div className={`live-status-line text-[11px] ${(marketClosure || isMarketClosedToday()) ? "is-closed" : ""}`} style={{ color: COLORS.sub }}>
+          {liveStatus === "idle" && ((marketClosure || isMarketClosedToday())
+            ? (UI_SHOW_ENGLISH
+              ? `${marketClosure?.name || "Market holiday"} · market closed · auto refresh paused`
+              : `${marketClosure?.name || "今日休市"}・休市，已停止自動更新`)
             : (UI_SHOW_ENGLISH
               ? `Auto-fetching ${activeHoldings.length} TW holdings (updates every 15s 09:00-13:45; manual refresh otherwise)`
               : `自動抓取目前持有的 ${activeHoldings.length} 檔台股（09:00–13:45 每 15 秒更新，其他時間可手動更新）`))}
           {liveStatus === "loading" && <UiLabel zh="更新中…" />}
-          {liveStatus === "done" && liveAt && isTwseTradingHours() && isMarketClosedToday()
+          {liveStatus === "done" && liveAt && (marketClosure || isMarketClosedToday())
             ? (UI_SHOW_ENGLISH
-              ? `Market closed today · auto refresh paused (last checked ${liveAt.toLocaleTimeString("zh-TW", { hour12: false })})`
-              : `今日休市・已停止自動更新（最後查詢 ${liveAt.toLocaleTimeString("zh-TW", { hour12: false })}）`)
+              ? `${marketClosure?.name || "Market holiday"} · market closed (last checked ${liveAt.toLocaleTimeString("zh-TW", { hour12: false })})`
+              : `${marketClosure?.name || "今日休市"}・休市（最後查詢 ${liveAt.toLocaleTimeString("zh-TW", { hour12: false })}）`)
             : liveStatus === "done" && liveAt && (staleOne
             ? (UI_SHOW_ENGLISH
               ? `Market closed, showing ${staleOne.asOfDate.getFullYear()}/${String(staleOne.asOfDate.getMonth()+1).padStart(2,"0")}/${String(staleOne.asOfDate.getDate()).padStart(2,"0")} close (checked ${liveAt.toLocaleTimeString("zh-TW", { hour12: false })})`
