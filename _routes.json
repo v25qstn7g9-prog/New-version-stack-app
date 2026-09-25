@@ -1,8 +1,14 @@
 {
   "version": 1,
-  "include": ["/quote", "/news", "/ask", "/api/health-check", "/api/health-cards", "/dividend-schedule", "/daily-history"],
+  "include": [
+    "/quote",
+    "/news",
+    "/ask",
+    "/api/health-check",
+    "/api/health-cards",
+    "/dividend-schedule",
+    "/daily-history",
+    "/holiday-schedule"
+  ],
   "exclude": []
 }
-
-
-
