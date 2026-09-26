@@ -24,6 +24,7 @@ const MAX_CONTEXT_LEN = 12000;
 const MAX_TOKENS = 1000;
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_SERVER_SEARCH_ROUNDS = 2;
+const primaryCooldown = new WeakMap();
 const PRIMARY_AI_TIMEOUT_MS = 12000;
 const GEMINI_AI_TIMEOUT_MS = 18000;
 
@@ -102,6 +103,7 @@ async function callTavily(apiKey, query) {
   try {
     const res = await fetch("https://api.tavily.com/search", {
       method: "POST",
+      signal: AbortSignal.timeout(6000),
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         api_key: apiKey,
@@ -437,6 +439,10 @@ function buildGeminiContents(history, message, toolTurns = []) {
 async function runGeminiFallback(env, { message, history, contextText, toolTurns, allowPrivate = false, forceAnswer = false }) {
   const allowPrivateByEnv = String(env?.GEMINI_ALLOW_PRIVATE_CONTEXT || "false").toLowerCase() === "true";
   allowPrivate = allowPrivate === true || allowPrivateByEnv;
+  if (!allowPrivate && toolTurns.some(turn =>
+    (turn.calls || []).some(tc => ["query_app_data", "get_app_snapshot"].includes(tc.name)))) {
+    throw new Error("私人資產工具結果未授權傳送至 Gemini，請先開啟私人資料授權");
+  }
   const safeContext = allowPrivate ? contextText : "";
   const dateLine = `現在的日期時間是：${taiwanNowLabel()}。問「今天」「現在」「幾天後」以此為準。`;
   const finalizeLine = forceAnswer ? "\n\n【系統】工具資料已經取得完成。現在必須直接用既有資料回答使用者，不要再次呼叫任何工具。" : "";
@@ -564,13 +570,15 @@ export async function onRequestPost(context) {
       }).filter(Boolean);
     }
 
-    if (!ai) throw new Error("尚未設定 Cloudflare AI Binding（AI）");
-
+    const primaryDeadline = Date.now() + PRIMARY_AI_TIMEOUT_MS;
     async function runModel() {
+      if (!ai) throw new Error("尚未設定 Cloudflare AI Binding（AI）");
+      if ((primaryCooldown.get(ai) || 0) > Date.now()) throw new Error("AI 暫時冷卻，改用備援");
+      if (Date.now() >= primaryDeadline) throw new Error("Cloudflare Workers AI 逾時");
       const request = forceAnswer
         ? ai.run(MODEL, { messages, max_tokens: MAX_TOKENS })
         : ai.run(MODEL, { messages, max_tokens: MAX_TOKENS, tools: TOOLS });
-      return await withTimeout(request, PRIMARY_AI_TIMEOUT_MS, "Cloudflare Workers AI");
+      return await withTimeout(request, primaryDeadline - Date.now(), "Cloudflare Workers AI");
     }
 
     let result;
@@ -596,9 +604,10 @@ export async function onRequestPost(context) {
         }
         if (toolCalls.length > 0 && toolCalls.some((tc) => tc.name === "web_search")) {
           messages.push({ role: "user", content: "（系統提示：已達自動查詢次數上限，請直接根據目前已經查到的資料用文字回答，不要再要求呼叫任何工具。）" });
+          if (Date.now() >= primaryDeadline) throw new Error("Cloudflare Workers AI 逾時");
           result = await withTimeout(
             ai.run(MODEL, { messages, max_tokens: MAX_TOKENS }),
-            PRIMARY_AI_TIMEOUT_MS,
+            primaryDeadline - Date.now(),
             "Cloudflare Workers AI"
           );
           toolCalls = parseToolCalls(result).filter((tc) => tc.name !== "web_search");
@@ -619,10 +628,11 @@ export async function onRequestPost(context) {
       }
     }
 
+    if (ai && /429|quota|timeout|逾時|503|502|temporar/i.test(String(primaryError?.message))) primaryCooldown.set(ai, Date.now() + 30000);
     try {
-      const gemini = await runGeminiFallback(context.env, {
+      const gemini = await withTimeout(runGeminiFallback(context.env, {
         message, history, contextText, toolTurns, allowPrivate: body?.allowGeminiPrivate === true, forceAnswer,
-      });
+      }), GEMINI_AI_TIMEOUT_MS, "Gemini 備援");
       const payload = { ok: true, version: ASK_VERSION, ...gemini, fallbackFrom: friendlyAiError(primaryError?.message) };
       if (cacheEnabled) writeAskCache(cacheKey, payload);
       return jsonResponse(payload);
