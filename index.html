@@ -11,6 +11,16 @@
   <title>存股資產追蹤 V4.6 Personal v2</title>
 
   <style>
+    /* Connection workspace polish: retain existing finance palette and density. */
+    :where(button,a,input,select,textarea):focus-visible{outline:2px solid #d4ad57;outline-offset:3px}
+    button:disabled{cursor:wait}
+    .ai-panel-h{border:1px solid #344158;box-shadow:0 20px 64px rgba(0,0,0,.38);border-radius:22px 22px 0 0}
+    .ai-panel-h .whitespace-pre-wrap{font-size:14px;line-height:1.75;overflow-wrap:anywhere}
+    .ai-panel-h [role="status"]{display:inline-flex;align-items:center;gap:8px;color:#d4ad57;font-size:12px}
+    .ai-panel-h [role="status"]::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+    .premium-shell input,.premium-shell select,.premium-shell textarea{transition:border-color .15s,box-shadow .15s}
+    .premium-shell .mono{font-variant-numeric:tabular-nums}
+    @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
     html,body,#root { margin:0; min-height:100%; background:#0A0F1C; }
     body { overscroll-behavior-y:none; }
     /* 手機瀏覽器網址列收合/展開時，100vh 會跟著重新計算導致畫面一直跳動；
@@ -1062,9 +1072,19 @@ function findCrossing(schedule, key, target) {
 // browser no longer needs any public CORS proxy.
 async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let timer;
   try {
-    return await fetch(url, { ...options, signal: controller.signal });
+    return await Promise.race([
+      (async () => {
+        const r = await fetch(url, {...options, signal:controller.signal});
+        const body = await r.arrayBuffer();
+        return new Response(body, {status:r.status, statusText:r.statusText, headers:r.headers});
+      })(),
+      new Promise((_, reject) => { timer=setTimeout(() => {
+        controller.abort();
+        const error=new Error("連線逾時");error.name="AbortError";reject(error);
+      },timeoutMs); })
+    ]);
   } finally {
     clearTimeout(timer);
   }
@@ -4359,7 +4379,7 @@ function PortfolioPerformanceCard({
           forceAnswer: true,
         }),
         cache: "no-store",
-      }, 20000);
+      }, 55000);
 
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.ok || !data?.reply) throw new Error(data?.error || "AI unavailable");
@@ -4632,7 +4652,7 @@ function DailyClosingAiReport({ holdings, dailyRecords }) {
           forceAnswer: true,
         }),
         cache: "no-store",
-      }, 30000);
+      }, 55000);
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.ok || !data?.reply) throw new Error(data?.error || "AI unavailable");
 
@@ -6939,6 +6959,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
   const [messages, setMessages] = useState([]); // {role, content} 一般訊息，或 {role:'assistant', toolCall, status} 確認卡片
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState("");
   const [error, setError] = useState("");
   const [providerInfo, setProviderInfo] = useState(null); // { provider, model, profile }
   const scrollRef = useRef(null);
@@ -7004,13 +7025,14 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
     if (Array.isArray(toolTurns) && toolTurns.length > 0) baseBody.toolTurns = toolTurns;
 
     const callAskEndpoint = async (url, body, { fallback = false } = {}) => {
+      setConnectionStatus(fallback ? "切換獨立備援中…" : "AI 回應中・主備援自動接續");
       const headers = { "content-type": "application/json", "x-device-id": deviceId };
       if (fallback && aiFallbackConfig?.token) headers["x-fallback-token"] = aiFallbackConfig.token;
       let res;
       try {
         res = await fetchWithTimeout(url, {
           method: "POST", headers, body: JSON.stringify(body), cache: "no-store",
-        }, fallback ? 30000 : 35000);
+        }, fallback ? 30000 : 55000);
       } catch (e) {
         const err = new Error(e?.name === "AbortError" ? uiText("連線逾時") : (e?.message || uiText("網路連線失敗")));
         err.status = 0;
@@ -7334,7 +7356,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
               {sending && (
                 <div className="flex justify-start">
                   <div className="rounded-2xl px-3 py-2 text-sm" style={{ background: COLORS.panel, color: COLORS.sub, border: `1px solid ${COLORS.panelBorder}` }}>
-                    <UiLabel zh="思考中…" />
+                    <span role="status" aria-live="polite">{connectionStatus || uiText("思考中…")}</span>
                   </div>
                 </div>
               )}
