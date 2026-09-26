@@ -1,10 +1,11 @@
 {
   "name": "stock-app",
-  "version": "2.46.0",
+  "version": "2.46.1",
   "description": "個人存股資產追蹤 App - 專用投資顧問助手（Cloudflare Workers + Gemini Backup）",
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "node --test tests/*.test.mjs",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "deploy:prod": "wrangler deploy --env production",
