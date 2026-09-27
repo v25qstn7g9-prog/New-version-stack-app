@@ -2253,7 +2253,7 @@ function AssetTracker() {
         summary.dataset = {
           holdings, trades, dividends, dailyRecords, planItems, planSchedule,
           goal, costBasis, radar, radarHistory, tomorrowHistory, livePrices,
-          trendRadarGlobalSignal, institutionalFlow, stockNews, perf, goalDate,
+          trendRadarGlobalSignal, institutionalFlow, stockNews, goalDate,
         };
         return fetch("/api/portfolio-sync", {
           method: "POST",
@@ -2266,7 +2266,7 @@ function AssetTracker() {
       }).catch(error => setLineSyncStatus("同步失敗：" + (error?.message || "網路錯誤")));
     }, 2000);
     return () => clearTimeout(timer);
-  }, [ready, lineSyncToken, totalToday, dailyChange, dailyChangePct, totalInvested, capitalGain, totalReturn, totalReturnPct, latest, holdingsWithShares, holdings, trades, dividends, dailyRecords, planItems, planSchedule, goal, costBasis, perf, goalDate]);
+  }, [ready, lineSyncToken, totalToday, dailyChange, dailyChangePct, totalInvested, capitalGain, totalReturn, totalReturnPct, latest, holdingsWithShares, holdings, trades, dividends, dailyRecords, planItems, planSchedule, goal, costBasis, goalDate]);
 
   // <main> 最小高度：量測 Header + TabBar 實際高度，讓每個分頁至少撐滿一個
   // 螢幕高度，不會因為內容多寡（例如「配息」頁常常內容很少）忽高忽低——
