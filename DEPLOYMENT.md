@@ -112,7 +112,7 @@ curl "$WORKER_URL/"
 - [ ] `/` 回傳 index.html 首頁
 
 ### 步驟 6：設定定時健康檢查 (可選)
-健康檢查已在 wrangler.jsonc 設定 `*/30 * * * *`（每 30 分鐘自動跑一次），無需手動操作。
+健康檢查已在 wrangler.jsonc 設定 `0 * * * *`（每小時自動跑一次），無需手動操作。
 
 - [ ] 確認 wrangler.jsonc 的 `triggers.crons` 已設定
 - [ ] 在 Dashboard 確認 Cron trigger 已激活
