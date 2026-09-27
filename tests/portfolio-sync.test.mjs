@@ -34,3 +34,28 @@ test('oversized snapshots are refused before they reach KV', async () => {
   }) });
   assert.equal(response.status, 413);
 });
+
+test('a KV write failure (e.g. daily quota exceeded) surfaces the real reason, not a bare 500', async () => {
+  const env = { health_kv: {
+    get: async () => null,
+    put: async () => { throw new Error('KV put() limit exceeded for the day.'); },
+  } };
+  const response = await onRequestPost({ env, request: new Request('https://example.com/api/portfolio-sync', {
+    method: 'POST', body: JSON.stringify({ token, summary: { dataset: {} } }),
+  }) });
+  assert.equal(response.status, 500);
+  const body = await response.json();
+  assert.match(body.detail, /KV put\(\) limit exceeded/);
+});
+
+test('a KV read failure surfaces the real reason too', async () => {
+  const env = { health_kv: {
+    get: async () => { throw new Error('KV get() failed: boom'); },
+  } };
+  const response = await onRequestGet({ env, request: new Request('https://example.com/api/portfolio-sync', {
+    headers: { authorization: `Bearer ${token}` },
+  }) });
+  assert.equal(response.status, 500);
+  const body = await response.json();
+  assert.match(body.detail, /boom/);
+});

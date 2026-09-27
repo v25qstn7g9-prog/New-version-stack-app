@@ -50,7 +50,9 @@ export async function onRequestGet({ request, env }) {
     if (!raw) return jsonResponse({ ok: true, found: false, summary: null });
     return jsonResponse({ ok: true, found: true, summary: JSON.parse(raw) });
   } catch (e) {
-    return jsonResponse({ error: "讀取失敗" }, 500);
+    // 原本只回一句「讀取失敗」，把真正的例外訊息整個丟掉——例如最常見的帳號共用
+    // KV 每日寫入額度用完，畫面只會看到一句看不出原因的錯誤。帶上 detail 才看得出來。
+    return jsonResponse({ error: "讀取失敗", detail: String(e?.message || e).slice(0, 300) || null }, 500);
   }
 }
 
@@ -79,6 +81,8 @@ export async function onRequestPost({ request, env }) {
     await env.health_kv.put(KV_PREFIX + token, JSON.stringify(stored), { expirationTtl: TTL_SECONDS });
     return jsonResponse({ ok: true });
   } catch (e) {
-    return jsonResponse({ error: "寫入失敗" }, 500);
+    // 同上：帶上真正的例外訊息（例如 "KV put() limit exceeded for the day."），
+    // 不然「LINE 同步」卡片只會顯示「同步失敗：HTTP 500」，看不出是不是額度問題。
+    return jsonResponse({ error: "寫入失敗", detail: String(e?.message || e).slice(0, 300) || null }, 500);
   }
 }

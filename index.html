@@ -2260,8 +2260,14 @@ function AssetTracker() {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ token: lineSyncToken, summary }),
         });
-      }).then(response => {
-        if (!response.ok) throw new Error(response.status === 413 ? "資料超出同步容量" : `HTTP ${response.status}`);
+      }).then(async response => {
+        if (!response.ok) {
+          if (response.status === 413) throw new Error("資料超出同步容量");
+          // 帶上後端回傳的 detail（例如 KV 每日寫入額度用完），不然畫面只會看到
+          // 一句看不出原因的「HTTP 500」，每次都要用猜的。
+          const body = await response.json().catch(() => null);
+          throw new Error(body?.detail ? `HTTP ${response.status}：${body.detail}` : `HTTP ${response.status}`);
+        }
         setLineSyncStatus("完整資料已同步：" + new Date().toLocaleString("zh-TW", { timeZone: "Asia/Taipei" }));
       }).catch(error => setLineSyncStatus("同步失敗：" + (error?.message || "網路錯誤")));
     }, 2000);
