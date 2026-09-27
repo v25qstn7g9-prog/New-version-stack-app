@@ -6,6 +6,7 @@
     "/ask",
     "/api/health-check",
     "/api/health-cards",
+    "/api/portfolio-sync",
     "/dividend-schedule",
     "/daily-history",
     "/holiday-schedule"
