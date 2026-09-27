@@ -1675,6 +1675,7 @@ function AssetTracker() {
   // LINE 同步用的 token：填了才會把持股摘要推到 Worker 的 KV，讓 LINE 機器人可以讀到；
   // 沒填就完全不會對外送出任何資料。這組字串只存在這個瀏覽器跟你自己貼給 LINE 機器人的地方。
   const [lineSyncToken, setLineSyncToken] = useState("");
+  const [lineSyncStatus, setLineSyncStatus] = useState("");
   // 系統健康卡片：由 Cloudflare 背景排程（或手動觸發）產生，App 開啟時抓一次現況。
   // 只是顯示用的暫存狀態，不寫進 localStorage/JSON 備份——它本來就是伺服器端的資料。
   const [healthCards, setHealthCards] = useState([]);
@@ -2255,7 +2256,10 @@ function AssetTracker() {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ token: lineSyncToken, summary }),
         });
-      }).catch(() => {});
+      }).then(response => {
+        if (!response.ok) throw new Error(response.status === 413 ? "資料超出同步容量" : `HTTP ${response.status}`);
+        setLineSyncStatus("完整資料已同步：" + new Date().toLocaleString("zh-TW", { timeZone: "Asia/Taipei" }));
+      }).catch(error => setLineSyncStatus("同步失敗：" + (error?.message || "網路錯誤")));
     }, 2000);
     return () => clearTimeout(timer);
   }, [ready, lineSyncToken, totalToday, dailyChange, dailyChangePct, totalInvested, capitalGain, totalReturn, totalReturnPct, latest, holdingsWithShares, holdings, trades, dividends, dailyRecords, planItems, planSchedule, goal, costBasis]);
@@ -2380,7 +2384,7 @@ function AssetTracker() {
                     planTotal={planTotal} goal={goal} setGoal={setGoal}
                     exportBackup={exportBackup} importBackup={importBackup} exportExcel={exportExcel} lastBackupAt={lastBackupAt} backupAgeDays={backupAgeDays} backupOverdue={backupOverdue}
                     aiFallbackConfig={aiFallbackConfig} setAiFallbackConfig={setAiFallbackConfig}
-                    lineSyncToken={lineSyncToken} setLineSyncToken={setLineSyncToken}
+                    lineSyncToken={lineSyncToken} setLineSyncToken={setLineSyncToken} lineSyncStatus={lineSyncStatus}
                     healthCards={healthCards} healthCardBusyId={healthCardBusyId} respondHealthCard={respondHealthCard} />
                 );
               case "progress":
@@ -6283,7 +6287,7 @@ function DividendsPanel({ dividends, setDividends, holdings }) {
 }
 
 // ---------------- Plan Panel ----------------
-function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBackup, importBackup, exportExcel, lastBackupAt, backupAgeDays, backupOverdue, aiFallbackConfig, setAiFallbackConfig, lineSyncToken, setLineSyncToken, healthCards, healthCardBusyId, respondHealthCard }) {
+function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBackup, importBackup, exportExcel, lastBackupAt, backupAgeDays, backupOverdue, aiFallbackConfig, setAiFallbackConfig, lineSyncToken, setLineSyncToken, lineSyncStatus, healthCards, healthCardBusyId, respondHealthCard }) {
   const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
   const [form, setForm] = useState({ symbol: "", amount: "", note: "" });
   const [fallbackTest, setFallbackTest] = useState({ status: "idle", message: "" });
@@ -6428,11 +6432,12 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
       <Panel title="LINE 同步">
         <div className="text-[11px] leading-5" style={{ color: COLORS.sub }}>
           {UI_SHOW_ENGLISH
-            ? "Optional: paste a token here (the same one you give your LINE bot) and this app will push a portfolio summary (total assets, today's P&L, per-holding shares/avg cost) to the server every time your data changes, so the bot can answer questions about it. Leave this blank and nothing is ever sent anywhere."
-            : "選填：貼上一組 token（跟你給 LINE 機器人的同一組），App 就會在資料有變動時，把持股摘要（總資產、今日損益、每檔股數/均價）推到伺服器，讓機器人可以回答你的持股問題。留空就完全不會對外送出任何資料。"}
+            ? "Optional: add the same token used by your LINE bot to sync holdings, trades, dividends, daily asset records, plan and radar snapshots. Leave blank to disable syncing."
+            : "選填：填入與 LINE 機器人相同的 token，App 會同步持股、交易、配息、每日資產、計畫與雷達快照供私人助手查詢。留空便不會傳送資料。同步失敗會顯示在下方。"}
         </div>
+        {lineSyncStatus && <div className="mt-2 text-[11px]" style={{ color: lineSyncStatus.startsWith("同步失敗") ? "#b45309" : COLORS.sub }}>{lineSyncStatus}</div>}
         <div className="mt-3 flex gap-2">
-          <input type="text" value={lineSyncToken} onChange={(e) => setLineSyncToken(e.target.value.trim())}
+          <input type="password" value={lineSyncToken} onChange={(e) => setLineSyncToken(e.target.value.trim())}
             placeholder={M("Paste or generate a token", "貼上或產生一組 token")}
             className="mono flex-1 rounded-lg px-3 py-2 text-[11px]"
             style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, color: COLORS.text }} />
