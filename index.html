@@ -2238,14 +2238,27 @@ function AssetTracker() {
             costBasis: h.estCostBasis ?? null,
           })),
       };
-      fetch("/api/portfolio-sync", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ token: lineSyncToken, summary }),
+      // LINE 助手需要查歷史紀錄：與瀏覽器 AI 使用同一批原始資料和模型快照。
+      // 只有使用者設定同步 token 才上傳；同步失敗不影響本機資料。
+      Promise.all([
+        loadKey("trendRadarCurrentSnapshot", null),
+        loadKey("trendRadarHistory", null),
+        loadKey("trendRadarTomorrowHistory", null),
+        loadKey("livePrices", null),
+      ]).then(([radar, radarHistory, tomorrowHistory, livePrices]) => {
+        summary.dataset = {
+          holdings, trades, dividends, dailyRecords, planItems, planSchedule,
+          goal, costBasis, radar, radarHistory, tomorrowHistory, livePrices,
+        };
+        return fetch("/api/portfolio-sync", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ token: lineSyncToken, summary }),
+        });
       }).catch(() => {});
     }, 2000);
     return () => clearTimeout(timer);
-  }, [ready, lineSyncToken, totalToday, dailyChange, dailyChangePct, totalInvested, capitalGain, totalReturn, totalReturnPct, latest, holdingsWithShares]);
+  }, [ready, lineSyncToken, totalToday, dailyChange, dailyChangePct, totalInvested, capitalGain, totalReturn, totalReturnPct, latest, holdingsWithShares, holdings, trades, dividends, dailyRecords, planItems, planSchedule, goal, costBasis]);
 
   // <main> 最小高度：量測 Header + TabBar 實際高度，讓每個分頁至少撐滿一個
   // 螢幕高度，不會因為內容多寡（例如「配息」頁常常內容很少）忽高忽低——
