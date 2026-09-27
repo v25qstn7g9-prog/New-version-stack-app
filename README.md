@@ -78,7 +78,7 @@
 
 ## LINE 同步
 
-「計畫」分頁裡的「LINE 同步」可以貼上一組 token（跟你給 LINE 機器人的同一組）；填了之後 App 會在持股/交易/成本資料變動時，把持股摘要（總資產、今日損益、每檔股數/均價）推到 `/api/portfolio-sync`，存進既有的 `health_kv`（key 是 `portfolio-sync:<token>`，兩週沒同步會自動過期）。留空就完全不會對外送出任何資料。因為大家共用同一個部署網址、資料各自存在自己瀏覽器的 localStorage，token 就是唯一能分辨「這是誰的資料」的依據，請不要把自己的 token 分享給別人。
+「計畫」分頁裡的「LINE 同步」可以貼上一組 token（跟你給 LINE 機器人的同一組）；填了之後 App 會在持股/交易/成本資料變動時，把持股、交易、配息、每日資產、計畫與模型快照推到 `/api/portfolio-sync`，存進既有的 `health_kv`（key 是 `portfolio-sync:<token>`，兩週沒同步會自動過期）。留空就完全不會對外送出任何資料。因為大家共用同一個部署網址、資料各自存在自己瀏覽器的 localStorage，token 就是唯一能分辨「這是誰的資料」的依據，請不要把自己的 token 分享給別人。
 
 ### fallback-vercel/ (獨立備援)
 ```
