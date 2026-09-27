@@ -14,7 +14,7 @@
  */
 
 const KV_PREFIX = "portfolio-sync:";
-const MAX_BODY_BYTES = 32 * 1024;
+const MAX_BODY_BYTES = 1024 * 1024;
 const MIN_TOKEN_LEN = 16;
 const MAX_TOKEN_LEN = 128;
 // 兩週沒有新的同步就讓 KV 自動過期，避免累積沒人在用的舊 token 資料。
@@ -42,7 +42,8 @@ function isValidToken(token) {
 export async function onRequestGet({ request, env }) {
   if (!env.health_kv) return jsonResponse({ error: "KV not configured" }, 500);
   const url = new URL(request.url);
-  const token = url.searchParams.get("token") || "";
+  const auth = request.headers.get("authorization") || "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : (url.searchParams.get("token") || "");
   if (!isValidToken(token)) return jsonResponse({ error: "缺少或格式不對的 token" }, 400);
   try {
     const raw = await env.health_kv.get(KV_PREFIX + token);
@@ -59,7 +60,7 @@ export async function onRequestPost({ request, env }) {
   let body;
   try {
     const text = await request.text();
-    if (text.length > MAX_BODY_BYTES) return jsonResponse({ error: "內容過大" }, 413);
+    if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) return jsonResponse({ error: "內容過大" }, 413);
     body = JSON.parse(text);
   } catch {
     return jsonResponse({ error: "Invalid JSON" }, 400);

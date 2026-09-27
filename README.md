@@ -78,7 +78,7 @@
 
 ## LINE 同步
 
-「計畫」分頁裡的「LINE 同步」可以貼上一組 token（跟你給 LINE 機器人的同一組）；填了之後 App 會在持股/交易/成本資料變動時，把持股摘要（總資產、今日損益、每檔股數/均價）推到 `/api/portfolio-sync`，存進既有的 `health_kv`（key 是 `portfolio-sync:<token>`，兩週沒同步會自動過期）。留空就完全不會對外送出任何資料。因為大家共用同一個部署網址、資料各自存在自己瀏覽器的 localStorage，token 就是唯一能分辨「這是誰的資料」的依據，請不要把自己的 token 分享給別人。
+「計畫」分頁裡的「LINE 同步」可以貼上一組 token（跟你給 LINE 機器人的同一組）；填了之後 App 會在持股/交易/成本資料變動時，把持股、交易、配息、每日資產、計畫與模型快照推到 `/api/portfolio-sync`，存進既有的 `health_kv`（key 是 `portfolio-sync:<token>`，兩週沒同步會自動過期）。留空就完全不會對外送出任何資料。因為大家共用同一個部署網址、資料各自存在自己瀏覽器的 localStorage，token 就是唯一能分辨「這是誰的資料」的依據，請不要把自己的 token 分享給別人。
 
 ### fallback-vercel/ (獨立備援)
 ```
@@ -122,3 +122,9 @@ npm run check:version
 ## Static Assets 安全
 
 專案目前使用 Workers Static Assets；`.assetsignore` 會排除 `worker.js`、`functions/`、`fallback-vercel/`、設定檔與文件，避免後端原始碼被當成公開靜態資產發布。
+
+## LINE 完整資料快照
+
+在「計畫 → LINE 同步」填入與 J洛的 `STOCK_APP_SYNC_TOKEN` 相同的 token 後，瀏覽器同步持股、交易、配息、每日資產紀錄、計畫與 Trend Radar／即時行情快照。頁面會顯示最近一次成功同步或失敗原因。LINE 端按問題的日期、股票代號與資料種類擷取紀錄；超出單次模型上下文的資料會標示截斷，不能宣稱已完成全期間計算。原始資料仍以 App 瀏覽器本機為主，LINE 使用的是最後同步快照。完整資料同步限制為 1 MiB，超出會顯示同步失敗。
+
+`GET /api/portfolio-sync` 可用 `Authorization: Bearer <token>` 讀取；舊版 query token 方式暫保留相容。請勿把 token 放在公開網址、程式碼或日誌。
