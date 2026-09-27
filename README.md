@@ -122,3 +122,9 @@ npm run check:version
 ## Static Assets 安全
 
 專案目前使用 Workers Static Assets；`.assetsignore` 會排除 `worker.js`、`functions/`、`fallback-vercel/`、設定檔與文件，避免後端原始碼被當成公開靜態資產發布。
+
+## LINE 完整資料快照
+
+在「計畫 → LINE 同步」填入與 J洛的 `STOCK_APP_SYNC_TOKEN` 相同的 token 後，瀏覽器同步持股、交易、配息、每日資產紀錄、計畫與 Trend Radar／即時行情快照。頁面會顯示最近一次成功同步或失敗原因。LINE 端按問題的日期、股票代號與資料種類擷取紀錄；超出單次模型上下文的資料會標示截斷，不能宣稱已完成全期間計算。原始資料仍以 App 瀏覽器本機為主，LINE 使用的是最後同步快照。完整資料同步限制為 1 MiB，超出會顯示同步失敗。
+
+`GET /api/portfolio-sync` 可用 `Authorization: Bearer <token>` 讀取；舊版 query token 方式暫保留相容。請勿把 token 放在公開網址、程式碼或日誌。
