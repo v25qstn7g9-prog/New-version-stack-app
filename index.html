@@ -7371,9 +7371,11 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
         className="fixed z-40 rounded-full flex items-center justify-center"
         style={{
           right: 14, bottom: "calc(64px + env(safe-area-inset-bottom, 4px))",
-          width: 46, height: 46, background: "rgba(17,24,39,0.92)", color: COLORS.gold,
+          width: 46, height: 46, background: "rgba(17,24,39,0.48)", color: COLORS.gold,
           border: `1.5px solid ${COLORS.gold}`,
-          boxShadow: "0 6px 18px rgba(0,0,0,0.45)",
+          backdropFilter: "blur(14px) saturate(140%)",
+          WebkitBackdropFilter: "blur(14px) saturate(140%)",
+          boxShadow: "0 6px 18px rgba(0,0,0,0.28)",
         }}>
         <MessageCircle size={22} />
       </button>
