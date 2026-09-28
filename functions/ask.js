@@ -16,7 +16,16 @@
 const ASK_VERSION = "4.7-personal-advisor-v3.1-polished-analysis";
 const GEMINI_MODEL_DEFAULT = "gemini-3.6-flash";
 const GEMINI_MAX_OUTPUT_TOKENS = 1000;
-const MODEL = "@cf/openai/gpt-oss-20b";
+const LIGHT_MODEL = "@cf/zai-org/glm-4.7-flash";
+const HEAVY_MODEL = "@cf/openai/gpt-oss-20b";
+
+function chooseAssetModel(message = "", contextText = "", toolTurns = [], forceAnswer = false) {
+  const text = `${message}\n${contextText}`;
+  const complex = /(完整分析|綜合分析|比較|趨勢|歷史|為什麼|原因|風險|情境|規劃|預測|模型|驗證|關聯|法人|新聞|台指|隔夜|跨期|月|年|全部)/i.test(text);
+  const longContext = text.length > 9000;
+  const multiStep = Array.isArray(toolTurns) && toolTurns.length > 0;
+  return (complex || longContext || multiStep) ? HEAVY_MODEL : LIGHT_MODEL;
+}
 const MAX_HISTORY_TURNS = 6;
 const MAX_MESSAGE_LEN = 2000;
 const MAX_HISTORY_CONTENT = 3000;
@@ -524,6 +533,7 @@ export async function onRequestPost(context) {
     const contextText = typeof body?.context === "string" ? body.context.slice(0, MAX_CONTEXT_LEN) : "";
     const toolTurns = Array.isArray(body?.toolTurns) ? body.toolTurns : [];
     const forceAnswer = body?.forceAnswer === true;
+    let activeModel = chooseAssetModel(message, contextText, toolTurns, forceAnswer);
     // 個人化資產 context 與工具結果不可進共享的記憶體快取，否則相同問題可能跨使用者命中舊答案。
     // 只有沒有私人 context、也沒有 tool round 的一般閒聊才使用短 TTL 快取。
     const cacheEnabled = !contextText.trim() && toolTurns.length === 0;
@@ -576,8 +586,8 @@ export async function onRequestPost(context) {
       if ((primaryCooldown.get(ai) || 0) > Date.now()) throw new Error("AI 暫時冷卻，改用備援");
       if (Date.now() >= primaryDeadline) throw new Error("Cloudflare Workers AI 逾時");
       const request = forceAnswer
-        ? ai.run(MODEL, { messages, max_tokens: MAX_TOKENS })
-        : ai.run(MODEL, { messages, max_tokens: MAX_TOKENS, tools: TOOLS });
+        ? ai.run(activeModel, { messages, max_tokens: MAX_TOKENS })
+        : ai.run(activeModel, { messages, max_tokens: MAX_TOKENS, tools: TOOLS });
       return await withTimeout(request, primaryDeadline - Date.now(), "Cloudflare Workers AI");
     }
 
@@ -586,6 +596,15 @@ export async function onRequestPost(context) {
       result = await runModel();
     } catch (e) {
       primaryError = e;
+      if (activeModel === LIGHT_MODEL && ai) {
+        try {
+          activeModel = HEAVY_MODEL;
+          primaryError = null;
+          result = await runModel();
+        } catch (heavyError) {
+          primaryError = heavyError;
+        }
+      }
     }
 
     if (!primaryError) {
@@ -606,21 +625,21 @@ export async function onRequestPost(context) {
           messages.push({ role: "user", content: "（系統提示：已達自動查詢次數上限，請直接根據目前已經查到的資料用文字回答，不要再要求呼叫任何工具。）" });
           if (Date.now() >= primaryDeadline) throw new Error("Cloudflare Workers AI 逾時");
           result = await withTimeout(
-            ai.run(MODEL, { messages, max_tokens: MAX_TOKENS }),
+            ai.run(activeModel, { messages, max_tokens: MAX_TOKENS }),
             primaryDeadline - Date.now(),
             "Cloudflare Workers AI"
           );
           toolCalls = parseToolCalls(result).filter((tc) => tc.name !== "web_search");
         }
         if (toolCalls.length > 0) {
-          const payload = { ok: true, version: ASK_VERSION, provider: "cloudflare", model: MODEL, toolCalls };
+          const payload = { ok: true, version: ASK_VERSION, provider: "cloudflare", model: activeModel, toolCalls };
           if (cacheEnabled) writeAskCache(cacheKey, payload);
           return jsonResponse(payload);
         }
         let reply = String(result?.response || "").trim();
         if (!reply && Array.isArray(result?.choices)) reply = String(result.choices[0]?.message?.content || "").trim();
         if (!reply) throw new Error("AI 沒有回傳文字內容");
-        const payload = { ok: true, version: ASK_VERSION, provider: "cloudflare", model: MODEL, reply };
+        const payload = { ok: true, version: ASK_VERSION, provider: "cloudflare", model: activeModel, reply };
         if (cacheEnabled) writeAskCache(cacheKey, payload);
         return jsonResponse(payload);
       } catch (e) {
