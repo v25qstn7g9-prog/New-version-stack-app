@@ -52,3 +52,8 @@ if(stock)test('private tool results cannot cross to Gemini without consent',asyn
  const result=await s.ask('private',{toolTurns:[{calls:[{id:'1',name:'query_app_data'}],results:[{id:'1',content:'SECRET_ASSET'}]}]});
  assert.ok(result.error);assert.equal(s.backupBodies.length,0);
 });
+if(stock)test('light model failure escalates to heavy model, transient quota errors do not',async()=>{
+ const s=setup((model)=>{if(/glm/.test(model))throw Error('model returned malformed output');return {response:'heavy answer'}});
+ const result=await s.ask('hello');
+ assert.match(result.provider,/cloudflare/i);assert.match(result.model,/gpt-oss/);assert.equal(s.calls,2);assert.equal(s.backupBodies.length,0);
+});

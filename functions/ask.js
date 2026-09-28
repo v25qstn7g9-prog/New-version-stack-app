@@ -596,7 +596,11 @@ export async function onRequestPost(context) {
       result = await runModel();
     } catch (e) {
       primaryError = e;
-      if (activeModel === LIGHT_MODEL && ai) {
+      // 只有「輕量模型本身出錯」才升級 20B 再試一次；額度用完（429）、服務暫停
+      // （502/503）、逾時或冷卻中這類整個 Workers AI 共通的暫時性錯誤，換模型也
+      // 一樣會失敗，只會讓使用者多等一輪才輪到 Gemini 備援。
+      const transientFailure = /429|quota|timeout|逾時|503|502|temporar|冷卻/i.test(String(e?.message));
+      if (activeModel === LIGHT_MODEL && ai && !transientFailure) {
         try {
           activeModel = HEAVY_MODEL;
           primaryError = null;
