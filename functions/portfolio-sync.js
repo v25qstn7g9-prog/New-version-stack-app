@@ -1,8 +1,8 @@
 /**
  * portfolio-sync.js — 存股App 持股快照同步
  *
- * 持股資料只存在使用者自己瀏覽器的 localStorage，伺服器端（例如 LINE 機器人 J洛）
- * 本來完全讀不到。這支 API 讓 App 在瀏覽器裡把「目前持股摘要」在資料變動時推一份
+ * 持股資料只存在使用者自己瀏覽器的 localStorage，伺服器端本來完全讀不到。
+ * 這支 API 讓 App 在瀏覽器裡把「目前持股摘要」在資料變動時推一份
  * 過來存進 KV，用一組使用者自己在「計畫」分頁產生、只有自己（跟自己貼給誰）知道的
  * token 當 key——猜不到 token 就讀不到別人的資料，即使大家共用同一個部署網址。
  *
@@ -82,7 +82,7 @@ export async function onRequestPost({ request, env }) {
     return jsonResponse({ ok: true });
   } catch (e) {
     // 同上：帶上真正的例外訊息（例如 "KV put() limit exceeded for the day."），
-    // 不然「LINE 同步」卡片只會顯示「同步失敗：HTTP 500」，看不出是不是額度問題。
+    // 不然「Z∞ 同步」卡片只會顯示「同步失敗：HTTP 500」，看不出是不是額度問題。
     return jsonResponse({ error: "寫入失敗", detail: String(e?.message || e).slice(0, 300) || null }, 500);
   }
 }
