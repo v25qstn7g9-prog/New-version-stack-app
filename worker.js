@@ -8,6 +8,7 @@
  * - /dividend-schedule（GET）→ 交給 functions/dividend-schedule.js，查 TWSE 除權除息預告表
  * - /daily-history（GET）→ 交給 functions/daily-history.js，查個股／大盤日K歷史（給趨勢雷達算真正的日/月KD）
  * - /holiday-schedule（GET）→ 交給 functions/holiday-schedule.js，查 TWSE 官方休市行事曆
+ * - /taifex-tx（GET）→ 交給 functions/taifex-tx.js，查台指近月期貨官方報價
  * - /api/health-cards（GET/POST）→ 交給 functions/health-check.js，讀卡片清單／確認或忽略卡片
  * - /api/health-check（GET）→ 交給 functions/health-check.js，手動觸發一次健康檢查
  * - /api/portfolio-sync（GET/POST）→ 交給 functions/portfolio-sync.js，讓 Z∞ 中控可以讀到持股摘要
@@ -26,6 +27,7 @@ import { onRequestPost as askHandler } from "./functions/ask.js";
 import { onRequestGet as dividendScheduleHandler } from "./functions/dividend-schedule.js";
 import { onRequestGet as dailyHistoryHandler } from "./functions/daily-history.js";
 import { onRequestGet as holidayScheduleHandler } from "./functions/holiday-schedule.js";
+import { onRequestGet as taifexTxHandler } from "./functions/taifex-tx.js";
 import {
   onRequestGet as healthGetHandler,
   onRequestPost as healthPostHandler,
@@ -62,6 +64,9 @@ export default {
     }
     if (url.pathname === "/holiday-schedule" && request.method === "GET") {
       return holidayScheduleHandler({ request, env, ctx });
+    }
+    if (url.pathname === "/taifex-tx" && request.method === "GET") {
+      return taifexTxHandler();
     }
     if ((url.pathname === "/api/health-cards" || url.pathname === "/api/health-check") && request.method === "GET") {
       return healthGetHandler({ request, env, ctx });

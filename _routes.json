@@ -11,7 +11,8 @@
     "/api/pending-trades/resolve",
     "/dividend-schedule",
     "/daily-history",
-    "/holiday-schedule"
+    "/holiday-schedule",
+    "/taifex-tx"
   ],
   "exclude": []
 }
