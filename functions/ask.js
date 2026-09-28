@@ -20,11 +20,11 @@ const LIGHT_MODEL = "@cf/zai-org/glm-4.7-flash";
 const HEAVY_MODEL = "@cf/openai/gpt-oss-20b";
 
 function chooseAssetModel(message = "", contextText = "", toolTurns = [], forceAnswer = false) {
-  const text = `${message}\n${contextText}`;
-  const complex = /(完整分析|綜合分析|比較|趨勢|歷史|為什麼|原因|風險|情境|規劃|預測|模型|驗證|關聯|法人|新聞|台指|隔夜|跨期|月|年|全部)/i.test(text);
-  const longContext = text.length > 9000;
+  const question = String(message || "");
+  const complex = /(完整分析|綜合分析|比較|趨勢|歷史|為什麼|原因|風險|情境|規劃|預測|模型|驗證|關聯|法人|新聞|台指|隔夜|跨期|月總結|年度|全部紀錄)/i.test(question);
   const multiStep = Array.isArray(toolTurns) && toolTurns.length > 0;
-  return (complex || longContext || multiStep) ? HEAVY_MODEL : LIGHT_MODEL;
+  const veryLargeContext = String(contextText || "").length > 16000;
+  return (complex || multiStep || veryLargeContext) ? HEAVY_MODEL : LIGHT_MODEL;
 }
 const MAX_HISTORY_TURNS = 6;
 const MAX_MESSAGE_LEN = 2000;
