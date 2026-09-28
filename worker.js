@@ -35,6 +35,11 @@ import {
   onRequestGet as portfolioSyncGetHandler,
   onRequestPost as portfolioSyncPostHandler,
 } from "./functions/portfolio-sync.js";
+import {
+  onRequestGet as pendingTradesGetHandler,
+  onRequestPost as pendingTradesPostHandler,
+  onRequestResolve as pendingTradesResolveHandler,
+} from "./functions/pending-trades.js";
 
 export default {
   async fetch(request, env, ctx) {
@@ -69,6 +74,15 @@ export default {
     }
     if (url.pathname === "/api/portfolio-sync" && request.method === "POST") {
       return portfolioSyncPostHandler({ request, env, ctx });
+    }
+    if (url.pathname === "/api/pending-trades" && request.method === "GET") {
+      return pendingTradesGetHandler({ request, env, ctx });
+    }
+    if (url.pathname === "/api/pending-trades" && request.method === "POST") {
+      return pendingTradesPostHandler({ request, env, ctx });
+    }
+    if (url.pathname === "/api/pending-trades/resolve" && request.method === "POST") {
+      return pendingTradesResolveHandler({ request, env, ctx });
     }
 
     const assetResponse = await env.ASSETS.fetch(request);
