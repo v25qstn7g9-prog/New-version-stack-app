@@ -10,7 +10,7 @@
  * - /holiday-schedule（GET）→ 交給 functions/holiday-schedule.js，查 TWSE 官方休市行事曆
  * - /api/health-cards（GET/POST）→ 交給 functions/health-check.js，讀卡片清單／確認或忽略卡片
  * - /api/health-check（GET）→ 交給 functions/health-check.js，手動觸發一次健康檢查
- * - /api/portfolio-sync（GET/POST）→ 交給 functions/portfolio-sync.js，讓 LINE 機器人可以讀到持股摘要
+ * - /api/portfolio-sync（GET/POST）→ 交給 functions/portfolio-sync.js，讓 Z∞ 中控可以讀到持股摘要
  * - 其他所有網址 → 當一般靜態檔案送出去（index.html 等）
  *
  * 另外 export 了 scheduled()：Cloudflare Cron Trigger 會定期呼叫這個，
