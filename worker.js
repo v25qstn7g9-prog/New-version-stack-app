@@ -66,7 +66,14 @@ export default {
           },
         });
       }
-      return handlePreparedAssetMcp(request, env, { syncToken: access.st });
+      const syncToken = String(await env.health_kv.get("zinf:asset-mcp-sync-token") || "").trim();
+      if (!/^[A-Za-z0-9_-]{16,128}$/.test(syncToken)) {
+        return new Response(JSON.stringify({ error: "Assets sync token is not configured" }), {
+          status: 503,
+          headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+        });
+      }
+      return handlePreparedAssetMcp(request, env, { syncToken });
     }
 
     if (url.pathname === "/quote" && request.method === "GET") {
