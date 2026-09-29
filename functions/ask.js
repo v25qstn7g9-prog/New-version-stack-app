@@ -34,8 +34,8 @@ const MAX_TOKENS = 1000;
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_SERVER_SEARCH_ROUNDS = 2;
 const primaryCooldown = new WeakMap();
-const PRIMARY_AI_TIMEOUT_MS = 12000;
-const GEMINI_AI_TIMEOUT_MS = 18000;
+const PRIMARY_AI_TIMEOUT_MS = 30000;
+const GEMINI_AI_TIMEOUT_MS = 25000;
 
 async function withTimeout(promise, ms, label) {
   let timer;
@@ -462,7 +462,15 @@ async function runGeminiFallback(env, { message, history, contextText, toolTurns
   let contents = buildGeminiContents(history, message, toolTurns);
   let searchRounds = 0;
   while (true) {
-    const { data, model } = await callGemini(env, contents, systemPrompt, !forceAnswer);
+    let geminiResult;
+    try {
+      geminiResult = await callGemini(env, contents, systemPrompt, !forceAnswer);
+    } catch (e) {
+      if (!/502|503|high demand|temporar|overload/i.test(String(e?.message || e))) throw e;
+      await new Promise(resolve => setTimeout(resolve, 900));
+      geminiResult = await callGemini(env, contents, systemPrompt, !forceAnswer);
+    }
+    const { data, model } = geminiResult;
     const toolCalls = parseGeminiToolCalls(data);
     if (toolCalls.length > 0 && toolCalls.every((tc) => tc.name === "web_search") && searchRounds < MAX_SERVER_SEARCH_ROUNDS) {
       const modelParts = parseGeminiParts(data).filter((p) => p?.functionCall || p?.text);
@@ -671,7 +679,12 @@ export async function onRequestPost(context) {
           if (cacheEnabled) writeAskCache(cacheKey, payload);
           return jsonResponse(payload);
         }
-        const reply = extractCloudflareText(result);
+        let reply = extractCloudflareText(result);
+        if (!reply && activeModel === LIGHT_MODEL && ai) {
+          activeModel = HEAVY_MODEL;
+          result = await runModel();
+          reply = extractCloudflareText(result);
+        }
         if (!reply) throw new Error("AI 沒有回傳文字內容");
         const payload = { ok: true, version: ASK_VERSION, provider: "cloudflare", model: activeModel, reply };
         if (cacheEnabled) writeAskCache(cacheKey, payload);
