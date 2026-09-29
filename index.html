@@ -1090,6 +1090,82 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
   }
 }
 
+// ---------- bounded Asset AI learning (local-only, zero extra AI calls) ----------
+const ASSET_AI_LEARNING_KEY = "assetAiLearningProfileV1";
+const ASSET_AI_LEARNING_MIN_QUERIES = 8;
+
+function readAssetAiLearningProfile(){
+  try{
+    const raw=localStorage.getItem(ASSET_AI_LEARNING_KEY);
+    const v=raw?JSON.parse(raw):null;
+    return v&&typeof v==="object"?v:{
+      version:1,queryCount:0,categories:{},symbols:{},style:{concise:0,detailed:0},updatedAt:null
+    };
+  }catch{
+    return {version:1,queryCount:0,categories:{},symbols:{},style:{concise:0,detailed:0},updatedAt:null};
+  }
+}
+
+function updateAssetAiLearningProfile(message, holdings=[]){
+  const text=String(message||"").trim();
+  if(!text) return readAssetAiLearningProfile();
+  const p=readAssetAiLearningProfile();
+  p.queryCount=Number(p.queryCount||0)+1;
+  p.categories=p.categories&&typeof p.categories==="object"?p.categories:{};
+  p.symbols=p.symbols&&typeof p.symbols==="object"?p.symbols:{};
+  p.style=p.style&&typeof p.style==="object"?p.style:{concise:0,detailed:0};
+
+  const defs=[
+    ["portfolio",/持股|資產|市值|成本|損益|部位|配置|股票清單/i],
+    ["performance",/績效|報酬|風險|回撤|波動|sharpe|sortino|xirr/i],
+    ["dividend",/配息|股息|殖利率|除息|除權/i],
+    ["market",/盤中|收盤|行情|大盤|台指|期貨|kd|雷達|radar|法人|隔夜|漲|跌/i],
+    ["news",/新聞|消息|事件|公告/i],
+    ["history",/歷史|過去|趨勢|月|季|年|比較/i],
+    ["goal",/目標|達成|計畫|進度|預估|年份/i],
+    ["system",/健康|同步|連線|mcp|ai|系統|錯誤/i],
+  ];
+  for(const [name,re] of defs){
+    if(re.test(text)) p.categories[name]=Number(p.categories[name]||0)+1;
+  }
+
+  const holdingSymbols=new Set((Array.isArray(holdings)?holdings:[])
+    .map(h=>String(h?.symbol||"").trim().toUpperCase()).filter(Boolean));
+  const codes=text.toUpperCase().match(/\b[0-9]{4,6}[A-Z]?\b/g)||[];
+  for(const code of codes){
+    if(/^20\d{2}$/.test(code)) continue;
+    if(holdingSymbols.size && !holdingSymbols.has(code)) continue;
+    p.symbols[code]=Number(p.symbols[code]||0)+1;
+  }
+
+  if(/簡短|簡單|一句|快速|摘要|重點/i.test(text)) p.style.concise=Number(p.style.concise||0)+1;
+  if(/詳細|完整|深入|原因|為什麼|比較|分析/i.test(text)) p.style.detailed=Number(p.style.detailed||0)+1;
+
+  p.updatedAt=new Date().toISOString();
+  try{ localStorage.setItem(ASSET_AI_LEARNING_KEY,JSON.stringify(p)); }catch{}
+  return p;
+}
+
+function assetAiLearningHint(profile){
+  const p=profile||readAssetAiLearningProfile();
+  const top=(obj,max=3)=>Object.entries(obj||{})
+    .sort((a,b)=>Number(b[1]||0)-Number(a[1]||0))
+    .slice(0,max)
+    .map(([k,v])=>`${k}(${v})`);
+  const categories=top(p.categories,3);
+  const symbols=top(p.symbols,4);
+  const concise=Number(p.style?.concise||0),detailed=Number(p.style?.detailed||0);
+  const style=concise>detailed?"偏好先講重點":detailed>concise?"偏好附原因與分析":"尚無明顯篇幅偏好";
+  return [
+    "=== Asset AI Learning（本機受控學習） ===",
+    `累積互動：${Number(p.queryCount||0)} 次；${Number(p.queryCount||0)>=ASSET_AI_LEARNING_MIN_QUERIES?"已進入個人化模式":"仍在學習期"}`,
+    categories.length?`常問主題：${categories.join("、")}`:"常問主題：尚在累積",
+    symbols.length?`常提持股：${symbols.join("、")}`:"常提持股：尚在累積",
+    `回答偏好：${style}`,
+    "這些學習資料只用來調整回答排序與表達方式，不是市場證據，不得改寫 App/Trend Radar 的數字、機率或交易資料。",
+  ].join("\n");
+}
+
 // ---------- independent AI fallback helpers ----------
 // The fallback URL points to a second provider (for example Vercel), so it
 // can still answer even when Cloudflare Workers AI quota is exhausted.
@@ -7300,7 +7376,9 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
         liveSnapshot?.at ? `即時行情更新：${liveSnapshot.at}` : "即時行情：尚無快照",
         "需要完整雷達/設定/驗證細節時，請使用 get_app_snapshot，不要自行猜測。",
       ].join("\n");
-      let baseContext = `${compactRuntime}\n\n${portfolioContext}`;
+      const learningProfile = updateAssetAiLearningProfile(text, holdings);
+      const learningContext = assetAiLearningHint(learningProfile);
+      let baseContext = `${compactRuntime}\n\n${portfolioContext}\n\n${learningContext}`;
       // 確認卡片不算「文字對話」，送給 AI 的歷史紀錄只留一般文字訊息，避免格式搞亂它。
       const history = nextMessages.slice(0, -1).filter((m) => typeof m.content === "string");
 
