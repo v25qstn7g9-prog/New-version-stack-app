@@ -2212,67 +2212,121 @@ function AssetTracker() {
     : null;
   const backupOverdue = backupAgeDays == null || backupAgeDays >= 7;
 
-  // ---- Z∞ 同步（供 Z∞ 中控查持股/損益）----
-  // 持股資料只存在這個瀏覽器的 localStorage，伺服器端本來讀不到；
-  // 這裡把「總覽頁看到的同一組數字」定期推一份到 Worker 的 KV，用你自己在
-  // 「計畫」分頁貼入的 token 當 key。沒填 token 就完全不會對外送出任何資料，
-  // 也不會影響 App 原本的任何功能（同步失敗只是安靜略過，不會跳錯誤）。
+  // ---- Z∞ 背景同步（供 Muse Lite / 舊中控讀取）----
+  // Assets App 是持股資料的唯一來源。資料變更後推到 Worker；失敗會保留 pending，
+  // 網路恢復、App 回到前景或下一次啟動時自動重試。股價本身不靠這裡持續推送，
+  // Muse Lite 會由後端 /quote 取得最新行情。
+  const zinfSyncInFlightRef = useRef(false);
+  const zinfSyncPendingRef = useRef(false);
+  const zinfSyncPayloadRef = useRef(null);
+  const zinfSyncRetryTimerRef = useRef(null);
+
+  const buildZinfSyncPayload = async () => {
+    const summary = {
+      totalAssets: totalToday,
+      dailyChange,
+      dailyChangePct,
+      totalInvested,
+      capitalGain,
+      totalReturn,
+      totalReturnPct,
+      asOfDate: latest ? latest.date : null,
+      holdings: holdingsWithShares
+        .filter((h) => Number(h.current || 0) > 0)
+        .map((h) => ({
+          symbol: h.symbol,
+          name: h.name || "",
+          shares: h.current,
+          avgCost: Number.isFinite(h.avgCost) ? Math.round(h.avgCost * 100) / 100 : null,
+          costBasis: h.estCostBasis ?? null,
+        })),
+    };
+    const [radar, radarHistory, tomorrowHistory, livePrices, trendRadarGlobalSignal, institutionalFlow, stockNews] = await Promise.all([
+      loadKey("trendRadarCurrentSnapshot", null),
+      loadKey("trendRadarHistory", null),
+      loadKey("trendRadarTomorrowHistory", null),
+      loadKey("livePrices", null),
+      loadKey("trendRadarGlobalSignal", null),
+      loadKey("institutionalFlow", null),
+      loadKey("stockNews", null),
+    ]);
+    summary.dataset = {
+      holdings, trades, dividends, dailyRecords, planItems, planSchedule,
+      goal, costBasis, radar, radarHistory, tomorrowHistory, livePrices,
+      trendRadarGlobalSignal, institutionalFlow, stockNews, goalDate,
+    };
+    return { token: zinfSyncToken, summary };
+  };
+
+  const runZinfSync = async ({ rebuild = true } = {}) => {
+    if (!ready || !zinfSyncToken || zinfSyncInFlightRef.current) return false;
+    zinfSyncInFlightRef.current = true;
+    try {
+      if (rebuild || !zinfSyncPayloadRef.current) zinfSyncPayloadRef.current = await buildZinfSyncPayload();
+      const response = await fetch("/api/portfolio-sync", {
+        method: "POST",
+        headers: { "content-type": "application/json", "cache-control": "no-store" },
+        body: JSON.stringify(zinfSyncPayloadRef.current),
+      });
+      if (!response.ok) {
+        if (response.status === 413) throw new Error("資料超出同步容量");
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.detail ? `HTTP ${response.status}：${body.detail}` : `HTTP ${response.status}`);
+      }
+      const syncedAt = new Date().toISOString();
+      zinfSyncPendingRef.current = false;
+      zinfSyncPayloadRef.current = null;
+      if (zinfSyncRetryTimerRef.current) clearTimeout(zinfSyncRetryTimerRef.current);
+      zinfSyncRetryTimerRef.current = null;
+      try {
+        localStorage.setItem("zinfSyncPending", "0");
+        localStorage.setItem("zinfLastSyncAt", syncedAt);
+      } catch {}
+      setZinfSyncStatus("完整資料已同步：" + new Date(syncedAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" }));
+      return true;
+    } catch (error) {
+      zinfSyncPendingRef.current = true;
+      try { localStorage.setItem("zinfSyncPending", "1"); } catch {}
+      setZinfSyncStatus("同步待重試：" + (error?.message || "網路錯誤"));
+      if (!zinfSyncRetryTimerRef.current) {
+        zinfSyncRetryTimerRef.current = setTimeout(() => {
+          zinfSyncRetryTimerRef.current = null;
+          runZinfSync({ rebuild: false });
+        }, 30000);
+      }
+      return false;
+    } finally {
+      zinfSyncInFlightRef.current = false;
+    }
+  };
+
+  // 資料有任何實質變更：debounce 2 秒後推最新完整快照。
   useEffect(() => {
     if (!ready || !zinfSyncToken) return;
-    const timer = setTimeout(() => {
-      const summary = {
-        totalAssets: totalToday,
-        dailyChange,
-        dailyChangePct,
-        totalInvested,
-        capitalGain,
-        totalReturn,
-        totalReturnPct,
-        asOfDate: latest ? latest.date : null,
-        holdings: holdingsWithShares
-          .filter((h) => Number(h.current || 0) > 0)
-          .map((h) => ({
-            symbol: h.symbol,
-            name: h.name || "",
-            shares: h.current,
-            avgCost: Number.isFinite(h.avgCost) ? Math.round(h.avgCost * 100) / 100 : null,
-            costBasis: h.estCostBasis ?? null,
-          })),
-      };
-      // Z∞ 中控需要查歷史紀錄：與瀏覽器 AI 使用同一批原始資料和模型快照。
-      // 只有使用者設定同步 token 才上傳；同步失敗不影響本機資料。
-      Promise.all([
-        loadKey("trendRadarCurrentSnapshot", null),
-        loadKey("trendRadarHistory", null),
-        loadKey("trendRadarTomorrowHistory", null),
-        loadKey("livePrices", null),
-        loadKey("trendRadarGlobalSignal", null),
-        loadKey("institutionalFlow", null),
-        loadKey("stockNews", null),
-      ]).then(([radar, radarHistory, tomorrowHistory, livePrices, trendRadarGlobalSignal, institutionalFlow, stockNews]) => {
-        summary.dataset = {
-          holdings, trades, dividends, dailyRecords, planItems, planSchedule,
-          goal, costBasis, radar, radarHistory, tomorrowHistory, livePrices,
-          trendRadarGlobalSignal, institutionalFlow, stockNews, goalDate,
-        };
-        return fetch("/api/portfolio-sync", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ token: zinfSyncToken, summary }),
-        });
-      }).then(async response => {
-        if (!response.ok) {
-          if (response.status === 413) throw new Error("資料超出同步容量");
-          // 帶上後端回傳的 detail（例如 KV 每日寫入額度用完），不然畫面只會看到
-          // 一句看不出原因的「HTTP 500」，每次都要用猜的。
-          const body = await response.json().catch(() => null);
-          throw new Error(body?.detail ? `HTTP ${response.status}：${body.detail}` : `HTTP ${response.status}`);
-        }
-        setZinfSyncStatus("完整資料已同步：" + new Date().toLocaleString("zh-TW", { timeZone: "Asia/Taipei" }));
-      }).catch(error => setZinfSyncStatus("同步失敗：" + (error?.message || "網路錯誤")));
-    }, 2000);
+    zinfSyncPendingRef.current = true;
+    try { localStorage.setItem("zinfSyncPending", "1"); } catch {}
+    const timer = setTimeout(() => runZinfSync({ rebuild: true }), 2000);
     return () => clearTimeout(timer);
   }, [ready, zinfSyncToken, totalToday, dailyChange, dailyChangePct, totalInvested, capitalGain, totalReturn, totalReturnPct, latest, holdingsWithShares, holdings, trades, dividends, dailyRecords, planItems, planSchedule, goal, costBasis, goalDate]);
+
+  // iPhone/PWA 常被背景暫停。回前景與網路恢復時若有 pending，立即補送。
+  useEffect(() => {
+    if (!ready || !zinfSyncToken) return;
+    try { zinfSyncPendingRef.current = localStorage.getItem("zinfSyncPending") === "1"; } catch {}
+    const retryPending = () => {
+      if (zinfSyncPendingRef.current || !zinfSyncPayloadRef.current) runZinfSync({ rebuild: true });
+    };
+    const onVisible = () => { if (document.visibilityState === "visible") retryPending(); };
+    window.addEventListener("online", retryPending);
+    document.addEventListener("visibilitychange", onVisible);
+    // 啟動時也驗證一次伺服器端有最新快照，不依賴本次資料是否剛好有變。
+    const startupTimer = setTimeout(retryPending, 1200);
+    return () => {
+      clearTimeout(startupTimer);
+      window.removeEventListener("online", retryPending);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [ready, zinfSyncToken]);
 
   // <main> 最小高度：量測 Header + TabBar 實際高度，讓每個分頁至少撐滿一個
   // 螢幕高度，不會因為內容多寡（例如「配息」頁常常內容很少）忽高忽低——
