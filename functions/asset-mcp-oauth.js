@@ -170,6 +170,7 @@ async function issueTokens(env, origin, cid, syncToken) {
   return json({ access_token:access, token_type:"Bearer", expires_in:ACCESS_TTL_SECONDS, refresh_token:refresh, scope:SCOPE });
 }
 async function onToken(request, env, origin) {
+  if (!readPassword(env)) return oauthError("temporarily_unavailable", "Assets MCP login password is not configured", 503);
   let form;
   try { form = await request.formData(); } catch { return oauthError("invalid_request","Expected form body"); }
   const grant=String(form.get("grant_type")||""), clientId=String(form.get("client_id")||"");
@@ -179,7 +180,7 @@ async function onToken(request, env, origin) {
     const code=await verify(env,String(form.get("code")||""),"code");
     if (!code || code.cid!==cid || String(form.get("redirect_uri")||"")!==code.ru) return oauthError("invalid_grant","Invalid authorization code");
     const verifier=String(form.get("code_verifier")||"");
-    if (!verifier || await s256(verifier)!==code.cc) return oauthError("invalid_grant","PKCE verification failed");
+    if (!verifier || (await s256(verifier)) !== code.cc) return oauthError("invalid_grant","PKCE verification failed");
     return issueTokens(env,origin,cid,code.st);
   }
   if (grant==="refresh_token") {
