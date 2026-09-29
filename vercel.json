@@ -2,35 +2,104 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "cleanUrls": true,
   "rewrites": [
-    { "source": "/api/:path*", "destination": "https://new-version-stack-app.9n94fh64jr.workers.dev/api/:path*" },
-    { "source": "/quote", "destination": "https://new-version-stack-app.9n94fh64jr.workers.dev/quote" },
-    { "source": "/news", "destination": "https://new-version-stack-app.9n94fh64jr.workers.dev/news" },
-    { "source": "/ask", "destination": "https://new-version-stack-app.9n94fh64jr.workers.dev/ask" },
-    { "source": "/dividend-schedule", "destination": "https://new-version-stack-app.9n94fh64jr.workers.dev/dividend-schedule" },
-    { "source": "/daily-history", "destination": "https://new-version-stack-app.9n94fh64jr.workers.dev/daily-history" },
-    { "source": "/holiday-schedule", "destination": "https://new-version-stack-app.9n94fh64jr.workers.dev/holiday-schedule" },
-    { "source": "/taifex-tx", "destination": "https://new-version-stack-app.9n94fh64jr.workers.dev/taifex-tx" }
+    {
+      "source": "/api/:path*",
+      "destination": "https://new-version-stack-app.9n94fh64jr.workers.dev/api/:path*"
+    },
+    {
+      "source": "/quote",
+      "destination": "https://new-version-stack-app.9n94fh64jr.workers.dev/quote"
+    },
+    {
+      "source": "/news",
+      "destination": "https://new-version-stack-app.9n94fh64jr.workers.dev/news"
+    },
+    {
+      "source": "/ask",
+      "destination": "https://new-version-stack-app.9n94fh64jr.workers.dev/ask"
+    },
+    {
+      "source": "/dividend-schedule",
+      "destination": "https://new-version-stack-app.9n94fh64jr.workers.dev/dividend-schedule"
+    },
+    {
+      "source": "/daily-history",
+      "destination": "https://new-version-stack-app.9n94fh64jr.workers.dev/daily-history"
+    },
+    {
+      "source": "/holiday-schedule",
+      "destination": "https://new-version-stack-app.9n94fh64jr.workers.dev/holiday-schedule"
+    },
+    {
+      "source": "/taifex-tx",
+      "destination": "https://new-version-stack-app.9n94fh64jr.workers.dev/taifex-tx"
+    }
   ],
   "headers": [
     {
       "source": "/api/:path*",
       "headers": [
-        { "key": "x-vercel-enable-rewrite-caching", "value": "0" },
-        { "key": "Cache-Control", "value": "no-store" }
+        {
+          "key": "x-vercel-enable-rewrite-caching",
+          "value": "0"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
+        }
       ]
     },
     {
       "source": "/(quote|news|ask|dividend-schedule|daily-history|holiday-schedule|taifex-tx)",
       "headers": [
-        { "key": "x-vercel-enable-rewrite-caching", "value": "0" },
-        { "key": "Cache-Control", "value": "no-store" }
+        {
+          "key": "x-vercel-enable-rewrite-caching",
+          "value": "0"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
+        }
+      ]
+    },
+    {
+      "source": "/",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, no-cache, must-revalidate, max-age=0"
+        }
+      ]
+    },
+    {
+      "source": "/index.html",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, no-cache, must-revalidate, max-age=0"
+        }
+      ]
+    },
+    {
+      "source": "/manifest.webmanifest",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, max-age=0"
+        }
       ]
     },
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        }
       ]
     }
   ]
