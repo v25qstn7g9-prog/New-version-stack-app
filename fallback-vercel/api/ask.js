@@ -3,7 +3,7 @@ import { onRequestPost } from "../lib/ask-core.js";
 const DEFAULT_GEMINI_MODEL = "gemini-3.6-flash";
 
 // 預設使用 Gemini 3.6 Flash。若 Vercel 還留著舊的 Gemini 2.x 環境變數，
-// 自動改用 3.5，避免舊部署偷偷退回已淘汰的 2.5。
+// 自動改用 3.6，避免舊部署偷偷退回舊模型。
 function resolvedGeminiModel() {
   const configured = String(process.env.GEMINI_MODEL || "").trim();
   if (!configured || /^gemini-(?:2|3\.5)(?:\.|-|$)/i.test(configured)) return DEFAULT_GEMINI_MODEL;
@@ -153,7 +153,7 @@ function fromGeminiResponse(data) {
   return { choices: [{ message: { role: "assistant", content: text } }] };
 }
 
-async function callGemini(options) {
+async function callGemini(options, allowRetry = true) {
   const apiKey = String(process.env.GEMINI_API_KEY || "").trim();
   if (!apiKey) throw new Error("GEMINI_API_KEY 尚未設定");
 
@@ -198,6 +198,14 @@ async function callGemini(options) {
     return fromGeminiResponse(data);
   } catch (e) {
     if (e?.name === "AbortError") throw new Error("Gemini 連線逾時");
+    const message = String(e?.message || "");
+    const retryable = e?.status === 502 || e?.status === 503 ||
+      (e?.status === 400 && /location is not supported|unsupported.*location/i.test(message)) ||
+      /high demand|temporar|overload/i.test(message);
+    if (allowRetry && retryable) {
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      return callGemini(options, false);
+    }
     throw e;
   } finally {
     clearTimeout(timeout);
