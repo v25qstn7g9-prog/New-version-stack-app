@@ -24,7 +24,10 @@
 
   // Gemini 備援模型（API Key 請用 Cloudflare Secret：GEMINI_API_KEY）
   "vars": {
-    "GEMINI_MODEL": "gemini-3.5-flash"
+    "GEMINI_MODEL": "gemini-3.5-flash",
+    // Standalone Assets MCP uses ASSET_MCP_PASSWORD as a Cloudflare Secret.
+    // Do not put the password value in this file.
+    "ASSET_MCP_ENABLED": "true"
   },
 
   // ============================================
