@@ -4674,8 +4674,8 @@ function DailyClosingAiReport({ holdings, dailyRecords }) {
   const [error, setError] = useState("");
   const [expanded, setExpanded] = useState(false);
 
-  const reportKeyFor = (date) => `dailyClosingAiReport:${date}`;
-  const expandedKeyFor = (date) => `dailyClosingAiReportExpanded:${date}`;
+  const reportKeyFor = (date) => `dailyClosingProgramReport:${date}`;
+  const expandedKeyFor = (date) => `dailyClosingProgramReportExpanded:${date}`;
 
   const buildAndAsk = async (force = false) => {
     const p = taiwanDateParts();
@@ -4755,37 +4755,42 @@ function DailyClosingAiReport({ holdings, dailyRecords }) {
         `最近每日資產紀錄：${JSON.stringify(latestDaily)}`,
       ].filter(Boolean).join("\n\n");
 
-      const deviceIdKey = "stockTrackerDeviceId";
-      let deviceId = localStorage.getItem(deviceIdKey);
-      if (!deviceId) {
-        deviceId = `d_${uid()}_${uid()}`;
-        localStorage.setItem(deviceIdKey, deviceId);
-      }
-
-      const prompt = UI_SHOW_ENGLISH
-        ? `Write a substantive Taiwan stock market closing report from the supplied app data. Do not be superficial. Explain what drove today's market, whether price/technical/institutional signals agree or conflict, how the user's TW holdings behaved versus the market, and tomorrow's outlook with bull/base/bear scenarios and concrete signals to watch. Distinguish facts from inference. Avoid buy/sell advice. Use clear headings and about 450-700 words.\n\nDATA:\n${payload}`
-        : `請根據以下 App 資料，做一份「真的有分析」的台股收盤報告，不要只寫兩三句帶過。請至少包含：1. 今日盤勢主軸與強弱來源；2. 價格、盤中技術、KD、法人、Trend Radar 是否互相確認或有背離；3. 我的台股持股相對大盤表現與主要拖累/貢獻；4. 明日台股展望，分成偏多情境、基準情境、偏空情境，說明各自觸發條件與明天最該觀察的訊號；5. 明確區分「資料事實」與「模型推論」，不要把預測寫成必然；6. 不要提供買賣建議。請用繁體中文、具體、有內容，約 700～1100 字。\n\n資料如下：\n${payload}`;
-
-      const res = await fetchWithTimeout("/ask", {
-        method: "POST",
-        headers: { "content-type": "application/json", "x-device-id": deviceId },
-        body: JSON.stringify({
-          message: prompt,
-          history: [],
-          context: "這是台股每日 14:00 收盤後的完整分析報告。只能依提供的 App 資料分析，不要虛構新聞或數字，不需要呼叫工具。",
-          forceAnswer: true,
-        }),
-        cache: "no-store",
-      }, 55000);
-      const data = await res.json().catch(() => null);
-      if (!res.ok || !data?.ok || !data?.reply) throw new Error(data?.error || "AI unavailable");
+      const numPct = (v) => Number.isFinite(Number(v)) ? `${Number(v) >= 0 ? "+" : ""}${Number(v).toFixed(2)}%` : "資料不足";
+      const marketPct = Number(market.indexPct);
+      const known = twHoldings.map(h => {
+        const q = liveMap[h.symbol] || {};
+        const price = Number(q.price), prev = Number(q.prevClose);
+        const changePct = price > 0 && prev > 0 ? ((price - prev) / prev) * 100 : null;
+        const pnl = changePct == null ? null : (price - prev) * Number(h.current || 0);
+        const rr = (Array.isArray(r.rows) ? r.rows : []).find(x => String(x.symbol) === String(h.symbol)) || {};
+        const inst = [rr.f1, rr.t1, rr.d1].reduce((s,v)=>s+(Number(v)||0),0);
+        return { symbol:h.symbol, name:h.name||"", changePct, pnl, direction:rr.direction||"—", inst,
+          kd:[rr.kd5?.state,rr.kd15?.state,rr.kd60?.state].filter(Boolean).join("/")||"—" };
+      });
+      const valid = known.filter(x => Number.isFinite(x.changePct));
+      const sorted = [...valid].sort((a,b)=>b.changePct-a.changePct);
+      const breadth = valid.length ? valid.filter(x=>x.changePct>0).length / valid.length : null;
+      const totalPnl = known.reduce((s,x)=>s+(Number.isFinite(x.pnl)?x.pnl:0),0);
+      const marketState = Number.isFinite(marketPct) ? (marketPct <= -1 ? "明顯偏弱" : marketPct < -0.2 ? "偏弱" : marketPct >= 1 ? "明顯偏強" : marketPct > 0.2 ? "偏強" : "震盪") : (market.direction||"資料不足");
+      const holdingText = known.map(x => `• ${x.symbol} ${x.name}：${numPct(x.changePct)}；Radar ${x.direction}；法人訊號 ${x.inst>=0?"+":""}${Math.round(x.inst)}；KD ${x.kd}`).join("\n");
+      const relativeText = Number.isFinite(marketPct) ? valid.map(x => `• ${x.symbol}：相對大盤 ${numPct(x.changePct-marketPct)}，${x.changePct>=marketPct?"優於":"落後"}大盤`).join("\n") : "大盤資料不足，暫不比較。";
+      const tomorrowText = tomorrowLines.length ? tomorrowLines.map(x=>`• ${x}`).join("\n") : "尚無完整明日模型資料，明日以大盤方向、KD、法人與 Radar 是否延續為主要觀察。";
+      const text = [
+        `【${day} 程式收盤分析】`,
+        `一、今日盤勢\n大盤 ${numPct(marketPct)}，系統判定「${marketState}」。${breadth==null?"":`持股上漲家數 ${valid.filter(x=>x.changePct>0).length}/${valid.length}，上漲廣度 ${(breadth*100).toFixed(0)}%。`}`,
+        `二、持股表現\n${holdingText || "持股收盤資料尚不足。"}${known.some(x=>Number.isFinite(x.pnl))?`\n依收盤/即時價與昨收估算，今日台股持股價格變動約 NT$ ${nf(Math.round(totalPnl))}。`:""}${sorted.length?`\n相對強勢：${sorted[0].symbol} ${numPct(sorted[0].changePct)}；相對弱勢：${sorted[sorted.length-1].symbol} ${numPct(sorted[sorted.length-1].changePct)}。`:""}`,
+        `三、相對大盤\n${relativeText}`,
+        `四、訊號判讀\n程式綜合價格、Trend Radar、KD 與法人訊號；同向訊號增加時視為確認度提高，互相背離時則標記為震盪或不確定，不把單一訊號當成必然走勢。`,
+        `五、明日觀察\n${tomorrowText}\n最近準確度：上午 ${recentAccuracy(instHist,"morning")}；收盤前 ${recentAccuracy(instHist,"closeLock")}；明日模型 ${recentAccuracy(tomorrowHist,null)}。`,
+        `六、系統結論\n今日市場狀態為「${marketState}」。明日優先觀察大盤是否延續今日方向，以及相對大盤較強的持股能否維持；若價格、KD、法人與 Radar 同向增加，確認度提高，若背離則維持保守判讀。\n\n※ 本報告由 App 收盤資料與固定規則自動產生，不使用生成式 AI，也不構成買賣建議。`
+      ].join("\n\n");
 
       const saved = {
         day,
         at: new Date().toISOString(),
-        text: cleanAiDisplayText(data.reply),
-        provider: data.provider || "",
-        model: data.model || "",
+        text,
+        provider: "program",
+        model: "deterministic-v1",
       };
       await saveKey(reportKeyFor(day), saved);
       setReport(saved);
@@ -4793,7 +4798,7 @@ function DailyClosingAiReport({ holdings, dailyRecords }) {
       setExpanded(savedExpanded === "1");
       setStatus("done");
     } catch (e) {
-      setError(UI_SHOW_ENGLISH ? "AI closing report is temporarily unavailable." : "AI 收盤報告暫時產生失敗，可稍後重試。");
+      setError(UI_SHOW_ENGLISH ? "Closing data is not ready yet." : "收盤資料尚未完整，系統稍後會再嘗試產生。");
       setStatus("error");
     }
   };
@@ -4832,17 +4837,17 @@ function DailyClosingAiReport({ holdings, dailyRecords }) {
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-sm font-bold" style={{ color: COLORS.gold }}>
-            🤖 <UiLabel zh="今日 AI 收盤報告" />
+            📊 今日程式收盤報告
           </div>
           <div className="text-[10px] mt-0.5" style={{ color: COLORS.sub }}>
-            <UiLabel zh="14:00 後每日自動更新一次" />
+            14:00 後依收盤資料自動產生・不使用 AI 額度
           </div>
         </div>
         {afterClose && (
           <button onClick={() => buildAndAsk(true)} disabled={status === "loading"}
             className="rounded-lg px-2.5 py-1 text-[10px] font-bold"
             style={{ color: COLORS.gold, border: `1px solid ${COLORS.gold}`, opacity: status === "loading" ? 0.55 : 1 }}>
-            <UiLabel zh={status === "loading" ? "分析中…" : "重新分析"} />
+            {status === "loading" ? "分析中…" : "重新計算"}
           </button>
         )}
       </div>
