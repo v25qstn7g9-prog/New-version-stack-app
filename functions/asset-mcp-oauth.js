@@ -7,6 +7,7 @@ const ACCESS_TTL_SECONDS = 60 * 60;
 const REFRESH_TTL_SECONDS = 60 * 60 * 24 * 30;
 const CODE_TTL_SECONDS = 5 * 60;
 const SCOPE = "read:assets";
+const ASSET_SYNC_TOKEN_KEY = "zinf:asset-mcp-sync-token";
 const MIN_PASSWORD_LEN = 16;
 
 const ALLOWED_REDIRECTS = new Set([
@@ -159,14 +160,15 @@ async function onAuthorize(request, env, origin) {
   if (!timingSafeEqual(password, readPassword(env))) return loginPage({ ...view, error: "密碼不對，請再試一次。" });
   if (!/^[A-Za-z0-9_-]{16,128}$/.test(syncToken)) return loginPage({ ...view, error: "存股同步 token 格式不對。" });
   const now = Math.floor(Date.now()/1000);
-  const code = await sign(env, { typ:"code", cid: params.client_id.slice(-43), ru:params.redirect_uri, cc:params.code_challenge, st:syncToken, exp:now+CODE_TTL_SECONDS });
+  await env.health_kv.put(ASSET_SYNC_TOKEN_KEY, syncToken);
+  const code = await sign(env, { typ:"code", cid: params.client_id.slice(-43), ru:params.redirect_uri, cc:params.code_challenge, sc:SCOPE, exp:now+CODE_TTL_SECONDS });
   return back({ code });
 }
 async function s256(verifier) { return b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(verifier)))); }
-async function issueTokens(env, origin, cid, syncToken) {
+async function issueTokens(env, origin, cid) {
   const now = Math.floor(Date.now()/1000);
-  const access = await sign(env, { typ:"access", aud:assetMcpResource(origin), sc:SCOPE, st:syncToken, iat:now, exp:now+ACCESS_TTL_SECONDS });
-  const refresh = await sign(env, { typ:"refresh", cid, st:syncToken, iat:now, exp:now+REFRESH_TTL_SECONDS, j:b64url(crypto.getRandomValues(new Uint8Array(8))) });
+  const access = await sign(env, { typ:"access", aud:assetMcpResource(origin), sc:SCOPE, iat:now, exp:now+ACCESS_TTL_SECONDS });
+  const refresh = await sign(env, { typ:"refresh", cid, iat:now, exp:now+REFRESH_TTL_SECONDS, j:b64url(crypto.getRandomValues(new Uint8Array(8))) });
   return json({ access_token:access, token_type:"Bearer", expires_in:ACCESS_TTL_SECONDS, refresh_token:refresh, scope:SCOPE });
 }
 async function onToken(request, env, origin) {
@@ -181,18 +183,18 @@ async function onToken(request, env, origin) {
     if (!code || code.cid!==cid || String(form.get("redirect_uri")||"")!==code.ru) return oauthError("invalid_grant","Invalid authorization code");
     const verifier=String(form.get("code_verifier")||"");
     if (!verifier || (await s256(verifier)) !== code.cc) return oauthError("invalid_grant","PKCE verification failed");
-    return issueTokens(env,origin,cid,code.st);
+    return issueTokens(env,origin,cid);
   }
   if (grant==="refresh_token") {
     const refresh=await verify(env,String(form.get("refresh_token")||""),"refresh");
     if (!refresh || refresh.cid!==cid) return oauthError("invalid_grant","Invalid refresh token");
-    return issueTokens(env,origin,cid,refresh.st);
+    return issueTokens(env,origin,cid);
   }
   return oauthError("unsupported_grant_type","Unsupported grant");
 }
 export async function verifyAssetAccessToken(env, token, origin) {
   const p=await verify(env,token,"access");
-  if (!p || p.aud!==assetMcpResource(origin) || !/^[A-Za-z0-9_-]{16,128}$/.test(String(p.st||""))) return null;
+  if (!p || p.aud!==assetMcpResource(origin)) return null;
   return p;
 }
 export async function handleAssetOAuth(request, env) {
