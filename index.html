@@ -4772,7 +4772,37 @@ function DailyClosingAiReport({ holdings, dailyRecords }) {
       const breadth = valid.length ? valid.filter(x=>x.changePct>0).length / valid.length : null;
       const totalPnl = known.reduce((s,x)=>s+(Number.isFinite(x.pnl)?x.pnl:0),0);
       const marketState = Number.isFinite(marketPct) ? (marketPct <= -1 ? "明顯偏弱" : marketPct < -0.2 ? "偏弱" : marketPct >= 1 ? "明顯偏強" : marketPct > 0.2 ? "偏強" : "震盪") : (market.direction||"資料不足");
-      const holdingText = known.map(x => `• ${x.symbol} ${x.name}：${numPct(x.changePct)}；Radar ${x.direction}；法人訊號 ${x.inst>=0?"+":""}${Math.round(x.inst)}；KD ${x.kd}`).join("\n");
+      const humanAmount = (v) => {
+        const n=Number(v); if(!Number.isFinite(n)) return "資料不足";
+        const sign=n>0?"+":n<0?"-":"";
+        const a=Math.abs(n);
+        if(a>=100000000) return `${sign}${(a/100000000).toFixed(a>=1000000000?1:2)} 億`;
+        if(a>=10000) return `${sign}${(a/10000).toFixed(a>=1000000?0:1)} 萬`;
+        return `${sign}${nf(Math.round(a))}`;
+      };
+      const kdHuman = (s) => {
+        const parts=String(s||"").split("/");
+        const weak=parts.filter(x=>/K<D|死亡|低檔|偏弱/i.test(x)).length;
+        const strong=parts.filter(x=>/K>D|黃金|高檔|偏強/i.test(x)).length;
+        if(weak>=2) return "短中期動能偏弱";
+        if(strong>=2) return "短中期動能偏強";
+        return "多週期訊號分歧";
+      };
+      const crossRead = (x) => {
+        const rel=Number.isFinite(marketPct)&&Number.isFinite(x.changePct)?x.changePct-marketPct:null;
+        const priceSign=rel==null?0:(rel>0.15?1:rel<-0.15?-1:0);
+        const radarSign=/漲|多|強/i.test(x.direction)?1:/跌|空|弱/i.test(x.direction)?-1:0;
+        const instSign=x.inst>0?1:x.inst<0?-1:0;
+        const kdText=kdHuman(x.kd), kdSign=/偏強/.test(kdText)?1:/偏弱/.test(kdText)?-1:0;
+        const signs=[priceSign,radarSign,instSign,kdSign].filter(Boolean);
+        const pos=signs.filter(v=>v>0).length, neg=signs.filter(v=>v<0).length;
+        if(pos>=3) return "偏多訊號較一致：相對強弱、Radar、法人或 KD 多數同向，確認度較高。";
+        if(neg>=3) return "偏空訊號較一致：相對強弱、Radar、法人或 KD 多數同向偏弱。";
+        if(pos&&neg) return "訊號背離：價格相對強弱與 Radar／法人／KD 並未完全同向，先視為震盪或尚待確認。";
+        return "目前有效訊號不足，暫不做方向性判定。";
+      };
+      const holdingText = known.map(x => `• ${x.symbol} ${x.name}：${numPct(x.changePct)}；Radar ${x.direction}；法人 ${humanAmount(x.inst)}；KD ${kdHuman(x.kd)}`).join("\n");
+      const crossText = known.map(x => `• ${x.symbol}：${crossRead(x)}`).join("\n");
       const relativeText = Number.isFinite(marketPct) ? valid.map(x => `• ${x.symbol}：相對大盤 ${numPct(x.changePct-marketPct)}，${x.changePct>=marketPct?"優於":"落後"}大盤`).join("\n") : "大盤資料不足，暫不比較。";
       const tomorrowText = tomorrowLines.length ? tomorrowLines.map(x=>`• ${x}`).join("\n") : "尚無完整明日模型資料，明日以大盤方向、KD、法人與 Radar 是否延續為主要觀察。";
       const text = [
@@ -4780,7 +4810,7 @@ function DailyClosingAiReport({ holdings, dailyRecords }) {
         `一、今日盤勢\n大盤 ${numPct(marketPct)}，系統判定「${marketState}」。${breadth==null?"":`持股上漲家數 ${valid.filter(x=>x.changePct>0).length}/${valid.length}，上漲廣度 ${(breadth*100).toFixed(0)}%。`}`,
         `二、持股表現\n${holdingText || "持股收盤資料尚不足。"}${known.some(x=>Number.isFinite(x.pnl))?`\n依收盤/即時價與昨收估算，今日台股持股價格變動約 NT$ ${nf(Math.round(totalPnl))}。`:""}${sorted.length?`\n相對強勢：${sorted[0].symbol} ${numPct(sorted[0].changePct)}；相對弱勢：${sorted[sorted.length-1].symbol} ${numPct(sorted[sorted.length-1].changePct)}。`:""}`,
         `三、相對大盤\n${relativeText}`,
-        `四、訊號判讀\n程式綜合價格、Trend Radar、KD 與法人訊號；同向訊號增加時視為確認度提高，互相背離時則標記為震盪或不確定，不把單一訊號當成必然走勢。`,
+        `四、訊號交叉判讀\n${crossText || "目前有效訊號不足。"}\n\n判讀原則：價格相對大盤、Trend Radar、KD 與法人訊號同向越多，確認度越高；互相背離則視為震盪或尚待確認。`,
         `五、明日觀察\n${tomorrowText}\n最近準確度：上午 ${recentAccuracy(instHist,"morning")}；收盤前 ${recentAccuracy(instHist,"closeLock")}；明日模型 ${recentAccuracy(tomorrowHist,null)}。`,
         `六、系統結論\n今日市場狀態為「${marketState}」。明日優先觀察大盤是否延續今日方向，以及相對大盤較強的持股能否維持；若價格、KD、法人與 Radar 同向增加，確認度提高，若背離則維持保守判讀。\n\n※ 本報告由 App 收盤資料與固定規則自動產生，不使用生成式 AI，也不構成買賣建議。`
       ].join("\n\n");
