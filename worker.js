@@ -62,6 +62,7 @@ export default {
           headers: {
             "content-type": "application/json; charset=utf-8",
             "cache-control": "no-store",
+            "x-content-type-options": "nosniff",
             "WWW-Authenticate": `Bearer resource_metadata="${url.origin}/.well-known/oauth-protected-resource", scope="read:assets"`,
           },
         });
