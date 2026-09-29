@@ -37,6 +37,8 @@ import {
   onRequestGet as portfolioSyncGetHandler,
   onRequestPost as portfolioSyncPostHandler,
 } from "./functions/portfolio-sync.js";
+import { handlePreparedAssetMcp } from "./functions/ai-connector-prepared.js";
+import { handleAssetOAuth, verifyAssetAccessToken } from "./functions/asset-mcp-oauth.js";
 import {
   onRequestGet as pendingTradesGetHandler,
   onRequestPost as pendingTradesPostHandler,
@@ -46,6 +48,26 @@ import {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+
+    // Standalone AI connector for Z∞ Assets. Existing app/Atlas routes stay unchanged.
+    const oauthResponse = await handleAssetOAuth(request, env);
+    if (oauthResponse) return oauthResponse;
+
+    if (url.pathname === "/mcp") {
+      const bearer = (request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
+      const access = bearer ? await verifyAssetAccessToken(env, bearer, url.origin) : null;
+      if (!access) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+            "cache-control": "no-store",
+            "WWW-Authenticate": `Bearer resource_metadata="${url.origin}/.well-known/oauth-protected-resource", scope="read:assets"`,
+          },
+        });
+      }
+      return handlePreparedAssetMcp(request, env, { syncToken: access.st });
+    }
 
     if (url.pathname === "/quote" && request.method === "GET") {
       return quoteHandler({ request, env, ctx });
