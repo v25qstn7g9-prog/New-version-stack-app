@@ -383,7 +383,7 @@ function geminiText(data) {
     .trim();
 }
 
-async function callGemini(env, contents, systemInstruction, tools = true) {
+async function callGemini(env, contents, systemInstruction, tools = true, options = {}) {
   const apiKey = String(env?.GEMINI_API_KEY || "").trim();
   if (!apiKey) throw new Error("Gemini 備援未設定 GEMINI_API_KEY");
   const configuredModel = String(env?.GEMINI_MODEL || "").trim();
@@ -408,7 +408,14 @@ async function callGemini(env, contents, systemInstruction, tools = true) {
   });
   const data = await res.json().catch(() => null);
   if (!res.ok || !data) {
-    const detail = data?.error?.message || data?.error?.status || `HTTP ${res.status}`;
+    const detail = String(data?.error?.message || data?.error?.status || `HTTP ${res.status}`);
+    const locationBlocked = res.status === 400 && /location is not supported|unsupported.*location/i.test(detail);
+    if (locationBlocked && options.allowLocationRetry !== false) {
+      // Cloudflare egress can occasionally be classified by Google as an unsupported API location.
+      // Retry once; the request is idempotent and this avoids turning a transient egress issue into an app failure.
+      await new Promise(resolve => setTimeout(resolve, 900));
+      return callGemini(env, contents, systemInstruction, tools, { ...options, allowLocationRetry: false });
+    }
     throw new Error(`Gemini ${detail}`);
   }
   return { data, model };
