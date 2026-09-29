@@ -12,7 +12,10 @@
     "/dividend-schedule",
     "/daily-history",
     "/holiday-schedule",
-    "/taifex-tx"
+    "/taifex-tx",
+    "/mcp",
+    "/oauth/*",
+    "/.well-known/*"
   ],
   "exclude": []
 }
