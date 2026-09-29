@@ -487,16 +487,47 @@ async function runGeminiFallback(env, { message, history, contextText, toolTurns
 
 function friendlyAiError(message) {
   const s = String(message || "");
-  if (/neuron|quota|limit|daily|exceeded|usage/i.test(s)) {
-    return "今日 AI 免費額度可能已用完，等額度重置後再試。";
+  if (/429|resource_exhausted|quota exceeded|quota.*exceed|rate.?limit/i.test(s)) {
+    return "AI 服務目前達到額度或速率限制，請稍後再試。";
   }
-  if (/unauthorized|forbidden|401|403/i.test(s)) {
-    return "AI 服務授權失敗，請檢查 Cloudflare 設定。";
+  if (/timeout|timed out|逾時|abort/i.test(s)) {
+    return "AI 服務回應逾時，請稍後再試。";
+  }
+  if (/unauthorized|forbidden|401|403|api.?key/i.test(s)) {
+    return "AI 服務授權失敗，請檢查服務金鑰或 Cloudflare 設定。";
   }
   if (/binding|AI binding|env\.AI/i.test(s)) {
     return "尚未設定 Cloudflare AI Binding（Variable name: AI）。";
   }
-  return s || "ask function failed";
+  if (/沒有回傳文字內容|empty response/i.test(s)) {
+    return "AI 服務有回應，但沒有可顯示的文字內容。";
+  }
+  return s || "AI 服務暫時無法完成要求";
+}
+
+function extractCloudflareText(result) {
+  const candidates = [
+    result?.response,
+    result?.result?.response,
+    result?.output_text,
+    result?.text,
+    result?.choices?.[0]?.message?.content,
+    result?.choices?.[0]?.text,
+  ];
+  for (const value of candidates) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (Array.isArray(value)) {
+      const joined = value.map(x => typeof x === "string" ? x : (x?.text || x?.content || "")).filter(Boolean).join("\n").trim();
+      if (joined) return joined;
+    }
+  }
+  const output = result?.output;
+  if (Array.isArray(output)) {
+    const joined = output.flatMap(x => Array.isArray(x?.content) ? x.content : [x])
+      .map(x => x?.text || x?.content || "").filter(x => typeof x === "string" && x.trim()).join("\n").trim();
+    if (joined) return joined;
+  }
+  return "";
 }
 
 export async function onRequestPost(context) {
@@ -640,8 +671,7 @@ export async function onRequestPost(context) {
           if (cacheEnabled) writeAskCache(cacheKey, payload);
           return jsonResponse(payload);
         }
-        let reply = String(result?.response || "").trim();
-        if (!reply && Array.isArray(result?.choices)) reply = String(result.choices[0]?.message?.content || "").trim();
+        const reply = extractCloudflareText(result);
         if (!reply) throw new Error("AI 沒有回傳文字內容");
         const payload = { ok: true, version: ASK_VERSION, provider: "cloudflare", model: activeModel, reply };
         if (cacheEnabled) writeAskCache(cacheKey, payload);
