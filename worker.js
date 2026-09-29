@@ -45,6 +45,34 @@ import {
   onRequestResolve as pendingTradesResolveHandler,
 } from "./functions/pending-trades.js";
 
+function apiJson(data, status = 200, extraHeaders = {}) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+      "x-content-type-options": "nosniff",
+      ...extraHeaders,
+    },
+  });
+}
+
+const API_METHODS = new Map([
+  ["/quote", ["GET"]],
+  ["/news", ["GET"]],
+  ["/ask", ["POST"]],
+  ["/dividend-schedule", ["GET"]],
+  ["/daily-history", ["GET"]],
+  ["/holiday-schedule", ["GET"]],
+  ["/taifex-tx", ["GET"]],
+  ["/api/health", ["GET"]],
+  ["/api/health-cards", ["GET", "POST"]],
+  ["/api/health-check", ["GET"]],
+  ["/api/portfolio-sync", ["GET", "POST"]],
+  ["/api/pending-trades", ["GET", "POST"]],
+  ["/api/pending-trades/resolve", ["POST"]],
+]);
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -74,7 +102,15 @@ export default {
           headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
         });
       }
-      return handlePreparedAssetMcp(request, env, { syncToken });
+      try {
+        return await handlePreparedAssetMcp(request, env, { syncToken });
+      } catch (error) {
+        return apiJson({ error: "MCP Internal Server Error", detail: String(error?.message || error).slice(0, 300) || null }, 500);
+      }
+    }
+
+    if (url.pathname === "/api/health" && request.method === "GET") {
+      return apiJson({ ok: true, service: "new-version-stack-app" });
     }
 
     if (url.pathname === "/quote" && request.method === "GET") {
@@ -120,21 +156,32 @@ export default {
       return pendingTradesResolveHandler({ request, env, ctx });
     }
 
+    const allowedMethods = API_METHODS.get(url.pathname);
+    if (allowedMethods && !allowedMethods.includes(request.method)) {
+      return apiJson({ error: "Method Not Allowed" }, 405, { Allow: allowedMethods.join(", ") });
+    }
+    if (url.pathname.startsWith("/api/")) {
+      return apiJson({ error: "API route not found" }, 404);
+    }
+
     const assetResponse = await env.ASSETS.fetch(request);
+    const headers = new Headers(assetResponse.headers);
+    headers.set("X-Content-Type-Options", "nosniff");
+    headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+
     // index.html changes frequently during active development. Prevent Safari/PWA
     // and intermediary caches from pinning an older header/version after a deploy.
     if (url.pathname === "/" || url.pathname === "/index.html") {
-      const headers = new Headers(assetResponse.headers);
       headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
       headers.set("Pragma", "no-cache");
       headers.set("Expires", "0");
-      return new Response(assetResponse.body, {
-        status: assetResponse.status,
-        statusText: assetResponse.statusText,
-        headers,
-      });
     }
-    return assetResponse;
+
+    return new Response(assetResponse.body, {
+      status: assetResponse.status,
+      statusText: assetResponse.statusText,
+      headers,
+    });
   },
 
   // Cron Trigger 進來的入口（不是一般 HTTP 請求，沒有 request/response）。
