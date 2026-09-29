@@ -54,7 +54,7 @@ export const PREPARED_ASSET_TOOLS = [
       },
       additionalProperties: false,
     },
-  },,
+  },
   {
     name: "stock_quote", title: "個股／大盤即時行情", annotations: READ_ONLY,
     description: "Read current/last available quotes for Taiwan stocks, ETFs, TAIEX, SPX, SOX or USDTWD. Missing or stale data must be reported explicitly.",
