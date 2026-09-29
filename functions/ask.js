@@ -13,7 +13,7 @@
  * Cloudflare 為主模型；Cloudflare 失敗時由同一個 Worker 直接切 Gemini 3.6 Flash。
  * 舊 fallback-vercel 仍保留作最後一道相容備援。
  */
-const ASK_VERSION = "4.7-personal-advisor-v3.1-polished-analysis";
+const ASK_VERSION = "4.7-personal-advisor-v3.2-bounded-learning";
 const GEMINI_MODEL_DEFAULT = "gemini-3.6-flash";
 const GEMINI_MAX_OUTPUT_TOKENS = 1000;
 const LIGHT_MODEL = "@cf/zai-org/glm-4.7-flash";
@@ -154,6 +154,7 @@ const SYSTEM_PROMPT_BASE = `你是內嵌在這個 App 裡的「存股助手 AI�
 12. 不要輸出 Markdown 表格、HTML <br>、### 標題、**粗體**等排版符號；請用短段落與「•」項目即可。
 13. 時間要說清楚：收盤後讀到盤中/收盤快照時，稱為「今日收盤快照」或「最近一次雷達快照」，不要讓人誤以為是夜間即時股價。
 14. 若使用者問「明天會不會漲」，回答必須寫成「目前模型偏漲/偏跌/方向不明 + 機率」，並明確說這是模型訊號，不是保證。
+15. 若 context 內出現「Asset AI Learning」，它只代表使用者在本機累積的互動偏好（常問主題、常提持股、回答篇幅偏好）。它可以影響你先講什麼、怎麼排序與解釋，但絕對不是市場證據，不得因此改寫持股、成本、行情、Trend Radar 機率、模型驗證或任何交易資料。
 
 你的任務不是泛泛而談的財經聊天，而是把 App 裡的「持股、成本、交易、配息、每日資產、計畫設定、即時行情、KD、法人、新聞、台指近月、隔夜訊號、Trend Radar、模型驗證」整合成可理解的個人化分析。`;
 
