@@ -19,6 +19,7 @@ import { onRequestGet as holidayGet } from "./holiday-schedule.js";
 import { onRequestGet as taifexGet } from "./taifex-tx.js";
 import { onRequestGet as healthGet } from "./health-check.js";
 import { onRequestGet as pendingTradesGet } from "./pending-trades.js";
+import { holidayStatusFromRows } from "./twse-holiday.js";
 
 const SERVER = { name: "z-infinity-assets", version: "1.2.0" };
 const SUPPORTED_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"];
@@ -57,7 +58,7 @@ export const PREPARED_ASSET_TOOLS = [
     title: "今日資產狀態",
     annotations: READ_ONLY,
     description:
-      "Answer 'today's assets' deterministically. Check whether today has a saved daily asset record; if not, check Taiwan weekend/TWSE holiday and Taiwan market time. On a holiday, report that the market is closed and cite the latest saved asset record date. Before 09:00 on a trading day, say the market has not opened yet. From 09:00 onward, remind the user to record today's assets when no record exists; after 14:00 mark it overdue. Never invent today's asset value when there is no saved record.",
+      "Answer 'today's assets' deterministically. Check whether today has a saved daily asset record; if not, check Taiwan weekend/TWSE holiday and Taiwan market time. On a holiday, report that the market is closed and cite the latest saved asset record date. Before 09:00 on a trading day, say the market has not opened yet. From 09:00 onward, remind the user to record today's assets when no record exists; after 14:00 mark it overdue. If the TWSE holiday calendar cannot be fetched, status is market_status_unknown (do not guess). Every response includes sync.syncedAt / sync.syncAgeMinutes / sync.stale (older than 72h) and, when no snapshot is found, sync.reason (never_synced / expired / token_mismatch). Never invent today's asset value when there is no saved record.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
@@ -213,40 +214,66 @@ function compactDailyRecord(record) {
   };
 }
 
-function holidayRowDateText(row) {
-  return Object.values(row && typeof row === "object" ? row : {})
-    .map(v => String(v ?? ""))
-    .join(" ");
+// 資產快照多久沒更新算「太舊」：跟 Atlas Muse 一致（72 小時）。
+const SYNC_STALE_MINUTES = 72 * 60;
+
+// 回傳同步快照的時間資訊，所有 today_asset_status / asset_agent_brief 的回應都會帶。
+export function describeSync(portfolio, now = new Date()) {
+  const found = Boolean(portfolio?.found && portfolio?.summary);
+  const syncedAt = found ? (portfolio.summary.syncedAt || null) : (portfolio?.lastSyncedAt || null);
+  const t = Date.parse(String(syncedAt || ""));
+  const syncAgeMinutes = Number.isFinite(t) ? Math.max(0, Math.round((now.getTime() - t) / 60000)) : null;
+  return {
+    found,
+    syncedAt,
+    syncAgeMinutes,
+    stale: syncAgeMinutes == null ? null : syncAgeMinutes > SYNC_STALE_MINUTES,
+    reason: found ? null : (portfolio?.reason || null),
+  };
 }
 
-function rowMatchesDate(row, ymd) {
-  const [y,m,d] = ymd.split("-").map(Number);
-  const roc = y - 1911;
-  const variants = [
-    ymd,
-    `${y}/${String(m).padStart(2,"0")}/${String(d).padStart(2,"0")}`,
-    `${y}${String(m).padStart(2,"0")}${String(d).padStart(2,"0")}`,
-    `${roc}/${String(m).padStart(2,"0")}/${String(d).padStart(2,"0")}`,
-    `${roc}${String(m).padStart(2,"0")}${String(d).padStart(2,"0")}`,
-  ];
-  const text = holidayRowDateText(row).replace(/\s+/g, " ");
-  return variants.some(v => text.includes(v));
+function syncAgeText(sync) {
+  if (sync?.syncAgeMinutes == null) return "";
+  const m = sync.syncAgeMinutes;
+  if (m < 60) return `${m} 分鐘前`;
+  if (m < 48 * 60) return `約 ${Math.round(m / 60)} 小時前`;
+  return `約 ${Math.round(m / 1440)} 天前`;
 }
 
-function holidayReason(row) {
-  if (!row || typeof row !== "object") return null;
-  const preferredKeys = ["Description","description","Holiday","holiday","Name","name","說明","名稱","備註"];
-  for (const k of preferredKeys) {
-    const v = String(row[k] ?? "").trim();
-    if (v) return v;
+function unavailableAdvice(reason) {
+  if (reason === "expired") return "快照已超過保存期限（14 天沒有上傳）：打開存股 App 讓它重新上傳一次（App 開著時會自動同步）。";
+  if (reason === "token_mismatch") return "這組 token 沒有上傳紀錄，但最近有其他 token 在上傳：連接器登入時的 token 可能和 App「計畫 → Z∞ 同步」目前的 token 不同，請重新連接並貼上 App 目前的 token。";
+  if (reason === "never_synced") return "這組 token 從未上傳過：打開存股 App →「計畫 → Z∞ 同步」確認已開啟，App 開著時會自動同步上傳。";
+  return "開啟存股 App 等待自動同步；若開啟 App 後仍無快照，檢查 App 的 Z∞ 同步狀態與連接器登入時的 token 是否一致；不要推定沒有持股。";
+}
+
+// TWSE 休市判斷：回傳 { closed: true|false|null, reason }；抓不到行事曆 → null（未知）。
+async function marketClosedToday(date) {
+  try {
+    const res = await holidayGet();
+    if (!res.ok) return { closed: null, reason: null };
+    const data = await res.json().catch(() => null);
+    return holidayStatusFromRows(data?.rows, date);
+  } catch {
+    return { closed: null, reason: null };
   }
-  return null;
 }
 
+// 每個狀態都帶上 sync（syncedAt / syncAgeMinutes / stale / reason）；快照太舊時在 message 後面加註。
 async function todayAssetStatus(env, syncToken) {
+  const meta = {};
+  const result = await todayAssetStatusCore(env, syncToken, meta);
+  const note = meta.staleNote && result.message && !result.message.includes(meta.staleNote) ? meta.staleNote : "";
+  return { ...result, sync: meta.sync || null, message: result.message ? result.message + note : result.message };
+}
+
+async function todayAssetStatusCore(env, syncToken, meta = {}) {
   const p = await readPortfolio(env, syncToken);
   const summary = p?.summary || null;
+  const sync = describeSync(p);
+  meta.sync = sync;
   if (!p?.found || !summary) {
+    const last = sync.syncedAt ? `最後一次上傳是 ${sync.syncedAt}（${syncAgeText(sync)}）。` : "";
     return {
       ok: true,
       status: "snapshot_unavailable",
@@ -254,10 +281,13 @@ async function todayAssetStatus(env, syncToken) {
       marketDay: null,
       hasTodayRecord: null,
       latestRecord: null,
-      message: "連接器尚未讀到這組 token 的同步快照，無法判斷今日或歷史資產紀錄。存股 App 開啟時會自動同步。",
-      recommendation: "若開啟 App 後仍無快照，檢查 App 的 Z∞ 同步狀態與連接器登入時的 token 是否一致；不要推定沒有持股。",
+      sync,
+      message: `連接器尚未讀到這組 token 的同步快照，無法判斷今日或歷史資產紀錄。${last}${sync.reason === "token_mismatch" ? "" : "存股 App 開啟時會自動同步。"}`,
+      recommendation: unavailableAdvice(sync.reason),
     };
   }
+  const staleNote = sync.stale ? `（注意：這份快照是 ${syncAgeText(sync)} 上傳的，可能不是最新持股）` : "";
+  meta.staleNote = staleNote;
   const rows = Array.isArray(summary?.dataset?.dailyRecords) ? summary.dataset.dailyRecords : [];
   const records = rows
     .filter(r => /^\d{4}-\d{2}-\d{2}$/.test(String(r?.date || "")))
@@ -288,15 +318,27 @@ async function todayAssetStatus(env, syncToken) {
     holiday = true;
     holidayName = now.weekday === 6 ? "週六休市" : "週日休市";
   } else {
-    try {
-      const res = await holidayGet();
-      const data = await res.json().catch(() => null);
-      const match = Array.isArray(data?.rows) ? data.rows.find(r => rowMatchesDate(r, now.date)) : null;
-      if (match) {
-        holiday = true;
-        holidayName = holidayReason(match) || "TWSE 休市日";
-      }
-    } catch {}
+    const market = await marketClosedToday(now.date);
+    if (market.closed === null) {
+      // 抓不到 TWSE 行事曆時不能假設「有開盤」，也不能假設休市。
+      return {
+        ok: true,
+        status: "market_status_unknown",
+        today: now.date,
+        marketDay: null,
+        hasTodayRecord: false,
+        latestRecord,
+        sync,
+        message: (latestRecord
+          ? `暫時無法取得 TWSE 休市行事曆，不能確定今天是否開盤；目前最新實際資產紀錄是 ${latestRecord.date}。`
+          : "暫時無法取得 TWSE 休市行事曆，不能確定今天是否開盤，而且目前沒有歷史資產紀錄。"),
+        recommendation: "先不要據此提醒補登或宣稱休市；稍後再查一次。",
+      };
+    }
+    if (market.closed) {
+      holiday = true;
+      holidayName = market.reason || "TWSE 休市日";
+    }
   }
 
   if (holiday) {
@@ -474,7 +516,10 @@ async function assetAgentBrief(env, syncToken, args = {}) {
 
   if (today?.status === "snapshot_unavailable") {
     attention.push("連接器尚無可讀取的同步快照");
-    nextActions.push("開啟存股 App 等待自動同步；若仍無資料，核對兩邊 token 與同步狀態");
+    nextActions.push(unavailableAdvice(today?.sync?.reason));
+  } else if (today?.status === "market_status_unknown") {
+    attention.push("暫時無法取得 TWSE 休市行事曆");
+    nextActions.push("稍後再確認今天是否開盤，再決定要不要補登資產");
   } else if (today?.status === "post_close_reminder" || today?.status === "record_overdue") {
     attention.push("今天尚未完成資產紀錄");
     nextActions.push("補登今天的實際資產紀錄");
@@ -488,6 +533,10 @@ async function assetAgentBrief(env, syncToken, args = {}) {
     nextActions.push("今天已有實際資產紀錄，不用重複登記");
   }
 
+  if (today?.sync?.found && today.sync.stale) {
+    attention.push(`資產同步快照最後更新在${syncAgeText(today.sync)}，可能不是最新持股`);
+    nextActions.push("打開存股 App 讓它上傳一次（App 開著時會自動同步）");
+  }
   if (pending.length) {
     attention.push(`有 ${pending.length} 筆待確認交易`);
     nextActions.push("有空時檢查待確認交易；未確認前不視為已寫入持股");
@@ -515,6 +564,7 @@ async function assetAgentBrief(env, syncToken, args = {}) {
       latestRecord: today?.latestRecord || null,
       recommendation: today?.recommendation || null,
     },
+    sync: today?.sync || null,
     live: live ? {
       quoteFetchedAt: live.quoteFetchedAt || null,
       quoteStatus: live.quoteStatus || null,

@@ -38,6 +38,8 @@ import {
   onRequestPost as portfolioSyncPostHandler,
 } from "./functions/portfolio-sync.js";
 import { handlePreparedAssetMcp } from "./functions/ai-connector-prepared.js";
+import { adminTokenMatches, bearerToken, writeAllowed } from "./functions/request-guard.js";
+import { isKnownSyncToken } from "./functions/portfolio-sync.js";
 import { handleAssetOAuth, verifyAssetAccessToken, readAssetMcpSyncToken } from "./functions/asset-mcp-oauth.js";
 import {
   onRequestGet as pendingTradesGetHandler,
@@ -72,6 +74,8 @@ const API_METHODS = new Map([
   ["/api/pending-trades", ["GET", "POST"]],
   ["/api/pending-trades/resolve", ["POST"]],
 ]);
+
+const WRITE_PATHS = new Set(["/api/portfolio-sync", "/api/pending-trades", "/api/pending-trades/resolve", "/api/health-cards"]);
 
 export default {
   async fetch(request, env, ctx) {
@@ -134,10 +138,29 @@ export default {
     if (url.pathname === "/taifex-tx" && request.method === "GET") {
       return taifexTxHandler();
     }
-    if ((url.pathname === "/api/health-cards" || url.pathname === "/api/health-check") && request.method === "GET") {
+    // 寫入端點依 IP 限流（綁定 WRITE_RATE_LIMITER 時才生效）。
+    const isWrite = request.method === "POST" && WRITE_PATHS.has(url.pathname);
+    if (isWrite && !(await writeAllowed(env, request, url.pathname))) {
+      return apiJson({ error: "請求太頻繁，請稍後再試" }, 429, { "Retry-After": "60" });
+    }
+
+    // /api/health-check 會實際呼叫一次 AI：只給排程（scheduled）和持有管理 token 的人手動觸發。
+    if (url.pathname === "/api/health-check" && request.method === "GET") {
+      if (!adminTokenMatches(env, bearerToken(request))) {
+        return apiJson({ error: "Unauthorized" }, 401, { "WWW-Authenticate": "Bearer" });
+      }
       return healthGetHandler({ request, env, ctx });
     }
+    // /api/health-cards GET 只讀卡片清單（App 開啟時讀），維持公開。
+    if (url.pathname === "/api/health-cards" && request.method === "GET") {
+      return healthGetHandler({ request, env, ctx });
+    }
+    // 確認／忽略卡片要帶 App 的同步 token（有上傳過的 token）或管理 token。
     if (url.pathname === "/api/health-cards" && request.method === "POST") {
+      const supplied = bearerToken(request);
+      if (!adminTokenMatches(env, supplied) && !(await isKnownSyncToken(env, supplied))) {
+        return apiJson({ error: "Unauthorized" }, 401, { "WWW-Authenticate": "Bearer" });
+      }
       return healthPostHandler({ request, env, ctx });
     }
     if (url.pathname === "/api/portfolio-sync" && request.method === "GET") {
