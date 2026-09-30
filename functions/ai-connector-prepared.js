@@ -1,14 +1,14 @@
 /**
  * functions/ai-connector-prepared.js
  *
- * 資產 App 的「獨立 AI 中控入口」預備層。
+ * 資產 App 的獨立 MCP / Agent 工具層。
  *
  * IMPORTANT:
- * - 目前刻意沒有掛到 worker.js，所以部署後不會新增任何公開路由。
- * - 目前 Claude / ChatGPT 都不會連到這支檔案。
- * - 未來啟用時，由外層 OAuth/授權 adapter 驗證使用者，再把 portfolio sync token
+ * - worker.js 的 /mcp 路由已掛載這裡。
+ * - 外層 OAuth 先驗證 AI client，再把 server-side portfolio sync token
  *   以 context.syncToken 傳進 handlePreparedAssetMcp()。
  * - 不在原始碼硬編任何 token / secret。
+ * - 所有 Assets MCP 工具維持唯讀。
  */
 import { onRequestGet as portfolioSyncGet } from "./portfolio-sync.js";
 import { onRequestGet as quoteGet } from "./quote.js";
