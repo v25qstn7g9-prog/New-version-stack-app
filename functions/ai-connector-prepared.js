@@ -20,7 +20,7 @@ import { onRequestGet as taifexGet } from "./taifex-tx.js";
 import { onRequestGet as healthGet } from "./health-check.js";
 import { onRequestGet as pendingTradesGet } from "./pending-trades.js";
 
-const SERVER = { name: "z-infinity-assets", version: "1.1.0" };
+const SERVER = { name: "z-infinity-assets", version: "1.2.0" };
 const SUPPORTED_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"];
 const READ_ONLY = {
   readOnlyHint: true,
@@ -37,6 +37,20 @@ export const PREPARED_ASSET_TOOLS = [
     description:
       "Read the user's latest synchronized portfolio snapshot: holdings, shares, costs, totals and history. This is a synchronized snapshot, not guaranteed real-time market data.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "asset_agent_brief",
+    title: "Assets Agent 今日總覽",
+    annotations: READ_ONLY,
+    description:
+      "One compact bounded-agent briefing for broad requests such as '今天資產狀況怎樣' or '幫我看一下資產'. It combines deterministic today-record/market-session status, live portfolio quotes when useful, system-health cards and pending trade confirmations. It never invents asset values and never performs trades.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        includeLive: { type: "boolean", description: "Include live portfolio quote snapshot. Default auto: only when useful during/after today's market session." }
+      },
+      additionalProperties: false
+    },
   },
   {
     name: "today_asset_status",
@@ -407,6 +421,122 @@ async function liveSnapshot(env, syncToken, force) {
   };
 }
 
+async function readHealthCards(env) {
+  try {
+    const res = await healthGet({ request: new Request("https://asset-app.local/api/health-cards"), env });
+    const data = await res.json().catch(() => null);
+    return Array.isArray(data?.cards) ? data.cards : [];
+  } catch {
+    return [];
+  }
+}
+
+async function readPendingTrades(env, syncToken) {
+  try {
+    const req = new Request("https://asset-app.local/api/pending-trades", {
+      headers: { authorization: `Bearer ${syncToken}` },
+    });
+    const res = await pendingTradesGet({ request: req, env });
+    const data = await res.json().catch(() => null);
+    return Array.isArray(data?.pending) ? data.pending : [];
+  } catch {
+    return [];
+  }
+}
+
+async function assetAgentBrief(env, syncToken, args = {}) {
+  const today = await todayAssetStatus(env, syncToken);
+  const now = taipeiNowParts();
+  const autoLive = today?.marketDay === true && now.minuteOfDay >= 9 * 60 && now.minuteOfDay <= 14 * 60;
+  const wantLive = args?.includeLive === true || (args?.includeLive !== false && autoLive);
+
+  const [healthCards, pending, live] = await Promise.all([
+    readHealthCards(env),
+    readPendingTrades(env, syncToken),
+    wantLive ? liveSnapshot(env, syncToken, false).catch(() => null) : Promise.resolve(null),
+  ]);
+
+  const pendingHealth = healthCards.filter(c => c?.status === "pending");
+  const attention = [];
+  const nextActions = [];
+
+  if (today?.status === "post_close_reminder" || today?.status === "record_overdue") {
+    attention.push("今天尚未完成資產紀錄");
+    nextActions.push("補登今天的實際資產紀錄");
+  } else if (today?.status === "trading_no_record") {
+    nextActions.push("盤中先看行情；收盤後再記今日資產");
+  } else if (today?.status === "pre_market") {
+    nextActions.push("09:00 前不用記今日資產，等收盤後再記");
+  } else if (today?.status === "market_closed") {
+    nextActions.push("休市日不用重複補一筆相同資產");
+  } else if (today?.status === "recorded") {
+    nextActions.push("今天已有實際資產紀錄，不用重複登記");
+  }
+
+  if (pending.length) {
+    attention.push(`有 ${pending.length} 筆待確認交易`);
+    nextActions.push("有空時檢查待確認交易；未確認前不視為已寫入持股");
+  }
+  if (pendingHealth.length) {
+    attention.push(`系統有 ${pendingHealth.length} 張待處理健康卡`);
+    nextActions.push("查看系統健康卡，必要時再處理");
+  }
+  if (live?.coverage && live.coverage.quotedHoldings < live.coverage.totalHoldings) {
+    attention.push("即時報價涵蓋不完整");
+  }
+
+  return {
+    ok: true,
+    service: "z-infinity-assets-agent",
+    mode: "bounded-read-only-agent",
+    today: {
+      status: today?.status || null,
+      date: today?.today || now.date,
+      marketDay: today?.marketDay ?? null,
+      hasTodayRecord: Boolean(today?.hasTodayRecord),
+      holiday: today?.holiday || null,
+      message: today?.message || null,
+      record: today?.record || null,
+      latestRecord: today?.latestRecord || null,
+      recommendation: today?.recommendation || null,
+    },
+    live: live ? {
+      quoteFetchedAt: live.quoteFetchedAt || null,
+      quoteStatus: live.quoteStatus || null,
+      coverage: live.coverage || null,
+      totals: live.totals || null,
+      missingQuotes: live.missingQuotes || [],
+    } : null,
+    pendingTrades: {
+      count: pending.length,
+      items: pending.slice(0, 5).map(x => ({
+        id: x?.id || null,
+        date: x?.date || null,
+        symbol: x?.symbol || null,
+        action: x?.action || null,
+        shares: x?.shares ?? null,
+        price: x?.price ?? null,
+      })),
+    },
+    systemHealth: {
+      pendingCount: pendingHealth.length,
+      cards: pendingHealth.slice(-5).map(c => ({
+        id: c?.id || null,
+        severity: c?.severity || null,
+        summary: c?.summary || null,
+        detectedAt: c?.detectedAt || null,
+      })),
+    },
+    attention,
+    nextActions,
+    guardrails: [
+      "沒有今日實際資產紀錄時，不用即時估值冒充每日資產。",
+      "即時報價只作盤中/最近行情參考，不改寫每日紀錄。",
+      "此 Agent 唯讀，不會自行新增交易或修改持股。",
+    ],
+  };
+}
+
 async function endpointTool(handler, path, env, params = {}) {
   const url = new URL("https://asset-app.local" + path);
   for (const [key, value] of Object.entries(params)) {
@@ -422,6 +552,13 @@ async function callTool(name, args, env, syncToken) {
   if (name === "asset_summary") {
     const data = await readPortfolio(env, syncToken);
     return toolResult(data, data?.ok === false);
+  }
+  if (name === "asset_agent_brief") {
+    try {
+      return toolResult(await assetAgentBrief(env, syncToken, args || {}));
+    } catch (error) {
+      return toolResult({ ok: false, error: String(error?.message || error).slice(0, 300) }, true);
+    }
   }
   if (name === "today_asset_status") {
     try {
@@ -458,8 +595,8 @@ async function callTool(name, args, env, syncToken) {
 }
 
 /**
- * Prepared MCP core. NOT ROUTED YET.
- * Future auth layer must verify the AI client/user and provide context.syncToken.
+ * Assets MCP core. worker.js routes /mcp here after OAuth verification and
+ * provides the server-side portfolio sync token as context.syncToken.
  */
 export async function handlePreparedAssetMcp(request, env, context = {}) {
   if (!validSyncToken(context.syncToken)) {
@@ -488,7 +625,7 @@ export async function handlePreparedAssetMcp(request, env, context = {}) {
       capabilities: { tools: { listChanged: false } },
       serverInfo: SERVER,
       instructions:
-        "這是 Z∞ Assets 的獨立唯讀 AI 工具。只要使用者問『今天資產』『今天資產多少』『今天有沒有記錄』，優先使用 today_asset_status；它會先判斷今日是否已有實際每日紀錄，沒有時再檢查例假／休市與台灣開盤時間，絕對不可用即時估值冒充每日資產紀錄。其他問題可查資產同步快照、持股即時概況、個股/大盤行情、相關新聞、日K歷史、除權息、台股休市日、台指期、系統健康與待確認交易。依問題自動選擇適合工具；資料缺失、過期或報價不完整時必須明說，不得自行補數字。所有工具目前皆為唯讀，不得宣稱已修改持股或送出交易。回答使用者時使用繁體中文。",
+        "Z∞ Assets 是受控式唯讀資產 Agent。廣泛問題如『今天資產狀況怎樣／幫我看一下資產』優先使用 asset_agent_brief，一次取得今日紀錄/市場時段、必要的即時報價、系統健康與待確認交易，避免重複呼叫。只問『今天資產多少／今天有沒有記錄』時用 today_asset_status；只問即時持股市值時用 portfolio_live_snapshot；個股行情用 stock_quote；新聞用 stock_news；歷史走勢用 daily_history。today_asset_status 的實際每日紀錄優先於任何即時估值；沒有今日紀錄時絕不可拿即時市值冒充。所有工具皆唯讀，不得宣稱已交易、已修改持股或已補登資產。資料缺失、過期或報價不完整時明說。回答用繁體中文，先結論，再注意事項與下一步。",
     });
   }
 
