@@ -1,13 +1,14 @@
 // Standalone OAuth 2.1 server for the private Z∞ Assets MCP connector.
 // Claude and Grok may dynamically register, but only trusted callback URLs are accepted.
-// The portfolio sync token is entered at login and is carried inside the signed access token;
-// it is never exposed in source code or a public endpoint.
+// The portfolio sync token is entered at login and kept server-side per OAuth client;
+// the signed access token contains only a client identifier.
 
 const ACCESS_TTL_SECONDS = 60 * 60;
 const REFRESH_TTL_SECONDS = 60 * 60 * 24 * 30;
 const CODE_TTL_SECONDS = 5 * 60;
 const SCOPE = "read:assets";
 const ASSET_SYNC_TOKEN_KEY = "zinf:asset-mcp-sync-token";
+const PORTFOLIO_SYNC_PREFIX = "portfolio-sync:";
 const MIN_PASSWORD_LEN = 16;
 
 const ALLOWED_REDIRECTS = new Set([
@@ -126,7 +127,7 @@ function loginPage({ params, clientName, redirectHost, error }) {
 <h1>🔐 Z∞ Assets</h1><p>${esc(clientName)} 要讀取你的存股快照與行情（唯讀，不會交易或修改持股）。</p>${error ? '<div class="err">'+esc(error)+'</div>' : ""}
 <form method="post" action="/oauth/authorize">${hidden}<label>連接器密碼</label><input name="password" type="password" autocomplete="current-password" required autofocus>
 <label>存股同步 token</label><input name="sync_token" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" required>
-<small>使用資產 App「Z∞ 同步」的 token；只會放進你的加密簽章登入憑證。</small><button type="submit">允許並登入</button></form>
+<small>使用資產 App「Z∞ 同步」的 token；伺服器會按此連接器分開保存，不放入登入憑證。</small><button type="submit">允許並登入</button></form>
 <small>登入後返回：${esc(redirectHost)}</small></main></body></html>`, { status: error ? 401 : 200, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "DENY", "referrer-policy": "no-referrer" } });
 }
 const AUTH_PARAMS = ["response_type","client_id","redirect_uri","code_challenge","code_challenge_method","state","scope","resource"];
@@ -159,16 +160,21 @@ async function onAuthorize(request, env, origin) {
   if (request.method !== "POST") return loginPage(view);
   if (!timingSafeEqual(password, readPassword(env))) return loginPage({ ...view, error: "密碼不對，請再試一次。" });
   if (!/^[A-Za-z0-9_-]{16,128}$/.test(syncToken)) return loginPage({ ...view, error: "存股同步 token 格式不對。" });
+  let snapshot;
+  try { snapshot = await env.health_kv.get(PORTFOLIO_SYNC_PREFIX + syncToken); }
+  catch { return loginPage({ ...view, error: "同步快照暫時無法讀取，請稍後再試。" }); }
+  if (!snapshot) return loginPage({ ...view, error: "此 token 尚無同步快照。存股 App 開啟後會自動同步；請確認兩邊使用同一組 token，再登入。" });
   const now = Math.floor(Date.now()/1000);
-  await env.health_kv.put(ASSET_SYNC_TOKEN_KEY, syncToken);
-  const code = await sign(env, { typ:"code", cid: params.client_id.slice(-43), ru:params.redirect_uri, cc:params.code_challenge, sc:SCOPE, exp:now+CODE_TTL_SECONDS });
+  const cid = params.client_id.slice(-43);
+  await env.health_kv.put(`${ASSET_SYNC_TOKEN_KEY}:${cid}`, syncToken);
+  const code = await sign(env, { typ:"code", v:2, cid, ru:params.redirect_uri, cc:params.code_challenge, sc:SCOPE, exp:now+CODE_TTL_SECONDS });
   return back({ code });
 }
 async function s256(verifier) { return b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(verifier)))); }
-async function issueTokens(env, origin, cid) {
+async function issueTokens(env, origin, cid, scoped) {
   const now = Math.floor(Date.now()/1000);
-  const access = await sign(env, { typ:"access", aud:assetMcpResource(origin), sc:SCOPE, iat:now, exp:now+ACCESS_TTL_SECONDS });
-  const refresh = await sign(env, { typ:"refresh", cid, iat:now, exp:now+REFRESH_TTL_SECONDS, j:b64url(crypto.getRandomValues(new Uint8Array(8))) });
+  const access = await sign(env, { typ:"access", aud:assetMcpResource(origin), ...(scoped ? { cid } : {}), sc:SCOPE, iat:now, exp:now+ACCESS_TTL_SECONDS });
+  const refresh = await sign(env, { typ:"refresh", ...(scoped ? { v:2 } : {}), cid, iat:now, exp:now+REFRESH_TTL_SECONDS, j:b64url(crypto.getRandomValues(new Uint8Array(8))) });
   return json({ access_token:access, token_type:"Bearer", expires_in:ACCESS_TTL_SECONDS, refresh_token:refresh, scope:SCOPE });
 }
 async function onToken(request, env, origin) {
@@ -183,12 +189,12 @@ async function onToken(request, env, origin) {
     if (!code || code.cid!==cid || String(form.get("redirect_uri")||"")!==code.ru) return oauthError("invalid_grant","Invalid authorization code");
     const verifier=String(form.get("code_verifier")||"");
     if (!verifier || (await s256(verifier)) !== code.cc) return oauthError("invalid_grant","PKCE verification failed");
-    return issueTokens(env,origin,cid);
+    return issueTokens(env,origin,cid,code.v===2);
   }
   if (grant==="refresh_token") {
     const refresh=await verify(env,String(form.get("refresh_token")||""),"refresh");
     if (!refresh || refresh.cid!==cid) return oauthError("invalid_grant","Invalid refresh token");
-    return issueTokens(env,origin,cid);
+    return issueTokens(env,origin,cid,refresh.v===2);
   }
   return oauthError("unsupported_grant_type","Unsupported grant");
 }
@@ -196,6 +202,13 @@ export async function verifyAssetAccessToken(env, token, origin) {
   const p=await verify(env,token,"access");
   if (!p || p.aud!==assetMcpResource(origin)) return null;
   return p;
+}
+export async function readAssetMcpSyncToken(env, access) {
+  // Existing sessions keep the old shared lookup through refresh until reconnected.
+  const key = access?.cid
+    ? `${ASSET_SYNC_TOKEN_KEY}:${access.cid}`
+    : ASSET_SYNC_TOKEN_KEY;
+  return String(await env.health_kv.get(key) || "").trim();
 }
 export async function handleAssetOAuth(request, env) {
   const u=new URL(request.url), origin=u.origin, method=request.method.toUpperCase(), path=u.pathname;

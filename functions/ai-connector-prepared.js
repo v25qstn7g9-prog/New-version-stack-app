@@ -246,6 +246,18 @@ function holidayReason(row) {
 async function todayAssetStatus(env, syncToken) {
   const p = await readPortfolio(env, syncToken);
   const summary = p?.summary || null;
+  if (!p?.found || !summary) {
+    return {
+      ok: true,
+      status: "snapshot_unavailable",
+      today: taipeiNowParts().date,
+      marketDay: null,
+      hasTodayRecord: null,
+      latestRecord: null,
+      message: "連接器尚未讀到這組 token 的同步快照，無法判斷今日或歷史資產紀錄。存股 App 開啟時會自動同步。",
+      recommendation: "若開啟 App 後仍無快照，檢查 App 的 Z∞ 同步狀態與連接器登入時的 token 是否一致；不要推定沒有持股。",
+    };
+  }
   const rows = Array.isArray(summary?.dataset?.dailyRecords) ? summary.dataset.dailyRecords : [];
   const records = rows
     .filter(r => /^\d{4}-\d{2}-\d{2}$/.test(String(r?.date || "")))
@@ -460,7 +472,10 @@ async function assetAgentBrief(env, syncToken, args = {}) {
   const attention = [];
   const nextActions = [];
 
-  if (today?.status === "post_close_reminder" || today?.status === "record_overdue") {
+  if (today?.status === "snapshot_unavailable") {
+    attention.push("連接器尚無可讀取的同步快照");
+    nextActions.push("開啟存股 App 等待自動同步；若仍無資料，核對兩邊 token 與同步狀態");
+  } else if (today?.status === "post_close_reminder" || today?.status === "record_overdue") {
     attention.push("今天尚未完成資產紀錄");
     nextActions.push("補登今天的實際資產紀錄");
   } else if (today?.status === "trading_no_record") {
@@ -493,7 +508,7 @@ async function assetAgentBrief(env, syncToken, args = {}) {
       status: today?.status || null,
       date: today?.today || now.date,
       marketDay: today?.marketDay ?? null,
-      hasTodayRecord: Boolean(today?.hasTodayRecord),
+      hasTodayRecord: today?.hasTodayRecord ?? null,
       holiday: today?.holiday || null,
       message: today?.message || null,
       record: today?.record || null,

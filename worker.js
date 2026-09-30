@@ -38,7 +38,7 @@ import {
   onRequestPost as portfolioSyncPostHandler,
 } from "./functions/portfolio-sync.js";
 import { handlePreparedAssetMcp } from "./functions/ai-connector-prepared.js";
-import { handleAssetOAuth, verifyAssetAccessToken } from "./functions/asset-mcp-oauth.js";
+import { handleAssetOAuth, verifyAssetAccessToken, readAssetMcpSyncToken } from "./functions/asset-mcp-oauth.js";
 import {
   onRequestGet as pendingTradesGetHandler,
   onRequestPost as pendingTradesPostHandler,
@@ -95,7 +95,7 @@ export default {
           },
         });
       }
-      const syncToken = String(await env.health_kv.get("zinf:asset-mcp-sync-token") || "").trim();
+      const syncToken = await readAssetMcpSyncToken(env, access);
       if (!/^[A-Za-z0-9_-]{16,128}$/.test(syncToken)) {
         return new Response(JSON.stringify({ error: "Assets sync token is not configured" }), {
           status: 503,
