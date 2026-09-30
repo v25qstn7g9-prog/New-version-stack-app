@@ -2404,6 +2404,25 @@ function AssetTracker() {
     };
   }, [ready, zinfSyncToken]);
 
+  // 盤中分析／報價在畫面裡每 15 秒更新，但不該每次都寫 KV。
+  // 開盤時段（台北 09:00–13:35）最多每 5 分鐘推一包，讓 MCP 看得到當日雷達。
+  useEffect(() => {
+    if (!ready || !zinfSyncToken) return;
+    const inSession = () => {
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", weekday: "short", hour12: false,
+      }).formatToParts(new Date());
+      const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+      if (["Sat", "Sun"].includes(map.weekday)) return false;
+      const hm = Number(map.hour) * 60 + Number(map.minute);
+      return hm >= 9 * 60 && hm <= 13 * 60 + 35;
+    };
+    const tick = () => { if (inSession()) runZinfSync({ rebuild: true }); };
+    const id = setInterval(tick, 5 * 60 * 1000);
+    const first = setTimeout(tick, 8000);
+    return () => { clearInterval(id); clearTimeout(first); };
+  }, [ready, zinfSyncToken]);
+
   // <main> 最小高度：量測 Header + TabBar 實際高度，讓每個分頁至少撐滿一個
   // 螢幕高度，不會因為內容多寡（例如「配息」頁常常內容很少）忽高忽低——
   // 這在剛做完的左右滑頁動畫下特別重要，不然兩頁高度差太多，切換時看起來
