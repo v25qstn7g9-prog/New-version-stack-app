@@ -3,6 +3,8 @@
 // The portfolio sync token is entered at login and kept server-side per OAuth client;
 // the signed access token contains only a client identifier.
 
+import { authAttemptBlocked, recordAuthFailure } from "./request-guard.js";
+
 const ACCESS_TTL_SECONDS = 60 * 60;
 const REFRESH_TTL_SECONDS = 60 * 60 * 24 * 30;
 const CODE_TTL_SECONDS = 5 * 60;
@@ -39,8 +41,19 @@ function readPassword(env) {
   const value = String(env.ASSET_MCP_PASSWORD || env.ZINF_TOOL_TOKEN || "");
   return value.length >= MIN_PASSWORD_LEN ? value : "";
 }
+// 之後才設定 ASSET_MCP_PASSWORD 時，舊的（由 ZINF_TOOL_TOKEN 簽的）client_id / token 仍可驗證，
+// Claude 不用重新登入；refresh 後會換成新金鑰簽的 token。新簽發的一律只用主要金鑰。
+// ZINF_TOOL_TOKEN 外洩時請設 OAUTH_ACCEPT_LEGACY_SIGNING_KEY="false" 並輪替它。
+function legacySigningPassword(env) {
+  if (String(env.OAUTH_ACCEPT_LEGACY_SIGNING_KEY || "").trim().toLowerCase() === "false") return "";
+  const legacy = String(env.ZINF_TOOL_TOKEN || "");
+  if (legacy.length < MIN_PASSWORD_LEN || legacy === readPassword(env)) return "";
+  return legacy;
+}
 async function signingKey(env) {
-  const password = readPassword(env);
+  return signingKeyFromPassword(readPassword(env));
+}
+async function signingKeyFromPassword(password) {
   if (!password) return null;
   const base = await crypto.subtle.importKey("raw", enc.encode(password), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const derived = new Uint8Array(await crypto.subtle.sign("HMAC", base, enc.encode("zinf-assets-mcp-oauth-v1")));
@@ -60,6 +73,11 @@ async function verify(env, token, typ) {
   if (!body || !mac || extra !== undefined) return null;
   let ok = false;
   try { ok = await crypto.subtle.verify("HMAC", key, b64urlToBytes(mac), enc.encode(body)); } catch { return null; }
+  if (!ok) {
+    const legacyKey = await signingKeyFromPassword(legacySigningPassword(env));
+    if (!legacyKey) return null;
+    try { ok = await crypto.subtle.verify("HMAC", legacyKey, b64urlToBytes(mac), enc.encode(body)); } catch { return null; }
+  }
   if (!ok) return null;
   let payload;
   try { payload = JSON.parse(new TextDecoder().decode(b64urlToBytes(body))); } catch { return null; }
@@ -120,7 +138,7 @@ async function onRegister(request, env) {
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
-function loginPage({ params, clientName, redirectHost, error }) {
+function loginPage({ params, clientName, redirectHost, error, status }) {
   const hidden = Object.entries(params).map(([k,v]) => '<input type="hidden" name="' + esc(k) + '" value="' + esc(v) + '">').join("");
   return new Response(`<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Z∞ Assets 登入</title>
 <style>:root{color-scheme:light dark}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font:15px/1.6 system-ui,-apple-system,"PingFang TC",sans-serif;padding:16px}main{width:100%;max-width:420px;border:1px solid #8885;border-radius:20px;padding:22px}h1{font-size:21px;margin:0 0 6px}p,small{opacity:.7}label{display:block;font-weight:650;margin:14px 0 6px}input{width:100%;font:inherit;font-size:16px;padding:11px 12px;border-radius:12px;border:1px solid #8888;background:transparent;color:inherit}button{width:100%;margin-top:18px;padding:12px;border:0;border-radius:12px;background:#2563eb;color:white;font:inherit;font-weight:700}.err{color:#d33}</style></head><body><main>
@@ -128,7 +146,7 @@ function loginPage({ params, clientName, redirectHost, error }) {
 <form method="post" action="/oauth/authorize">${hidden}<label>連接器密碼</label><input name="password" type="password" autocomplete="current-password" required autofocus>
 <label>存股同步 token</label><input name="sync_token" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" required>
 <small>使用資產 App「Z∞ 同步」的 token；伺服器會按此連接器分開保存，不放入登入憑證。</small><button type="submit">允許並登入</button></form>
-<small>登入後返回：${esc(redirectHost)}</small></main></body></html>`, { status: error ? 401 : 200, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "DENY", "referrer-policy": "no-referrer" } });
+<small>登入後返回：${esc(redirectHost)}</small></main></body></html>`, { status: status || (error ? 401 : 200), headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "DENY", "referrer-policy": "no-referrer" } });
 }
 const AUTH_PARAMS = ["response_type","client_id","redirect_uri","code_challenge","code_challenge_method","state","scope","resource"];
 async function readAuthorize(request) {
@@ -158,7 +176,12 @@ async function onAuthorize(request, env, origin) {
   if (params.resource && params.resource !== assetMcpResource(origin)) return back({ error: "invalid_target" });
   const view = { params, clientName: client.n || "MCP client", redirectHost: new URL(params.redirect_uri).host };
   if (request.method !== "POST") return loginPage(view);
-  if (!timingSafeEqual(password, readPassword(env))) return loginPage({ ...view, error: "密碼不對，請再試一次。" });
+  // 密碼錯誤次數限制：同一個 IP 15 分鐘內錯 10 次先擋（functions/request-guard.js）。
+  if (await authAttemptBlocked(env, request, "oauth")) return loginPage({ ...view, error: "密碼錯太多次，請 15 分鐘後再試。", status: 429 });
+  if (!timingSafeEqual(password, readPassword(env))) {
+    await recordAuthFailure(env, request, "oauth");
+    return loginPage({ ...view, error: "密碼不對，請再試一次。" });
+  }
   if (!/^[A-Za-z0-9_-]{16,128}$/.test(syncToken)) return loginPage({ ...view, error: "存股同步 token 格式不對。" });
   let snapshot;
   try { snapshot = await env.health_kv.get(PORTFOLIO_SYNC_PREFIX + syncToken); }

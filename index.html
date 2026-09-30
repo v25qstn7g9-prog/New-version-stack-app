@@ -972,6 +972,22 @@ function isClosedHolidayScheduleItem(item) {
   if (/開始交易|最後交易/.test(name)) return false;
   return Boolean(rocHolidayDateToIso(item?.Date));
 }
+// ---- Z∞ 同步：資料沒變就不重複上傳（省 KV 寫入額度）----
+// 內容雜湊相同、而且上次成功上傳在 6 小時內，才略過；超過 6 小時一律重傳一次，
+// 讓伺服器端的 syncedAt 不會因為「資料沒變」而看起來像很久沒同步。
+const ZINF_SYNC_HEARTBEAT_MS = 6 * 60 * 60 * 1000;
+async function zinfSyncHash(text) {
+  try {
+    if (!globalThis.crypto?.subtle) return null;
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(text))));
+    return Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("");
+  } catch { return null; }
+}
+function zinfShouldSkipUpload({ hash, lastHash, lastOkAt, now = Date.now(), heartbeatMs = ZINF_SYNC_HEARTBEAT_MS }) {
+  if (!hash || !lastHash || hash !== lastHash) return false;
+  const last = Date.parse(String(lastOkAt || ""));
+  return Number.isFinite(last) && now - last >= 0 && now - last < heartbeatMs;
+}
 function readTwseHolidayCache() {
   try {
     const parsed = JSON.parse(localStorage.getItem(TWSE_HOLIDAY_CACHE_KEY) || "null");
@@ -1816,7 +1832,8 @@ function AssetTracker() {
     try {
       await fetch("/api/health-cards", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        // 確認／忽略卡片需要帶同步 token（伺服器只接受上傳過快照的 token）。
+        headers: { "content-type": "application/json", ...(zinfSyncToken ? { authorization: "Bearer " + zinfSyncToken } : {}) },
         body: JSON.stringify({ id, action }),
       });
       setHealthCards((cards) => cards.filter((c) => c.id !== id));
@@ -2334,15 +2351,28 @@ function AssetTracker() {
     return { token: zinfSyncToken, summary };
   };
 
-  const runZinfSync = async ({ rebuild = true } = {}) => {
+  const runZinfSync = async ({ rebuild = true, force = false } = {}) => {
     if (!ready || !zinfSyncToken || zinfSyncInFlightRef.current) return false;
     zinfSyncInFlightRef.current = true;
     try {
       if (rebuild || !zinfSyncPayloadRef.current) zinfSyncPayloadRef.current = await buildZinfSyncPayload();
+      const { token: syncToken, summary: syncSummary } = zinfSyncPayloadRef.current;
+      const bodyText = JSON.stringify({ summary: syncSummary });
+      const hash = await zinfSyncHash(syncToken + "\n" + bodyText);
+      let lastHash = null, lastOkAt = null;
+      try { lastHash = localStorage.getItem("zinfSyncLastHash"); lastOkAt = localStorage.getItem("zinfLastSyncAt"); } catch {}
+      if (!force && zinfShouldSkipUpload({ hash, lastHash, lastOkAt })) {
+        zinfSyncPendingRef.current = false;
+        zinfSyncPayloadRef.current = null;
+        try { localStorage.setItem("zinfSyncPending", "0"); } catch {}
+        setZinfSyncStatus("資料沒有變動，略過上傳；上次同步：" + new Date(lastOkAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" }));
+        return true;
+      }
+      // token 放在 Authorization header（不放網址、也不放 body）。
       const response = await fetch("/api/portfolio-sync", {
         method: "POST",
-        headers: { "content-type": "application/json", "cache-control": "no-store" },
-        body: JSON.stringify(zinfSyncPayloadRef.current),
+        headers: { "content-type": "application/json", "cache-control": "no-store", authorization: "Bearer " + syncToken },
+        body: bodyText,
       });
       if (!response.ok) {
         if (response.status === 413) throw new Error("資料超出同步容量");
@@ -2357,6 +2387,7 @@ function AssetTracker() {
       try {
         localStorage.setItem("zinfSyncPending", "0");
         localStorage.setItem("zinfLastSyncAt", syncedAt);
+        localStorage.setItem("zinfSyncLastHash", hash || "");
       } catch {}
       setZinfSyncStatus("完整資料已同步：" + new Date(syncedAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" }));
       return true;

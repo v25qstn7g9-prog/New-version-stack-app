@@ -65,6 +65,21 @@
         "type": "ratelimit",
         "namespace_id": "1001",
         "simple": { "limit": 30, "period": 60 }
+      },
+      // 寫入端點（portfolio-sync / pending-trades / health-cards 的 POST）每個 IP 每 60 秒最多 60 次。
+      // 程式在沒有這個綁定時照常運作（只是不限流），見 functions/request-guard.js。
+      {
+        "name": "WRITE_RATE_LIMITER",
+        "type": "ratelimit",
+        "namespace_id": "1002",
+        "simple": { "limit": 60, "period": 60 }
+      },
+      // /oauth/authorize 的 POST（輸入連接器密碼）每個 IP 每 60 秒最多 10 次；另有 KV 計數（錯 10 次鎖 15 分鐘）。
+      {
+        "name": "AUTH_RATE_LIMITER",
+        "type": "ratelimit",
+        "namespace_id": "1003",
+        "simple": { "limit": 10, "period": 60 }
       }
     ]
   },
@@ -119,6 +134,18 @@
             "type": "ratelimit",
             "namespace_id": "1001",
             "simple": { "limit": 30, "period": 60 }
+          },
+          {
+            "name": "WRITE_RATE_LIMITER",
+            "type": "ratelimit",
+            "namespace_id": "1002",
+            "simple": { "limit": 60, "period": 60 }
+          },
+          {
+            "name": "AUTH_RATE_LIMITER",
+            "type": "ratelimit",
+            "namespace_id": "1003",
+            "simple": { "limit": 10, "period": 60 }
           }
         ]
       },

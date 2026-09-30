@@ -16,3 +16,7 @@ DEPLOYMENT_CHECKLIST.md
 *.md
 *.jsonc
 *.json
+# 測試、文件、CI 設定不需要當成靜態檔公開
+tests/
+docs/
+.github/

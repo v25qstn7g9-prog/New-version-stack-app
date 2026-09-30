@@ -554,7 +554,8 @@ export async function onRequestPost(context) {
     const limiter = context.env.ASK_RATE_LIMITER;
     const deviceId = String(context.request.headers.get("x-device-id") || "").slice(0, 80);
     const clientIp = String(context.request.headers.get("cf-connecting-ip") || "").slice(0, 64);
-    const rateLimitKey = deviceId ? `device:${deviceId}` : (clientIp ? `ip:${clientIp}` : "anonymous");
+    // 以 IP 為主：x-device-id 是用戶端自己填的，換一個值就能繞過限流；只有拿不到 IP 時才用它。
+    const rateLimitKey = clientIp ? `ip:${clientIp}` : (deviceId ? `device:${deviceId}` : "anonymous");
     if (limiter) {
       const limited = await limiter.limit({ key: rateLimitKey });
       if (limited && limited.success === false) {
