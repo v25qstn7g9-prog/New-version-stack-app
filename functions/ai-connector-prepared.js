@@ -39,6 +39,14 @@ export const PREPARED_ASSET_TOOLS = [
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
+    name: "today_asset_status",
+    title: "今日資產狀態",
+    annotations: READ_ONLY,
+    description:
+      "Answer 'today's assets' deterministically. Check whether today has a saved daily asset record; if not, check Taiwan weekend/TWSE holiday and Taiwan market time. On a holiday, report that the market is closed and cite the latest saved asset record date. Before 09:00 on a trading day, say the market has not opened yet. From 09:00 onward, remind the user to record today's assets when no record exists; after 14:00 mark it overdue. Never invent today's asset value when there is no saved record.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
     name: "portfolio_live_snapshot",
     title: "持股即時概況",
     annotations: READ_ONLY,
@@ -159,6 +167,173 @@ function n(v) {
   return Number.isFinite(x) ? x : null;
 }
 
+function taipeiNowParts(now = new Date()) {
+  const t = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+  return {
+    date: t.toISOString().slice(0, 10),
+    hour: t.getUTCHours(),
+    minute: t.getUTCMinutes(),
+    weekday: t.getUTCDay(),
+    minuteOfDay: t.getUTCHours() * 60 + t.getUTCMinutes(),
+  };
+}
+
+function compactDailyRecord(record) {
+  if (!record || typeof record !== "object") return null;
+  const num = (v) => Number.isFinite(Number(v)) ? Number(v) : null;
+  const totalAsset = num(record.totalAsset) ?? (
+    num(record.twValue) != null || num(record.usValue) != null
+      ? (num(record.twValue) || 0) + (num(record.usValue) || 0)
+      : null
+  );
+  return {
+    date: String(record.date || ""),
+    totalAsset,
+    twValue: num(record.twValue),
+    usValue: num(record.usValue),
+    totalCost: num(record.totalCost) ?? (
+      num(record.twCost) != null || num(record.usCost) != null
+        ? (num(record.twCost) || 0) + (num(record.usCost) || 0)
+        : null
+    ),
+  };
+}
+
+function holidayRowDateText(row) {
+  return Object.values(row && typeof row === "object" ? row : {})
+    .map(v => String(v ?? ""))
+    .join(" ");
+}
+
+function rowMatchesDate(row, ymd) {
+  const [y,m,d] = ymd.split("-").map(Number);
+  const roc = y - 1911;
+  const variants = [
+    ymd,
+    `${y}/${String(m).padStart(2,"0")}/${String(d).padStart(2,"0")}`,
+    `${y}${String(m).padStart(2,"0")}${String(d).padStart(2,"0")}`,
+    `${roc}/${String(m).padStart(2,"0")}/${String(d).padStart(2,"0")}`,
+    `${roc}${String(m).padStart(2,"0")}${String(d).padStart(2,"0")}`,
+  ];
+  const text = holidayRowDateText(row).replace(/\s+/g, " ");
+  return variants.some(v => text.includes(v));
+}
+
+function holidayReason(row) {
+  if (!row || typeof row !== "object") return null;
+  const preferredKeys = ["Description","description","Holiday","holiday","Name","name","說明","名稱","備註"];
+  for (const k of preferredKeys) {
+    const v = String(row[k] ?? "").trim();
+    if (v) return v;
+  }
+  return null;
+}
+
+async function todayAssetStatus(env, syncToken) {
+  const p = await readPortfolio(env, syncToken);
+  const summary = p?.summary || null;
+  const rows = Array.isArray(summary?.dataset?.dailyRecords) ? summary.dataset.dailyRecords : [];
+  const records = rows
+    .filter(r => /^\d{4}-\d{2}-\d{2}$/.test(String(r?.date || "")))
+    .sort((a,b) => String(b.date).localeCompare(String(a.date)));
+  const now = taipeiNowParts();
+  const todayRecordRaw = records.find(r => String(r.date) === now.date) || null;
+  const latestRaw = records[0] || null;
+  const todayRecord = compactDailyRecord(todayRecordRaw);
+  const latestRecord = compactDailyRecord(latestRaw);
+
+  if (todayRecord) {
+    return {
+      ok: true,
+      status: "recorded",
+      today: now.date,
+      marketDay: true,
+      hasTodayRecord: true,
+      record: todayRecord,
+      message: "今天已有資產紀錄，請直接以這筆實際紀錄回答。",
+      recommendation: "若要看盤中變化，可另外查即時行情；不要用即時行情覆蓋已保存的每日資產紀錄。",
+    };
+  }
+
+  let holiday = false;
+  let holidayName = null;
+  const weekend = now.weekday === 0 || now.weekday === 6;
+  if (weekend) {
+    holiday = true;
+    holidayName = now.weekday === 6 ? "週六休市" : "週日休市";
+  } else {
+    try {
+      const res = await holidayGet();
+      const data = await res.json().catch(() => null);
+      const match = Array.isArray(data?.rows) ? data.rows.find(r => rowMatchesDate(r, now.date)) : null;
+      if (match) {
+        holiday = true;
+        holidayName = holidayReason(match) || "TWSE 休市日";
+      }
+    } catch {}
+  }
+
+  if (holiday) {
+    return {
+      ok: true,
+      status: "market_closed",
+      today: now.date,
+      marketDay: false,
+      hasTodayRecord: false,
+      holiday: holidayName,
+      latestRecord,
+      message: latestRecord
+        ? `今天是例假／休市日（${holidayName}），今天沒有資產紀錄；目前最新實際資產紀錄是 ${latestRecord.date}。`
+        : `今天是例假／休市日（${holidayName}），目前也沒有可用的歷史資產紀錄。`,
+      recommendation: "休市日不需要為了補日期而新增一筆相同資產；沿用最近一次實際記錄作為參考即可。",
+    };
+  }
+
+  if (now.minuteOfDay < 9 * 60) {
+    return {
+      ok: true,
+      status: "pre_market",
+      today: now.date,
+      marketDay: true,
+      hasTodayRecord: false,
+      latestRecord,
+      message: latestRecord
+        ? `今天是開盤日，但現在還沒到 09:00；尚未開盤。最新資產紀錄是 ${latestRecord.date}。`
+        : "今天是開盤日，但現在還沒到 09:00；尚未開盤，而且目前沒有歷史資產紀錄。",
+      recommendation: "先不用記今日資產；等收盤後再記，避免把盤前數字當成今日收盤資產。",
+    };
+  }
+
+  if (now.minuteOfDay < 14 * 60) {
+    const beforeClose = now.minuteOfDay < 13 * 60 + 30;
+    return {
+      ok: true,
+      status: beforeClose ? "trading_no_record" : "post_close_reminder",
+      today: now.date,
+      marketDay: true,
+      hasTodayRecord: false,
+      latestRecord,
+      message: beforeClose
+        ? "今天是開盤日，目前尚未看到今日資產紀錄。"
+        : "今天已收盤，目前尚未看到今日資產紀錄，記得補登今天的資產。",
+      recommendation: beforeClose
+        ? "盤中可以先看即時行情，但每日資產建議收盤後再記；若你只是問『今天資產』，不要拿即時估值冒充每日紀錄。"
+        : "現在是最適合記錄的時間；完成後再用今日紀錄做損益與趨勢比較。",
+    };
+  }
+
+  return {
+    ok: true,
+    status: "record_overdue",
+    today: now.date,
+    marketDay: true,
+    hasTodayRecord: false,
+    latestRecord,
+    message: "今天是開盤日，已過 14:00 仍沒有看到今日資產紀錄，提醒你補登。",
+    recommendation: "優先補今天的實際資產紀錄；在補登前，任何『今日資產』回答都應明確標示為缺紀錄，不用即時估值代填。",
+  };
+}
+
 async function liveSnapshot(env, syncToken, force) {
   const portfolio = await readPortfolio(env, syncToken);
   if (!portfolio?.found || !portfolio.summary) {
@@ -248,6 +423,13 @@ async function callTool(name, args, env, syncToken) {
     const data = await readPortfolio(env, syncToken);
     return toolResult(data, data?.ok === false);
   }
+  if (name === "today_asset_status") {
+    try {
+      return toolResult(await todayAssetStatus(env, syncToken));
+    } catch (error) {
+      return toolResult({ ok: false, error: String(error?.message || error).slice(0, 300) }, true);
+    }
+  }
   if (name === "portfolio_live_snapshot") {
     try {
       return toolResult(await liveSnapshot(env, syncToken, args?.force));
@@ -306,7 +488,7 @@ export async function handlePreparedAssetMcp(request, env, context = {}) {
       capabilities: { tools: { listChanged: false } },
       serverInfo: SERVER,
       instructions:
-        "這是 Z∞ Assets 的獨立唯讀 AI 工具。可查資產同步快照、持股即時概況、個股/大盤行情、相關新聞、日K歷史、除權息、台股休市日、台指期、系統健康與待確認交易。依問題自動選擇適合工具；資料缺失、過期或報價不完整時必須明說，不得自行補數字。所有工具目前皆為唯讀，不得宣稱已修改持股或送出交易。回答使用者時使用繁體中文。",
+        "這是 Z∞ Assets 的獨立唯讀 AI 工具。只要使用者問『今天資產』『今天資產多少』『今天有沒有記錄』，優先使用 today_asset_status；它會先判斷今日是否已有實際每日紀錄，沒有時再檢查例假／休市與台灣開盤時間，絕對不可用即時估值冒充每日資產紀錄。其他問題可查資產同步快照、持股即時概況、個股/大盤行情、相關新聞、日K歷史、除權息、台股休市日、台指期、系統健康與待確認交易。依問題自動選擇適合工具；資料缺失、過期或報價不完整時必須明說，不得自行補數字。所有工具目前皆為唯讀，不得宣稱已修改持股或送出交易。回答使用者時使用繁體中文。",
     });
   }
 
