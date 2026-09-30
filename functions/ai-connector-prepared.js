@@ -20,7 +20,7 @@ import { onRequestGet as taifexGet } from "./taifex-tx.js";
 import { onRequestGet as healthGet } from "./health-check.js";
 import { onRequestGet as pendingTradesGet } from "./pending-trades.js";
 
-const SERVER = { name: "z-infinity-assets", version: "1.0.0" };
+const SERVER = { name: "z-infinity-assets", version: "1.1.0" };
 const SUPPORTED_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"];
 const READ_ONLY = {
   readOnlyHint: true,
