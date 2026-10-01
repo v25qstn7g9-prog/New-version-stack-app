@@ -20,8 +20,9 @@ import { onRequestGet as taifexGet } from "./taifex-tx.js";
 import { onRequestGet as healthGet } from "./health-check.js";
 import { onRequestGet as pendingTradesGet } from "./pending-trades.js";
 import { holidayStatusFromRows } from "./twse-holiday.js";
+import { INDEX_SYMBOL, isIndexAlias, normalizeQuoteSymbol, readMarketIndex } from "./market-index.js";
 
-const SERVER = { name: "z-infinity-assets", version: "1.2.0" };
+const SERVER = { name: "z-infinity-assets", version: "1.3.0" };
 const SUPPORTED_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"];
 const READ_ONLY = {
   readOnlyHint: true,
@@ -44,11 +45,11 @@ export const PREPARED_ASSET_TOOLS = [
     title: "Assets Agent 今日總覽",
     annotations: READ_ONLY,
     description:
-      "One compact bounded-agent briefing for broad requests such as '今天資產狀況怎樣' or '幫我看一下資產'. It combines deterministic today-record/market-session status, live portfolio quotes when useful, system-health cards and pending trade confirmations. It never invents asset values and never performs trades.",
+      "One compact bounded-agent briefing for broad requests such as '今天資產狀況怎樣' or '幫我看一下資產'. It combines deterministic today-record/market-session status, live portfolio quotes when useful, the TAIEX 加權指數 (field `index`, unless includeLive is false), system-health cards and pending trade confirmations. It never invents asset values and never performs trades.",
     inputSchema: {
       type: "object",
       properties: {
-        includeLive: { type: "boolean", description: "Include live portfolio quote snapshot. Default auto: only when useful during/after today's market session." }
+        includeLive: { type: "boolean", description: "Include live portfolio quote snapshot. Default auto: only when useful during/after today's market session. The TAIEX index is included unless this is explicitly false." }
       },
       additionalProperties: false
     },
@@ -66,7 +67,7 @@ export const PREPARED_ASSET_TOOLS = [
     title: "持股即時概況",
     annotations: READ_ONLY,
     description:
-      "Combine the latest synchronized holdings with available quote data and return per-holding latest price, market value and daily change plus portfolio totals. Quote coverage can be partial; never invent missing prices.",
+      "Combine the latest synchronized holdings with available quote data and return per-holding latest price, market value and daily change plus portfolio totals. Also returns `index`: the TAIEX 加權指數 / 大盤 (price, prevClose, change, changePct, asOf, tradeDate, source, stale, session); when it cannot be fetched index.available is false with index.reason and null values. Quote coverage can be partial; never invent missing prices.",
     inputSchema: {
       type: "object",
       properties: {
@@ -80,7 +81,7 @@ export const PREPARED_ASSET_TOOLS = [
   },
   {
     name: "stock_quote", title: "個股／大盤即時行情", annotations: READ_ONLY,
-    description: "Read current/last available quotes for Taiwan stocks, ETFs, TAIEX, SPX, SOX or USDTWD. Missing or stale data must be reported explicitly.",
+    description: "Read current/last available quotes for Taiwan stocks, ETFs, TAIEX, SPX, SOX or USDTWD. For the 大盤 / 加權指數 use symbol TAIEX (aliases ^TWII, TWII, t00, 加權指數, 大盤 are accepted); the response then also has a normalized `index` object (change, changePct, tradeDate, stale, session). Missing or stale data must be reported explicitly.",
     inputSchema: { type:"object", properties:{ symbols:{type:"array",items:{type:"string"},minItems:1,maxItems:30}, force:{type:"boolean"} }, required:["symbols"], additionalProperties:false }
   },
   {
@@ -175,6 +176,13 @@ async function readQuotes(env, symbols, force = false) {
   const data = await res.json().catch(() => null);
   if (!res.ok) throw new Error(data?.error || `quote HTTP ${res.status}`);
   return data || { ok: false, quotes: {}, missing: symbols };
+}
+
+function indexDeps(env) {
+  return {
+    readQuotes: (symbols, force) => readQuotes(env, symbols, force),
+    readHoliday: (date) => marketClosedToday(date),
+  };
 }
 
 function n(v) {
@@ -405,14 +413,23 @@ async function todayAssetStatusCore(env, syncToken, meta = {}) {
 async function liveSnapshot(env, syncToken, force) {
   const portfolio = await readPortfolio(env, syncToken);
   if (!portfolio?.found || !portfolio.summary) {
-    return { ok: true, found: false, syncedAt: null, holdings: [] };
+    // 大盤跟持股快照無關，沒有快照也照樣回報。
+    const index = await readMarketIndex(indexDeps(env), { force: Boolean(force) });
+    return { ok: true, found: false, syncedAt: null, holdings: [], index };
   }
 
   const summary = portfolio.summary;
   const rawHoldings = Array.isArray(summary.holdings) ? summary.holdings : [];
   const symbols = [...new Set(rawHoldings.map((h) => String(h?.symbol || "").trim().toUpperCase()).filter(Boolean))];
-  const quoteData = await readQuotes(env, symbols, Boolean(force));
+  // 跟前端一樣把 TAIEX 跟持股放在同一次 /quote（同一組 symbols → 共用 quote.js 的回應快取）。
+  const requestSymbols = symbols.length ? [...new Set([...symbols, INDEX_SYMBOL])] : [];
+  const quoteData = await readQuotes(env, requestSymbols, Boolean(force));
   const quotes = quoteData?.quotes && typeof quoteData.quotes === "object" ? quoteData.quotes : {};
+  const index = await readMarketIndex(indexDeps(env), { force: Boolean(force), quoteData });
+  // 大盤抓不到不影響「持股報價是否完整」（前端也是這樣算）。
+  const holdingSet = new Set(symbols);
+  const missingQuotes = Array.isArray(quoteData?.missing) ? quoteData.missing.filter((s) => holdingSet.has(s)) : [];
+  const quoteStatus = quoteData?.status === "partial" && missingQuotes.length === 0 ? "complete" : (quoteData?.status || null);
 
   let coveredMarketValue = 0;
   let coveredDailyChange = 0;
@@ -457,7 +474,7 @@ async function liveSnapshot(env, syncToken, force) {
     found: true,
     syncedAt: summary.syncedAt || null,
     quoteFetchedAt: quoteData?.fetchedAt || null,
-    quoteStatus: quoteData?.status || null,
+    quoteStatus,
     coverage: { quotedHoldings: coveredCount, totalHoldings: holdings.length },
     totals: {
       syncedTotalAssets: n(summary.totalAssets),
@@ -467,7 +484,8 @@ async function liveSnapshot(env, syncToken, force) {
         coveredPrevValue > 0 ? (coveredDailyChange / coveredPrevValue) * 100 : null,
     },
     holdings,
-    missingQuotes: Array.isArray(quoteData?.missing) ? quoteData.missing : [],
+    missingQuotes,
+    index,
     note:
       coveredCount === holdings.length
         ? "全部持股皆有可用報價。"
@@ -509,6 +527,10 @@ async function assetAgentBrief(env, syncToken, args = {}) {
     readPendingTrades(env, syncToken),
     wantLive ? liveSnapshot(env, syncToken, false).catch(() => null) : Promise.resolve(null),
   ]);
+  // 大盤：有即時快照就沿用（同一次 /quote），否則單獨查；includeLive:false 時不查任何即時行情。
+  let index = null;
+  if (live?.index) index = live.index;
+  else if (args?.includeLive !== false) index = await readMarketIndex(indexDeps(env), {});
 
   const pendingHealth = healthCards.filter(c => c?.status === "pending");
   const attention = [];
@@ -572,6 +594,7 @@ async function assetAgentBrief(env, syncToken, args = {}) {
       totals: live.totals || null,
       missingQuotes: live.missingQuotes || [],
     } : null,
+    index,
     pendingTrades: {
       count: pending.length,
       items: pending.slice(0, 5).map(x => ({
@@ -613,6 +636,55 @@ async function endpointTool(handler, path, env, params = {}) {
   return toolResult(data ?? { ok:false, error:"Invalid endpoint response" }, !res.ok || data?.ok === false);
 }
 
+// stock_quote：大盤別名正規化成 TAIEX；沒有代號時直接回錯，
+// 不能讓 /quote 的預設代號（0050,0056,2330）冒充使用者要查的東西。
+export function stockQuoteSymbols(args = {}) {
+  const raw = [];
+  const push = (v) => {
+    if (Array.isArray(v)) v.forEach(push);
+    else if (typeof v === "string") v.split(",").forEach((x) => raw.push(x));
+  };
+  push(args?.symbols);
+  push(args?.symbol); // 有些 client 會送單數 symbol；舊版會被忽略而回傳預設代號。
+  const aliases = {};
+  const symbols = [];
+  for (const r of raw) {
+    const original = String(r).trim();
+    if (!original) continue;
+    const s = normalizeQuoteSymbol(original);
+    if (s === INDEX_SYMBOL && original.toUpperCase() !== INDEX_SYMBOL && isIndexAlias(original)) aliases[original] = INDEX_SYMBOL;
+    if (!symbols.includes(s)) symbols.push(s);
+  }
+  return { symbols: symbols.slice(0, 30), aliases };
+}
+
+async function stockQuote(env, args) {
+  const { symbols, aliases } = stockQuoteSymbols(args);
+  if (!symbols.length) {
+    return toolResult({ ok: false, error: "請提供 symbols（例如 [\"2330\"]；大盤用 \"TAIEX\"）" }, true);
+  }
+  const url = new URL("https://asset-app.local/quote");
+  url.searchParams.set("symbols", symbols.join(","));
+  if (args?.force) url.searchParams.set("force", "1");
+  const res = await quoteGet({ request: new Request(url), env });
+  const data = (await res.json().catch(() => null)) ?? { ok: false, error: "Invalid endpoint response" };
+  const extra = {};
+  if (Object.keys(aliases).length) extra.aliases = aliases;
+  const failed = !res.ok || data?.ok === false;
+  const onlyIndex = symbols.length === 1 && symbols[0] === INDEX_SYMBOL;
+  if (symbols.includes(INDEX_SYMBOL)) {
+    extra.index = await readMarketIndex(indexDeps(env), {
+      force: Boolean(args?.force),
+      quoteData: res.ok ? data : null,
+      // 只查大盤而 /quote 已經整個失敗（所有來源都掛）→ 不再重打一次上游。
+      refetch: !(onlyIndex && !res.ok),
+      priorError: res.ok ? null : (data?.error || `quote HTTP ${res.status}`),
+    });
+  }
+  // 只查大盤、/quote 因收盤後自動停止而沒資料，但大盤另外取得成功 → 不算錯誤。
+  return toolResult({ ...data, ...extra }, failed && !(onlyIndex && extra.index?.available));
+}
+
 async function callTool(name, args, env, syncToken) {
   if (name === "asset_summary") {
     const data = await readPortfolio(env, syncToken);
@@ -639,7 +711,7 @@ async function callTool(name, args, env, syncToken) {
       return toolResult({ ok: false, error: String(error?.message || error).slice(0, 300) }, true);
     }
   }
-  if (name === "stock_quote") return endpointTool(quoteGet, "/quote", env, { symbols: args?.symbols, force: args?.force ? 1 : null });
+  if (name === "stock_quote") return stockQuote(env, args || {});
   if (name === "stock_news") return endpointTool(newsGet, "/news", env, { symbols: args?.symbols, names: args?.names, windowHours: args?.windowHours, maxPerSymbol: args?.maxPerSymbol });
   if (name === "daily_history") return endpointTool(dailyHistoryGet, "/daily-history", env, { symbols: args?.symbols });
   if (name === "dividend_schedule") return endpointTool(dividendGet, "/dividend-schedule", env, { symbols: args?.symbols });
@@ -690,7 +762,7 @@ export async function handlePreparedAssetMcp(request, env, context = {}) {
       capabilities: { tools: { listChanged: false } },
       serverInfo: SERVER,
       instructions:
-        "Z∞ Assets 是受控式唯讀資產 Agent。廣泛問題如『今天資產狀況怎樣／幫我看一下資產』優先使用 asset_agent_brief，一次取得今日紀錄/市場時段、必要的即時報價、系統健康與待確認交易，避免重複呼叫。只問『今天資產多少／今天有沒有記錄』時用 today_asset_status；只問即時持股市值時用 portfolio_live_snapshot；個股行情用 stock_quote；新聞用 stock_news；歷史走勢用 daily_history。today_asset_status 的實際每日紀錄優先於任何即時估值；沒有今日紀錄時絕不可拿即時市值冒充。所有工具皆唯讀，不得宣稱已交易、已修改持股或已補登資產。資料缺失、過期或報價不完整時明說。回答用繁體中文，先結論，再注意事項與下一步。",
+        "Z∞ Assets 是受控式唯讀資產 Agent。廣泛問題如『今天資產狀況怎樣／幫我看一下資產』優先使用 asset_agent_brief，一次取得今日紀錄/市場時段、必要的即時報價、系統健康與待確認交易，避免重複呼叫。只問『今天資產多少／今天有沒有記錄』時用 today_asset_status；只問即時持股市值時用 portfolio_live_snapshot；大盤／加權指數看 portfolio_live_snapshot 或 asset_agent_brief 的 index 欄位，或用 stock_quote 查 TAIEX（index.available 為 false 時照 index.reason 說明，不可補猜）；個股行情用 stock_quote；新聞用 stock_news；歷史走勢用 daily_history。today_asset_status 的實際每日紀錄優先於任何即時估值；沒有今日紀錄時絕不可拿即時市值冒充。所有工具皆唯讀，不得宣稱已交易、已修改持股或已補登資產。資料缺失、過期或報價不完整時明說。回答用繁體中文，先結論，再注意事項與下一步。",
     });
   }
 
