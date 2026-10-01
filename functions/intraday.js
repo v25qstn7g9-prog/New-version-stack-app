@@ -1,0 +1,248 @@
+/**
+ * functions/intraday.js — 盤中分時資料暫存（給 MCP 的 intraday_bars 用）
+ *
+ * 為什麼需要它：
+ *   App 前端雖然每 15 秒讀一次價，但讀完就顯示、不保存；伺服器端也只有「最新一筆」
+ *   的短暫快取，沒有任何分時歷史。這支模組讓 Cron Trigger 在台股盤中每分鐘醒來一次，
+ *   在這一分鐘內每 15 秒取樣一次（共 4 筆），整理成 1 分鐘 K（開高低收）存進 KV。
+ *   AI 要看 5／10／15 分 K 時，由 intraday_bars 從這些 1 分鐘 K 合成。
+ *
+ * 取樣只依賴既有的 /quote 邏輯（functions/quote.js，自帶 15 秒快取），不會多打證交所。
+ *
+ * KV：沿用 health_kv，不另外申請 namespace。
+ *   intraday:<YYYY-MM-DD>   { v:1, day, bars:{ <代號>: [[HH:MM, o, h, l, c, n], ...] } }
+ *   - 每天只有一個 key、每分鐘覆寫一次 → 一個交易日約 271 次寫入（帳號共用的 KV 每日寫入額度有限）
+ *   - 36 小時 TTL：只暫存「今天（以及盤後／隔天早上還看得到昨天）」，之後自動消失
+ *
+ * 只寫在盤中（台北 09:00–13:30、週一到週五）；休市日抓到的報價不是今天的，會被丟掉、不寫入。
+ */
+import { onRequestGet as quoteGet } from "./quote.js";
+
+// 每分鐘一次的盤中 cron（UTC 01:00–05:59 = 台北 09:00–13:59；程式內再收斂到 13:30）。
+// worker.js 用這個字串判斷是哪個 cron 觸發的，wrangler.jsonc 裡必須完全一樣。
+export const INTRADAY_CRON = "* 1-5 * * 1-5";
+
+export const DEFAULT_INTRADAY_SYMBOLS = ["0050", "0056", "2330", "TAIEX"];
+export const ALLOWED_INTERVALS = [1, 5, 10, 15, 30, 60];
+
+const KV_PREFIX = "intraday:";
+const TTL_SECONDS = 60 * 60 * 36;
+const SAMPLES_PER_RUN = 4;
+const SAMPLE_GAP_MS = 15 * 1000;
+const OPEN_MINUTE = 9 * 60;
+const CLOSE_MINUTE = 13 * 60 + 30;
+const SYMBOL_RE = /^[A-Z0-9]{2,10}$/;
+
+// ── 時間 ────────────────────────────────────────────────
+
+function taipei(now) {
+  const t = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+  const pad = (n) => String(n).padStart(2, "0");
+  return {
+    day: `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}`,
+    weekday: t.getUTCDay(),
+    minuteOfDay: t.getUTCHours() * 60 + t.getUTCMinutes(),
+    label: `${pad(t.getUTCHours())}:${pad(t.getUTCMinutes())}`,
+  };
+}
+
+/** 台北時間週一到週五 09:00–13:30（含）才記錄。 */
+export function isRecordingWindow(now = new Date()) {
+  const p = taipei(now);
+  return p.weekday >= 1 && p.weekday <= 5 && p.minuteOfDay >= OPEN_MINUTE && p.minuteOfDay <= CLOSE_MINUTE;
+}
+
+function labelToMinute(label) {
+  const m = /^(\d{2}):(\d{2})$/.exec(label || "");
+  return m ? Number(m[1]) * 60 + Number(m[2]) : NaN;
+}
+
+function minuteToLabel(minute) {
+  return `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
+}
+
+// ── 代號 ────────────────────────────────────────────────
+
+export function intradaySymbols(env) {
+  const raw = String(env?.INTRADAY_SYMBOLS || "");
+  const list = raw
+    ? raw.split(",").map((s) => s.trim().toUpperCase()).filter((s) => SYMBOL_RE.test(s))
+    : DEFAULT_INTRADAY_SYMBOLS;
+  const unique = [...new Set(list)].slice(0, 12);
+  return unique.length ? unique : DEFAULT_INTRADAY_SYMBOLS;
+}
+
+// ── 純函式：取樣 → 1 分鐘 K → 合成 N 分 K ───────────────────
+
+/** 一分鐘內的幾筆價格 → [HH:MM, o, h, l, c, n]；沒有有效價格回 null。 */
+export function buildMinuteBar(label, prices) {
+  const valid = (prices || []).filter((p) => Number.isFinite(p) && p > 0);
+  if (!valid.length) return null;
+  return [label, valid[0], Math.max(...valid), Math.min(...valid), valid[valid.length - 1], valid.length];
+}
+
+/** 把一根分鐘 K 併進當天資料（同一分鐘會覆寫，結果依時間排序）。 */
+export function mergeBar(rows, bar) {
+  const next = (rows || []).filter((r) => r[0] !== bar[0]);
+  next.push(bar);
+  next.sort((a, b) => labelToMinute(a[0]) - labelToMinute(b[0]));
+  return next;
+}
+
+/**
+ * 1 分鐘 K → N 分 K。以 09:00 為起點對齊（例如 5 分 K = 09:00、09:05 …）。
+ * 每根的 samples 是它包含的 15 秒取樣總數，用來看資料密不密（缺漏時會偏低）。
+ */
+export function aggregateBars(rows, interval) {
+  const out = [];
+  let cur = null;
+  for (const [label, o, h, l, c, n] of rows || []) {
+    const minute = labelToMinute(label);
+    if (!Number.isFinite(minute)) continue;
+    const start = OPEN_MINUTE + Math.floor((minute - OPEN_MINUTE) / interval) * interval;
+    if (!cur || cur.startMinute !== start) {
+      cur = { startMinute: start, time: minuteToLabel(start), open: o, high: h, low: l, close: c, samples: n, minutes: 1 };
+      out.push(cur);
+    } else {
+      cur.high = Math.max(cur.high, h);
+      cur.low = Math.min(cur.low, l);
+      cur.close = c;
+      cur.samples += n;
+      cur.minutes += 1;
+    }
+  }
+  return out.map(({ startMinute, ...bar }) => bar);
+}
+
+// ── 取價 ────────────────────────────────────────────────
+
+async function defaultFetchQuotes(env, symbols) {
+  const url = new URL("https://asset-app.local/quote");
+  url.searchParams.set("symbols", symbols.join(","));
+  const res = await quoteGet({ request: new Request(url), env });
+  const data = await res.json().catch(() => null);
+  return data && data.quotes ? data : { quotes: {} };
+}
+
+/** 從 /quote 回應裡挑出「今天的、非過期」的價格；休市日／過期資料回空物件。 */
+export function usablePrices(data, today) {
+  const out = {};
+  for (const [sym, q] of Object.entries(data?.quotes || {})) {
+    if (!q || q.isStale === true) continue;
+    const price = Number(q.price);
+    if (!Number.isFinite(price) || price <= 0) continue;
+    const asOf = q.asOfDate ? new Date(q.asOfDate) : null;
+    if (!asOf || Number.isNaN(asOf.getTime())) continue;
+    if (taipei(asOf).day !== today) continue;
+    out[sym] = price;
+  }
+  return out;
+}
+
+// ── 寫入（cron 每分鐘呼叫一次）────────────────────────────────
+
+/**
+ * 在這一分鐘內每 15 秒取樣一次，合成 1 分鐘 K 後寫進 KV。
+ * 可注入 fetchQuotes / sleep / now 方便測試。
+ */
+export async function recordIntradayMinute(env, deps = {}) {
+  const now = deps.now ? deps.now() : new Date();
+  if (!env?.health_kv) return { ok: false, reason: "no_kv" };
+  if (!isRecordingWindow(now)) return { ok: true, skipped: "outside_market_hours" };
+
+  const symbols = intradaySymbols(env);
+  const fetchQuotes = deps.fetchQuotes || ((syms) => defaultFetchQuotes(env, syms));
+  const sleep = deps.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
+  const start = taipei(now);
+
+  const samples = Object.fromEntries(symbols.map((s) => [s, []]));
+  for (let i = 0; i < SAMPLES_PER_RUN; i += 1) {
+    if (i > 0) await sleep(SAMPLE_GAP_MS);
+    try {
+      const prices = usablePrices(await fetchQuotes(symbols), start.day);
+      for (const [sym, price] of Object.entries(prices)) if (samples[sym]) samples[sym].push(price);
+    } catch {
+      // 單次取樣失敗不影響其他取樣；整分鐘都失敗就不寫入。
+    }
+  }
+
+  const bars = {};
+  for (const sym of symbols) {
+    const bar = buildMinuteBar(start.label, samples[sym]);
+    if (bar) bars[sym] = bar;
+  }
+  if (!Object.keys(bars).length) return { ok: true, skipped: "no_fresh_quotes" };
+
+  const key = KV_PREFIX + start.day;
+  let doc = null;
+  try {
+    const raw = await env.health_kv.get(key);
+    doc = raw ? JSON.parse(raw) : null;
+  } catch {
+    doc = null;
+  }
+  if (!doc || doc.day !== start.day || typeof doc.bars !== "object") doc = { v: 1, day: start.day, bars: {} };
+  for (const [sym, bar] of Object.entries(bars)) doc.bars[sym] = mergeBar(doc.bars[sym], bar);
+
+  await env.health_kv.put(key, JSON.stringify(doc), { expirationTtl: TTL_SECONDS });
+  return { ok: true, recorded: Object.keys(bars), minute: start.label };
+}
+
+// ── 讀取（MCP 工具 intraday_bars）────────────────────────────
+
+export async function readIntradayBars(env, args = {}, now = new Date()) {
+  const interval = Number(args.interval ?? 5);
+  if (!ALLOWED_INTERVALS.includes(interval)) {
+    return { ok: false, error: `interval 只能是 ${ALLOWED_INTERVALS.join("、")}（分鐘）` };
+  }
+  if (!env?.health_kv) return { ok: false, error: "沒有 KV 綁定，無法讀取盤中資料" };
+
+  const today = taipei(now).day;
+  const day = typeof args.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(args.date) ? args.date : today;
+  let doc = null;
+  try {
+    const raw = await env.health_kv.get(KV_PREFIX + day);
+    doc = raw ? JSON.parse(raw) : null;
+  } catch {
+    doc = null;
+  }
+  if (!doc || !doc.bars) {
+    return {
+      ok: true,
+      found: false,
+      day,
+      reason: day === today
+        ? "今天還沒有任何盤中紀錄（可能尚未開盤、今天休市，或排程剛啟用還沒累積資料）。不可用日 K 或即時報價冒充分 K。"
+        : "這一天沒有盤中紀錄（只保留約 36 小時）。",
+    };
+  }
+
+  const wanted = Array.isArray(args.symbols) && args.symbols.length
+    ? args.symbols.map((s) => String(s).trim().toUpperCase())
+    : Object.keys(doc.bars);
+  const limit = Number.isInteger(args.limit) && args.limit > 0 ? Math.min(args.limit, 300) : 300;
+
+  const bars = {};
+  const recorded = {};
+  const missing = [];
+  for (const sym of wanted) {
+    const rows = doc.bars[sym];
+    if (!rows || !rows.length) {
+      missing.push(sym);
+      continue;
+    }
+    bars[sym] = aggregateBars(rows, interval).slice(-limit);
+    recorded[sym] = { firstMinute: rows[0][0], lastMinute: rows[rows.length - 1][0], oneMinuteBars: rows.length };
+  }
+
+  return {
+    ok: true,
+    found: Object.keys(bars).length > 0,
+    day,
+    interval,
+    bars,
+    recorded,
+    missing,
+    note: "分 K 由 Cron 每分鐘內 15 秒取樣合成（每根 1 分鐘 K 最多 4 筆取樣），不是逐筆成交；high/low 可能比真實值略窄。最後一根可能尚未收完。",
+  };
+}

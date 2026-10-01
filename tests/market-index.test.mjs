@@ -279,9 +279,9 @@ test('asset_agent_brief exposes `index`; includeLive:false skips all live quote 
   });
 });
 
-test('tool list is unchanged (no new tool) and every tool stays read-only', async () => {
+test('tool list is exactly the expected set (intraday_bars added deliberately) and every tool stays read-only', async () => {
   const names = (await mcp(env(), 'tools/list')).tools.map(t => t.name);
-  assert.deepEqual(names, ['asset_summary', 'asset_agent_brief', 'today_asset_status', 'portfolio_live_snapshot', 'stock_quote', 'stock_news', 'daily_history', 'dividend_schedule', 'holiday_schedule', 'taifex_tx', 'system_health', 'pending_trades']);
+  assert.deepEqual(names, ['asset_summary', 'asset_agent_brief', 'today_asset_status', 'portfolio_live_snapshot', 'stock_quote', 'stock_news', 'daily_history', 'dividend_schedule', 'holiday_schedule', 'taifex_tx', 'intraday_bars', 'system_health', 'pending_trades']);
   for (const t of PREPARED_ASSET_TOOLS) assert.equal(t.annotations.readOnlyHint, true, t.name);
   const sq = PREPARED_ASSET_TOOLS.find(t => t.name === 'stock_quote');
   assert.deepEqual(sq.inputSchema.required, ['symbols'], 'stock_quote input schema is unchanged');
