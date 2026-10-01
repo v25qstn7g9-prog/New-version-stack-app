@@ -38,7 +38,7 @@ import {
   onRequestPost as portfolioSyncPostHandler,
 } from "./functions/portfolio-sync.js";
 import { handlePreparedAssetMcp } from "./functions/ai-connector-prepared.js";
-import { INTRADAY_CRON, recordIntradayMinute } from "./functions/intraday.js";
+import { INTRADAY_CRON, recordIntradayMinute, archiveIntradayDay } from "./functions/intraday.js";
 import { adminTokenMatches, bearerToken, writeAllowed } from "./functions/request-guard.js";
 import { isKnownSyncToken } from "./functions/portfolio-sync.js";
 import { handleAssetOAuth, verifyAssetAccessToken, readAssetMcpSyncToken } from "./functions/asset-mcp-oauth.js";
@@ -82,7 +82,6 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // Standalone AI connector for Z∞ Assets. Existing app/Atlas routes stay unchanged.
     const oauthResponse = await handleAssetOAuth(request, env);
     if (oauthResponse) return oauthResponse;
 
@@ -96,7 +95,7 @@ export default {
             "content-type": "application/json; charset=utf-8",
             "cache-control": "no-store",
             "x-content-type-options": "nosniff",
-            "WWW-Authenticate": `Bearer resource_metadata="${url.origin}/.well-known/oauth-protected-resource", scope="read:assets"`,
+            "WWW-Authenticate": `Bearer resource_metadata=\"${url.origin}/.well-known/oauth-protected-resource\", scope=\"read:assets\"`,
           },
         });
       }
@@ -139,24 +138,20 @@ export default {
     if (url.pathname === "/taifex-tx" && request.method === "GET") {
       return taifexTxHandler();
     }
-    // 寫入端點依 IP 限流（綁定 WRITE_RATE_LIMITER 時才生效）。
     const isWrite = request.method === "POST" && WRITE_PATHS.has(url.pathname);
     if (isWrite && !(await writeAllowed(env, request, url.pathname))) {
       return apiJson({ error: "請求太頻繁，請稍後再試" }, 429, { "Retry-After": "60" });
     }
 
-    // /api/health-check 會實際呼叫一次 AI：只給排程（scheduled）和持有管理 token 的人手動觸發。
     if (url.pathname === "/api/health-check" && request.method === "GET") {
       if (!adminTokenMatches(env, bearerToken(request))) {
         return apiJson({ error: "Unauthorized" }, 401, { "WWW-Authenticate": "Bearer" });
       }
       return healthGetHandler({ request, env, ctx });
     }
-    // /api/health-cards GET 只讀卡片清單（App 開啟時讀），維持公開。
     if (url.pathname === "/api/health-cards" && request.method === "GET") {
       return healthGetHandler({ request, env, ctx });
     }
-    // 確認／忽略卡片要帶 App 的同步 token（有上傳過的 token）或管理 token。
     if (url.pathname === "/api/health-cards" && request.method === "POST") {
       const supplied = bearerToken(request);
       if (!adminTokenMatches(env, supplied) && !(await isKnownSyncToken(env, supplied))) {
@@ -193,8 +188,6 @@ export default {
     headers.set("X-Content-Type-Options", "nosniff");
     headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
 
-    // index.html changes frequently during active development. Prevent Safari/PWA
-    // and intermediary caches from pinning an older header/version after a deploy.
     if (url.pathname === "/" || url.pathname === "/index.html") {
       headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
       headers.set("Pragma", "no-cache");
@@ -208,14 +201,19 @@ export default {
     });
   },
 
-  // Cron Trigger 進來的入口（不是一般 HTTP 請求，沒有 request/response）。
-  // ctx.waitUntil 讓 Worker 在背景檢查跑完之前不會被提早關掉。
   async scheduled(event, env, ctx) {
-    // 盤中每分鐘的 cron 只做分時取樣；其他（每天 UTC 午夜）照舊做健康檢查。
     if (event && event.cron === INTRADAY_CRON) {
-      ctx.waitUntil(recordIntradayMinute(env));
+      ctx.waitUntil((async () => {
+        const result = await recordIntradayMinute(env);
+        if (result && (result.skipped === "outside_market_hours" || result.skipped === "no_fresh_quotes")) {
+          await archiveIntradayDay(env);
+        }
+      })());
       return;
     }
-    ctx.waitUntil(runHealthCheck(env));
+    ctx.waitUntil((async () => {
+      await archiveIntradayDay(env);
+      await runHealthCheck(env);
+    })());
   },
 };
