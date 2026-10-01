@@ -205,7 +205,7 @@ export default {
     if (event && event.cron === INTRADAY_CRON) {
       ctx.waitUntil((async () => {
         const result = await recordIntradayMinute(env);
-        if (result && (result.skipped === "outside_market_hours" || result.skipped === "no_fresh_quotes")) {
+        if (result && result.skipped === "outside_market_hours") {
           await archiveIntradayDay(env);
         }
       })());

@@ -28,7 +28,10 @@ export const ALLOWED_INTERVALS = [1, 5, 10, 15, 30, 60];
 const KV_PREFIX = "intraday:";
 const ARCHIVE_PREFIX = "intraday5:";
 const TTL_SECONDS = 60 * 60 * 36;
-const ARCHIVE_TTL_SECONDS = 60 * 24 * 60 * 60;
+// 90 個日曆天 ≈ 60 個交易日
+const ARCHIVE_TTL_SECONDS = 90 * 24 * 60 * 60;
+// 收盤後等幾分鐘再封存，讓最後一根 1 分 K（13:30）已寫進 KV 並傳播完成
+const ARCHIVE_AFTER_MINUTE = 13 * 60 + 35;
 const ARCHIVE_INTERVAL = 5;
 const SAMPLES_PER_RUN = 4;
 const SAMPLE_GAP_MS = 15 * 1000;
@@ -99,19 +102,19 @@ export function mergeBar(rows, bar) {
 export function aggregateBars(rows, interval) {
   const out = [];
   let cur = null;
-  for (const [label, o, h, l, c, n] of rows || []) {
+  for (const [label, o, h, l, c, n, m = 1] of rows || []) {
     const minute = labelToMinute(label);
     if (!Number.isFinite(minute)) continue;
     const start = OPEN_MINUTE + Math.floor((minute - OPEN_MINUTE) / interval) * interval;
     if (!cur || cur.startMinute !== start) {
-      cur = { startMinute: start, time: minuteToLabel(start), open: o, high: h, low: l, close: c, samples: n, minutes: 1 };
+      cur = { startMinute: start, time: minuteToLabel(start), open: o, high: h, low: l, close: c, samples: n, minutes: m };
       out.push(cur);
     } else {
       cur.high = Math.max(cur.high, h);
       cur.low = Math.min(cur.low, l);
       cur.close = c;
       cur.samples += n;
-      cur.minutes += 1;
+      cur.minutes += m;
     }
   }
   return out.map(({ startMinute, ...bar }) => bar);
@@ -197,10 +200,10 @@ export async function recordIntradayMinute(env, deps = {}) {
 export async function archiveIntradayDay(env, now = new Date()) {
   if (!env?.health_kv) return { ok: false, reason: "no_kv" };
   const p = taipei(now);
-  if (p.weekday < 1 || p.weekday > 5) return { ok: true, skipped: "weekend" };
-  if (p.minuteOfDay <= CLOSE_MINUTE) return { ok: true, skipped: "still_open" };
-
-  const day = p.day;
+  // 13:35 之後封存「今天」；更早（例如每日 08:00 的 cron）封存「前一個日曆日」當保險，
+  // 休市日沒有 1 分 K，會回 no_intraday。
+  const day = p.minuteOfDay >= ARCHIVE_AFTER_MINUTE ? p.day : taipei(new Date(now.getTime() - 24 * 60 * 60 * 1000)).day;
+  if (day === p.day && (p.weekday < 1 || p.weekday > 5)) return { ok: true, skipped: "weekend" };
   const archiveKey = ARCHIVE_PREFIX + day;
   try {
     const existing = await env.health_kv.get(archiveKey);
@@ -247,7 +250,7 @@ function fromArchiveDoc(doc, interval, wanted, limit) {
       missing.push(sym);
       continue;
     }
-    const asMinute = rows.map((b) => [b.time, b.open, b.high, b.low, b.close, b.samples || 1]);
+    const asMinute = rows.map((b) => [b.time, b.open, b.high, b.low, b.close, b.samples || 1, b.minutes || 5]);
     const out = interval === 5 ? rows.map(({ time, open, high, low, close, samples, minutes }) => ({
       time, open, high, low, close, samples: samples || 0, minutes: minutes || 5,
     })) : aggregateBars(asMinute, interval);
