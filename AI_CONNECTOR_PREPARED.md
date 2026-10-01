@@ -10,6 +10,7 @@
 - MCP-style 唯讀工具 `portfolio_live_snapshot`
 - `portfolio_live_snapshot` 會把同步持股與現有 `/quote` 行情合併，回傳各股最新價、市值、當日漲跌與可計算的合計。
 - 缺報價時明確標記 partial，不補猜數字。
+- 大盤（加權指數 TAIEX）：`portfolio_live_snapshot`／`asset_agent_brief` 回傳 `index` 欄位，`stock_quote` 接受 `TAIEX`／`^TWII`／`t00`／`加權指數`／`大盤`。資料來源與前端相同（`/quote` 的 TWSE `tse_t00.tw`，失敗退 Yahoo `^TWII`），整理邏輯在 `functions/market-index.js`；抓不到時 `index.available=false` + `index.reason`，數值為 null。
 - 不硬編 token / secret。
 
 刻意尚未做：
