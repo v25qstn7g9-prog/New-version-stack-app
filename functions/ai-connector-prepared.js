@@ -18,6 +18,7 @@ import { onRequestGet as dailyHistoryGet } from "./daily-history.js";
 import { onRequestGet as holidayGet } from "./holiday-schedule.js";
 import { onRequestGet as taifexGet } from "./taifex-tx.js";
 import { onRequestGet as healthGet } from "./health-check.js";
+import { readIntradayBars } from "./intraday.js";
 import { onRequestGet as pendingTradesGet } from "./pending-trades.js";
 import { holidayStatusFromRows } from "./twse-holiday.js";
 import { INDEX_SYMBOL, isIndexAlias, normalizeQuoteSymbol, readMarketIndex } from "./market-index.js";
@@ -108,6 +109,11 @@ export const PREPARED_ASSET_TOOLS = [
     name: "taifex_tx", title: "台指期近月行情", annotations: READ_ONLY,
     description: "Read official TAIFEX nearest-month TX futures quote and session context.",
     inputSchema: { type:"object", properties:{}, additionalProperties:false }
+  },
+  {
+    name: "intraday_bars", title: "盤中 1／5／10／15 分 K（當日暫存）", annotations: READ_ONLY,
+    description: "Read today's intraday candles (open/high/low/close) recorded by a background cron every minute during Taiwan market hours (09:00-13:30). Each 1-minute bar is built from four 15-second samples; 5/10/15/30/60-minute bars are aggregated from them and aligned to 09:00. Only about the last 36 hours are kept. If found is false there is no recorded data: say so, never substitute daily bars or live quotes for intraday candles. Bars are sampled, not tick data, so highs/lows may be slightly narrower than the true values and the last bar may be incomplete.",
+    inputSchema: { type:"object", properties:{ symbols:{type:"array",items:{type:"string"},maxItems:12}, interval:{type:"integer",enum:[1,5,10,15,30,60],description:"Candle length in minutes. Default 5."}, date:{type:"string",description:"YYYY-MM-DD (Taipei). Default today."}, limit:{type:"integer",minimum:1,maximum:300,description:"Return only the most recent N candles per symbol."} }, additionalProperties:false }
   },
   {
     name: "system_health", title: "資產 App 系統健康", annotations: READ_ONLY,
@@ -714,6 +720,14 @@ async function callTool(name, args, env, syncToken) {
   if (name === "stock_quote") return stockQuote(env, args || {});
   if (name === "stock_news") return endpointTool(newsGet, "/news", env, { symbols: args?.symbols, names: args?.names, windowHours: args?.windowHours, maxPerSymbol: args?.maxPerSymbol });
   if (name === "daily_history") return endpointTool(dailyHistoryGet, "/daily-history", env, { symbols: args?.symbols });
+  if (name === "intraday_bars") {
+    try {
+      const data = await readIntradayBars(env, args || {});
+      return toolResult(data, data?.ok === false);
+    } catch (error) {
+      return toolResult({ ok: false, error: String(error?.message || error).slice(0, 300) }, true);
+    }
+  }
   if (name === "dividend_schedule") return endpointTool(dividendGet, "/dividend-schedule", env, { symbols: args?.symbols });
   if (name === "holiday_schedule") return endpointTool(holidayGet, "/holiday-schedule", env);
   if (name === "taifex_tx") {
@@ -762,7 +776,7 @@ export async function handlePreparedAssetMcp(request, env, context = {}) {
       capabilities: { tools: { listChanged: false } },
       serverInfo: SERVER,
       instructions:
-        "Z∞ Assets 是受控式唯讀資產 Agent。廣泛問題如『今天資產狀況怎樣／幫我看一下資產』優先使用 asset_agent_brief，一次取得今日紀錄/市場時段、必要的即時報價、系統健康與待確認交易，避免重複呼叫。只問『今天資產多少／今天有沒有記錄』時用 today_asset_status；只問即時持股市值時用 portfolio_live_snapshot；大盤／加權指數看 portfolio_live_snapshot 或 asset_agent_brief 的 index 欄位，或用 stock_quote 查 TAIEX（index.available 為 false 時照 index.reason 說明，不可補猜）；個股行情用 stock_quote；新聞用 stock_news；歷史走勢用 daily_history。today_asset_status 的實際每日紀錄優先於任何即時估值；沒有今日紀錄時絕不可拿即時市值冒充。所有工具皆唯讀，不得宣稱已交易、已修改持股或已補登資產。資料缺失、過期或報價不完整時明說。回答用繁體中文，先結論，再注意事項與下一步。",
+        "Z∞ Assets 是受控式唯讀資產 Agent。廣泛問題如『今天資產狀況怎樣／幫我看一下資產』優先使用 asset_agent_brief，一次取得今日紀錄/市場時段、必要的即時報價、系統健康與待確認交易，避免重複呼叫。只問『今天資產多少／今天有沒有記錄』時用 today_asset_status；只問即時持股市值時用 portfolio_live_snapshot；大盤／加權指數看 portfolio_live_snapshot 或 asset_agent_brief 的 index 欄位，或用 stock_quote 查 TAIEX（index.available 為 false 時照 index.reason 說明，不可補猜）；個股行情用 stock_quote；新聞用 stock_news；歷史走勢用 daily_history；盤中 5／10／15 分 K 用 intraday_bars（found 為 false 時明說沒有紀錄，不可拿日 K 或即時報價冒充）。today_asset_status 的實際每日紀錄優先於任何即時估值；沒有今日紀錄時絕不可拿即時市值冒充。所有工具皆唯讀，不得宣稱已交易、已修改持股或已補登資產。資料缺失、過期或報價不完整時明說。回答用繁體中文，先結論，再注意事項與下一步。",
     });
   }
 

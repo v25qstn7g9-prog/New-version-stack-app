@@ -38,6 +38,7 @@ import {
   onRequestPost as portfolioSyncPostHandler,
 } from "./functions/portfolio-sync.js";
 import { handlePreparedAssetMcp } from "./functions/ai-connector-prepared.js";
+import { INTRADAY_CRON, recordIntradayMinute } from "./functions/intraday.js";
 import { adminTokenMatches, bearerToken, writeAllowed } from "./functions/request-guard.js";
 import { isKnownSyncToken } from "./functions/portfolio-sync.js";
 import { handleAssetOAuth, verifyAssetAccessToken, readAssetMcpSyncToken } from "./functions/asset-mcp-oauth.js";
@@ -210,6 +211,11 @@ export default {
   // Cron Trigger 進來的入口（不是一般 HTTP 請求，沒有 request/response）。
   // ctx.waitUntil 讓 Worker 在背景檢查跑完之前不會被提早關掉。
   async scheduled(event, env, ctx) {
+    // 盤中每分鐘的 cron 只做分時取樣；其他（每天 UTC 午夜）照舊做健康檢查。
+    if (event && event.cron === INTRADAY_CRON) {
+      ctx.waitUntil(recordIntradayMinute(env));
+      return;
+    }
     ctx.waitUntil(runHealthCheck(env));
   },
 };
