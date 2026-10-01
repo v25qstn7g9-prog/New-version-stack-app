@@ -988,6 +988,17 @@ function zinfShouldSkipUpload({ hash, lastHash, lastOkAt, now = Date.now(), hear
   const last = Date.parse(String(lastOkAt || ""));
   return Number.isFinite(last) && now - last >= 0 && now - last < heartbeatMs;
 }
+// 本機資料是空的（沒持股、沒交易、沒每日資產紀錄）就不該推上中控：
+// 這幾乎一定是新裝置／新副本／被瀏覽器清掉資料，不是使用者真的把資料全刪光。
+// 2026-10-01 事故：空的副本帶著同一組 token 開啟，8 秒後把「持股 0 檔」推上去，蓋掉中控的完整資料。
+function zinfLocalDataIsEmpty(summary) {
+  const len = (v) => (Array.isArray(v) ? v.length : 0);
+  const ds = summary && typeof summary === "object" ? summary.dataset : null;
+  return len(summary && summary.holdings) === 0
+    && len(ds && ds.holdings) === 0
+    && len(ds && ds.trades) === 0
+    && len(ds && ds.dailyRecords) === 0;
+}
 function readTwseHolidayCache() {
   try {
     const parsed = JSON.parse(localStorage.getItem(TWSE_HOLIDAY_CACHE_KEY) || "null");
@@ -2357,6 +2368,14 @@ function AssetTracker() {
     try {
       if (rebuild || !zinfSyncPayloadRef.current) zinfSyncPayloadRef.current = await buildZinfSyncPayload();
       const { token: syncToken, summary: syncSummary } = zinfSyncPayloadRef.current;
+      if (zinfLocalDataIsEmpty(syncSummary)) {
+        // 不上傳、也不排重試：資料還原回來後，資料一變就會自動推。
+        zinfSyncPendingRef.current = false;
+        zinfSyncPayloadRef.current = null;
+        try { localStorage.setItem("zinfSyncPending", "0"); } catch {}
+        setZinfSyncStatus("同步失敗（未上傳，保護中控資料）：這個 App 目前沒有持股、交易與每日資產紀錄。請先還原備份，資料回來後會自動同步。");
+        return false;
+      }
       const bodyText = JSON.stringify({ summary: syncSummary });
       const hash = await zinfSyncHash(syncToken + "\n" + bodyText);
       let lastHash = null, lastOkAt = null;
@@ -2374,6 +2393,15 @@ function AssetTracker() {
         headers: { "content-type": "application/json", "cache-control": "no-store", authorization: "Bearer " + syncToken },
         body: bodyText,
       });
+      if (response.status === 409) {
+        // 伺服器保護機制擋下（這份資料比中控上的少很多）：重試也不會變，不排 30 秒重送，直接說明原因。
+        const rejected = await response.json().catch(() => null);
+        zinfSyncPendingRef.current = false;
+        zinfSyncPayloadRef.current = null;
+        try { localStorage.setItem("zinfSyncPending", "0"); } catch {}
+        setZinfSyncStatus("同步失敗（被保護機制擋下，中控資料沒有被覆蓋）：" + (rejected?.detail || "這份資料比中控上的少很多。若這個 App 的資料才是正確的，請先確認再處理。"));
+        return false;
+      }
       if (!response.ok) {
         if (response.status === 413) throw new Error("資料超出同步容量");
         const body = await response.json().catch(() => null);
