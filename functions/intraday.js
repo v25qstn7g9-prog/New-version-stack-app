@@ -26,7 +26,10 @@ export const DEFAULT_INTRADAY_SYMBOLS = ["0050", "0056", "2330", "TAIEX"];
 export const ALLOWED_INTERVALS = [1, 5, 10, 15, 30, 60];
 
 const KV_PREFIX = "intraday:";
+const ARCHIVE_PREFIX = "intraday5:";
 const TTL_SECONDS = 60 * 60 * 36;
+const ARCHIVE_TTL_SECONDS = 60 * 24 * 60 * 60;
+const ARCHIVE_INTERVAL = 5;
 const SAMPLES_PER_RUN = 4;
 const SAMPLE_GAP_MS = 15 * 1000;
 const OPEN_MINUTE = 9 * 60;
@@ -188,6 +191,72 @@ export async function recordIntradayMinute(env, deps = {}) {
   return { ok: true, recorded: Object.keys(bars), minute: start.label };
 }
 
+
+// ── 收盤封存 5 分 K（留約 60 個交易日）────────────────────────
+
+export async function archiveIntradayDay(env, now = new Date()) {
+  if (!env?.health_kv) return { ok: false, reason: "no_kv" };
+  const p = taipei(now);
+  if (p.weekday < 1 || p.weekday > 5) return { ok: true, skipped: "weekend" };
+  if (p.minuteOfDay <= CLOSE_MINUTE) return { ok: true, skipped: "still_open" };
+
+  const day = p.day;
+  const archiveKey = ARCHIVE_PREFIX + day;
+  try {
+    const existing = await env.health_kv.get(archiveKey);
+    if (existing) return { ok: true, skipped: "already_archived", day };
+  } catch {
+    // 讀封存失敗就當沒有，下面再寫一次。
+  }
+
+  let doc = null;
+  try {
+    const raw = await env.health_kv.get(KV_PREFIX + day);
+    doc = raw ? JSON.parse(raw) : null;
+  } catch {
+    doc = null;
+  }
+  if (!doc || !doc.bars || typeof doc.bars !== "object") {
+    return { ok: true, skipped: "no_intraday", day };
+  }
+
+  const bars = {};
+  for (const [sym, rows] of Object.entries(doc.bars)) {
+    if (!Array.isArray(rows) || !rows.length) continue;
+    bars[sym] = aggregateBars(rows, ARCHIVE_INTERVAL);
+  }
+  if (!Object.keys(bars).length) return { ok: true, skipped: "empty_bars", day };
+
+  await env.health_kv.put(archiveKey, JSON.stringify({
+    v: 2,
+    day,
+    interval: ARCHIVE_INTERVAL,
+    archivedAt: now.toISOString(),
+    bars,
+  }), { expirationTtl: ARCHIVE_TTL_SECONDS });
+  return { ok: true, archived: Object.keys(bars), day };
+}
+
+function fromArchiveDoc(doc, interval, wanted, limit) {
+  const bars = {};
+  const recorded = {};
+  const missing = [];
+  for (const sym of wanted) {
+    const rows = doc.bars[sym];
+    if (!rows || !rows.length) {
+      missing.push(sym);
+      continue;
+    }
+    const asMinute = rows.map((b) => [b.time, b.open, b.high, b.low, b.close, b.samples || 1]);
+    const out = interval === 5 ? rows.map(({ time, open, high, low, close, samples, minutes }) => ({
+      time, open, high, low, close, samples: samples || 0, minutes: minutes || 5,
+    })) : aggregateBars(asMinute, interval);
+    bars[sym] = out.slice(-limit);
+    recorded[sym] = { firstMinute: rows[0].time, lastMinute: rows[rows.length - 1].time, fiveMinuteBars: rows.length, source: "archive5" };
+  }
+  return { bars, recorded, missing };
+}
+
 // ── 讀取（MCP 工具 intraday_bars）────────────────────────────
 
 export async function readIntradayBars(env, args = {}, now = new Date()) {
@@ -207,13 +276,46 @@ export async function readIntradayBars(env, args = {}, now = new Date()) {
     doc = null;
   }
   if (!doc || !doc.bars) {
+    let archive = null;
+    try {
+      const raw = await env.health_kv.get(ARCHIVE_PREFIX + day);
+      archive = raw ? JSON.parse(raw) : null;
+    } catch {
+      archive = null;
+    }
+    if (archive && archive.bars) {
+      const wantedA = Array.isArray(args.symbols) && args.symbols.length
+        ? args.symbols.map((s) => String(s).trim().toUpperCase())
+        : Object.keys(archive.bars);
+      const limitA = Number.isInteger(args.limit) && args.limit > 0 ? Math.min(args.limit, 300) : 300;
+      if (interval === 1) {
+        return {
+          ok: true,
+          found: false,
+          day,
+          reason: "這一天只剩下收盤封存的 5 分 K，1 分 K 已過 36 小時暫存期限。",
+        };
+      }
+      const packed = fromArchiveDoc(archive, interval, wantedA, limitA);
+      return {
+        ok: true,
+        found: Object.keys(packed.bars).length > 0,
+        day,
+        interval,
+        source: "archive5",
+        bars: packed.bars,
+        recorded: packed.recorded,
+        missing: packed.missing,
+        note: "這是收盤封存的 5 分 K（約留 60 日），不是當日 1 分暫存。",
+      };
+    }
     return {
       ok: true,
       found: false,
       day,
       reason: day === today
         ? "今天還沒有任何盤中紀錄（可能尚未開盤、今天休市，或排程剛啟用還沒累積資料）。不可用日 K 或即時報價冒充分 K。"
-        : "這一天沒有盤中紀錄（只保留約 36 小時）。",
+        : "這一天沒有盤中紀錄（1 分 K 只留約 36 小時；5 分 K 封存約 60 日）。",
     };
   }
 
