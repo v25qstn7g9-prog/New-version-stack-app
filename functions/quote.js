@@ -197,11 +197,13 @@ function parseTwseItem(item) {
 
   const high = Number(item.h);
   const low = Number(item.l);
+  const volume = Number(item.v);
   return {
     prevClose,
     price: Number.isFinite(price) ? price : null,
     high: Number.isFinite(high) && high > 0 ? high : null,
     low: Number.isFinite(low) && low > 0 ? low : null,
+    volume: Number.isFinite(volume) && volume >= 0 ? volume : null,
     priceSource,
     asOfDate,
   };
@@ -241,6 +243,7 @@ async function fetchTwseBatch(symbols, debug = false) {
       prevClose: parsed.prevClose,
       high: parsed.high,
       low: parsed.low,
+      volume: parsed.volume,
       isStale: parsed.price == null,
       asOfDate: parsed.asOfDate,
       source: "TWSE",
@@ -257,6 +260,7 @@ async function fetchTwseBatch(symbols, debug = false) {
         rawO: item.o,
         rawH: item.h,
         rawL: item.l,
+        rawV: item.v,
         rawN: item.n,
       };
     }
