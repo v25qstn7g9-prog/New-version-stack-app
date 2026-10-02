@@ -38,7 +38,7 @@ import {
   onRequestPost as portfolioSyncPostHandler,
 } from "./functions/portfolio-sync.js";
 import { handlePreparedAssetMcp } from "./functions/ai-connector-prepared.js";
-import { INTRADAY_CRON, recordIntradayMinute, archiveIntradayDay, readIntradayHealth } from "./functions/intraday.js";
+import { INTRADAY_CRON, recordIntradayMinute, archiveIntradayDay, readIntradayHealth, noteIntradayRun } from "./functions/intraday.js";
 import { adminTokenMatches, bearerToken, writeAllowed } from "./functions/request-guard.js";
 import { isKnownSyncToken } from "./functions/portfolio-sync.js";
 import { handleAssetOAuth, verifyAssetAccessToken, readAssetMcpSyncToken } from "./functions/asset-mcp-oauth.js";
@@ -205,7 +205,14 @@ export default {
   async scheduled(event, env, ctx) {
     if (event && event.cron === INTRADAY_CRON) {
       ctx.waitUntil((async () => {
-        const result = await recordIntradayMinute(env);
+        let result;
+        try {
+          result = await recordIntradayMinute(env);
+        } catch (e) {
+          // 以前例外（例如 KV 寫入被拒）會直接消失；現在留一筆心跳讓 /api/health 看得到。
+          result = { ok: false, error: String(e?.message || e) };
+        }
+        await noteIntradayRun(env, result);
         if (result && result.skipped === "outside_market_hours") {
           await archiveIntradayDay(env);
         }
