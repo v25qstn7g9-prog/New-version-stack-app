@@ -3108,11 +3108,17 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
         const day = now.toLocaleDateString("sv-SE");
         const last = points[points.length - 1];
         if (!last || now.getTime() - Number(last.ts || 0) >= 55 * 1000) {
-          const point = { day, ts: now.getTime(), quotes: {} };
-          if (freshIndex && Number(freshIndex.price)>0) point.quotes.TAIEX=Number(freshIndex.price);
+          const point = { day, ts: now.getTime(), quotes: {}, volumes: {} };
+          if (freshIndex && Number(freshIndex.price)>0) {
+            point.quotes.TAIEX=Number(freshIndex.price);
+            if (Number.isFinite(Number(freshIndex.volume))) point.volumes.TAIEX=Number(freshIndex.volume);
+          }
           Object.entries(mergedMap).forEach(([sym,q]) => {
             const px = Number(q?.price);
-            if (px > 0 && !failed.includes(sym)) point.quotes[sym] = px;
+            if (px > 0 && !failed.includes(sym)) {
+              point.quotes[sym] = px;
+              if (Number.isFinite(Number(q?.volume))) point.volumes[sym]=Number(q.volume);
+            }
           });
           if (Object.keys(point.quotes).length) {
             points.push(point);
@@ -3395,7 +3401,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
 
 // ---------------- Today Trend Radar (dashboard) ----------------
 const TREND_RADAR_VERSION = "2.45";
-const TREND_MODEL_VERSION = "2.45-fast-micro-and-final-tomorrow";
+const TREND_MODEL_VERSION = "2.45-fast-micro-rvol-breadth-vwap";
 function TrendRadar({ holdings, embedded = false }) {
   const [rows, setRows] = useState([]);
   const [asOf, setAsOf] = useState(null);
@@ -3420,6 +3426,8 @@ function TrendRadar({ holdings, embedded = false }) {
     let memoDailyDay = null, memoDailyBars = null;
     let memoInstDays = null, memoInstAt = 0;
     let memoGlobal = null, memoGlobalAt = 0;
+    let memoIntradayMetrics = null, memoIntradayMetricsAt = 0;
+    let memoMarketBreadth = null, memoMarketBreadthAt = 0;
     const fmtDate = (d) => {
       const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,"0"), day=String(d.getDate()).padStart(2,"0");
       return `${y}${m}${day}`;
@@ -3619,6 +3627,73 @@ function TrendRadar({ holdings, embedded = false }) {
       };
       const dailyKdFor = (sym) => kdFromBars(dailyBarsMap[sym]);
       const monthlyKdFor = (sym) => kdFromBars(monthlyFromDaily(dailyBarsMap[sym]));
+
+      // Three additional model inputs:
+      // 1) RVOL: today's cumulative volume vs the same clock time on recent sessions.
+      // 2) VWAP: price position vs session volume-weighted average + short VWAP slope.
+      // 3) Full-market breadth: official TWSE up/down/flat counts when the same-day
+      //    MI_INDEX table is available. If unavailable intraday, no fake market-wide
+      //    value is invented; the old holding breadth remains only a low-weight fallback.
+      let intradayMetrics={};
+      try{
+        if(memoIntradayMetrics && Date.now()-memoIntradayMetricsAt<55*1000){
+          intradayMetrics=memoIntradayMetrics;
+        }else{
+          const wanted=[...new Set(["TAIEX",...active.map(h=>String(h.symbol))])];
+          const res=await fetchWithTimeout(`/intraday-metrics?symbols=${encodeURIComponent(wanted.join(","))}&_ts=${Date.now()}`,{cache:"no-store"},10000);
+          const json=await res.json();
+          if(json?.ok && json.metrics){
+            intradayMetrics=json.metrics;
+            memoIntradayMetrics=intradayMetrics;
+            memoIntradayMetricsAt=Date.now();
+          }
+        }
+      }catch(e){}
+
+      let fullBreadth=null;
+      try{
+        if(memoMarketBreadth && Date.now()-memoMarketBreadthAt<60*1000){
+          fullBreadth=memoMarketBreadth;
+        }else{
+          const res=await fetchWithTimeout(`/market-breadth?_ts=${Date.now()}`,{cache:"no-store"},8000);
+          const json=await res.json();
+          if(json?.ok){
+            fullBreadth=json;
+            memoMarketBreadth=fullBreadth;
+            memoMarketBreadthAt=Date.now();
+          }
+        }
+      }catch(e){}
+
+      const volumePriceSignal=(sym,q,stockPct=0)=>{
+        const m=intradayMetrics?.[sym]||null;
+        const px=Number(q?.price),vwap=Number(m?.vwap),rvol=Number(m?.rvol);
+        const comparisonDays=Number(m?.comparisonDays)||0;
+        const vwapSlopePct=Number(m?.vwapSlopePct);
+        const vwapAvailable=px>0&&vwap>0;
+        const distPct=vwapAvailable?((px-vwap)/vwap)*100:0;
+        const vwapScore=vwapAvailable
+          ? clamp(distPct*5 + (Number.isFinite(vwapSlopePct)?vwapSlopePct*2.5:0),-4,4)
+          : 0;
+        let rvolScore=0;
+        const rvolAvailable=Number.isFinite(rvol)&&rvol>0&&comparisonDays>=2;
+        if(rvolAvailable){
+          const direction=Math.sign(Math.abs(distPct)>=0.02?distPct:stockPct);
+          // High RVOL reinforces the observed direction; low RVOL weakens it,
+          // rather than treating raw volume as inherently bullish or bearish.
+          rvolScore=clamp(Math.log(rvol)*2.2,-1.5,2.5)*direction;
+        }
+        return {
+          available:Boolean(vwapAvailable||rvolAvailable),
+          vwap:vwapAvailable?vwap:null,
+          distPct:vwapAvailable?distPct:null,
+          vwapSlopePct:Number.isFinite(vwapSlopePct)?vwapSlopePct:null,
+          vwapScore,
+          rvol:rvolAvailable?rvol:null,
+          rvolScore:clamp(rvolScore,-3,3),
+          comparisonDays,
+        };
+      };
       // How exposed is this specific holding to the SOX/SPX overnight move?
       // The overnight term applies the exact same weight to every symbol, so
       // a broad dividend ETF (低半導體權重) gets pulled by a SOX rally just
@@ -3688,7 +3763,10 @@ function TrendRadar({ holdings, embedded = false }) {
       const marketKd5=kdFromBars(marketBars5), marketKd15=kdFromBars(marketBars15), marketKd60=kdFromBars(marketBars60);
       const marketKdDaily=dailyKdFor("TAIEX"), marketKdMonthly=monthlyKdFor("TAIEX");
       const holdingPcts=Object.values(quoteMap).map(q=>Number(q?.prevClose)?((Number(q.price)-Number(q.prevClose))/Number(q.prevClose))*100:null).filter(v=>Number.isFinite(v));
-      const breadth=holdingPcts.length?holdingPcts.filter(v=>v>0).length/holdingPcts.length:0.5;
+      const holdingBreadth=holdingPcts.length?holdingPcts.filter(v=>v>0).length/holdingPcts.length:0.5;
+      const officialBreadth=(fullBreadth?.available && Number.isFinite(Number(fullBreadth?.breadth)))?Number(fullBreadth.breadth):null;
+      const breadth=officialBreadth!=null?officialBreadth:holdingBreadth;
+      const breadthSource=officialBreadth!=null?"market":"holdings";
       let instDays=[];
       try{
         if(memoInstDays && Date.now()-memoInstAt<6*3600*1000){
@@ -3708,7 +3786,7 @@ function TrendRadar({ holdings, embedded = false }) {
       const mt1=marketSum("trust",1), mt3=marketSum("trust",3), mt5=marketSum("trust",5);
       const marketInstScore=(signScore(mf1)*1.0+signScore(mf3)*1.5+signScore(mf5)*2.0)+(signScore(mt1)*0.6+signScore(mt3)*0.9+signScore(mt5)*1.2);
       const marketIndexW = 8 + 4*lateProgress;
-      const marketBreadthW = 12 - 4*lateProgress;
+      const marketBreadthW = breadthSource==="market" ? (14 - 4*lateProgress) : 4;
       const marketInstW = 1 - 0.55*lateProgress;
       const mkShortScore = (marketKd5?.bull||0)*(1+1.0*lateProgress)
         + (marketKd15?.bull||0)*(1+0.75*lateProgress)
@@ -3716,14 +3794,17 @@ function TrendRadar({ holdings, embedded = false }) {
         + (marketKdDaily?.bull||0)*(1-0.5*lateProgress);
       const marketMicro=microMomentum("TAIEX",Number(idx?.price));
       const marketRange=rangePressure(idx,Number(idx?.price));
+      const marketVolumePrice=volumePriceSignal("TAIEX",idx,indexPct);
       const microWeight=1.35-0.35*lateProgress;
       let marketScore=Math.max(-22,Math.min(22,indexPct*marketIndexW))
-        +Math.max(-6,Math.min(6,(breadth-0.5)*marketBreadthW))
+        +Math.max(-7,Math.min(7,(breadth-0.5)*marketBreadthW))
         +Math.max(-7,Math.min(7,mkShortScore*1.8))
         +Math.max(-6,Math.min(6,marketInstScore*marketInstW))
         +Math.max(-7,Math.min(7,marketMicro.score*microWeight))
-        +Math.max(-2,Math.min(2,marketRange.score));
-      const marketEvidence=1+(marketMicro.available?1:0)+([marketKd5,marketKd15,marketKd60].filter(Boolean).length>=2?1:0)+(instDays.length?1:0);
+        +Math.max(-2,Math.min(2,marketRange.score))
+        +Math.max(-4,Math.min(4,marketVolumePrice.vwapScore))
+        +Math.max(-3,Math.min(3,marketVolumePrice.rvolScore));
+      const marketEvidence=1+(marketMicro.available?1:0)+([marketKd5,marketKd15,marketKd60].filter(Boolean).length>=2?1:0)+(instDays.length?1:0)+(breadthSource==="market"?1:0)+(marketVolumePrice.available?1:0);
       marketScore*=0.72+0.28*Math.min(1,marketEvidence/4);
       const marketCloseBoost = Math.abs(indexPct)>=0.10
         ? Math.sign(indexPct)*Math.min(6, 2 + Math.abs(indexPct)*8)*closeProgress
@@ -3748,7 +3829,7 @@ function TrendRadar({ holdings, embedded = false }) {
       const marketFresh=!(sessionClock>=540&&sessionClock<=825) || !idx?.isStale;
       if(!marketFresh) marketProbability=50;
       const marketDirection=marketProbability>=64?"明顯偏漲":marketProbability>=55?"稍偏漲":marketProbability<=36?"明顯偏跌":marketProbability<=45?"稍偏跌":"方向不明";
-      let computedMarketRow={probability:marketProbability,direction:marketDirection,indexPct,breadth,kd5:marketKd5,kd15:marketKd15,kd60:marketKd60,kdDaily:marketKdDaily,kdMonthly:marketKdMonthly,micro:marketMicro,range:marketRange,evidence:marketEvidence,marketCloseBoost,modelVersion:TREND_MODEL_VERSION};
+      let computedMarketRow={probability:marketProbability,direction:marketDirection,indexPct,breadth,breadthSource,breadthCounts:breadthSource==="market"?{up:fullBreadth?.up,down:fullBreadth?.down,flat:fullBreadth?.flat}:null,kd5:marketKd5,kd15:marketKd15,kd60:marketKd60,kdDaily:marketKdDaily,kdMonthly:marketKdMonthly,micro:marketMicro,range:marketRange,volumePrice:marketVolumePrice,evidence:marketEvidence,marketCloseBoost,modelVersion:TREND_MODEL_VERSION};
       if(cancelled) return;
       let next = active.map((h) => {
         const q = quoteMap[h.symbol] || {};
@@ -3775,6 +3856,8 @@ function TrendRadar({ holdings, embedded = false }) {
         const kdSignals=[kd5,kd15,kd60,kdDaily].filter(Boolean);
         const micro=microMomentum(h.symbol,Number(q.price));
         const range=rangePressure(q,Number(q.price));
+        const volumePrice=volumePriceSignal(h.symbol,q,stockPct);
+        const breadthTerm=breadthSource==="market"?clamp((breadth-0.5)*6,-2.5,2.5):clamp((breadth-0.5)*1.5,-0.5,0.5);
         const timedKdScore=(kd5?.bull||0)*(1+1.0*lateProgress)
           +(kd15?.bull||0)*(1+0.75*lateProgress)
           +(kd60?.bull||0)*(1-0.25*lateProgress)
@@ -3789,8 +3872,11 @@ function TrendRadar({ holdings, embedded = false }) {
           + Math.max(-7,Math.min(7,instScore*instWeight*instTimeW))
           + Math.max(-7,Math.min(7,timedKdScore*1.5))
           + Math.max(-8,Math.min(8,micro.score*(1.4-0.4*lateProgress)))
-          + Math.max(-2,Math.min(2,range.score));
-        const evidence=1+(micro.available?1:0)+(kdSignals.length>=2?1:0)+(flows.length?1:0)+(news.length?0.5:0);
+          + Math.max(-2,Math.min(2,range.score))
+          + breadthTerm
+          + Math.max(-4,Math.min(4,volumePrice.vwapScore))
+          + Math.max(-3,Math.min(3,volumePrice.rvolScore));
+        const evidence=1+(micro.available?1:0)+(kdSignals.length>=2?1:0)+(flows.length?1:0)+(news.length?0.5:0)+(breadthSource==="market"?1:0)+(volumePrice.available?1:0);
         score*=0.72+0.28*Math.min(1,evidence/4);
 
         // Model correction #2: close-proximity direction reinforcement.
@@ -3823,7 +3909,7 @@ function TrendRadar({ holdings, embedded = false }) {
         const conviction = Math.abs(probability-50);
         const confidence = (evidence>=3.5 && flows.length>=3 && conviction>=14 && kdSignals.length>=3) ? "高"
           : (evidence>=2.5 && conviction>=7) ? "中" : "低";
-        return {symbol:h.symbol,name:h.name||"",probability,direction,confidence,indexPct,stockPct,currentPrice:Number(q.price)||null,dayHigh:Number(q.high)||null,dayLow:Number(q.low)||null,newsScore,flows,f1,f3,f5,t1,t3,t5,d1,d3,d5,kd5,kd15,kd60,kdDaily,kdMonthly,micro,range,evidence,quoteFresh,modelVersion:TREND_MODEL_VERSION,lateProgress,closeProgress,closeDirectionBoost,weights:{indexW,stockW,newsW,instTimeW},timedKdScore};
+        return {symbol:h.symbol,name:h.name||"",probability,direction,confidence,indexPct,stockPct,currentPrice:Number(q.price)||null,dayHigh:Number(q.high)||null,dayLow:Number(q.low)||null,newsScore,flows,f1,f3,f5,t1,t3,t5,d1,d3,d5,kd5,kd15,kd60,kdDaily,kdMonthly,micro,range,volumePrice,breadth,breadthSource,breadthTerm,evidence,quoteFresh,modelVersion:TREND_MODEL_VERSION,lateProgress,closeProgress,closeDirectionBoost,weights:{indexW,stockW,newsW,instTimeW},timedKdScore};
       });
 
       // Model correction #2: freeze today's forecast at/after 13:25.
@@ -3867,7 +3953,7 @@ function TrendRadar({ holdings, embedded = false }) {
           next.forEach(r=>{
             const key=day+"|"+r.symbol+"|morning";
             if(!records.some(x=>x.key===key)){
-              records.push({key,day,symbol:r.symbol,phase:"morning",ts:stamp.toISOString(),probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,modelVersion:r.modelVersion,lateProgress:r.lateProgress,closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,weights:r.weights,timedKdScore:r.timedKdScore,inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
+              records.push({key,day,symbol:r.symbol,phase:"morning",ts:stamp.toISOString(),probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,modelVersion:r.modelVersion,lateProgress:r.lateProgress,closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,weights:r.weights,timedKdScore:r.timedKdScore,volumePrice:r.volumePrice,breadth:r.breadth,breadthSource:r.breadthSource,inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
             }
           });
         }
@@ -3944,28 +4030,31 @@ function TrendRadar({ holdings, embedded = false }) {
       if(clock>=630){
         const previewProgress=Math.max(0,Math.min(1,(clock-630)/(805-630)));
         const overnightDecay=1-0.65*previewProgress;
-        const calcTomorrow=({pct,kds,news=0,inst=0,beta=1,micro=null,relative=0,range=null})=>{
+        const calcTomorrow=({pct,kds,news=0,inst=0,beta=1,micro=null,relative=0,range=null,volumePrice=null,breadth=0.5,breadthSource="holdings"})=>{
           const ks=(kds||[]).filter(Boolean).reduce((a,k)=>a+k.bull,0);
           const overnight=global ? Math.max(-6,Math.min(6,global.combined*0.8*beta*overnightDecay)) : 0;
           const microTerm=micro?.available ? Math.max(-3,Math.min(3,micro.score*0.45)) : 0;
           const rangeTerm=range?.available ? Math.max(-1.5,Math.min(1.5,range.score*0.55)) : 0;
+          const vwapTerm=volumePrice?.available ? Math.max(-2.5,Math.min(2.5,(volumePrice.vwapScore||0)*0.65)) : 0;
+          const rvolTerm=volumePrice?.available ? Math.max(-1.8,Math.min(1.8,(volumePrice.rvolScore||0)*0.55)) : 0;
+          const breadthTerm=breadthSource==="market" ? Math.max(-2.2,Math.min(2.2,(breadth-0.5)*5)) : 0;
           const raw=overnight
             +Math.max(-4,Math.min(4,pct*1.25))
             +Math.max(-4.5,Math.min(4.5,ks*1.25))
             +Math.max(-3,Math.min(3,news*1.0))
             +Math.max(-4,Math.min(4,inst))
             +Math.max(-3.5,Math.min(3.5,relative*2.5))
-            +microTerm+rangeTerm;
-          const evidence=(global?1:0)+((kds||[]).filter(Boolean).length>=2?1:0)+(Math.abs(inst)>0?1:0)+(micro?.available?1:0)+(range?.available?0.5:0);
+            +microTerm+rangeTerm+vwapTerm+rvolTerm+breadthTerm;
+          const evidence=(global?1:0)+((kds||[]).filter(Boolean).length>=2?1:0)+(Math.abs(inst)>0?1:0)+(micro?.available?1:0)+(range?.available?0.5:0)+(volumePrice?.available?1:0)+(breadthSource==="market"?1:0);
           let dev=clock<750?8:clock<805?13:18;
           if(evidence<2) dev=Math.min(dev,6);
           let p=Math.round(50+20*Math.tanh(raw/16));
           p=Math.round(Math.max(50-dev,Math.min(50+dev,p)));
-          return {probability:p,direction:toLabel(p),phase:clock>=805?"final":clock>=750?"refining":"preview",factors:{overnight,overnightDecay,pct,ks,news,inst,beta,micro:microTerm,relative,range:rangeTerm,evidence}};
+          return {probability:p,direction:toLabel(p),phase:clock>=805?"final":clock>=750?"refining":"preview",factors:{overnight,overnightDecay,pct,ks,news,inst,beta,micro:microTerm,relative,range:rangeTerm,vwap:vwapTerm,rvol:rvolTerm,breadth:breadthTerm,evidence}};
         };
         tomorrow.TAIEX=calcTomorrow({
           pct:indexPct,kds:[marketKd15,marketKd60,marketKdDaily],
-          micro:marketMicro,range:marketRange
+          micro:marketMicro,range:marketRange,volumePrice:marketVolumePrice,breadth,breadthSource
         });
         next.forEach(r=>{
           const inst=(Math.sign(r.f3||0)*1.5+Math.sign(r.t3||0)+Math.sign(r.f5||0)*0.5);
@@ -3973,7 +4062,7 @@ function TrendRadar({ holdings, embedded = false }) {
           const relative=r.stockPct-(indexPct*beta);
           tomorrow[r.symbol]=calcTomorrow({
             pct:r.stockPct,kds:[r.kd15,r.kd60,r.kdDaily],news:r.newsScore,
-            inst,beta,micro:r.micro,relative,range:r.range
+            inst,beta,micro:r.micro,relative,range:r.range,volumePrice:r.volumePrice,breadth,breadthSource
           });
         });
 
@@ -4047,7 +4136,7 @@ function TrendRadar({ holdings, embedded = false }) {
             symbol:r.symbol,name:r.name,probability:r.probability,direction:r.direction,confidence:r.confidence,
             indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,
             kd5:r.kd5,kd15:r.kd15,kd60:r.kd60,kdDaily:r.kdDaily,kdMonthly:r.kdMonthly,
-            micro:r.micro,range:r.range,evidence:r.evidence,quoteFresh:r.quoteFresh,
+            micro:r.micro,range:r.range,volumePrice:r.volumePrice,breadth:r.breadth,breadthSource:r.breadthSource,evidence:r.evidence,quoteFresh:r.quoteFresh,
             f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5,
             closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,
           })),
@@ -4249,7 +4338,7 @@ function TrendRadar({ holdings, embedded = false }) {
         })()}
         {marketRow&&<div className="rounded-xl px-3 py-2" style={{background:COLORS.bg,border:"1px solid "+COLORS.gold}}>
           <div className="flex items-center justify-between"><div className="text-xs font-bold"><UiLabel zh="加權指數" inline /> <span className="font-normal" style={{color:COLORS.sub}}>TAIEX</span></div><div className="text-[10px] font-black mono text-right" style={{color:marketRow.direction.includes("漲")?COLORS.gain:marketRow.direction.includes("跌")?COLORS.loss:COLORS.sub}}><span><UiLabel zh="今日收盤預測" inline /> <UiLabel zh={marketRow.direction} inline /> {marketRow.probability.toFixed(0)}%</span><span className="ml-2" style={{color:tomorrowMap.TAIEX?.direction?.includes("漲")?COLORS.gain:tomorrowMap.TAIEX?.direction?.includes("跌")?COLORS.loss:COLORS.sub}}><UiLabel zh="明日預測" inline /> {tomorrowMap.TAIEX?<><UiLabel zh={tomorrowMap.TAIEX.direction} inline />{" "+tomorrowMap.TAIEX.probability.toFixed(0)+"%"}</>:<UiLabel zh="資料累積中" inline />}</span></div></div>
-          <div className="flex justify-between mt-1 text-[9px]" style={{color:COLORS.sub}}><span><UiLabel zh="目前" inline /> {marketRow.indexPct>=0?"+":""}{marketRow.indexPct.toFixed(2)}%</span><span><UiLabel zh="持股上漲廣度" inline /> {(marketRow.breadth*100).toFixed(0)}%</span><span><UiLabel zh="盤中趨勢" inline /> <UiLabel zh={intradayTrend(marketRow.kd5,marketRow.kd15,marketRow.kd60)} inline /></span></div>
+          <div className="flex justify-between mt-1 text-[9px]" style={{color:COLORS.sub}}><span><UiLabel zh="目前" inline /> {marketRow.indexPct>=0?"+":""}{marketRow.indexPct.toFixed(2)}%</span><span><UiLabel zh={marketRow.breadthSource==="market"?"全市場上漲廣度":"持股上漲廣度"} inline /> {(marketRow.breadth*100).toFixed(0)}%</span><span><UiLabel zh="盤中趨勢" inline /> <UiLabel zh={intradayTrend(marketRow.kd5,marketRow.kd15,marketRow.kd60)} inline /></span></div>
           {detailsOpen&&<div className="mt-1.5 pt-1.5 text-[9px] mono" style={{color:COLORS.sub,borderTop:"1px solid "+COLORS.panelBorder}}>
             <div className="flex justify-between"><span><UiLabel zh="大盤 KD 5分" /></span><span>{kdCell(marketRow.kd5)}</span></div>
             <div className="flex justify-between"><span><UiLabel zh="大盤 KD 15分" /></span><span>{kdCell(marketRow.kd15)}</span></div>
@@ -4288,6 +4377,9 @@ function TrendRadar({ holdings, embedded = false }) {
               <div className="flex justify-between"><span><UiLabel zh="KD 日線" /></span><span>{kdCell(r.kdDaily)}</span></div>
               <div className="flex justify-between"><span><UiLabel zh="KD 月線" /></span><span>{kdCell(r.kdMonthly)}</span></div>
               <div className="flex justify-between"><span><UiLabel zh="隔夜曝險係數（對TAIEX的beta）" /></span><span>{tomorrowMap[r.symbol]?.factors?.beta!=null?tomorrowMap[r.symbol].factors.beta.toFixed(2):"—"}</span></div>
+              <div className="flex justify-between"><span>RVOL</span><span>{r.volumePrice?.rvol!=null?r.volumePrice.rvol.toFixed(2)+"x":"累積中"}</span></div>
+              <div className="flex justify-between"><span>VWAP</span><span>{r.volumePrice?.vwap!=null?Number(r.volumePrice.vwap).toFixed(2)+" ("+(r.volumePrice.distPct>=0?"+":"")+r.volumePrice.distPct.toFixed(2)+"%)":"累積中"}</span></div>
+              <div className="flex justify-between"><span><UiLabel zh={r.breadthSource==="market"?"全市場上漲廣度":"持股上漲廣度"} /></span><span>{(r.breadth*100).toFixed(0)}%</span></div>
             </div>
             {r.flows.length>0&&<div className="mt-1.5 pt-1.5 text-[9px] mono" style={{color:COLORS.sub,borderTop:"1px solid "+COLORS.panelBorder}}>
               <div className="flex justify-between"><span><UiLabel zh="外資 1/3/5日" /></span><span>{flowText(r.f1)} / {flowText(r.f3)} / {flowText(r.f5)}</span></div>
@@ -4305,7 +4397,7 @@ function TrendRadar({ holdings, embedded = false }) {
       {tomorrowAccuracy&&<div className="text-[9px] mt-1 mono" style={{color:COLORS.gold}}>{UI_SHOW_ENGLISH ? `Last ${tomorrowAccuracy.n} validated "tomorrow" forecasts: ${((tomorrowAccuracy.hits/tomorrowAccuracy.n)*100).toFixed(1)}% hit rate (excludes unclear direction; stats only, not a guarantee)` : `近 ${tomorrowAccuracy.n} 次已驗證「明日」預測：方向命中 ${((tomorrowAccuracy.hits/tomorrowAccuracy.n)*100).toFixed(1)}%（已排除方向不明，僅統計，不代表未來）`}</div>}
       <div className="text-[9px] mt-2 leading-relaxed" style={{color:COLORS.sub}}>{UI_SHOW_ENGLISH
         ? <>Institutional: TWSE post-close public data; ETF institutional flow and dealer flow are downweighted to reduce hedging/market-making noise, and the market score now includes the whole-market institutional total. {instStatus==="unavailable"?"Institutional source is temporarily unavailable; the radar falls back to the base model.":"Institutional data is cached for 6 hours."} 5/15/60m KD is built from continuous 15-second quote sampling aggregated into OHLC; daily/monthly KD comes from real historical bars. The tomorrow forecast is driven mainly by overnight signals (TX front-month futures / US equities / SOX / FX); {globalStatus==="unavailable"?"the overnight signal is temporarily unavailable, so tomorrow's forecast falls back to extrapolating today's momentum.":"today's own momentum is only a secondary adjustment."} Each morning's forecast is saved and checked against the same day's close; the tomorrow forecast is checked the next day against its own target trading date, with hit rates tracked separately.</>
-        : <>法人：證交所盤後公開資料；ETF 法人流量降低權重，自營商亦降低權重以減少避險/造市影響，大盤分數已納入全市場法人加總。{instStatus==="unavailable"?"目前法人來源暫不可用，雷達會自動退回原模型。":"法人資料快取6小時。"} 5/15/60分KD由15秒即時報價持續取樣、聚合OHLC後運算；日/月KD取自真實歷史K線。明日預測以台指近月／美股／費半／匯率等隔夜訊號為主，{globalStatus==="unavailable"?"目前隔夜訊號暫不可用，明日預測退回今日動能外推。":"今日動能僅作次要修正。"} 每日上午預測會保存，收盤後自動核對方向；明日預測則以「目標交易日」為準，隔天核對，兩者準確率分開統計。</>}</div>
+        : <>法人：證交所盤後公開資料；ETF 法人流量降低權重，自營商亦降低權重以減少避險/造市影響，大盤分數已納入全市場法人加總。{instStatus==="unavailable"?"目前法人來源暫不可用，雷達會自動退回原模型。":"法人資料快取6小時。"} 5/15/60分KD由15秒即時報價持續取樣、聚合OHLC後運算；日/月KD取自真實歷史K線。模型另納入RVOL相對量能、VWAP位置/斜率與證交所全市場漲跌廣度（同日資料可用時）；來源不足時該因子自動降為0權重。明日預測以台指近月／美股／費半／匯率等隔夜訊號為主，{globalStatus==="unavailable"?"目前隔夜訊號暫不可用，明日預測退回今日動能外推。":"今日動能僅作次要修正。"} 每日上午預測會保存，收盤後自動核對方向；明日預測則以「目標交易日」為準，隔天核對，兩者準確率分開統計。</>}</div>
     </div>
   );
 }
@@ -4367,6 +4459,9 @@ function FactorBacktest() {
     ["KD 60分 (K-D)", (r) => (r.kd?.k60 != null && r.kd?.d60 != null) ? r.kd.k60 - r.kd.d60 : null],
     ["KD 日線 (K-D)", (r) => (r.kd?.kDaily != null && r.kd?.dDaily != null) ? r.kd.kDaily - r.kd.dDaily : null],
     ["KD 月線 (K-D)", (r) => (r.kd?.kMonthly != null && r.kd?.dMonthly != null) ? r.kd.kMonthly - r.kd.dMonthly : null],
+    ["RVOL", (r) => r.volumePrice?.rvol],
+    ["VWAP 距離 %", (r) => r.volumePrice?.distPct],
+    ["市場廣度", (r) => r.breadthSource==="market" ? r.breadth : null],
   ]), []);
 
   const morningFactors = useMemo(() => {
