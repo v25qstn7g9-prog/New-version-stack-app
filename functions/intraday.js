@@ -161,15 +161,13 @@ export async function recordIntradayMinute(env, deps = {}) {
   const sleep = deps.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
   const start = taipei(now);
 
+  // 一次取價就寫。Cron 若在函式裡睡 45 秒，免費方案常在 put 之前被掐掉。
   const samples = Object.fromEntries(symbols.map((s) => [s, []]));
-  for (let i = 0; i < SAMPLES_PER_RUN; i += 1) {
-    if (i > 0) await sleep(SAMPLE_GAP_MS);
-    try {
-      const prices = usablePrices(await fetchQuotes(symbols), start.day);
-      for (const [sym, price] of Object.entries(prices)) if (samples[sym]) samples[sym].push(price);
-    } catch {
-      // 單次取樣失敗不影響其他取樣；整分鐘都失敗就不寫入。
-    }
+  try {
+    const prices = usablePrices(await fetchQuotes(symbols), start.day);
+    for (const [sym, price] of Object.entries(prices)) if (samples[sym]) samples[sym].push(price);
+  } catch {
+    // 取價失敗就不寫入。
   }
 
   const bars = {};
