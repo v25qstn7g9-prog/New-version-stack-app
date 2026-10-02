@@ -23,22 +23,22 @@ const minutes = (from, to) => {
 };
 const seed = (kv, day = '2026-10-01') => kv.data.set(`intraday:${day}`, JSON.stringify({ v: 1, day, bars: { '0056': minutes(540, 810) } }));
 
-test('does not archive before 13:35 (the 13:30 bar may not have propagated yet)', async () => {
+test('does not archive before 13:50 (the 13:45 bar may not have propagated yet)', async () => {
   const kv = fakeKV(); seed(kv);
-  const r = await archiveIntradayDay({ health_kv: kv }, new Date('2026-10-01T05:31:00Z')); // 13:31
+  const r = await archiveIntradayDay({ health_kv: kv }, new Date('2026-10-01T05:49:00Z')); // 13:49
   assert.notEqual(r.archived?.length, 1);
   assert.equal(kv.data.has('intraday5:2026-10-01'), false);
 });
 
-test('archives today from 13:35 with the full session incl. the 13:30 bar', async () => {
+test('archives today from 13:50 with the full session incl. the last bar', async () => {
   const kv = fakeKV(); seed(kv);
-  const r = await archiveIntradayDay({ health_kv: kv }, new Date('2026-10-01T05:35:00Z'));
+  const r = await archiveIntradayDay({ health_kv: kv }, new Date('2026-10-01T05:50:00Z'));
   assert.deepEqual(r.archived, ['0056']);
   const doc = JSON.parse(kv.data.get('intraday5:2026-10-01'));
   assert.equal(doc.bars['0056'].at(-1).time, '13:30');
   assert.equal(kv.puts[0].opts.expirationTtl, 90 * 24 * 3600);
   // 第二次不再寫
-  const again = await archiveIntradayDay({ health_kv: kv }, new Date('2026-10-01T05:36:00Z'));
+  const again = await archiveIntradayDay({ health_kv: kv }, new Date('2026-10-01T05:51:00Z'));
   assert.equal(again.skipped, 'already_archived');
   assert.equal(kv.puts.length, 1);
 });
@@ -60,7 +60,7 @@ test('holiday / weekend: nothing to archive, nothing written', async () => {
 
 test('reading 15-min K from the archive reports minutes in real minutes, not 5-min row counts', async () => {
   const kv = fakeKV(); seed(kv);
-  await archiveIntradayDay({ health_kv: kv }, new Date('2026-10-01T05:35:00Z'));
+  await archiveIntradayDay({ health_kv: kv }, new Date('2026-10-01T05:50:00Z'));
   kv.data.delete('intraday:2026-10-01'); // 1 分 K 已過期，只剩封存
   const r = await readIntradayBars({ health_kv: kv }, { symbols: ['0056'], interval: 15, date: '2026-10-01' }, new Date('2026-10-02T02:00:00Z'));
   assert.equal(r.found, true);

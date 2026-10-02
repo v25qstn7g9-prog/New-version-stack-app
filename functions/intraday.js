@@ -14,11 +14,11 @@
  *   - 每天只有一個 key、每分鐘覆寫一次 → 一個交易日約 271 次寫入（帳號共用的 KV 每日寫入額度有限）
  *   - 36 小時 TTL：只暫存「今天（以及盤後／隔天早上還看得到昨天）」，之後自動消失
  *
- * 只寫在盤中（台北 09:00–13:30、週一到週五）；休市日抓到的報價不是今天的，會被丟掉、不寫入。
+ * 只寫在盤中（台北 09:00–13:45、週一到週五）；休市日抓到的報價不是今天的，會被丟掉、不寫入。
  */
 import { onRequestGet as quoteGet } from "./quote.js";
 
-// 每分鐘一次的盤中 cron（UTC 01:00–05:59 = 台北 09:00–13:59；程式內再收斂到 13:30）。
+// 每分鐘一次的盤中 cron（UTC 01:00–05:59 = 台北 09:00–13:59；程式內再收斂到 13:45）。
 // 星期欄一定要用 MON-FRI：Cloudflare 的數字星期 1 = 週日，寫 1-5 會變成週日到週四、週五不跑。
 // worker.js 用這個字串判斷是哪個 cron 觸發的，wrangler.jsonc 裡必須完全一樣。
 export const INTRADAY_CRON = "* 1-5 * * MON-FRI";
@@ -34,13 +34,13 @@ const ARCHIVE_PREFIX = "intraday5:";
 const TTL_SECONDS = 60 * 60 * 36;
 // 90 個日曆天 ≈ 60 個交易日
 const ARCHIVE_TTL_SECONDS = 90 * 24 * 60 * 60;
-// 收盤後等幾分鐘再封存，讓最後一根 1 分 K（13:30）已寫進 KV 並傳播完成
-const ARCHIVE_AFTER_MINUTE = 13 * 60 + 35;
+// 收盤後等幾分鐘再封存，讓最後一根 1 分 K（13:45）已寫進 KV 並傳播完成
+const ARCHIVE_AFTER_MINUTE = 13 * 60 + 50;
 const ARCHIVE_INTERVAL = 5;
 const SAMPLES_PER_RUN = 4;
 const SAMPLE_GAP_MS = 15 * 1000;
 const OPEN_MINUTE = 9 * 60;
-const CLOSE_MINUTE = 13 * 60 + 30;
+const CLOSE_MINUTE = 13 * 60 + 45;
 const SYMBOL_RE = /^[A-Z0-9]{2,10}$/;
 
 // ── 時間 ────────────────────────────────────────────────
@@ -56,7 +56,7 @@ function taipei(now) {
   };
 }
 
-/** 台北時間週一到週五 09:00–13:30（含）才記錄。 */
+/** 台北時間週一到週五 09:00–13:45（含）才記錄。 */
 export function isRecordingWindow(now = new Date()) {
   const p = taipei(now);
   return p.weekday >= 1 && p.weekday <= 5 && p.minuteOfDay >= OPEN_MINUTE && p.minuteOfDay <= CLOSE_MINUTE;
@@ -202,7 +202,7 @@ export async function recordIntradayMinute(env, deps = {}) {
 export async function archiveIntradayDay(env, now = new Date()) {
   if (!env?.health_kv) return { ok: false, reason: "no_kv" };
   const p = taipei(now);
-  // 13:35 之後封存「今天」；更早（例如每日 08:00 的 cron）封存「前一個日曆日」當保險，
+  // 13:50 之後封存「今天」；更早（例如每日 08:00 的 cron）封存「前一個日曆日」當保險，
   // 休市日沒有 1 分 K，會回 no_intraday。
   const day = p.minuteOfDay >= ARCHIVE_AFTER_MINUTE ? p.day : taipei(new Date(now.getTime() - 24 * 60 * 60 * 1000)).day;
   if (day === p.day && (p.weekday < 1 || p.weekday > 5)) return { ok: true, skipped: "weekend" };

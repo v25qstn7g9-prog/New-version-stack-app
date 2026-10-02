@@ -28,11 +28,12 @@ const q = (price, asOfDate, extra = {}) => ({ price, asOfDate, isStale: false, .
 
 // ── 時間窗 ─────────────────────────────────────────────
 
-test('recording window: Taipei Mon-Fri 09:00-13:30 only', () => {
+test('recording window: Taipei Mon-Fri 09:00-13:45 only', () => {
   assert.equal(isRecordingWindow(new Date('2026-10-01T00:59:00Z')), false); // 08:59
   assert.equal(isRecordingWindow(new Date('2026-10-01T01:00:00Z')), true);  // 09:00
   assert.equal(isRecordingWindow(new Date('2026-10-01T05:30:00Z')), true);  // 13:30
-  assert.equal(isRecordingWindow(new Date('2026-10-01T05:31:00Z')), false); // 13:31
+  assert.equal(isRecordingWindow(new Date('2026-10-01T05:45:00Z')), true);  // 13:45
+  assert.equal(isRecordingWindow(new Date('2026-10-01T05:46:00Z')), false); // 13:46
   assert.equal(isRecordingWindow(new Date('2026-10-03T02:00:00Z')), false); // 週六
   assert.equal(isRecordingWindow(new Date('2026-10-04T02:00:00Z')), false); // 週日
 });
