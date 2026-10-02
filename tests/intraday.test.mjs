@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   INTRADAY_CRON, isRecordingWindow, buildMinuteBar, mergeBar, aggregateBars,
-  usablePrices, recordIntradayMinute, readIntradayBars, intradaySymbols,
+  usablePrices, recordIntradayMinute, readIntradayBars, intradaySymbols, readIntradayHealth,
 } from '../functions/intraday.js';
 import { PREPARED_ASSET_TOOLS } from '../functions/ai-connector-prepared.js';
 import { readFileSync } from 'node:fs';
@@ -197,6 +197,46 @@ test('readIntradayBars: no data → found:false with an explicit reason, never f
 test('readIntradayBars: rejects bad interval and missing KV', async () => {
   assert.equal((await readIntradayBars({ health_kv: fakeKV() }, { interval: 7 })).ok, false);
   assert.equal((await readIntradayBars({}, {})).ok, false);
+});
+
+// ── 健康摘要 ────────────────────────────────────────────
+
+test('readIntradayHealth: healthy when all symbols are current and continuous', async () => {
+  const kv = fakeKV();
+  kv.data.set('intraday:2026-10-01', JSON.stringify({ v: 1, day: '2026-10-01', bars: {
+    '0050': [['09:00', 1,1,1,1,1], ['09:01', 1,1,1,1,1], ['09:02', 1,1,1,1,1]],
+    '0056': [['09:00', 1,1,1,1,1], ['09:01', 1,1,1,1,1], ['09:02', 1,1,1,1,1]],
+    '2330': [['09:00', 1,1,1,1,1], ['09:01', 1,1,1,1,1], ['09:02', 1,1,1,1,1]],
+    TAIEX: [['09:00', 1,1,1,1,1], ['09:01', 1,1,1,1,1], ['09:02', 1,1,1,1,1]],
+  } }));
+  const h = await readIntradayHealth({ health_kv: kv }, new Date('2026-10-01T01:03:00Z')); // 09:03
+  assert.equal(h.status, 'healthy');
+  assert.equal(h.lastMinute, '09:02');
+  assert.equal(h.lagMinutes, 1);
+  assert.equal(h.totalGaps, 0);
+  assert.deepEqual(h.missingSymbols, []);
+  assert.equal(h.symbols['0050'].bars, 3);
+});
+
+test('readIntradayHealth: degraded on gaps, missing symbols or stale collection', async () => {
+  const kv = fakeKV();
+  kv.data.set('intraday:2026-10-01', JSON.stringify({ v: 1, day: '2026-10-01', bars: {
+    '0050': [['09:00', 1,1,1,1,1], ['09:02', 1,1,1,1,1]],
+  } }));
+  const h = await readIntradayHealth({ health_kv: kv }, new Date('2026-10-01T01:10:00Z')); // 09:10
+  assert.equal(h.status, 'degraded');
+  assert.equal(h.lastMinute, '09:02');
+  assert.equal(h.lagMinutes, 8);
+  assert.equal(h.totalGaps, 1);
+  assert.deepEqual(h.missingSymbols, ['0056', '2330', 'TAIEX']);
+});
+
+test('readIntradayHealth: pre-market without data is idle, missing KV is unavailable', async () => {
+  const idle = await readIntradayHealth({ health_kv: fakeKV() }, new Date('2026-10-01T00:30:00Z'));
+  assert.equal(idle.status, 'idle');
+  const unavailable = await readIntradayHealth({}, new Date('2026-10-01T01:10:00Z'));
+  assert.equal(unavailable.ok, false);
+  assert.equal(unavailable.status, 'unavailable');
 });
 
 // ── MCP 工具 ───────────────────────────────────────────
