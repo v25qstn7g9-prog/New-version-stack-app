@@ -108,22 +108,22 @@ test('intradaySymbols: defaults, env override, sanitising', () => {
 
 // ── 寫入 ───────────────────────────────────────────────
 
-test('recordIntradayMinute: 4 samples per minute become one 1-minute bar, one KV write', async () => {
+test('recordIntradayMinute: one quote per run becomes one 1-minute bar, one KV write, no sleeping', async () => {
   const kv = fakeKV();
-  const prices = [56.7, 56.9, 56.5, 56.6];
-  let call = 0; let slept = 0;
+  let calls = 0; let slept = 0;
   const res = await recordIntradayMinute({ health_kv: kv, INTRADAY_SYMBOLS: '0056' }, {
     now: at('2026-10-01T04:13:05Z'), // 12:13
     sleep: async () => { slept += 1; },
-    fetchQuotes: async () => ({ quotes: { '0056': q(prices[call++], '2026-10-01T04:13:00.000Z') } }),
+    fetchQuotes: async () => { calls += 1; return { quotes: { '0056': q(56.7, '2026-10-01T04:13:00.000Z') } }; },
   });
   assert.deepEqual(res, { ok: true, recorded: ['0056'], minute: '12:13' });
-  assert.equal(slept, 3);
+  assert.equal(calls, 1);
+  assert.equal(slept, 0); // cron 內不可 sleep，免費方案會在寫入前被中斷
   assert.equal(kv.puts.length, 1);
   assert.equal(kv.puts[0].k, 'intraday:2026-10-01');
   assert.equal(kv.puts[0].opts.expirationTtl, 60 * 60 * 36);
   const doc = JSON.parse(kv.data.get('intraday:2026-10-01'));
-  assert.deepEqual(doc.bars['0056'], [['12:13', 56.7, 56.9, 56.5, 56.6, 4]]);
+  assert.deepEqual(doc.bars['0056'], [['12:13', 56.7, 56.7, 56.7, 56.7, 1]]);
 });
 
 test('recordIntradayMinute: later minutes append, repeated minute overwrites', async () => {
@@ -154,15 +154,14 @@ test('recordIntradayMinute: skips outside hours, on stale/holiday data, and with
   assert.deepEqual(await recordIntradayMinute({}, { now: at('2026-10-01T04:13:05Z') }), { ok: false, reason: 'no_kv' });
 });
 
-test('recordIntradayMinute: a failing sample does not lose the minute', async () => {
+test('recordIntradayMinute: a failing quote fetch writes nothing and does not throw', async () => {
   const kv = fakeKV();
-  let call = 0;
   const res = await recordIntradayMinute({ health_kv: kv, INTRADAY_SYMBOLS: '0056' }, {
     now: at('2026-10-01T04:13:05Z'), sleep: async () => {},
-    fetchQuotes: async () => { call += 1; if (call % 2) throw new Error('boom'); return { quotes: { '0056': q(56.7, '2026-10-01T04:13:00.000Z') } }; },
+    fetchQuotes: async () => { throw new Error('boom'); },
   });
-  assert.equal(res.ok, true);
-  assert.equal(JSON.parse(kv.data.get('intraday:2026-10-01')).bars['0056'][0][5], 2);
+  assert.deepEqual(res, { ok: true, skipped: 'no_fresh_quotes' });
+  assert.equal(kv.puts.length, 0);
 });
 
 // ── 讀取 ───────────────────────────────────────────────
