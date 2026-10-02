@@ -19,8 +19,9 @@
 import { onRequestGet as quoteGet } from "./quote.js";
 
 // 每分鐘一次的盤中 cron（UTC 01:00–05:59 = 台北 09:00–13:59；程式內再收斂到 13:30）。
+// 星期欄一定要用 MON-FRI：Cloudflare 的數字星期 1 = 週日，寫 1-5 會變成週日到週四、週五不跑。
 // worker.js 用這個字串判斷是哪個 cron 觸發的，wrangler.jsonc 裡必須完全一樣。
-export const INTRADAY_CRON = "* 1-5 * * 1-5";
+export const INTRADAY_CRON = "* 1-5 * * MON-FRI";
 
 export const DEFAULT_INTRADAY_SYMBOLS = ["0050", "0056", "2330", "TAIEX"];
 export const ALLOWED_INTERVALS = [1, 5, 10, 15, 30, 60];
