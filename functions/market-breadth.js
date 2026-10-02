@@ -26,7 +26,11 @@ async function fetchJson(url,timeoutMs=7000){
     return await r.json();
   }finally{clearTimeout(t);}
 }
-function n(v){const x=Number(String(v??"").replace(/[,()%]/g,"").trim());return Number.isFinite(x)?x:null;}
+function n(v){
+  const head=String(v??"").split("(")[0].replace(/,/g,"").trim();
+  const x=Number(head);
+  return Number.isFinite(x)?x:null;
+}
 function parseRows(payload){
   const tables=[];
   const walk=v=>{
@@ -45,9 +49,10 @@ function parseRows(payload){
     let up=null,down=null,flat=null;
     for(const row of rows){
       const label=String(row?.[0]??"");
-      if(label.includes("上漲")) up=n(row[1]);
-      else if(label.includes("下跌")) down=n(row[1]);
-      else if(label.includes("持平")) flat=n(row[1]);
+      const value=row.length>=3?row[2]:row[1]; // prefer "股票" column over whole-market warrants/ETFs
+      if(label.includes("上漲")) up=n(value);
+      else if(label.includes("下跌")) down=n(value);
+      else if(label.includes("持平")) flat=n(value);
     }
     if(up!=null&&down!=null){
       const denom=up+down+(flat||0);
