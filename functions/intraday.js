@@ -258,6 +258,93 @@ function fromArchiveDoc(doc, interval, wanted, limit) {
   return { bars, recorded, missing };
 }
 
+// ── 健康狀態（公開 /api/health 使用；不含價格或持股）────────────────
+
+function continuityStats(rows) {
+  const valid = (Array.isArray(rows) ? rows : []).filter((r) => Array.isArray(r) && Number.isFinite(labelToMinute(r[0])));
+  if (!valid.length) return { bars: 0, firstMinute: null, lastMinute: null, gaps: 0 };
+  const minutes = [...new Set(valid.map((r) => labelToMinute(r[0])))].sort((a, b) => a - b);
+  let gaps = 0;
+  for (let i = 1; i < minutes.length; i += 1) gaps += Math.max(0, minutes[i] - minutes[i - 1] - 1);
+  return {
+    bars: minutes.length,
+    firstMinute: minuteToLabel(minutes[0]),
+    lastMinute: minuteToLabel(minutes[minutes.length - 1]),
+    gaps,
+  };
+}
+
+/**
+ * 回傳分 K 收集器健康摘要。只暴露收集進度與連續性，不包含價格、持股或 token。
+ * 盤中允許 Cron 最多落後 2 分鐘；超過就標記 degraded。
+ */
+export async function readIntradayHealth(env, now = new Date()) {
+  const p = taipei(now);
+  const symbols = intradaySymbols(env);
+  const base = {
+    ok: true,
+    day: p.day,
+    recordingWindow: isRecordingWindow(now),
+    expectedSymbols: symbols,
+    observedAt: now.toISOString(),
+  };
+  if (!env?.health_kv) return { ...base, ok: false, status: "unavailable", reason: "no_kv" };
+
+  let doc = null;
+  try {
+    const raw = await env.health_kv.get(KV_PREFIX + p.day);
+    doc = raw ? JSON.parse(raw) : null;
+  } catch {
+    return { ...base, status: "unavailable", reason: "kv_read_failed" };
+  }
+
+  if (!doc || !doc.bars || typeof doc.bars !== "object") {
+    const idle = p.weekday === 0 || p.weekday === 6 || p.minuteOfDay < OPEN_MINUTE;
+    return {
+      ...base,
+      status: idle ? "idle" : "no_data",
+      lastMinute: null,
+      lagMinutes: null,
+      missingSymbols: symbols,
+      symbols: {},
+    };
+  }
+
+  const symbolStats = {};
+  const missingSymbols = [];
+  let latest = null;
+  let totalGaps = 0;
+  for (const sym of symbols) {
+    const stats = continuityStats(doc.bars[sym]);
+    symbolStats[sym] = stats;
+    if (!stats.bars) missingSymbols.push(sym);
+    if (stats.lastMinute) {
+      const m = labelToMinute(stats.lastMinute);
+      latest = latest == null ? m : Math.max(latest, m);
+    }
+    totalGaps += stats.gaps;
+  }
+
+  const lastMinute = latest == null ? null : minuteToLabel(latest);
+  const referenceMinute = p.minuteOfDay < OPEN_MINUTE
+    ? null
+    : Math.min(p.minuteOfDay, CLOSE_MINUTE);
+  const lagMinutes = latest == null || referenceMinute == null ? null : Math.max(0, referenceMinute - latest);
+  const postClose = p.minuteOfDay > CLOSE_MINUTE;
+  const lagLimit = postClose ? 2 : 2;
+  const degraded = missingSymbols.length > 0 || (lagMinutes != null && lagMinutes > lagLimit) || totalGaps > 0;
+
+  return {
+    ...base,
+    status: degraded ? "degraded" : "healthy",
+    lastMinute,
+    lagMinutes,
+    totalGaps,
+    missingSymbols,
+    symbols: symbolStats,
+  };
+}
+
 // ── 讀取（MCP 工具 intraday_bars）────────────────────────────
 
 export async function readIntradayBars(env, args = {}, now = new Date()) {
