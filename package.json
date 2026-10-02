@@ -10,6 +10,7 @@
     "deploy": "wrangler deploy",
     "deploy:prod": "wrangler deploy --env production",
     "deploy:backup": "cd fallback-vercel && vercel --prod && cd ..",
+    "sync:fallback": "node scripts/sync-fallback.mjs",
     "check:version": "node scripts/check-versions.js",
     "kv:list": "wrangler kv:namespace list",
     "kv:create": "wrangler kv:namespace create health_kv",

@@ -1,5 +1,5 @@
 /**
- * ask.js — 4.6-ask-free-21.4-gemini35-stable-tools
+ * ask.js — 4.7-personal-advisor-v2.29.1-gemini36-direct-fallback
  *
  * POST /ask
  * body: {
@@ -9,17 +9,91 @@
  * }
  * 回傳: { ok: true, reply } 或 { ok: true, toolCalls: [{ name, arguments }] }
  *
- * 這份檔案是從 Cloudflare 主 AI 邏輯複製出的共用核心。
- * 在 Vercel 端，api/ask.js 會提供一個相容的 env.AI.run()，實際轉送到 Google Gemini。
+ * Cloudflare AI Binding：Variable name = AI
+ * Cloudflare 為主模型；Cloudflare 失敗時由同一個 Worker 直接切 Gemini 3.6 Flash。
+ * 舊 fallback-vercel 仍保留作最後一道相容備援。
  */
-const ASK_VERSION = "4.7-personal-advisor-v3.1-polished-analysis";
-const MODEL = "@cf/openai/gpt-oss-120b";
-const MAX_HISTORY_TURNS = 6; // 再縮一點省輸入 token
+const ASK_VERSION = "4.7-personal-advisor-v3.2-bounded-learning";
+const GEMINI_MODEL_DEFAULT = "gemini-3.6-flash";
+const GEMINI_MAX_OUTPUT_TOKENS = 1000;
+const LIGHT_MODEL = "@cf/zai-org/glm-4.7-flash";
+const HEAVY_MODEL = "@cf/openai/gpt-oss-20b";
+
+function chooseAssetModel(message = "", contextText = "", toolTurns = [], forceAnswer = false) {
+  const question = String(message || "");
+  const complex = /(完整分析|綜合分析|比較|趨勢|歷史|為什麼|原因|風險|情境|規劃|預測|模型|驗證|關聯|法人|新聞|台指|隔夜|跨期|月總結|年度|全部紀錄)/i.test(question);
+  const multiStep = Array.isArray(toolTurns) && toolTurns.length > 0;
+  const veryLargeContext = String(contextText || "").length > 16000;
+  return (complex || multiStep || veryLargeContext) ? HEAVY_MODEL : LIGHT_MODEL;
+}
+const MAX_HISTORY_TURNS = 6;
 const MAX_MESSAGE_LEN = 2000;
 const MAX_HISTORY_CONTENT = 3000;
 const MAX_CONTEXT_LEN = 12000;
 const MAX_TOKENS = 1000;
-const MAX_SERVER_SEARCH_ROUNDS = 2; // 網路搜尋在伺服器端自動來回幾輪，避免無限查詢
+const MAX_BODY_BYTES = 64 * 1024;
+const MAX_SERVER_SEARCH_ROUNDS = 2;
+const primaryCooldown = new WeakMap();
+const PRIMARY_AI_TIMEOUT_MS = 30000;
+const GEMINI_AI_TIMEOUT_MS = 25000;
+
+async function withTimeout(promise, ms, label) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} 逾時（超過 ${Math.round(ms / 1000)} 秒未回應）`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+const ASK_CACHE_TTL_MS = 5 * 60 * 1000;
+const ASK_CACHE = new Map();
+
+function normalizeAskCacheHistory(history) {
+  if (!Array.isArray(history)) return [];
+  return history
+    .slice(-2)
+    .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
+    .map((m) => ({ role: m.role, content: m.content.slice(0, 300).trim() }));
+}
+
+function buildAskCacheKey(message, history, contextText, toolTurns) {
+  const safeMessage = String(message || "").trim();
+  const normalizedHistory = normalizeAskCacheHistory(history);
+  const safeContextFlag = typeof contextText === "string" && contextText.trim() ? "private-context" : "no-context";
+  const toolCount = Array.isArray(toolTurns) ? toolTurns.length : 0;
+  return JSON.stringify({
+    message: safeMessage.slice(0, 500),
+    history: normalizedHistory,
+    context: safeContextFlag,
+    toolTurns: toolCount,
+  });
+}
+
+function readAskCache(key) {
+  if (!key) return null;
+  const hit = ASK_CACHE.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.timestamp > ASK_CACHE_TTL_MS) {
+    ASK_CACHE.delete(key);
+    return null;
+  }
+  return hit.value;
+}
+
+function writeAskCache(key, value) {
+  if (!key || !value || typeof value !== "object") return;
+  ASK_CACHE.set(key, { value, timestamp: Date.now() });
+  if (ASK_CACHE.size > 200) {
+    const oldestKey = ASK_CACHE.keys().next().value;
+    if (oldestKey) ASK_CACHE.delete(oldestKey);
+  }
+}
 
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -27,16 +101,18 @@ function jsonResponse(data, status = 200) {
     headers: {
       "content-type": "application/json; charset=utf-8",
       "cache-control": "no-store, no-cache, must-revalidate",
+      "x-content-type-options": "nosniff",
+      "referrer-policy": "same-origin",
     },
   });
 }
 
-// 呼叫 Tavily 網路搜尋 API。apiKey 沒設定就直接回錯誤字串，不會讓整個請求掛掉。
 async function callTavily(apiKey, query) {
-  if (!apiKey) return "（Vercel 備援尚未設定 TAVILY_API_KEY，暫時不能執行網路搜尋。）";
+  if (!apiKey) return "（尚未設定網路搜尋功能，請提醒使用者到 Cloudflare 加上 TAVILY_API_KEY。）";
   try {
     const res = await fetch("https://api.tavily.com/search", {
       method: "POST",
+      signal: AbortSignal.timeout(6000),
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         api_key: apiKey,
@@ -46,7 +122,10 @@ async function callTavily(apiKey, query) {
       }),
     });
     const data = await res.json().catch(() => null);
-    if (!res.ok || !data) return `網路搜尋失敗（HTTP ${res.status}）`;
+    if (!res.ok || !data) {
+      const detail = data?.detail?.error || data?.error || data?.message || "";
+      return `網路搜尋失敗（HTTP ${res.status}${detail ? `：${detail}` : ""}）`;
+    }
     const results = Array.isArray(data.results) ? data.results.slice(0, 5) : [];
     const lines = results.map(
       (r) => `- ${r.title || "（無標題）"}：${String(r.content || "").slice(0, 200)}（來源：${r.url}）`
@@ -58,113 +137,26 @@ async function callTavily(apiKey, query) {
   }
 }
 
-const SYSTEM_PROMPT_BASE = `你是內嵌在這個 App 裡的「使用者專用投資顧問助手」，用繁體中文回答。
+const SYSTEM_PROMPT_BASE = `你是內嵌在這個 App 裡的「存股助手 AI」，用繁體中文回答。
 
-你的任務不是泛泛而談的財經聊天，而是以 App 裡「目前持股、成本、交易、配息、資產歷史、目標與計畫」為第一級資料來源，協助使用者做個人化的投資決策分析與日常理財管理。
+你是 App 的資料解讀層，不是另一套自行猜測的投資模型。回答任何與使用者資產、持股、設定、雷達或即時行情有關的問題時：
+1. App 內已計算的資料與 Trend Radar 結果是第一級事實來源；不要自行重算出一套互相衝突的機率。
+2. 若目前 context 不足，優先呼叫 get_app_snapshot、query_app_data 或 get_live_quotes，再回答；不要猜數字。
+3. 清楚區分「App 實際資料」「雷達模型輸出」「你的解釋/推論」。
+4. 雷達機率只代表模型訊號強弱，不是保證；不得把 58% 說成一定會漲。
+5. 對歷史資產、交易、配息等精確數字，使用工具結果，不憑記憶或自行估算。
+6. 使用者要求修改資料時才呼叫寫入工具；唯讀查詢可直接使用。
+7. 回答以簡潔、可操作、能解釋因子衝突為優先。若訊號互相矛盾，要直接指出哪些因子正向、哪些負向。
+8. 嚴格忠於 App 快照：快照沒有的因子不要自行補充。尤其不要把「基本面」「長期趨勢權重較高」「利率環境」等沒有出現在資料裡的內容說成模型已使用。
+9. 面向一般使用者時，把內部欄位翻成自然語言：newsScore=4 說成「新聞訊號偏正向」、inst=2.5 說成「法人訊號偏正向」、overnight=1.88 說成「隔夜訊號偏多」。只有使用者要求看原始數值時才列內部欄位。
+10. 不給「加碼、減碼、增倉、停損」等交易指示。可以改成「觀察重點」「可能改變判斷的條件」「目前模型偏向」。
+11. 若回答涉及 Trend Radar，先講結論，再講 2–4 個真正有進模型或快照的主要因子，最後補一句風險/限制。手機畫面優先，避免長篇報告。
+12. 不要輸出 Markdown 表格、HTML <br>、### 標題、**粗體**等排版符號；請用短段落與「•」項目即可。
+13. 時間要說清楚：收盤後讀到盤中/收盤快照時，稱為「今日收盤快照」或「最近一次雷達快照」，不要讓人誤以為是夜間即時股價。
+14. 若使用者問「明天會不會漲」，回答必須寫成「目前模型偏漲/偏跌/方向不明 + 機率」，並明確說這是模型訊號，不是保證。
+15. 若 context 內出現「Asset AI Learning」，它只代表使用者在本機累積的互動偏好（常問主題、常提持股、回答篇幅偏好）。它可以影響你先講什麼、怎麼排序與解釋，但絕對不是市場證據，不得因此改寫持股、成本、行情、Trend Radar 機率、模型驗證或任何交易資料。
 
-【專用顧問模式】
-- 把使用者視為唯一服務對象；回答投資問題時，優先結合他的 App 實際資料，而不是給一般網友式的制式答案。
-- 使用者問「我現在怎麼看、要不要調整、這樣配置有什麼問題、如果繼續這樣做會怎樣」時，可以直接做個人化分析：現況 → 數據 → 可能情境 → 風險 → 可選做法。
-- 可以提出「可考慮的做法」與不同情境的利弊，但不要替使用者下單、承諾報酬或把推論說成確定結果。
-- 任何涉及買進、賣出、修改持股或目標的實際動作，都必須先說明依據與影響；真正寫入 App 仍必須透過工具並由使用者確認。
-- 不要因為「你是專用顧問」就假裝知道使用者沒有提供或 App 沒有保存的資料。
-- 若使用者問的是市場最新狀況、個股今日漲跌原因、即時價格，先取得最新資料再分析；不要用記憶中的舊資料冒充即時資訊。
-
-個性：像認識很久的朋友，但分析投資時要像嚴謹的私人研究助理，不是客服，也不是只會背免責聲明的投資工具人。
-
-使用者純聊天、開玩笑、問候、閒扯（沒有問任何跟持股/金額/交易有關的事）時：
-- 針對他講的「那件事本身」真的接話、給意見、問問題、開玩笑——把它當一件值得聊的事，不是話題跳板
-- 錯誤示範（不要這樣做）：使用者說「今天下了一整天的雨」，你回「這種天氣最適合泡杯熱茶順手檢查一下投資狀況」——
-  這是硬拗回投資，很尷尬。正確做法是單純聊天氣本身：會不會冷、要不要帶傘、討厭雨天還是喜歡，就這樣
-- 絕對不要在結尾加「若有投資問題歡迎詢問」「隨時跟我說～」「有什麼想聊的/想查的都可以說」這類收尾句，
-  不管有沒有加表情符號都算
-- 不要主動把任何話題（天氣、心情、時事）跟投資/資產/查詢綁在一起，除非使用者自己先提到
-
-只要使用者的話牽涉到「金額、股數、報酬率」這類實際數字，或要求記交易、改目標，
-才切回精準模式：嚴謹、不含糊、一切以下面規則為準。
-
-【最重要】不要編造數字。只能使用「目前持股資料」或 query_app_data 回傳的數字。
-資料不足就說「這個我這邊看不到資料」，不要硬湊。
-
-使用者可能閒聊、問持股（賺多少、達標進度），或要求執行動作（記交易、改目標股數、改均價、改總目標）。
-執行動作必須用工具（function calling），你無法直接改資料；App 會顯示確認卡，使用者按確定才生效。
-資訊不夠（缺股數、價格等）先用文字問清楚，不要瞎猜後呼叫工具。
-
-query_app_data 跟 get_live_quotes 都是唯讀查詢，可直接呼叫，不用確認卡。系統會把查詢結果以正式的工具回覆（tool 訊息）交給你，
-收到工具回覆後就代表查詢已完成，直接根據內容用文字回答，不要再次呼叫同一個查詢。
-【重要】query_app_data 只有「歷史紀錄」（過去存進資料庫的每日市值、成本、交易、配息），沒有現在的股價。
-使用者問「現在/今天股價多少」「收盤價」「幫我算現在市值」這類問題，要用 get_live_quotes 查即時報價，
-不要用 query_app_data，也不要說自己查不到——這兩個工具合起來才是完整的查詢能力。
-【重要】彙總結果都已由程式算好，不要自己對 records 明細手動加減比較。
-- 現在持股成本：看摘要即可
-- 過去某日成本：source=holding_cost + symbol + asOfDate
-- A→B 變化量：source=daily_records, aggregation=start_end, fromDate/toDate（跟區間長短無關，
-  橫跨數月也一樣一次查完，不要覺得範圍大就遲疑或改用別的方式）
-- 某日絕對本金/市值：aggregation=summary，填 toDate（或同一天）
-- 哪個月漲跌最多：aggregation=min_max
-- 月度趨勢：aggregation=monthly；明細才用 records
-- 交易/配息：source=trades 或 dividends；統計用 summary，列表用 records
-- 個股／ETF 的現在股價、今日最新價、個別持股現在市值：get_live_quotes
-- 台股大盤／加權指數／TAIEX／美股大盤指數的點數與收盤：web_search（get_live_quotes 不查大盤指數）
-- 一般新聞/時事/公開資訊/你內建知識不確定的事：web_search（不要拿來查使用者自己的持股資料；特定個股即時價優先 get_live_quotes）
-
-【市場分析規範】
-1. 「今天」一律以台灣時間（UTC+8）為準。
-2. 優先使用最新新聞、官方資料及最新市場數據。
-3. 前一交易日資料必須明確標示「昨日收盤」或「前一交易日」，不可稱為今天。
-4. 已查證的事實與 AI 推論必須分開。
-5. 每一個被列為「主要原因」的因素，都必須同時具備：
-   （A）事件：有明確、可查證的近期事件、新聞或官方資訊；
-   （B）數據：有與該事件或市場反應相關的最新市場數據；
-   （C）關聯：能合理說明該事件與今日市場價格變動之間的可能關聯。
-6. 「事件＋數據＋關聯」三者缺一不可。
-   如果只有新聞事件、沒有相關市場數據，不得直接列為「主要原因」。
-   如果只有市場下跌數據、沒有能支持原因的事件資料，不得自行推測原因。
-   如果事件與數據存在，但兩者與今日股價變動的因果關係無法合理建立，必須標示為「可能影響因素」，不得直接稱為「主要原因」。
-7. 「關聯」必須區分「已查證事實」與「AI 推論」：
-   - 已查證事實：來源明確報導或官方資料直接支持的內容。
-   - AI 推論：根據已查證事件與市場數據所做的合理推論。
-   AI 推論不得寫成已確認的因果關係。避免使用「就是因為」、「造成今天下跌」、「主因就是」等過度確定的語句，除非可靠資料明確支持該因果關係。
-8. 分析今日台股時，至少應優先查找：
-   - 今日最新新聞與重大市場事件
-   - 今日台股指數、成交量及漲跌幅
-   - 外資、投信、自營商等三大法人買賣超（若資料已公布）
-   - 相關產業、個股或 ETF 的最新價格與成交資訊
-   - 與事件直接相關的國際市場數據，例如美股、亞洲主要股市、美元、國債殖利率、原油等（僅在與分析主題有關時使用）
-9. 「獲利了結」、「技術面壓力」、「市場恐慌」、「投資人避險」、「資金撤出」等市場常見說法，都必須有資料支持才能使用。不得因為這些說法常見，就自行將它們當成今日市場下跌的原因。
-10. 「升息擔憂」、「降息預期」、「外資撤出」、「法人調節」、「地緣政治風險」等因素，也必須提供具體資料或可靠來源支持。例如涉及央行利率預期時，若沒有可靠的市場定價或官方資訊，不得自行宣稱「市場預期將升息／降息」。
-11. 「9月魔咒」、「財報季效應」、「季節性行情」等概括性市場說法，除非有當期可靠統計資料明確支持，否則不得列為今日市場下跌或上漲的原因。
-12. 如果資料不足以確認原因，必須直接說：「目前沒有足夠資料確認這是今日市場變動的主要原因。」不得為了讓答案完整而自行補充推測性原因。
-13. 回答主要原因時，優先使用以下結構：
-   【主要原因】
-   事件：說明發生了什麼，以及事件日期。
-   數據：列出與事件或市場反應相關的最新數據。
-   關聯：說明事件可能如何影響市場，並明確標示這部分屬於「AI 推論」。
-   證據來源：列出支持該原因的可靠來源。
-14. 如果無法同時取得「事件＋數據＋關聯」，就不要把該因素列入「主要原因」。可以放在「其他可能影響因素」中，但必須明確標示「資料不足，尚無法確認」。
-15. 所有市場分析都應遵循以下優先順序：
-   已查證事件 → 最新市場數據 → 事件與數據之間的關聯 → AI 推論 → 結論
-   不得反過來先猜原因，再尋找資料替猜測背書。
-16. 如果執行了 web_search，應優先使用搜尋結果中的最新資料與來源，不得以模型記憶中的舊資訊取代最新搜尋結果。
-17. 如果搜尋結果彼此矛盾，必須指出資料存在差異，並優先採用較新、較可靠的一手來源；不得自行選擇一個結果而不說明。
-18. 最終回答中，應盡可能讓使用者清楚區分：【已查證】、【市場數據】、【AI 推論】、【尚無法確認】。
-
-核心原則：
-「沒有事件證據，不下原因結論；沒有市場數據，不下主要原因結論；沒有合理關聯，不把相關事件說成原因。」
-
-【App Brain 回答風格】
-- Trend Radar / App 快照是事實層；不要自行補不存在的因子。快照沒寫基本面、利率或其他資料，就不要說模型有使用。
-- 對一般使用者，把 newsScore / inst / overnight 等內部變數翻成自然語言；除非被要求，不要顯示變數名稱。
-- 不給加碼、減碼、增倉、停損等交易指示，改成「觀察重點」「可能改變判斷的條件」。
-- 問明日方向時：先說「目前模型偏漲/偏跌/方向不明 + 機率」，再列 2–4 個快照內真正存在的因子，最後說明這不是保證。
-- 手機小視窗優先：短段落、少量「•」項目；禁止 Markdown 表格、HTML <br>、###、**粗體**等符號。
-- 收盤後引用盤中/收盤資料時，要稱「今日收盤快照」或「最近一次雷達快照」，不要稱夜間即時資料。
-
-【工具節奏】一次只選一類工具。若同一題同時需要 web_search 與 App 私人資料，先完成 web_search，收到結果後再決定是否需要 query_app_data / get_live_quotes；不要在同一個回覆同時呼叫 web_search 和其他工具。
-同一問題最多查 2 次；不確定「變化量還是絕對值」就直接問使用者。
-
-手機小視窗：回答簡潔。可結合最近對話理解省略句。
-你是 AI 投資顧問助手，不是持牌證券／投顧人員；因此可以做基於資料的個人化分析、情境比較與風險說明，但不要保證獲利，也不要在沒有充分資料時直接指示「一定要買／一定要賣」。`;
+你的任務不是泛泛而談的財經聊天，而是把 App 裡的「持股、成本、交易、配息、每日資產、計畫設定、即時行情、KD、法人、新聞、台指近月、隔夜訊號、Trend Radar、模型驗證」整合成可理解的個人化分析。`;
 
 const WEEKDAY_ZH = ["日", "一", "二", "三", "四", "五", "六"];
 
@@ -257,15 +249,11 @@ const TOOLS = [
     type: "function",
     function: {
       name: "query_app_data",
-      description: "唯讀查詢總入口。需要 App 內歷史數字時主動使用並一次選對 source + aggregation：區間變化用 daily_records+start_end；單日絕對值用 daily_records+summary；月趨勢用 daily_records+monthly；極值用 daily_records+min_max；交易/配息統計用 trades/dividends+summary；列表才用 records；過去持有成本用 holding_cost。",
+      description: "唯讀查詢總入口。",
       parameters: {
         type: "object",
         properties: {
-          source: {
-            type: "string",
-            enum: ["daily_records", "trades", "dividends", "holding_cost"],
-            description: "資料來源",
-          },
+          source: { type: "string", enum: ["daily_records", "trades", "dividends", "holding_cost"], description: "資料來源" },
           fromDate: { type: "string", description: "起始 YYYY-MM-DD" },
           toDate: { type: "string", description: "結束 YYYY-MM-DD" },
           asOfDate: { type: "string", description: "holding_cost：計算到此日（含）" },
@@ -277,10 +265,7 @@ const TOOLS = [
           },
           fields: {
             type: "array",
-            items: {
-              type: "string",
-              enum: ["totalAsset", "totalCost", "totalGain", "twValue", "usValue", "twCost", "usCost", "twGain", "usGain"],
-            },
+            items: { type: "string", enum: ["totalAsset", "totalCost", "totalGain", "twValue", "usValue", "twCost", "usCost", "twGain", "usGain"] },
             description: "關注欄位；min_max 用第一個當比較鍵，預設 totalGain",
           },
           limit: { type: "number", description: "records 最多筆數，預設 120，上限 200" },
@@ -293,20 +278,24 @@ const TOOLS = [
     type: "function",
     function: {
       name: "get_app_snapshot",
-      description: "讀取 App 最新完整狀態摘要，包括持股/設定、即時行情、Trend Radar 今日/明日、KD/法人/新聞、台指近月與隔夜訊號、模型驗證。當使用者問 App 現況、預測原因或全部設定時優先使用。",
+      description: "讀取 App 最新完整狀態摘要，包括持股/計畫設定、即時行情、Trend Radar 今日/明日預測、KD/法人/新聞狀態、台指近月與隔夜訊號、模型驗證。當使用者問『我的 App 現在怎麼判斷』『為什麼預測這樣』『讀全部設定』時優先用這個工具。",
       parameters: {
         type: "object",
         properties: {
-          section: { type: "string", enum: ["all","portfolio","settings","market","radar","validation"], description: "要讀的區段；不確定時用 all" }
-        }
-      }
-    }
+          section: {
+            type: "string",
+            enum: ["all", "portfolio", "settings", "market", "radar", "validation"],
+            description: "要讀的區段；不確定時用 all",
+          },
+        },
+      },
+    },
   },
   {
     type: "function",
     function: {
       name: "get_live_quotes",
-      description: "查詢特定股票／ETF 的即時／今日最新股價（來自證交所即時報價，不是歷史紀錄）。使用者問某檔股票『現在/今天股價多少』『收盤價是多少』『幫我算現在市值』時用這個。不要用它查台股加權指數／TAIEX／大盤點數，那種公開指數資料請用 web_search；也不要跟 query_app_data 搞混——query_app_data 只有 App 歷史紀錄。",
+      description: "查詢特定股票／ETF 的即時／今日最新股價。",
       parameters: {
         type: "object",
         properties: {
@@ -323,7 +312,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "web_search",
-      description: "上網搜尋一般性、公開的最新資訊（新聞、時事、你內建知識不確定或太新的事）。只在使用者問的不是他自己的持股/資產資料、也不是股價時才用這個；自己的資料用 query_app_data，股價用 get_live_quotes，不要優先用網路搜尋去查這兩種資料，因為搜尋結果可能不準或跟 App 資料對不起來。",
+      description: "上網搜尋一般性、公開的最新資訊。",
       parameters: {
         type: "object",
         properties: {
@@ -333,7 +322,7 @@ const TOOLS = [
       },
     },
   },
- ];
+];
 
 const ALLOWED_TOOL_NAMES = new Set([
   "add_trade",
@@ -346,58 +335,264 @@ const ALLOWED_TOOL_NAMES = new Set([
   "web_search",
 ]);
 
+function geminiTypeSchema(schema) {
+  if (!schema || typeof schema !== "object") return schema;
+  const out = { ...schema };
+  if (typeof out.type === "string") out.type = out.type.toUpperCase();
+  if (out.properties && typeof out.properties === "object") {
+    out.properties = Object.fromEntries(Object.entries(out.properties).map(([k, v]) => [k, geminiTypeSchema(v)]));
+  }
+  if (out.items) out.items = geminiTypeSchema(out.items);
+  return out;
+}
+
+function geminiFunctionDeclarations(tools = TOOLS) {
+  return tools
+    .filter((t) => t?.type === "function" && t?.function?.name)
+    .map((t) => ({
+      name: t.function.name,
+      description: t.function.description || "",
+      parameters: geminiTypeSchema(t.function.parameters || { type: "OBJECT", properties: {} }),
+    }));
+}
+
+function parseGeminiParts(data) {
+  const parts = data?.candidates?.[0]?.content?.parts;
+  return Array.isArray(parts) ? parts : [];
+}
+
+function parseGeminiToolCalls(data) {
+  const calls = [];
+  for (const [idx, part] of parseGeminiParts(data).entries()) {
+    const fc = part?.functionCall;
+    if (!fc?.name || !ALLOWED_TOOL_NAMES.has(fc.name)) continue;
+    calls.push({
+      id: String(fc.id || `gemini_call_${idx}_${Date.now()}`),
+      name: fc.name,
+      arguments: fc.args && typeof fc.args === "object" ? fc.args : {},
+      ...(part.thoughtSignature ? { _geminiThoughtSignature: part.thoughtSignature } : {}),
+    });
+  }
+  return calls;
+}
+
+function geminiText(data) {
+  return parseGeminiParts(data)
+    .map((p) => (typeof p?.text === "string" ? p.text : ""))
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+async function callGemini(env, contents, systemInstruction, tools = true, options = {}) {
+  const apiKey = String(env?.GEMINI_API_KEY || "").trim();
+  if (!apiKey) throw new Error("Gemini 備援未設定 GEMINI_API_KEY");
+  const configuredModel = String(env?.GEMINI_MODEL || "").trim();
+  const model = (!configuredModel || /^gemini-(?:2|3\.5)(?:\.|-|$)/i.test(configuredModel)) ? GEMINI_MODEL_DEFAULT : configuredModel;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+  const body = {
+    systemInstruction: { parts: [{ text: systemInstruction }] },
+    contents,
+    generationConfig: {
+      maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS,
+      thinkingConfig: { thinkingLevel: "minimal" },
+    },
+  };
+  if (tools) {
+    body.tools = [{ functionDeclarations: geminiFunctionDeclarations(TOOLS) }];
+  }
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(GEMINI_AI_TIMEOUT_MS),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !data) {
+    const detail = String(data?.error?.message || data?.error?.status || `HTTP ${res.status}`);
+    const locationBlocked = res.status === 400 && /location is not supported|unsupported.*location/i.test(detail);
+    if (locationBlocked && options.allowLocationRetry !== false) {
+      // Cloudflare egress can occasionally be classified by Google as an unsupported API location.
+      // Retry once; the request is idempotent and this avoids turning a transient egress issue into an app failure.
+      await new Promise(resolve => setTimeout(resolve, 900));
+      return callGemini(env, contents, systemInstruction, tools, { ...options, allowLocationRetry: false });
+    }
+    throw new Error(`Gemini ${detail}`);
+  }
+  return { data, model };
+}
+
+function buildGeminiContents(history, message, toolTurns = []) {
+  const contents = [];
+  for (const m of history || []) {
+    const role = m?.role === "assistant" ? "model" : "user";
+    const text = String(m?.content || "").slice(0, MAX_HISTORY_CONTENT);
+    if (text) contents.push({ role, parts: [{ text }] });
+  }
+
+  // IMPORTANT: toolTurns can originate from Cloudflare GPT-OSS, not Gemini.
+  // Gemini 3.x requires a model-generated thought_signature when replaying
+  // functionCall parts. Cloudflare-originated tool calls do not have that
+  // signature, so replaying them as functionCall/functionResponse causes HTTP 400.
+  // Feed already-resolved local App tool results back to Gemini as plain text
+  // evidence instead. Gemini's own tool calls created later in this request still
+  // use native functionCall parts and preserve their thought signatures.
+  for (const turn of toolTurns || []) {
+    const calls = Array.isArray(turn?.calls) ? turn.calls : [];
+    const results = Array.isArray(turn?.results) ? turn.results : [];
+    if (!results.length) continue;
+    const callNames = new Map(calls.map((tc) => [String(tc?.id || ""), String(tc?.name || "app_tool")]));
+    const blocks = results.map((tr, idx) => {
+      const name = String(tr?.name || callNames.get(String(tr?.id || "")) || calls[idx]?.name || "app_tool");
+      return `【App 工具結果：${name}】\n${String(tr?.content || "").slice(0, MAX_CONTEXT_LEN)}`;
+    });
+    contents.push({ role: "user", parts: [{ text: blocks.join("\n\n") }] });
+  }
+
+  contents.push({ role: "user", parts: [{ text: message }] });
+  return contents;
+}
+
+async function runGeminiFallback(env, { message, history, contextText, toolTurns, allowPrivate = false, forceAnswer = false }) {
+  const allowPrivateByEnv = String(env?.GEMINI_ALLOW_PRIVATE_CONTEXT || "false").toLowerCase() === "true";
+  allowPrivate = allowPrivate === true || allowPrivateByEnv;
+  if (!allowPrivate && toolTurns.some(turn =>
+    (turn.calls || []).some(tc => ["query_app_data", "get_app_snapshot"].includes(tc.name)))) {
+    throw new Error("私人資產工具結果未授權傳送至 Gemini，請先開啟私人資料授權");
+  }
+  const safeContext = allowPrivate ? contextText : "";
+  const dateLine = `現在的日期時間是：${taiwanNowLabel()}。問「今天」「現在」「幾天後」以此為準。`;
+  const finalizeLine = forceAnswer ? "\n\n【系統】工具資料已經取得完成。現在必須直接用既有資料回答使用者，不要再次呼叫任何工具。" : "";
+  const systemPrompt = safeContext
+    ? `${SYSTEM_PROMPT_BASE}\n\n${dateLine}\n\n目前持股資料：\n${safeContext}${finalizeLine}`
+    : `${SYSTEM_PROMPT_BASE}\n\n${dateLine}\n\n這是 Cloudflare 主 AI 的 Gemini 備援。若問題需要私人資產資料但目前沒有提供持股 context，不要猜數字，改用 query_app_data / get_live_quotes 等工具。${finalizeLine}`;
+
+  let contents = buildGeminiContents(history, message, toolTurns);
+  let searchRounds = 0;
+  while (true) {
+    let geminiResult;
+    try {
+      geminiResult = await callGemini(env, contents, systemPrompt, !forceAnswer);
+    } catch (e) {
+      if (!/502|503|high demand|temporar|overload/i.test(String(e?.message || e))) throw e;
+      await new Promise(resolve => setTimeout(resolve, 900));
+      geminiResult = await callGemini(env, contents, systemPrompt, !forceAnswer);
+    }
+    const { data, model } = geminiResult;
+    const toolCalls = parseGeminiToolCalls(data);
+    if (toolCalls.length > 0 && toolCalls.every((tc) => tc.name === "web_search") && searchRounds < MAX_SERVER_SEARCH_ROUNDS) {
+      const modelParts = parseGeminiParts(data).filter((p) => p?.functionCall || p?.text);
+      contents.push({ role: "model", parts: modelParts });
+      const responseParts = [];
+      for (const tc of toolCalls) {
+        const content = await callTavily(env.TAVILY_API_KEY, tc.arguments?.query);
+        responseParts.push({ functionResponse: { name: tc.name, ...(tc?.id ? { id: String(tc.id) } : {}), response: { result: content.slice(0, MAX_CONTEXT_LEN) } } });
+      }
+      contents.push({ role: "user", parts: responseParts });
+      searchRounds += 1;
+      continue;
+    }
+    if (toolCalls.length > 0) {
+      return { provider: "gemini-direct-fallback", model, toolCalls };
+    }
+    const reply = geminiText(data);
+    if (!reply) throw new Error("Gemini 沒有回傳文字內容");
+    return { provider: "gemini-direct-fallback", model, reply };
+  }
+}
+
 function friendlyAiError(message) {
   const s = String(message || "");
-  if (/neuron|quota|limit|daily|exceeded|usage/i.test(s)) {
-    return "今日 AI 免費額度可能已用完，等額度重置後再試。";
+  if (/429|resource_exhausted|quota exceeded|quota.*exceed|rate.?limit/i.test(s)) {
+    return "AI 服務目前達到額度或速率限制，請稍後再試。";
   }
-  if (/unauthorized|forbidden|401|403/i.test(s)) {
-    return "AI 服務授權失敗，請檢查 Cloudflare 設定。";
+  if (/timeout|timed out|逾時|abort/i.test(s)) {
+    return "AI 服務回應逾時，請稍後再試。";
+  }
+  if (/unauthorized|forbidden|401|403|api.?key/i.test(s)) {
+    return "AI 服務授權失敗，請檢查服務金鑰或 Cloudflare 設定。";
   }
   if (/binding|AI binding|env\.AI/i.test(s)) {
     return "尚未設定 Cloudflare AI Binding（Variable name: AI）。";
   }
-  return s || "ask function failed";
+  if (/沒有回傳文字內容|empty response/i.test(s)) {
+    return "AI 服務有回應，但沒有可顯示的文字內容。";
+  }
+  return s || "AI 服務暫時無法完成要求";
+}
+
+function extractCloudflareText(result) {
+  const candidates = [
+    result?.response,
+    result?.result?.response,
+    result?.output_text,
+    result?.text,
+    result?.choices?.[0]?.message?.content,
+    result?.choices?.[0]?.text,
+  ];
+  for (const value of candidates) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (Array.isArray(value)) {
+      const joined = value.map(x => typeof x === "string" ? x : (x?.text || x?.content || "")).filter(Boolean).join("\n").trim();
+      if (joined) return joined;
+    }
+  }
+  const output = result?.output;
+  if (Array.isArray(output)) {
+    const joined = output.flatMap(x => Array.isArray(x?.content) ? x.content : [x])
+      .map(x => x?.text || x?.content || "").filter(x => typeof x === "string" && x.trim()).join("\n").trim();
+    if (joined) return joined;
+  }
+  return "";
 }
 
 export async function onRequestPost(context) {
+  let primaryError = null;
   try {
     const ai = context.env.AI;
 
-    // Optional Cloudflare Rate Limiting binding. If it is not configured,
-    // nothing changes. We only use the anonymous device id supplied by the
-    // app; we do not forward the visitor IP to the model.
     const limiter = context.env.ASK_RATE_LIMITER;
     const deviceId = String(context.request.headers.get("x-device-id") || "").slice(0, 80);
-    if (limiter && deviceId) {
-      const limited = await limiter.limit({ key: deviceId });
+    const clientIp = String(context.request.headers.get("cf-connecting-ip") || "").slice(0, 64);
+    // 以 IP 為主：x-device-id 是用戶端自己填的，換一個值就能繞過限流；只有拿不到 IP 時才用它。
+    const rateLimitKey = clientIp ? `ip:${clientIp}` : (deviceId ? `device:${deviceId}` : "anonymous");
+    if (limiter) {
+      const limited = await limiter.limit({ key: rateLimitKey });
       if (limited && limited.success === false) {
         return jsonResponse({ error: "AI 問答太頻繁了，請稍後再試。", version: ASK_VERSION }, 429);
       }
     }
-    if (!ai) {
-      return jsonResponse({ error: "尚未設定 AI：請設定 Cloudflare AI Binding（Variable name: AI）。", version: ASK_VERSION }, 500);
-    }
 
-    const body = await context.request.json().catch(() => null);
+    const contentLength = Number(context.request.headers.get("content-length") || 0);
+    if (contentLength > MAX_BODY_BYTES) return jsonResponse({ error: "Request too large" }, 413);
+    const rawBody = await context.request.text();
+    if (new TextEncoder().encode(rawBody).byteLength > MAX_BODY_BYTES) return jsonResponse({ error: "Request too large" }, 413);
+    let body = null;
+    try { body = rawBody.trim() ? JSON.parse(rawBody) : null; } catch { return jsonResponse({ error: "Invalid JSON" }, 400); }
     const message = String(body?.message || "").trim();
     if (!message) return jsonResponse({ error: "沒有收到訊息內容", version: ASK_VERSION }, 400);
-    if (message.length > MAX_MESSAGE_LEN) {
-      return jsonResponse({ error: "訊息太長了，麻煩縮短一點", version: ASK_VERSION }, 400);
-    }
+    if (message.length > MAX_MESSAGE_LEN) return jsonResponse({ error: "訊息太長了，麻煩縮短一點", version: ASK_VERSION }, 400);
 
     const rawHistory = Array.isArray(body?.history) ? body.history : [];
     const history = rawHistory
       .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
       .slice(-MAX_HISTORY_TURNS * 2)
       .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_HISTORY_CONTENT) }));
-
-    const activeTools = TOOLS;
     const contextText = typeof body?.context === "string" ? body.context.slice(0, MAX_CONTEXT_LEN) : "";
+    const toolTurns = Array.isArray(body?.toolTurns) ? body.toolTurns : [];
     const forceAnswer = body?.forceAnswer === true;
+    let activeModel = chooseAssetModel(message, contextText, toolTurns, forceAnswer);
+    // 個人化資產 context 與工具結果不可進共享的記憶體快取，否則相同問題可能跨使用者命中舊答案。
+    // 只有沒有私人 context、也沒有 tool round 的一般閒聊才使用短 TTL 快取。
+    const cacheEnabled = !contextText.trim() && toolTurns.length === 0;
+    const cacheKey = cacheEnabled ? buildAskCacheKey(message, history, contextText, toolTurns) : null;
+    const cached = cacheEnabled ? readAskCache(cacheKey) : null;
+    if (cached) {
+      return jsonResponse({ ok: true, version: ASK_VERSION, ...cached, fromCache: true, provider: cached.provider || "cache" });
+    }
 
     const dateLine = `現在的日期時間是：${taiwanNowLabel()}。問「今天」「現在」「幾天後」以此為準。`;
-    const finalizeLine = forceAnswer ? "\n\n【系統】App 唯讀工具資料已取得完成。請直接根據既有資料回答，不要再次呼叫任何工具。" : "";
+    const finalizeLine = forceAnswer ? "\n\n【系統】唯讀工具資料已經取得完成。請立刻根據上面的工具結果直接回答使用者；不要再次呼叫任何工具，也不要要求使用者重送問題。" : "";
     const systemPrompt = contextText
       ? `${SYSTEM_PROMPT_BASE}\n\n${dateLine}\n\n目前持股資料：\n${contextText}${finalizeLine}`
       : `${SYSTEM_PROMPT_BASE}\n\n${dateLine}${finalizeLine}`;
@@ -407,129 +602,121 @@ export async function onRequestPost(context) {
       ...history,
       { role: "user", content: message },
     ];
-
-    // 外部 Gemini 備援可能接手 Cloudflare GPT-OSS 產生的工具呼叫。
-    // 那些呼叫沒有 Gemini 3.x 專屬 thought_signature；若重播成原生 functionCall
-    // 會被 Gemini 直接以 HTTP 400 拒絕。因此已完成的 App 唯讀工具結果一律當成
-    // 可信的文字資料餵回模型，不重播別家模型的 functionCall。
-    const toolTurns = Array.isArray(body?.toolTurns) ? body.toolTurns : [];
     toolTurns.forEach((turn) => {
       const calls = Array.isArray(turn?.calls) ? turn.calls : [];
       const results = Array.isArray(turn?.results) ? turn.results : [];
-      if (!results.length) return;
-      const callNames = new Map(calls.map((tc) => [String(tc?.id || ""), String(tc?.name || "app_tool")]));
-      const blocks = results.map((tr, idx) => {
-        const name = String(tr?.name || callNames.get(String(tr?.id || "")) || calls[idx]?.name || "app_tool");
-        return `【App 工具結果：${name}】\n${String(tr?.content || "").slice(0, MAX_CONTEXT_LEN)}`;
-      });
-      messages.push({ role: "user", content: blocks.join("\n\n") });
-    });
-
-    // 解析一次 ai.run() 回傳裡的 tool_calls，統一格式成 { id, name, arguments }
-    // 【重要】Gemini 系列模型每次呼叫工具都會附帶一個 thoughtSignature（加密簽章），
-    // 下一輪把工具結果送回去時必須原封不動帶回同一個位置，缺了會直接被 Gemini 拒絕
-    // （400: missing a thought_signature）。這裡把它一起保留住，交給後面組訊息時使用；
-    // Cloudflare 原生模型沒有這個欄位，就自然是 undefined，不影響原本邏輯。
-    function parseToolCalls(result) {
-      const rawToolCalls =
-        result?.tool_calls ||
-        result?.response?.tool_calls ||
-        result?.choices?.[0]?.message?.tool_calls ||
-        null;
-      if (!Array.isArray(rawToolCalls) || rawToolCalls.length === 0) return [];
-      return rawToolCalls
-        .map((tc, idx) => {
-          const name = tc?.name || tc?.function?.name;
-          let args = tc?.arguments ?? tc?.function?.arguments;
-          if (typeof args === "string") {
-            try {
-              const cleanArgs = args.replace(/```json\n?/gi, "").replace(/```/g, "").trim();
-              args = JSON.parse(cleanArgs);
-            } catch {
-              args = {};
-            }
-          }
-          // 有些模型不會回傳 id，這裡補一個穩定的 fallback，讓下一輪可以正確對應回去。
-          const id = String(tc?.id || tc?.tool_call_id || `call_${idx}`);
-          const thoughtSignature = tc?._geminiThoughtSignature || tc?.thoughtSignature || undefined;
-          return name && ALLOWED_TOOL_NAMES.has(name)
-            ? { id, name, arguments: args || {}, ...(thoughtSignature ? { _geminiThoughtSignature: thoughtSignature } : {}) }
-            : null;
-        })
-        .filter(Boolean);
-    }
-
-    async function runModel(toolsForThisRun = activeTools) {
-      const options = forceAnswer
-        ? { messages, max_tokens: MAX_TOKENS }
-        : { messages, max_tokens: MAX_TOKENS, tools: toolsForThisRun };
-      return await ai.run(MODEL, options);
-    }
-
-    let result = await runModel();
-    let toolCalls = parseToolCalls(result);
-
-    // web_search 是 Vercel 伺服器端工具，絕對不能回到前端當成「待執行動作」。
-    // 即使模型同一輪混叫 web_search + query_app_data，也先只完成搜尋、丟棄同輪
-    // 其他呼叫，讓模型讀完搜尋結果後再重新決定下一步。這可避免前端出現
-    // 「執行未知動作：web_search」。
-    let searchRounds = 0;
-    while (toolCalls.some((tc) => tc.name === "web_search") && searchRounds < MAX_SERVER_SEARCH_ROUNDS) {
-      const searchCalls = toolCalls.filter((tc) => tc.name === "web_search");
+      if (!calls.length) return;
       messages.push({
         role: "assistant",
         content: "",
-        tool_calls: searchCalls.map((tc) => ({
-          id: tc.id,
-          type: "function",
-          function: { name: tc.name, arguments: JSON.stringify(tc.arguments || {}) },
-          ...(tc._geminiThoughtSignature ? { _geminiThoughtSignature: tc._geminiThoughtSignature } : {}),
-        })),
+        tool_calls: calls.map((tc) => ({ id: String(tc?.id || ""), type: "function", function: { name: String(tc?.name || ""), arguments: JSON.stringify(tc?.arguments || {}) } })),
       });
+      results.forEach((tr) => messages.push({ role: "tool", tool_call_id: String(tr?.id || ""), content: String(tr?.content || "").slice(0, MAX_CONTEXT_LEN) }));
+    });
 
-      const tavilyKey = context.env.TAVILY_API_KEY;
-      for (const tc of searchCalls) {
-        const content = await callTavily(tavilyKey, tc.arguments?.query);
-        messages.push({ role: "tool", tool_call_id: tc.id, content: content.slice(0, MAX_CONTEXT_LEN) });
-      }
+    function parseToolCalls(result) {
+      const rawToolCalls = result?.tool_calls || result?.response?.tool_calls || result?.choices?.[0]?.message?.tool_calls || null;
+      if (!Array.isArray(rawToolCalls) || rawToolCalls.length === 0) return [];
+      return rawToolCalls.map((tc, idx) => {
+        const name = tc?.name || tc?.function?.name;
+        let args = tc?.arguments ?? tc?.function?.arguments;
+        if (typeof args === "string") {
+          try { args = JSON.parse(args.replace(/```json\n?/gi, "").replace(/```/g, "").trim()); } catch { args = {}; }
+        }
+        const id = String(tc?.id || tc?.tool_call_id || `call_${idx}`);
+        return name && ALLOWED_TOOL_NAMES.has(name) ? { id, name, arguments: args || {} } : null;
+      }).filter(Boolean);
+    }
 
+    const primaryDeadline = Date.now() + PRIMARY_AI_TIMEOUT_MS;
+    async function runModel() {
+      if (!ai) throw new Error("尚未設定 Cloudflare AI Binding（AI）");
+      if ((primaryCooldown.get(ai) || 0) > Date.now()) throw new Error("AI 暫時冷卻，改用備援");
+      if (Date.now() >= primaryDeadline) throw new Error("Cloudflare Workers AI 逾時");
+      const request = forceAnswer
+        ? ai.run(activeModel, { messages, max_tokens: MAX_TOKENS })
+        : ai.run(activeModel, { messages, max_tokens: MAX_TOKENS, tools: TOOLS });
+      return await withTimeout(request, primaryDeadline - Date.now(), "Cloudflare Workers AI");
+    }
+
+    let result;
+    try {
       result = await runModel();
-      toolCalls = parseToolCalls(result);
-      searchRounds += 1;
-    }
-
-    // 已達搜尋輪數上限後，如果模型還想再搜，不能把 web_search 丟回 App。
-    // 直接捨棄那個尚未執行的模型回覆，利用已經取得的搜尋結果再跑一次，
-    // 並從工具清單移除 web_search，逼模型整理現有資料或改叫 App 能執行的工具。
-    if (toolCalls.some((tc) => tc.name === "web_search")) {
-      const noWebSearchTools = activeTools.filter((t) => t?.function?.name !== "web_search");
-      result = await runModel(noWebSearchTools);
-      toolCalls = parseToolCalls(result).filter((tc) => tc.name !== "web_search");
-    }
-
-    if (toolCalls.length > 0) {
-      const clientToolCalls = toolCalls.filter((tc) => tc.name !== "web_search");
-      if (clientToolCalls.length > 0) {
-        return jsonResponse({ ok: true, version: ASK_VERSION, provider: "cloudflare", model: MODEL, toolCalls: clientToolCalls });
+    } catch (e) {
+      primaryError = e;
+      // 只有「輕量模型本身出錯」才升級 20B 再試一次；額度用完（429）、服務暫停
+      // （502/503）、逾時或冷卻中這類整個 Workers AI 共通的暫時性錯誤，換模型也
+      // 一樣會失敗，只會讓使用者多等一輪才輪到 Gemini 備援。
+      const transientFailure = /429|quota|timeout|逾時|503|502|temporar|冷卻/i.test(String(e?.message));
+      if (activeModel === LIGHT_MODEL && ai && !transientFailure) {
+        try {
+          activeModel = HEAVY_MODEL;
+          primaryError = null;
+          result = await runModel();
+        } catch (heavyError) {
+          primaryError = heavyError;
+        }
       }
+    }
+
+    if (!primaryError) {
+      try {
+        let toolCalls = parseToolCalls(result);
+        let searchRounds = 0;
+        while (toolCalls.length > 0 && toolCalls.every((tc) => tc.name === "web_search") && searchRounds < MAX_SERVER_SEARCH_ROUNDS) {
+          messages.push({ role: "assistant", content: "", tool_calls: toolCalls.map((tc) => ({ id: tc.id, type: "function", function: { name: tc.name, arguments: JSON.stringify(tc.arguments || {}) } })) });
+          for (const tc of toolCalls) {
+            const content = await callTavily(context.env.TAVILY_API_KEY, tc.arguments?.query);
+            messages.push({ role: "tool", tool_call_id: tc.id, content: content.slice(0, MAX_CONTEXT_LEN) });
+          }
+          result = await runModel();
+          toolCalls = parseToolCalls(result);
+          searchRounds += 1;
+        }
+        if (toolCalls.length > 0 && toolCalls.some((tc) => tc.name === "web_search")) {
+          messages.push({ role: "user", content: "（系統提示：已達自動查詢次數上限，請直接根據目前已經查到的資料用文字回答，不要再要求呼叫任何工具。）" });
+          if (Date.now() >= primaryDeadline) throw new Error("Cloudflare Workers AI 逾時");
+          result = await withTimeout(
+            ai.run(activeModel, { messages, max_tokens: MAX_TOKENS }),
+            primaryDeadline - Date.now(),
+            "Cloudflare Workers AI"
+          );
+          toolCalls = parseToolCalls(result).filter((tc) => tc.name !== "web_search");
+        }
+        if (toolCalls.length > 0) {
+          const payload = { ok: true, version: ASK_VERSION, provider: "cloudflare", model: activeModel, toolCalls };
+          if (cacheEnabled) writeAskCache(cacheKey, payload);
+          return jsonResponse(payload);
+        }
+        let reply = extractCloudflareText(result);
+        if (!reply && activeModel === LIGHT_MODEL && ai) {
+          activeModel = HEAVY_MODEL;
+          result = await runModel();
+          reply = extractCloudflareText(result);
+        }
+        if (!reply) throw new Error("AI 沒有回傳文字內容");
+        const payload = { ok: true, version: ASK_VERSION, provider: "cloudflare", model: activeModel, reply };
+        if (cacheEnabled) writeAskCache(cacheKey, payload);
+        return jsonResponse(payload);
+      } catch (e) {
+        primaryError = e;
+      }
+    }
+
+    if (ai && /429|quota|timeout|逾時|503|502|temporar/i.test(String(primaryError?.message))) primaryCooldown.set(ai, Date.now() + 30000);
+    try {
+      const gemini = await withTimeout(runGeminiFallback(context.env, {
+        message, history, contextText, toolTurns, allowPrivate: body?.allowGeminiPrivate === true, forceAnswer,
+      }), GEMINI_AI_TIMEOUT_MS, "Gemini 備援");
+      const payload = { ok: true, version: ASK_VERSION, ...gemini, fallbackFrom: friendlyAiError(primaryError?.message) };
+      if (cacheEnabled) writeAskCache(cacheKey, payload);
+      return jsonResponse(payload);
+    } catch (geminiError) {
       return jsonResponse({
-        ok: true,
+        error: `Cloudflare AI：${friendlyAiError(primaryError?.message)}；Gemini 備援：${friendlyAiError(geminiError?.message || "失敗")}`,
         version: ASK_VERSION,
-        provider: "cloudflare",
-        model: MODEL,
-        reply: "網路搜尋已完成，但模型沒有整理出最終回答。請再送一次同一個問題。",
-      });
+      }, 502);
     }
-
-    let reply = String(result?.response || "").trim();
-    if (!reply && Array.isArray(result?.choices)) {
-      reply = String(result.choices[0]?.message?.content || "").trim();
-    }
-    if (!reply) {
-      return jsonResponse({ error: "AI 沒有回傳文字內容", version: ASK_VERSION }, 502);
-    }
-
-    return jsonResponse({ ok: true, version: ASK_VERSION, provider: "cloudflare", model: MODEL, reply });
   } catch (e) {
     return jsonResponse({ error: friendlyAiError(e?.message), version: ASK_VERSION }, 500);
   }

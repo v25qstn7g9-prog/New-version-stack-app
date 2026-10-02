@@ -83,10 +83,10 @@
 ### fallback-vercel/ (獨立備援)
 ```
 ├── api/
-│   ├── ask.js              # 備援 AI 助手 (Gemini 3.5)
+│   ├── ask.js              # 備援 AI 助手 (Gemini 3.6 Flash)
 │   └── health.js           # 備援健康檢查
 ├── lib/
-│   └── ask-core.js         # 備援核心引擎
+│   └── ask-core.js         # 備援核心引擎（functions/ask.js 的同步複本，用 npm run sync:fallback 更新）
 ├── 🔑 .env.example         # 環境變數範本 (Vercel)
 ├── package.json            # Node.js 相依
 ├── vercel.json             # Vercel 設定

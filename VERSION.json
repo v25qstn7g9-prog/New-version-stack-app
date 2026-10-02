@@ -5,14 +5,15 @@
   "cloudflare": {
     "index.html": "4.7-personal-advisor-v2.46.1-mobile-overlay-stability",
     "quote.js": "4.7-quote-schedule-5-high-low-overnight-fix",
-    "ask.js": "4.7-personal-advisor-v3.1-polished-analysis",
+    "ask.js": "4.7-personal-advisor-v3.2-bounded-learning",
     "news.js": "4.6-news-stable-6",
     "health-check.js": "4.6-health-check-2",
-    "model": "@cf/openai/gpt-oss-20b"
+    "lightModel": "@cf/zai-org/glm-4.7-flash",
+    "heavyModel": "@cf/openai/gpt-oss-20b"
   },
   "vercel": {
-    "package": "2.21.4",
-    "ask-core.js": "4.7-personal-advisor-v3.1-polished-analysis",
+    "package": "2.22.0",
+    "ask-core.js": "4.7-personal-advisor-v3.2-bounded-learning",
     "model": "gemini-3.6-flash",
     "thinkingLevel": "minimal"
   },
