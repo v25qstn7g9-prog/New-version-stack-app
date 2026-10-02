@@ -112,7 +112,7 @@ export const PREPARED_ASSET_TOOLS = [
   },
   {
     name: "intraday_bars", title: "盤中 1／5／10／15 分 K（當日暫存）", annotations: READ_ONLY,
-    description: "Read today's intraday candles (open/high/low/close) recorded by a background cron every minute during Taiwan market hours (09:00-13:30). Each 1-minute bar is built from four 15-second samples; 5/10/15/30/60-minute bars are aggregated from them and aligned to 09:00. Only about the last 36 hours are kept. If found is false there is no recorded data: say so, never substitute daily bars or live quotes for intraday candles. Bars are sampled, not tick data, so highs/lows may be slightly narrower than the true values and the last bar may be incomplete.",
+    description: "Read today's intraday candles (open/high/low/close) recorded by a background cron every minute during Taiwan market hours (09:00-13:45). Each 1-minute bar is built from four 15-second samples; 5/10/15/30/60-minute bars are aggregated from them and aligned to 09:00. Only about the last 36 hours are kept. If found is false there is no recorded data: say so, never substitute daily bars or live quotes for intraday candles. Bars are sampled, not tick data, so highs/lows may be slightly narrower than the true values and the last bar may be incomplete.",
     inputSchema: { type:"object", properties:{ symbols:{type:"array",items:{type:"string"},maxItems:12}, interval:{type:"integer",enum:[1,5,10,15,30,60],description:"Candle length in minutes. Default 5."}, date:{type:"string",description:"YYYY-MM-DD (Taipei). Default today."}, limit:{type:"integer",minimum:1,maximum:300,description:"Return only the most recent N candles per symbol."} }, additionalProperties:false }
   },
   {
