@@ -26,6 +26,9 @@ export const DEFAULT_INTRADAY_SYMBOLS = ["0050", "0056", "2330", "TAIEX"];
 export const ALLOWED_INTERVALS = [1, 5, 10, 15, 30, 60];
 
 const KV_PREFIX = "intraday:";
+const STATUS_KEY = "intraday-status";
+// 同一種結果連續出現時，最多每 10 分鐘更新一次 lastAt，避免每分鐘多寫一次 KV。
+const STATUS_REFRESH_MS = 10 * 60 * 1000;
 const ARCHIVE_PREFIX = "intraday5:";
 const TTL_SECONDS = 60 * 60 * 36;
 // 90 個日曆天 ≈ 60 個交易日
@@ -258,6 +261,53 @@ function fromArchiveDoc(doc, interval, wanted, limit) {
   return { bars, recorded, missing };
 }
 
+// ── Cron 心跳：記錄每次排程跑完的結果，沒資料時才看得出「為什麼」────────
+
+/** 把 recordIntradayMinute 的回傳（或例外）整理成一個短標籤。 */
+export function describeIntradayRun(result) {
+  if (result && Array.isArray(result.recorded) && result.recorded.length) return { kind: "recorded", detail: null };
+  if (result && result.skipped) return { kind: `skipped:${result.skipped}`, detail: null };
+  if (result && result.error) return { kind: "error", detail: String(result.error).slice(0, 160) };
+  if (result && result.ok === false) return { kind: `failed:${result.reason || "unknown"}`, detail: null };
+  return { kind: "unknown", detail: null };
+}
+
+/**
+ * 結果種類改變，或同一種結果超過 10 分鐘沒更新時才寫 KV（平常幾乎不增加寫入）。
+ * 任何失敗都吞掉：心跳不能反過來拖垮分 K 記錄。
+ */
+export async function noteIntradayRun(env, result, now = new Date()) {
+  if (!env?.health_kv) return { ok: false, reason: "no_kv" };
+  try {
+    const { kind, detail } = describeIntradayRun(result);
+    let prev = null;
+    try {
+      const raw = await env.health_kv.get(STATUS_KEY);
+      prev = raw ? JSON.parse(raw) : null;
+    } catch {
+      prev = null;
+    }
+    const nowIso = now.toISOString();
+    const same = prev && prev.kind === kind;
+    if (same && now.getTime() - Date.parse(prev.lastAt) < STATUS_REFRESH_MS) return { ok: true, wrote: false };
+    const doc = { v: 1, kind, detail, since: same ? prev.since : nowIso, lastAt: nowIso };
+    await env.health_kv.put(STATUS_KEY, JSON.stringify(doc), { expirationTtl: TTL_SECONDS });
+    return { ok: true, wrote: true };
+  } catch {
+    return { ok: false, reason: "status_write_failed" };
+  }
+}
+
+export async function readIntradayStatus(env) {
+  if (!env?.health_kv) return null;
+  try {
+    const raw = await env.health_kv.get(STATUS_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
 // ── 健康狀態（公開 /api/health 使用；不含價格或持股）────────────────
 
 function continuityStats(rows) {
@@ -278,7 +328,7 @@ function continuityStats(rows) {
  * 回傳分 K 收集器健康摘要。只暴露收集進度與連續性，不包含價格、持股或 token。
  * 盤中允許 Cron 最多落後 2 分鐘；超過就標記 degraded。
  */
-export async function readIntradayHealth(env, now = new Date()) {
+async function readIntradayHealthCore(env, now = new Date()) {
   const p = taipei(now);
   const symbols = intradaySymbols(env);
   const base = {
@@ -345,6 +395,12 @@ export async function readIntradayHealth(env, now = new Date()) {
   };
 }
 
+/** 收集進度摘要 + 最近一次 Cron 執行結果（collector）。 */
+export async function readIntradayHealth(env, now = new Date()) {
+  const health = await readIntradayHealthCore(env, now);
+  return { ...health, collector: await readIntradayStatus(env) };
+}
+
 // ── 讀取（MCP 工具 intraday_bars）────────────────────────────
 
 export async function readIntradayBars(env, args = {}, now = new Date()) {
@@ -404,6 +460,7 @@ export async function readIntradayBars(env, args = {}, now = new Date()) {
       reason: day === today
         ? "今天還沒有任何盤中紀錄（可能尚未開盤、今天休市，或排程剛啟用還沒累積資料）。不可用日 K 或即時報價冒充分 K。"
         : "這一天沒有盤中紀錄（1 分 K 只留約 36 小時；5 分 K 封存約 60 日）。",
+      ...(day === today ? { collector: await readIntradayStatus(env) } : {}),
     };
   }
 

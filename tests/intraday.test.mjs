@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   INTRADAY_CRON, isRecordingWindow, buildMinuteBar, mergeBar, aggregateBars,
   usablePrices, recordIntradayMinute, readIntradayBars, intradaySymbols, readIntradayHealth,
+  describeIntradayRun, noteIntradayRun, readIntradayStatus,
 } from '../functions/intraday.js';
 import { PREPARED_ASSET_TOOLS } from '../functions/ai-connector-prepared.js';
 import { readFileSync } from 'node:fs';
@@ -247,4 +248,65 @@ test('MCP exposes intraday_bars as a read-only tool with a bounded schema', () =
   assert.equal(tool.annotations.readOnlyHint, true);
   assert.deepEqual(tool.inputSchema.properties.interval.enum, [1, 5, 10, 15, 30, 60]);
   assert.equal(tool.inputSchema.additionalProperties, false);
+});
+
+
+// ── Cron 心跳 ──────────────────────────────────────────
+
+test('describeIntradayRun labels every outcome', () => {
+  assert.deepEqual(describeIntradayRun({ ok: true, recorded: ['0056'], minute: '12:13' }), { kind: 'recorded', detail: null });
+  assert.deepEqual(describeIntradayRun({ ok: true, skipped: 'no_fresh_quotes' }), { kind: 'skipped:no_fresh_quotes', detail: null });
+  assert.deepEqual(describeIntradayRun({ ok: false, reason: 'no_kv' }), { kind: 'failed:no_kv', detail: null });
+  assert.deepEqual(describeIntradayRun({ ok: false, error: 'KV put() limit exceeded for the day.' }), { kind: 'error', detail: 'KV put() limit exceeded for the day.' });
+  assert.equal(describeIntradayRun({ ok: false, error: 'x'.repeat(500) }).detail.length, 160);
+  assert.deepEqual(describeIntradayRun(undefined), { kind: 'unknown', detail: null });
+});
+
+test('noteIntradayRun writes on first run and on a change, but throttles repeats for 10 minutes', async () => {
+  const kv = fakeKV();
+  const env = { health_kv: kv };
+  const skipped = { ok: true, skipped: 'no_fresh_quotes' };
+  assert.deepEqual(await noteIntradayRun(env, skipped, new Date('2026-10-02T01:00:00Z')), { ok: true, wrote: true });
+  assert.deepEqual(await noteIntradayRun(env, skipped, new Date('2026-10-02T01:01:00Z')), { ok: true, wrote: false });
+  assert.deepEqual(await noteIntradayRun(env, skipped, new Date('2026-10-02T01:09:00Z')), { ok: true, wrote: false });
+  assert.equal(kv.puts.length, 1);
+  assert.deepEqual(await noteIntradayRun(env, skipped, new Date('2026-10-02T01:10:00Z')), { ok: true, wrote: true });
+  const refreshed = await readIntradayStatus(env);
+  assert.equal(refreshed.since, '2026-10-02T01:00:00.000Z'); // 同一種結果的起點不變
+  assert.equal(refreshed.lastAt, '2026-10-02T01:10:00.000Z');
+  await noteIntradayRun(env, { ok: true, recorded: ['0056'] }, new Date('2026-10-02T01:11:00Z'));
+  const changed = await readIntradayStatus(env);
+  assert.equal(changed.kind, 'recorded');
+  assert.equal(changed.since, '2026-10-02T01:11:00.000Z');
+  assert.equal(kv.puts.at(-1).opts.expirationTtl, 60 * 60 * 36);
+});
+
+test('noteIntradayRun never throws, even when KV is broken or missing', async () => {
+  const broken = { get: async () => { throw new Error('read boom'); }, put: async () => { throw new Error('KV put() limit exceeded'); } };
+  assert.deepEqual(await noteIntradayRun({ health_kv: broken }, { ok: true, skipped: 'no_fresh_quotes' }), { ok: false, reason: 'status_write_failed' });
+  assert.deepEqual(await noteIntradayRun({}, { ok: true }), { ok: false, reason: 'no_kv' });
+  assert.equal(await readIntradayStatus({ health_kv: broken }), null);
+});
+
+test('health and intraday_bars show the last collector run when there is no data', async () => {
+  const kv = fakeKV();
+  const env = { health_kv: kv };
+  await noteIntradayRun(env, { ok: false, error: 'KV put() limit exceeded for the day.' }, new Date('2026-10-02T01:05:00Z'));
+  const now = new Date('2026-10-02T02:46:00Z'); // 10:46，週五盤中
+  const health = await readIntradayHealth(env, now);
+  assert.equal(health.status, 'no_data');
+  assert.equal(health.collector.kind, 'error');
+  assert.match(health.collector.detail, /limit exceeded/);
+  const bars = await readIntradayBars(env, { interval: 1 }, now);
+  assert.equal(bars.found, false);
+  assert.equal(bars.collector.kind, 'error');
+  // 不是今天的查詢不附 collector。
+  const old = await readIntradayBars(env, { interval: 1, date: '2026-09-30' }, now);
+  assert.equal(old.collector, undefined);
+});
+
+test('worker records a heartbeat for every intraday cron run, including thrown errors', () => {
+  const src = readFileSync(new URL('../worker.js', import.meta.url), 'utf8');
+  assert.match(src, /noteIntradayRun\(env, result\)/);
+  assert.match(src, /catch \(e\)[\s\S]*result = \{ ok: false, error:/);
 });
