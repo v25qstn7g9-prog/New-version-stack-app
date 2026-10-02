@@ -28,6 +28,8 @@ import { onRequestGet as dividendScheduleHandler } from "./functions/dividend-sc
 import { onRequestGet as dailyHistoryHandler } from "./functions/daily-history.js";
 import { onRequestGet as holidayScheduleHandler } from "./functions/holiday-schedule.js";
 import { onRequestGet as taifexTxHandler } from "./functions/taifex-tx.js";
+import { onRequestGet as intradayMetricsHandler } from "./functions/intraday-metrics.js";
+import { onRequestGet as marketBreadthHandler } from "./functions/market-breadth.js";
 import {
   onRequestGet as healthGetHandler,
   onRequestPost as healthPostHandler,
@@ -68,6 +70,8 @@ const API_METHODS = new Map([
   ["/daily-history", ["GET"]],
   ["/holiday-schedule", ["GET"]],
   ["/taifex-tx", ["GET"]],
+  ["/intraday-metrics", ["GET"]],
+  ["/market-breadth", ["GET"]],
   ["/api/health", ["GET"]],
   ["/api/health-cards", ["GET", "POST"]],
   ["/api/health-check", ["GET"]],
@@ -138,6 +142,12 @@ export default {
     }
     if (url.pathname === "/taifex-tx" && request.method === "GET") {
       return taifexTxHandler();
+    }
+    if (url.pathname === "/intraday-metrics" && request.method === "GET") {
+      return intradayMetricsHandler({ request, env, ctx });
+    }
+    if (url.pathname === "/market-breadth" && request.method === "GET") {
+      return marketBreadthHandler({ request, env, ctx });
     }
     const isWrite = request.method === "POST" && WRITE_PATHS.has(url.pathname);
     if (isWrite && !(await writeAllowed(env, request, url.pathname))) {
