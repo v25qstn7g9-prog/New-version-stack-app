@@ -10,7 +10,7 @@
  * 邊緣快取以「當天」為 key，一天只會真的打一次 Yahoo，其餘都吃快取。
  */
 
-const HISTORY_VERSION = "1.0-daily-history";
+const HISTORY_VERSION = "1.1-daily-history-volume";
 const SYMBOL_PATTERN = /^[0-9]{4,6}[A-Z]?$/;
 
 function isAllowedSymbol(s) {
@@ -70,8 +70,9 @@ async function fetchDailyBars(symbol) {
     const h = Number(q.high?.[i]);
     const l = Number(q.low?.[i]);
     const c = Number(q.close?.[i]);
+    const volume = Number(q.volume?.[i]);
     if ([o, h, l, c].every((v) => Number.isFinite(v) && v > 0)) {
-      bars.push({ day: taipeiDateStr(Number(timestamps[i])), open: o, high: h, low: l, close: c });
+      bars.push({ day: taipeiDateStr(Number(timestamps[i])), open: o, high: h, low: l, close: c, volume: Number.isFinite(volume) && volume >= 0 ? volume : null });
     }
   }
   return bars;
