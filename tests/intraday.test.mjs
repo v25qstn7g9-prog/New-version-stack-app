@@ -310,3 +310,10 @@ test('worker records a heartbeat for every intraday cron run, including thrown e
   assert.match(src, /noteIntradayRun\(env, result\)/);
   assert.match(src, /catch \(e\)[\s\S]*result = \{ ok: false, error:/);
 });
+
+test('intraday cron uses weekday names (Cloudflare numeric 1 = Sunday, so 1-5 would skip Friday)', () => {
+  const dow = INTRADAY_CRON.split(' ')[4];
+  assert.equal(dow, 'MON-FRI');
+  const wrangler = readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
+  assert.doesNotMatch(wrangler, /\* 1-5 \* \* 1-5/);
+});
