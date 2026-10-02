@@ -316,7 +316,7 @@
   <div id="boot-error"></div>
 
   <script type="text/babel" data-presets="env,react">
-const { useState, useEffect, useLayoutEffect, useMemo, useRef } = window.React;
+const { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } = window.React;
 
 const RC = window.Recharts;
 if (!RC) throw new Error("Recharts 載入失敗");
@@ -2444,6 +2444,65 @@ function AssetTracker() {
     return () => clearTimeout(timer);
   }, [ready, zinfSyncToken, totalToday, dailyChange, dailyChangePct, totalInvested, capitalGain, totalReturn, totalReturnPct, latest, holdingsWithShares, holdings, trades, dividends, dailyRecords, planItems, planSchedule, goal, costBasis, goalDate]);
 
+  // ---- Atlas 待確認交易 ----
+  // 你在 Atlas（Claude 聊天）說「幫我記今天買了 xxx」並確認後，Atlas 只能把這筆交易暫存到伺服器
+  // （/api/pending-trades），沒辦法直接寫進這支手機的本機資料。開啟 App、或切回前景時檢查一次；
+  // 你在畫面上按「加入」才會真的寫進 trades，金額算法跟「交易」分頁手動新增完全一樣。
+  // 處理過（加入或忽略）的交易編號會存在這支手機上：就算通知伺服器移除那一步失敗，
+  // 下次也不會再跳出來、不會重複加進交易紀錄。
+  const [pendingTrades, setPendingTrades] = useState([]);
+  const handledPendingIdsRef = useRef([]);
+  const [handledPendingLoaded, setHandledPendingLoaded] = useState(false);
+  useEffect(() => {
+    loadKey("handledPendingTradeIds", []).then((v) => {
+      handledPendingIdsRef.current = Array.isArray(v) ? v : [];
+      setHandledPendingLoaded(true);
+    });
+  }, []);
+  const resolvePendingOnServer = useCallback((id) => {
+    return fetch("/api/pending-trades/resolve", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: zinfSyncToken, id }),
+    }).catch(() => {});
+  }, [zinfSyncToken]);
+  const refreshPendingTrades = useCallback(() => {
+    if (!zinfSyncToken) { setPendingTrades([]); return; }
+    if (!handledPendingLoaded) return;
+    fetch(`/api/pending-trades?token=${encodeURIComponent(zinfSyncToken)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!Array.isArray(data?.pending)) return;
+        const handled = new Set(handledPendingIdsRef.current);
+        // 之前已處理、但通知伺服器失敗而殘留的，補通知一次，而且不再顯示。
+        data.pending.filter((x) => handled.has(x.id)).forEach((x) => resolvePendingOnServer(x.id));
+        setPendingTrades(data.pending.filter((x) => !handled.has(x.id)));
+      })
+      .catch(() => {}); // 安靜失敗：這不是關鍵功能，不用跳錯誤打斷使用者
+  }, [zinfSyncToken, handledPendingLoaded, resolvePendingOnServer]);
+  useEffect(() => {
+    if (!ready) return;
+    refreshPendingTrades();
+    const onVisible = () => { if (document.visibilityState === "visible") refreshPendingTrades(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [ready, refreshPendingTrades]);
+  const markPendingHandled = (id) => {
+    handledPendingIdsRef.current = [id, ...handledPendingIdsRef.current].slice(0, 200);
+    saveKey("handledPendingTradeIds", handledPendingIdsRef.current);
+    setPendingTrades((list) => list.filter((x) => x.id !== id));
+    resolvePendingOnServer(id);
+  };
+  const applyPendingTrade = (item) => {
+    if (handledPendingIdsRef.current.includes(item.id)) return; // 連點兩下不會加兩筆
+    const amount = item.action === "buy" ? item.shares * item.price + item.fee : item.shares * item.price - item.fee - item.tax;
+    setTrades((t) => [...t, {
+      id: uid(), date: item.date, symbol: item.symbol, action: item.action,
+      shares: item.shares, price: item.price, fee: item.fee, tax: item.tax, amount, note: item.note || "來自 Atlas",
+    }]);
+    markPendingHandled(item.id);
+  };
+  const dismissPendingTrade = (item) => markPendingHandled(item.id);
+
   // iPhone/PWA 常被背景暫停。回前景與網路恢復時若有 pending，立即補送。
   useEffect(() => {
     if (!ready || !zinfSyncToken) return;
@@ -2547,6 +2606,9 @@ function AssetTracker() {
 
       <div ref={headerRef}>
         <Header goal={goal} totalToday={totalToday} goalDate={goalDate} backupOverdue={backupOverdue} backupAgeDays={backupAgeDays} showEnglish={showEnglish} onToggleBilingual={toggleBilingual} />
+        {pendingTrades.length > 0 && (
+          <PendingTradesBanner trades={pendingTrades} onApply={applyPendingTrade} onDismiss={dismissPendingTrade} showEnglish={showEnglish} />
+        )}
       </div>
 
       <main
@@ -2700,6 +2762,46 @@ function AssetTracker() {
         }} />
 
       <TabBar tab={tab} setTab={goToTab} rootRef={tabBarRef} showEnglish={showEnglish} />
+    </div>
+  );
+}
+
+// ---------------- Atlas 待確認交易 ----------------
+// 來自 Atlas（Claude 聊天）的交易提案：只在你按「加入」時才真的寫進 trades。
+function PendingTradesBanner({ trades, onApply, onDismiss, showEnglish }) {
+  const M = (en, zh) => (showEnglish ? en : zh);
+  const nf = (v) => Number(v || 0).toLocaleString("en-US");
+  return (
+    <div className="mx-4 mb-3 rounded-xl p-3" style={{ background: COLORS.panel, border: `1px solid ${COLORS.gold}` }}>
+      <div className="text-[11px] font-bold mb-2" style={{ color: COLORS.gold }}>
+        {M(`📥 ${trades.length} pending trade(s) from Atlas — review before they count`, `📥 ${trades.length} 筆來自 Atlas 的待確認交易，按「加入」才會計入持股`)}
+      </div>
+      <div className="space-y-2">
+        {trades.map((t) => {
+          const amount = t.action === "buy" ? t.shares * t.price + t.fee : t.shares * t.price - t.fee - t.tax;
+          return (
+            <div key={t.id} className="rounded-lg p-2 text-[11px]" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
+              <div className="mono font-bold" style={{ color: COLORS.text }}>
+                {t.date} · {t.symbol} · {t.action === "buy" ? M("Buy", "買進") : M("Sell", "賣出")} {nf(t.shares)} {M("shares", "股")} @ {nf(t.price)}
+              </div>
+              <div className="mt-0.5" style={{ color: COLORS.sub }}>
+                {M("Fee", "手續費")} {nf(t.fee)}{t.tax ? ` · ${M("Tax", "交易稅")} ${nf(t.tax)}` : ""} · {M("Amount", "金額")} NT$ {nf(Math.round(amount))}
+                {t.note ? ` · ${t.note}` : ""}
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <button onClick={() => onApply(t)}
+                  className="rounded-lg py-1.5 text-[11px] font-bold" style={{ background: COLORS.gold, color: COLORS.bg }}>
+                  {M("Add", "加入")}
+                </button>
+                <button onClick={() => onDismiss(t)}
+                  className="rounded-lg py-1.5 text-[11px] font-bold" style={{ background: COLORS.bg, color: COLORS.sub, border: `1px solid ${COLORS.panelBorder}` }}>
+                  {M("Dismiss", "忽略")}
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
