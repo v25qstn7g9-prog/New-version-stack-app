@@ -38,7 +38,7 @@ import {
   onRequestPost as portfolioSyncPostHandler,
 } from "./functions/portfolio-sync.js";
 import { handlePreparedAssetMcp } from "./functions/ai-connector-prepared.js";
-import { INTRADAY_CRON, recordIntradayMinute, archiveIntradayDay } from "./functions/intraday.js";
+import { INTRADAY_CRON, recordIntradayMinute, archiveIntradayDay, readIntradayHealth } from "./functions/intraday.js";
 import { adminTokenMatches, bearerToken, writeAllowed } from "./functions/request-guard.js";
 import { isKnownSyncToken } from "./functions/portfolio-sync.js";
 import { handleAssetOAuth, verifyAssetAccessToken, readAssetMcpSyncToken } from "./functions/asset-mcp-oauth.js";
@@ -114,7 +114,8 @@ export default {
     }
 
     if (url.pathname === "/api/health" && request.method === "GET") {
-      return apiJson({ ok: true, service: "new-version-stack-app" });
+      const intraday = await readIntradayHealth(env);
+      return apiJson({ ok: true, service: "new-version-stack-app", intraday });
     }
 
     if (url.pathname === "/quote" && request.method === "GET") {
