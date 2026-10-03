@@ -20,3 +20,6 @@ DEPLOYMENT_CHECKLIST.md
 tests/
 docs/
 .github/
+
+# git 紀錄不能當成靜態檔公開
+.git/
