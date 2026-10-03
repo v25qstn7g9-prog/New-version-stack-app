@@ -67,7 +67,7 @@ async function metricFor(sym){
   const avgSameTime=comparable.length?comparable.reduce((a,b)=>a+b,0)/comparable.length:null;
   const rvol=(cumVolume>0&&avgSameTime>0)?cumVolume/avgSameTime:null;
 
-  return {day,lastMinute,cumVolume,vwap,vwap15,vwapSlopePct,rvol,comparisonDays:comparable.length,lastClose:cur[cur.length-1].close};
+  return {day:today,lastMinute,cumVolume,vwap,vwap15,vwapSlopePct,rvol,comparisonDays:comparable.length,lastClose:cur[cur.length-1].close};
 }
 async function cacheGet(key){
   try{const hit=await caches.default.match(new Request(key));return hit?await hit.json():null;}catch{return null;}
