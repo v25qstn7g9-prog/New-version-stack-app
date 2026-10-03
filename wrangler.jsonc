@@ -33,7 +33,8 @@
       "/holiday-schedule",
       "/taifex-tx",
       "/intraday-metrics",
-      "/market-breadth"
+      "/market-breadth",
+      "/stock-name"
     ]
   },
 

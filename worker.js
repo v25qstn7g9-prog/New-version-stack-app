@@ -30,6 +30,7 @@ import { onRequestGet as holidayScheduleHandler } from "./functions/holiday-sche
 import { onRequestGet as taifexTxHandler } from "./functions/taifex-tx.js";
 import { onRequestGet as intradayMetricsHandler } from "./functions/intraday-metrics.js";
 import { onRequestGet as marketBreadthHandler } from "./functions/market-breadth.js";
+import { onRequestGet as stockNameHandler } from "./functions/stock-name.js";
 import {
   onRequestGet as healthGetHandler,
   onRequestPost as healthPostHandler,
@@ -72,6 +73,7 @@ const API_METHODS = new Map([
   ["/taifex-tx", ["GET"]],
   ["/intraday-metrics", ["GET"]],
   ["/market-breadth", ["GET"]],
+  ["/stock-name", ["GET"]],
   ["/api/health", ["GET"]],
   ["/api/health-cards", ["GET", "POST"]],
   ["/api/health-check", ["GET"]],
@@ -148,6 +150,9 @@ export default {
     }
     if (url.pathname === "/market-breadth" && request.method === "GET") {
       return marketBreadthHandler({ request, env, ctx });
+    }
+    if (url.pathname === "/stock-name" && request.method === "GET") {
+      return stockNameHandler({ request, env, ctx });
     }
     const isWrite = request.method === "POST" && WRITE_PATHS.has(url.pathname);
     if (isWrite && !(await writeAllowed(env, request, url.pathname))) {

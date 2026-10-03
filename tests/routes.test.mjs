@@ -19,7 +19,7 @@ test('every functions/*.js file that index.html actually fetches is wired into w
   const worker = fs.readFileSync('worker.js', 'utf8');
   const html = fs.readFileSync('index.html', 'utf8');
   // 前端會打的頂層（非 /api/）路徑；/api/* 由各自的 API 測試涵蓋。
-  const topLevelRoutes = ['/quote', '/news', '/ask', '/dividend-schedule', '/daily-history', '/holiday-schedule', '/taifex-tx'];
+  const topLevelRoutes = ['/quote', '/news', '/ask', '/dividend-schedule', '/daily-history', '/holiday-schedule', '/taifex-tx', '/stock-name'];
   for (const route of topLevelRoutes) {
     const usedByFrontend = html.includes(`\`${route}?`) || html.includes(`"${route}"`) || html.includes(`= "${route}"`);
     assert.ok(usedByFrontend, `expected index.html to call ${route}`);

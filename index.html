@@ -455,6 +455,10 @@ const UI_EN = {
   "結束日期": "End Date",
   "代號": "Symbol",
   "名稱": "Name",
+  "查詢名稱中…": "Looking up name…",
+  "已自動帶入名稱（可修改）": "Name filled in automatically (editable)",
+  "查不到此代號，請手動輸入名稱": "Code not found — enter the name manually",
+  "名稱查詢失敗，請手動輸入": "Name lookup failed — enter it manually",
   "期初股數": "Starting Shares",
   "目標股數": "Target Shares",
   "持有成本（直接輸入目前總成本，例如對照券商App的數字）": "Current Total Cost",
@@ -5982,6 +5986,43 @@ function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState(null);
 
+  // 輸入代號後自動帶入股票名稱（/stock-name，上市＋上櫃）。
+  // 只會填「空白」或「上一次自動帶入、使用者沒改過」的名稱，絕不蓋掉手動輸入；
+  // 換成另一個代號時，舊代號自動帶入的名稱會先清掉，避免代號跟名稱對不上。
+  const [nameHint, setNameHint] = useState(null); // null | "loading" | "found" | "missing" | "error"
+  const formRef = useRef(form);
+  formRef.current = form;
+  const autoNameRef = useRef({ symbol: "", name: "" });
+  useEffect(() => {
+    const sym = form.symbol.trim().toUpperCase();
+    const auto = autoNameRef.current;
+    if (auto.name && auto.symbol !== sym) {
+      setForm((f) => (f.name === auto.name ? { ...f, name: "" } : f));
+      autoNameRef.current = { symbol: "", name: "" };
+    }
+    if (!/^[0-9]{4,6}[A-Z]?$/.test(sym)) { setNameHint(null); return; }
+    if (auto.symbol === sym && auto.name) return; // already filled for this code
+    let cancelled = false;
+    setNameHint("loading");
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetchWithTimeout(`/stock-name?symbol=${encodeURIComponent(sym)}`, { cache: "no-store" }, 6000);
+        const data = await res.json();
+        if (cancelled) return;
+        if (!res.ok || !data?.ok) throw new Error("lookup failed");
+        if (!data.found || !data.name) { setNameHint("missing"); return; }
+        const typed = formRef.current.name;
+        if (typed && typed !== autoNameRef.current.name) { setNameHint(null); return; } // user's own name wins
+        autoNameRef.current = { symbol: sym, name: data.name };
+        setForm((f) => ({ ...f, name: data.name }));
+        setNameHint("found");
+      } catch (e) {
+        if (!cancelled) setNameHint("error");
+      }
+    }, 400);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [form.symbol]);
+
   // 持股進度頁不另外打報價 API；直接沿用「總覽 → 即時股價」寫入的 livePrices 快取。
   // 這樣首頁是唯一報價來源，避免兩個頁面各自抓一次造成重複請求。
   const [holdingQuotes, setHoldingQuotes] = useState({});
@@ -6254,7 +6295,17 @@ function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
             placeholder="0056" className="input" /></Field>
           <Field label="名稱"><input value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
-            placeholder="高股息ETF" className="input" /></Field>
+            placeholder="高股息ETF" className="input" />
+            {nameHint && (
+              <div className="text-[10px] mt-1" aria-live="polite"
+                style={{ color: nameHint === "found" ? COLORS.gold : COLORS.sub }}>
+                <UiLabel zh={nameHint === "loading" ? "查詢名稱中…"
+                  : nameHint === "found" ? "已自動帶入名稱（可修改）"
+                  : nameHint === "missing" ? "查不到此代號，請手動輸入名稱"
+                  : "名稱查詢失敗，請手動輸入"} />
+              </div>
+            )}
+          </Field>
           <Field label="期初股數"><input type="number" value={form.initialShares}
             onChange={(e) => setForm({ ...form, initialShares: e.target.value })}
             placeholder="0" className="input" /></Field>
