@@ -31,7 +31,9 @@
       "/dividend-schedule",
       "/daily-history",
       "/holiday-schedule",
-      "/taifex-tx"
+      "/taifex-tx",
+      "/intraday-metrics",
+      "/market-breadth"
     ]
   },
 
