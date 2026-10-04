@@ -794,6 +794,13 @@ const UI_EN = {
   "匯入會以備份內容取代目前 App 內的資料，確定要繼續嗎？": "Importing will replace all current app data with the backup's content. Continue?",
   "備份檔讀取失敗，資料未變更。": "Failed to read the backup file. No data was changed.",
   "自營 1/3/5日": "Dealer 1/3/5D",
+  "融資餘額（張）": "Margin Balance (lots)",
+  "融資 1/3日增減": "Margin 1/3D Chg",
+  "融券餘額／券資比": "Short Bal / Short-Margin Ratio",
+  "融資融券只記錄、尚未計入機率，累積樣本後由因子回測驗證": "Margin data is record-only — not in the probability until the factor backtest supports it",
+  "融資 1日增減 %": "Margin 1D Chg %",
+  "融資 3日增減 %": "Margin 3D Chg %",
+  "券資比 %": "Short/Margin Ratio %",
 };
 
 function uiText(zh) {
@@ -3508,10 +3515,60 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
 // ---------------- Today Trend Radar (dashboard) ----------------
 const TREND_RADAR_VERSION = "2.45";
 const TREND_MODEL_VERSION = "2.45-fast-micro-rvol-breadth-vwap";
+// ---------------- Margin trading 融資融券 (record-only factor) ----------------
+// Retail leverage is a classic 籌碼 signal, but nothing here shows it predicts
+// anything for these holdings yet. So it is fetched, shown in the radar details
+// and saved with every history snapshot for the 因子回測 panel to measure —
+// it is deliberately NOT part of the probability until the backtest earns it.
+// <margin-helpers>
+function parseMarginRows(json, symbols) {
+  // TWSE MI_MARGN: `tables` holds several tables; the per-stock one has a 代號
+  // column and two 前日/今日餘額 column pairs (融資 first, then 融券). Columns are
+  // found by header name, not position, so a reordered/extended layout still works.
+  const tables = Array.isArray(json?.tables) ? json.tables : (Array.isArray(json?.fields) ? [json] : []);
+  const num = (v) => { const n = Number(String(v ?? "").replace(/,/g, "").trim()); return Number.isFinite(n) ? n : null; };
+  for (const t of tables) {
+    const fields = (t?.fields || []).map((f) => String(f).replace(/\s+/g, ""));
+    const symI = fields.findIndex((f) => f.includes("代號"));
+    const todayI = fields.map((f, i) => (f === "今日餘額" ? i : -1)).filter((i) => i >= 0);
+    const prevI = fields.map((f, i) => (f === "前日餘額" ? i : -1)).filter((i) => i >= 0);
+    if (symI < 0 || todayI.length < 2 || prevI.length < 2 || !Array.isArray(t?.data)) continue;
+    const map = {};
+    for (const row of t.data) {
+      const sym = String(row?.[symI] ?? "").trim();
+      if (!symbols.includes(sym)) continue;
+      const v = { marginBal: num(row[todayI[0]]), marginPrev: num(row[prevI[0]]), shortBal: num(row[todayI[1]]), shortPrev: num(row[prevI[1]]) };
+      if (Object.values(v).every((x) => x !== null)) map[sym] = v;
+    }
+    return map;
+  }
+  return null;
+}
+// days: newest first, [{date, map}]. 3日 = change across the three most recent sessions.
+function marginStats(days, symbol) {
+  const cur = days?.[0]?.map?.[symbol];
+  if (!cur) return null;
+  const pct = (now, base) => (base > 0 ? ((now - base) / base) * 100 : null);
+  const base3 = days[2]?.map?.[symbol]?.marginPrev;
+  return {
+    date: days[0].date,
+    marginBal: cur.marginBal,
+    shortBal: cur.shortBal,
+    chg1: pct(cur.marginBal, cur.marginPrev),
+    chg3: base3 != null ? pct(cur.marginBal, base3) : null,
+    shortRatio: cur.marginBal > 0 ? (cur.shortBal / cur.marginBal) * 100 : null,
+  };
+}
+function marginForRecord(m) {
+  return m ? { date: m.date, marginBal: m.marginBal, shortBal: m.shortBal, chg1: m.chg1, chg3: m.chg3, shortRatio: m.shortRatio } : null;
+}
+// </margin-helpers>
+
 function TrendRadar({ holdings, embedded = false }) {
   const [rows, setRows] = useState([]);
   const [asOf, setAsOf] = useState(null);
   const [instStatus, setInstStatus] = useState("loading");
+  const [marginStatus, setMarginStatus] = useState("loading");
   const [globalStatus, setGlobalStatus] = useState("loading");
   const [accuracy, setAccuracy] = useState(null);
   const [closeLockAccuracy, setCloseLockAccuracy] = useState(null);
@@ -3531,6 +3588,7 @@ function TrendRadar({ holdings, embedded = false }) {
     // Slow inputs do not need to be re-read/re-built on every quote tick.
     let memoDailyDay = null, memoDailyBars = null;
     let memoInstDays = null, memoInstAt = 0;
+    let memoMarginDays = null, memoMarginAt = 0, memoMarginSyms = [];
     let memoGlobal = null, memoGlobalAt = 0;
     let memoIntradayMetrics = null, memoIntradayMetricsAt = 0;
     let memoMarketBreadth = null, memoMarketBreadthAt = 0;
@@ -3568,6 +3626,24 @@ function TrendRadar({ holdings, embedded = false }) {
             if(symbols.includes(sym)) map[sym]=row;
           });
           days.push({date:fmtDate(x),map,marketTotal});
+        }catch(e){}
+      }
+      return days;
+    };
+    // Latest three sessions of TWSE margin/short balances for the given codes.
+    // Today's file is not published until the evening, so a trading day that has
+    // no data yet is simply skipped (parseMarginRows → null), like T86 above.
+    const fetchMargin = async (symbols) => {
+      const days=[]; const d=new Date();
+      for(let tries=0; tries<12 && days.length<3; tries++){
+        const x=new Date(d); x.setDate(d.getDate()-tries);
+        if(x.getDay()===0 || x.getDay()===6) continue;
+        try{
+          const url=`https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN?date=${fmtDate(x)}&selectType=ALL&response=json`;
+          const res=await fetch(url,{cache:"no-store"});
+          if(!res.ok) continue;
+          const map=parseMarginRows(await res.json(), symbols);
+          if(map) days.push({date:fmtDate(x),map});
         }catch(e){}
       }
       return days;
@@ -3886,6 +3962,21 @@ function TrendRadar({ holdings, embedded = false }) {
         }
         setInstStatus(instDays.length?"ok":"unavailable");
       }catch(e){setInstStatus("unavailable");}
+      let marginDays=[];
+      try{
+        const marginSyms=active.map(h=>String(h.symbol));
+        const covers=(syms)=>Array.isArray(syms)&&marginSyms.every(s=>syms.includes(s));
+        if(memoMarginDays && Date.now()-memoMarginAt<6*3600*1000 && covers(memoMarginSyms)){
+          marginDays=memoMarginDays;
+        }else{
+          const mCache=await loadKey("marginFlow",null);
+          const mFresh=mCache && covers(mCache.symbols) && (Date.now()-new Date(mCache.at).getTime())<6*3600*1000;
+          marginDays=mFresh?mCache.days:await fetchMargin(marginSyms);
+          if(!mFresh && marginDays.length) await saveKey("marginFlow",{at:new Date().toISOString(),symbols:marginSyms,days:marginDays});
+          if(marginDays.length){ memoMarginDays=marginDays; memoMarginAt=Date.now(); memoMarginSyms=marginSyms; }
+        }
+        setMarginStatus(marginDays.length?"ok":"unavailable");
+      }catch(e){setMarginStatus("unavailable");}
       const signScore=(v)=>v>0?1:v<0?-1:0;
       const marketSum=(key,n)=>instDays.slice(0,n).reduce((a,d)=>a+(Number(d?.marketTotal?.[key])||0),0);
       const mf1=marketSum("foreign",1), mf3=marketSum("foreign",3), mf5=marketSum("foreign",5);
@@ -3947,6 +4038,7 @@ function TrendRadar({ holdings, embedded = false }) {
         let newsScore = 0;
         news.forEach((n) => { newsScore += scoreHeadline(String(n.title||"")); });
         const flows=instDays.map(d=>d.map?.[h.symbol]).filter(Boolean);
+        const margin=marginStats(marginDays,String(h.symbol)); // record-only: never used in the score below
         const sum=(key,n)=>flows.slice(0,n).reduce((a,v)=>a+(Number(v?.[key])||0),0);
         const f1=sum("foreign",1), f3=sum("foreign",3), f5=sum("foreign",5);
         const t1=sum("trust",1), t3=sum("trust",3), t5=sum("trust",5);
@@ -4015,7 +4107,7 @@ function TrendRadar({ holdings, embedded = false }) {
         const conviction = Math.abs(probability-50);
         const confidence = (evidence>=3.5 && flows.length>=3 && conviction>=14 && kdSignals.length>=3) ? "高"
           : (evidence>=2.5 && conviction>=7) ? "中" : "低";
-        return {symbol:h.symbol,name:h.name||"",probability,direction,confidence,indexPct,stockPct,currentPrice:Number(q.price)||null,dayHigh:Number(q.high)||null,dayLow:Number(q.low)||null,newsScore,flows,f1,f3,f5,t1,t3,t5,d1,d3,d5,kd5,kd15,kd60,kdDaily,kdMonthly,micro,range,volumePrice,breadth,breadthSource,breadthTerm,evidence,quoteFresh,modelVersion:TREND_MODEL_VERSION,lateProgress,closeProgress,closeDirectionBoost,weights:{indexW,stockW,newsW,instTimeW},timedKdScore};
+        return {symbol:h.symbol,name:h.name||"",probability,direction,confidence,indexPct,stockPct,currentPrice:Number(q.price)||null,dayHigh:Number(q.high)||null,dayLow:Number(q.low)||null,newsScore,flows,f1,f3,f5,t1,t3,t5,d1,d3,d5,kd5,kd15,kd60,kdDaily,kdMonthly,micro,range,volumePrice,margin,breadth,breadthSource,breadthTerm,evidence,quoteFresh,modelVersion:TREND_MODEL_VERSION,lateProgress,closeProgress,closeDirectionBoost,weights:{indexW,stockW,newsW,instTimeW},timedKdScore};
       });
 
       // Model correction #2: freeze today's forecast at/after 13:25.
@@ -4059,7 +4151,7 @@ function TrendRadar({ holdings, embedded = false }) {
           next.forEach(r=>{
             const key=day+"|"+r.symbol+"|morning";
             if(!records.some(x=>x.key===key)){
-              records.push({key,day,symbol:r.symbol,phase:"morning",ts:stamp.toISOString(),probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,modelVersion:r.modelVersion,lateProgress:r.lateProgress,closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,weights:r.weights,timedKdScore:r.timedKdScore,volumePrice:r.volumePrice,breadth:r.breadth,breadthSource:r.breadthSource,inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
+              records.push({key,day,symbol:r.symbol,phase:"morning",ts:stamp.toISOString(),probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,modelVersion:r.modelVersion,lateProgress:r.lateProgress,closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,weights:r.weights,timedKdScore:r.timedKdScore,volumePrice:r.volumePrice,breadth:r.breadth,breadthSource:r.breadthSource,margin:marginForRecord(r.margin),inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
             }
           });
         }
@@ -4069,7 +4161,7 @@ function TrendRadar({ holdings, embedded = false }) {
           next.forEach(r=>{
             const key=day+"|"+r.symbol+"|closeLock";
             if(!records.some(x=>x.key===key)){
-              records.push({key,day,symbol:r.symbol,phase:"closeLock",ts:stamp.toISOString(),probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,modelVersion:r.modelVersion,lateProgress:r.lateProgress,closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,weights:r.weights,timedKdScore:r.timedKdScore,volumePrice:r.volumePrice,breadth:r.breadth,breadthSource:r.breadthSource,inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
+              records.push({key,day,symbol:r.symbol,phase:"closeLock",ts:stamp.toISOString(),probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,modelVersion:r.modelVersion,lateProgress:r.lateProgress,closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,weights:r.weights,timedKdScore:r.timedKdScore,volumePrice:r.volumePrice,breadth:r.breadth,breadthSource:r.breadthSource,margin:marginForRecord(r.margin),inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
             }
           });
         }
@@ -4242,7 +4334,7 @@ function TrendRadar({ holdings, embedded = false }) {
             symbol:r.symbol,name:r.name,probability:r.probability,direction:r.direction,confidence:r.confidence,
             indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,
             kd5:r.kd5,kd15:r.kd15,kd60:r.kd60,kdDaily:r.kdDaily,kdMonthly:r.kdMonthly,
-            micro:r.micro,range:r.range,volumePrice:r.volumePrice,breadth:r.breadth,breadthSource:r.breadthSource,evidence:r.evidence,quoteFresh:r.quoteFresh,
+            micro:r.micro,range:r.range,volumePrice:r.volumePrice,margin:marginForRecord(r.margin),breadth:r.breadth,breadthSource:r.breadthSource,evidence:r.evidence,quoteFresh:r.quoteFresh,
             f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5,
             closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,
           })),
@@ -4491,6 +4583,17 @@ function TrendRadar({ holdings, embedded = false }) {
               <div className="flex justify-between"><span><UiLabel zh="外資 1/3/5日" /></span><span>{flowText(r.f1)} / {flowText(r.f3)} / {flowText(r.f5)}</span></div>
               <div className="flex justify-between"><span><UiLabel zh="投信 1/3/5日" /></span><span>{flowText(r.t1)} / {flowText(r.t3)} / {flowText(r.t5)}</span></div>
               <div className="flex justify-between"><span><UiLabel zh="自營 1/3/5日" /></span><span>{flowText(r.d1)} / {flowText(r.d3)} / {flowText(r.d5)}</span></div>
+            </div>}
+            {r.margin&&<div className="mt-1.5 pt-1.5 text-[9px] mono" style={{color:COLORS.sub,borderTop:"1px solid "+COLORS.panelBorder}}>
+              {(()=>{
+                const sp=(v)=>v==null?"—":(v>=0?"+":"")+v.toFixed(1)+"%";
+                return <>
+                  <div className="flex justify-between"><span><UiLabel zh="融資餘額（張）" /></span><span>{nf(r.margin.marginBal)}</span></div>
+                  <div className="flex justify-between"><span><UiLabel zh="融資 1/3日增減" /></span><span>{sp(r.margin.chg1)} / {sp(r.margin.chg3)}</span></div>
+                  <div className="flex justify-between"><span><UiLabel zh="融券餘額／券資比" /></span><span>{nf(r.margin.shortBal)} / {r.margin.shortRatio==null?"—":r.margin.shortRatio.toFixed(1)+"%"}</span></div>
+                  <div className="mt-0.5 leading-snug"><UiLabel zh="融資融券只記錄、尚未計入機率，累積樣本後由因子回測驗證" /></div>
+                </>;
+              })()}
             </div>}</>}
           </div>;
         })}
@@ -4502,8 +4605,8 @@ function TrendRadar({ holdings, embedded = false }) {
       {closeLockAccuracy&&<div className="text-[9px] mt-1 mono" style={{color:COLORS.gold}}>{UI_SHOW_ENGLISH ? `Last ${closeLockAccuracy.n} validated "pre-close lock" forecasts: ${((closeLockAccuracy.hits/closeLockAccuracy.n)*100).toFixed(1)}% hit rate (locked at 13:25, far easier than morning — kept separate above)` : `近 ${closeLockAccuracy.n} 次已驗證「收盤前鎖定」預測：方向命中 ${((closeLockAccuracy.hits/closeLockAccuracy.n)*100).toFixed(1)}%（13:25 才鎖定，難度遠低於上午，跟上面分開看）`}</div>}
       {tomorrowAccuracy&&<div className="text-[9px] mt-1 mono" style={{color:COLORS.gold}}>{UI_SHOW_ENGLISH ? `Last ${tomorrowAccuracy.n} validated "tomorrow" forecasts: ${((tomorrowAccuracy.hits/tomorrowAccuracy.n)*100).toFixed(1)}% hit rate (excludes unclear direction; stats only, not a guarantee)` : `近 ${tomorrowAccuracy.n} 次已驗證「明日」預測：方向命中 ${((tomorrowAccuracy.hits/tomorrowAccuracy.n)*100).toFixed(1)}%（已排除方向不明，僅統計，不代表未來）`}</div>}
       <div className="text-[9px] mt-2 leading-relaxed" style={{color:COLORS.sub}}>{UI_SHOW_ENGLISH
-        ? <>Institutional: TWSE post-close public data; ETF institutional flow and dealer flow are downweighted to reduce hedging/market-making noise, and the market score now includes the whole-market institutional total. {instStatus==="unavailable"?"Institutional source is temporarily unavailable; the radar falls back to the base model.":"Institutional data is cached for 6 hours."} 5/15/60m KD is built from continuous 15-second quote sampling aggregated into OHLC; daily/monthly KD comes from real historical bars. The tomorrow forecast is driven mainly by overnight signals (TX front-month futures / US equities / SOX / FX); {globalStatus==="unavailable"?"the overnight signal is temporarily unavailable, so tomorrow's forecast falls back to extrapolating today's momentum.":"today's own momentum is only a secondary adjustment."} Each morning's forecast is saved and checked against the same day's close; the tomorrow forecast is checked the next day against its own target trading date, with hit rates tracked separately.</>
-        : <>法人：證交所盤後公開資料；ETF 法人流量降低權重，自營商亦降低權重以減少避險/造市影響，大盤分數已納入全市場法人加總。{instStatus==="unavailable"?"目前法人來源暫不可用，雷達會自動退回原模型。":"法人資料快取6小時。"} 5/15/60分KD由15秒即時報價持續取樣、聚合OHLC後運算；日/月KD取自真實歷史K線。模型另納入RVOL相對量能、VWAP位置/斜率與證交所全市場漲跌廣度（同日資料可用時）；來源不足時該因子自動降為0權重。明日預測以台指近月／美股／費半／匯率等隔夜訊號為主，{globalStatus==="unavailable"?"目前隔夜訊號暫不可用，明日預測退回今日動能外推。":"今日動能僅作次要修正。"} 每日上午預測會保存，收盤後自動核對方向；明日預測則以「目標交易日」為準，隔天核對，兩者準確率分開統計。</>}</div>
+        ? <>Institutional: TWSE post-close public data; ETF institutional flow and dealer flow are downweighted to reduce hedging/market-making noise, and the market score now includes the whole-market institutional total. {instStatus==="unavailable"?"Institutional source is temporarily unavailable; the radar falls back to the base model.":"Institutional data is cached for 6 hours."} 5/15/60m KD is built from continuous 15-second quote sampling aggregated into OHLC; daily/monthly KD comes from real historical bars. The tomorrow forecast is driven mainly by overnight signals (TX front-month futures / US equities / SOX / FX); {globalStatus==="unavailable"?"the overnight signal is temporarily unavailable, so tomorrow's forecast falls back to extrapolating today's momentum.":"today's own momentum is only a secondary adjustment."} Each morning's forecast is saved and checked against the same day's close; the tomorrow forecast is checked the next day against its own target trading date, with hit rates tracked separately. Margin/short balances (TWSE post-close data) {marginStatus==="unavailable"?"are temporarily unavailable":"are record-only for now and not part of the probability"} until the factor backtest shows they help.</>
+        : <>法人：證交所盤後公開資料；ETF 法人流量降低權重，自營商亦降低權重以減少避險/造市影響，大盤分數已納入全市場法人加總。{instStatus==="unavailable"?"目前法人來源暫不可用，雷達會自動退回原模型。":"法人資料快取6小時。"} 5/15/60分KD由15秒即時報價持續取樣、聚合OHLC後運算；日/月KD取自真實歷史K線。模型另納入RVOL相對量能、VWAP位置/斜率與證交所全市場漲跌廣度（同日資料可用時）；來源不足時該因子自動降為0權重。明日預測以台指近月／美股／費半／匯率等隔夜訊號為主，{globalStatus==="unavailable"?"目前隔夜訊號暫不可用，明日預測退回今日動能外推。":"今日動能僅作次要修正。"} 每日上午預測會保存，收盤後自動核對方向；明日預測則以「目標交易日」為準，隔天核對，兩者準確率分開統計。融資融券（證交所盤後公開資料）{marginStatus==="unavailable"?"目前暫不可用":"目前只記錄、不計入機率"}，待因子回測確認有用才會納入。</>}</div>
     </div>
   );
 }
@@ -4568,6 +4671,9 @@ function FactorBacktest() {
     ["RVOL", (r) => r.volumePrice?.rvol],
     ["VWAP 距離 %", (r) => r.volumePrice?.distPct],
     ["市場廣度", (r) => r.breadthSource==="market" ? r.breadth : null],
+    ["融資 1日增減 %", (r) => r.margin?.chg1],
+    ["融資 3日增減 %", (r) => r.margin?.chg3],
+    ["券資比 %", (r) => r.margin?.shortRatio],
   ]), []);
 
   const morningFactors = useMemo(() => {
