@@ -371,7 +371,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.46.1-mobile-overlay-stability";
+const APP_VERSION = "4.7-personal-advisor-v2.46.2-closing-report-acceptance";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -5135,13 +5135,15 @@ function DailyClosingAiReport({ holdings, dailyRecords }) {
   const [error, setError] = useState("");
   const [expanded, setExpanded] = useState(false);
 
-  const reportKeyFor = (date) => `dailyClosingProgramReport:${date}`;
+  const reportKeyFor = (date) => `dailyClosingProgramReport:v2:${date}`;
   const expandedKeyFor = (date) => `dailyClosingProgramReportExpanded:${date}`;
 
   const buildAndAsk = async (force = false) => {
     const p = taiwanDateParts();
     const day = `${p.year}-${p.month}-${p.day}`;
     const afterClose = p.hour > 14 || (p.hour === 14 && p.minute >= 0);
+    await refreshTwseHolidaySchedule();
+    if (isNonTradingDay()) { setReport(null); setStatus("closed"); setError(""); return; }
     if (!afterClose && !force) return;
 
     setStatus("loading");
@@ -5216,8 +5218,9 @@ function DailyClosingAiReport({ holdings, dailyRecords }) {
         `最近每日資產紀錄：${JSON.stringify(latestDaily)}`,
       ].filter(Boolean).join("\n\n");
 
-      const numPct = (v) => Number.isFinite(Number(v)) ? `${Number(v) >= 0 ? "+" : ""}${Number(v).toFixed(2)}%` : "資料不足";
-      const marketPct = Number(market.indexPct);
+      const finiteValue = (v) => v == null || typeof v === "boolean" || String(v).trim() === "" ? NaN : Number(v);
+      const numPct = (v) => Number.isFinite(finiteValue(v)) ? `${Number(v) >= 0 ? "+" : ""}${Number(v).toFixed(2)}%` : "資料不足";
+      const marketPct = finiteValue(market.indexPct);
       const known = twHoldings.map(h => {
         const q = liveMap[h.symbol] || {};
         const price = Number(q.price), prev = Number(q.prevClose);
@@ -5299,6 +5302,9 @@ function DailyClosingAiReport({ holdings, dailyRecords }) {
     let timer = null;
     const check = async () => {
       if (dead) return;
+      await refreshTwseHolidaySchedule();
+      if (dead) return;
+      if (isNonTradingDay()) { setReport(null); setStatus("closed"); return; }
       const p = taiwanDateParts();
       const day = `${p.year}-${p.month}-${p.day}`;
       const cached = await loadKey(reportKeyFor(day), null);
@@ -5317,7 +5323,8 @@ function DailyClosingAiReport({ holdings, dailyRecords }) {
   }, [holdings, dailyRecords]);
 
   const p = taiwanDateParts();
-  const afterClose = p.hour >= 14;
+  const closedToday = isNonTradingDay();
+  const afterClose = p.hour >= 14 && !closedToday;
 
   return (
     <div className="rounded-2xl p-4" style={{
@@ -5343,7 +5350,9 @@ function DailyClosingAiReport({ holdings, dailyRecords }) {
         )}
       </div>
 
-      {!afterClose && !report && (
+      {closedToday && <div className="text-xs mt-3" style={{ color: COLORS.sub }}>{UI_SHOW_ENGLISH ? "Market closed today; no closing report." : "今日休市，不產生收盤分析。"}</div>}
+
+      {!closedToday && !afterClose && !report && (
         <div className="text-xs mt-3" style={{ color: COLORS.sub }}>
           <UiLabel zh="尚未到收盤分析時間" />
         </div>
@@ -7017,13 +7026,13 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
       <Panel title="AI 雙層備援（自動）">
         <div className="text-[11px] leading-5" style={{ color: COLORS.sub }}>
           {UI_SHOW_ENGLISH
-            ? <>Primary AI: <span style={{ color: COLORS.gold }}>Cloudflare GPT-OSS</span>. If it hits a quota limit, 429, timeout or service error, the same Cloudflare Worker <span style={{ color: COLORS.gold }}>switches directly to Gemini 3.5 Flash-Lite</span> — no Vercel needed, and the Gemini API key never touches your phone.</>
-            : <>主 AI：<span style={{ color: COLORS.gold }}>Cloudflare GPT-OSS</span>。如果遇到額度用完、429、逾時或服務錯誤，會由同一個 Cloudflare Worker <span style={{ color: COLORS.gold }}>直接切到 Gemini 3.5 Flash-Lite</span>，不再需要 Vercel，也不會把 Gemini API Key 放在手機。</>}
+            ? <>Primary AI: <span style={{ color: COLORS.gold }}>Cloudflare GLM (light) / GPT-OSS (complex tasks)</span>. If it hits a quota limit, 429, timeout or service error, the same Cloudflare Worker <span style={{ color: COLORS.gold }}>switches directly to Gemini 3.6 Flash</span> — no Vercel needed, and the Gemini API key never touches your phone.</>
+            : <>主 AI：<span style={{ color: COLORS.gold }}>Cloudflare GLM（輕量）／GPT-OSS（複雜任務）</span>。如果遇到額度用完、429、逾時或服務錯誤，會由同一個 Cloudflare Worker <span style={{ color: COLORS.gold }}>直接切到 Gemini 3.6 Flash</span>，不再需要 Vercel，也不會把 Gemini API Key 放在手機。</>}
         </div>
         <div className="mt-2 rounded-xl p-3 text-[11px] leading-5" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, color: COLORS.sub }}>
           <div><span style={{ color: COLORS.loss }}>①</span> Cloudflare AI</div>
           <div><span style={{ color: COLORS.gold }}>{M("↓ Auto-switch on failure", "↓ 失敗自動切換")}</span></div>
-          <div><span style={{ color: COLORS.gain }}>②</span> {M("Gemini 3.5 Flash-Lite (server-side Worker)", "Gemini 3.5 Flash-Lite（Worker 伺服器端）")}</div>
+          <div><span style={{ color: COLORS.gain }}>②</span> {M("Gemini 3.6 Flash (server-side Worker)", "Gemini 3.6 Flash（Worker 伺服器端）")}</div>
           <div><span style={{ color: COLORS.sub }}>{M("↓ Only shows a real error if Gemini also fails — never pretends to succeed", "↓ 如果 Gemini 也失敗，才顯示真正錯誤，不會假裝成功")}</span></div>
         </div>
         <label className="mt-3 flex items-start gap-2 text-[11px] leading-5" style={{ color: COLORS.sub }}>
@@ -8176,3 +8185,4 @@ ReactDOM.createRoot(document.getElementById('root')).render(<AssetTracker />);
   </script>
 </body>
 </html>
+
