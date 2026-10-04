@@ -169,12 +169,14 @@ test('?prev=1 without a backup says so; a token never sees another token\'s back
   assert.equal((await (await get(env, '?prev=1', other)).json()).found, false);
 });
 
-test('a failing KV read does not block syncing (the guard fails open, never blocks normal use)', async () => {
+test('a failing KV read refuses syncing without writing over unverified data', async () => {
+  let writes = 0;
   const env = { health_kv: {
     get: async () => { throw new Error('KV get() failed'); },
-    put: async () => {},
+    put: async () => { writes++; },
   } };
-  assert.equal((await post(env, full())).status, 200);
+  assert.equal((await post(env, full())).status, 503);
+  assert.equal(writes, 0);
 });
 
 // ── 前端 ───────────────────────────────────────────────
