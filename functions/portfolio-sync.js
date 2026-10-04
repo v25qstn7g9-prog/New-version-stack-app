@@ -190,15 +190,19 @@ export async function onRequestPost({ request, env }) {
   try {
     const syncedAt = new Date().toISOString();
 
-    // 防覆蓋：先讀現有快照；讀取失敗就照舊寫入（不因保護機制本身出問題而擋掉正常同步）。
+    // 無法確認既有內容時拒絕寫入，讓用戶稍後重試；不能把讀取失敗當成沒有資料。
     let existingRaw = null;
     let existing = null;
     try {
       existingRaw = await env.health_kv.get(KV_PREFIX + token);
-      existing = existingRaw ? JSON.parse(existingRaw) : null;
+      if (existingRaw !== null) {
+        existing = JSON.parse(existingRaw);
+        if (!existing || typeof existing !== "object" || Array.isArray(existing)) {
+          throw new Error("Invalid existing snapshot");
+        }
+      }
     } catch {
-      existingRaw = null;
-      existing = null;
+      return jsonResponse({ ok: false, error: "existing_snapshot_unavailable", detail: "暫時無法確認既有資產快照，為保護資料，本次未寫入。請稍後重試。" }, 503);
     }
     if (existing && typeof existing === "object") {
       const oldSize = snapshotSize(existing);
