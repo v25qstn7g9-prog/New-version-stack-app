@@ -371,7 +371,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.46.7-compact-radar-note";
+const APP_VERSION = "4.7-personal-advisor-v2.46.8-market-toggle";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -1590,6 +1590,9 @@ function AssetTracker() {
   // 交易紀錄 to fill cost — each visit was resetting whatever the other one
   // had just filled in). Owning it here means it survives tab switches.
   const [dailyForm, setDailyForm] = useState({ date: todayStr(), twValue: "", usValue: "", twCost: "", usCost: "" });
+  // 每日紀錄的市場顯示偏好：台股固定啟用，美股由使用者自行勾選。
+  // null 舊資料第一次升級時會依既有美股紀錄自動判斷，避免老使用者升級後突然看不到欄位。
+  const [showUsFields, setShowUsFields] = useState(false);
 
   // 左右滑動切換分頁（仿 iOS 分頁）：頁面會跟著手指走、下一頁從旁邊露出來；
   // 放開時依「滑動距離」或「甩動速度」決定換頁或彈回。只有明確的水平手勢
@@ -1827,7 +1830,7 @@ function AssetTracker() {
   // ---- initial load ----
   useEffect(() => {
     (async () => {
-      const [dr, h, t, dv, p, g, ps, cb, lba, afc, lst] = await Promise.all([
+      const [dr, h, t, dv, p, g, ps, cb, lba, afc, lst, suf] = await Promise.all([
         loadKey("dailyRecords", defaultDailyRecords()),
         loadKey("holdings", defaultHoldings()),
         loadKey("trades", defaultTrades()),
@@ -1839,6 +1842,7 @@ function AssetTracker() {
         loadKey("lastBackupAt", null),
         loadKey("aiFallbackConfig", { url: "", token: "", allowPrivate: false }),
         loadKey("zinfSyncToken", "").then(async (v) => v || await loadKey(String.fromCharCode(108,105,110,101,83,121,110,99,84,111,107,101,110), "")),
+        loadKey("showUsFields", null),
       ]);
       setDailyRecords(dr);
       setHoldings(h);
@@ -1861,6 +1865,8 @@ function AssetTracker() {
         allowPrivate: afc.allowPrivate === true,
       } : { url: "", token: "", allowPrivate: false });
       setZinfSyncToken(typeof lst === "string" ? lst : "");
+      const hadUsHistory = Array.isArray(dr) && dr.some((r) => Number(r?.usValue || 0) > 0 || Number(r?.usCost || 0) > 0);
+      setShowUsFields(typeof suf === "boolean" ? suf : hadUsHistory);
       setReady(true);
     })();
   }, []);
@@ -1906,6 +1912,7 @@ function AssetTracker() {
   useEffect(() => { if (ready) saveKey("costBasis", costBasis); }, [costBasis, ready]);
   useEffect(() => { if (ready) saveKey("aiFallbackConfig", aiFallbackConfig); }, [aiFallbackConfig, ready]);
   useEffect(() => { if (ready) saveKey("zinfSyncToken", zinfSyncToken); }, [zinfSyncToken, ready]);
+  useEffect(() => { if (ready) saveKey("showUsFields", showUsFields); }, [showUsFields, ready]);
 
 
   // ---- full backup / restore ----
@@ -2746,7 +2753,7 @@ function AssetTracker() {
               case "daily":
                 return (
                   <DailyPanel records={sortedDaily} setRecords={setDailyRecords} prefill={dailyPrefill}
-                    form={dailyForm} setForm={setDailyForm} holdings={holdingsWithShares} />
+                    form={dailyForm} setForm={setDailyForm} holdings={holdingsWithShares} showUsFields={showUsFields} setShowUsFields={setShowUsFields} />
                 );
               case "holdings":
                 return (
@@ -5786,7 +5793,7 @@ function StatCard({ label, value, tone, className = "" }) {
 }
 
 // ---------------- Daily Panel ----------------
-function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = [] }) {
+function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = [], showUsFields = false, setShowUsFields }) {
   const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
   // When "帶入「每日紀錄」..." is pressed elsewhere in the app, prefill is
   // set to a fresh object each time — that reference change is what makes
@@ -6056,6 +6063,17 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
     <div className="space-y-2">
       {/* 今天的紀錄：打開就自動填好，確認後按一次儲存；要補記其他天再改日期。 */}
       <Panel title="今天的紀錄">
+        <div className="flex items-center justify-between gap-2 mb-2 pb-2" style={{ borderBottom: `1px solid ${COLORS.panelBorder}` }}>
+          <div className="flex items-center gap-2 text-[11px]">
+            <span style={{ color: COLORS.sub }}><UiLabel zh="資產市場" inline /></span>
+            <span className="font-bold rounded-md px-2 py-1" style={{ color: COLORS.text, background: COLORS.bg }}>☑ <UiLabel zh="台股" inline /></span>
+            <label className="font-bold rounded-md px-2 py-1 flex items-center gap-1.5 cursor-pointer" style={{ color: showUsFields ? "#8BC4D4" : COLORS.sub, background: COLORS.bg }}>
+              <input type="checkbox" checked={showUsFields} onChange={(e) => setShowUsFields?.(e.target.checked)} />
+              <UiLabel zh="美股" inline />
+            </label>
+          </div>
+          <span className="text-[10px]" style={{ color: COLORS.sub }}><UiLabel zh="勾選會自動記住" inline /></span>
+        </div>
         <div className="flex items-center justify-between gap-2 mb-2">
           <div className="text-sm font-bold mono">{form.date.slice(5).replace("-", "/")}{isToday ? (UI_SHOW_ENGLISH ? " (today)" : "（今天）") : ""}</div>
           <span className="text-[11px] font-bold rounded-full px-2 py-0.5"
@@ -6086,7 +6104,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
           </div>
         )}
         <div className="grid grid-cols-2 gap-2">
-          {[["twValue", "台股市值"], ["usValue", "美股市值"], ["twCost", "台股成本"], ["usCost", "美股成本"]].map(([key, label]) => (
+          {(showUsFields ? [["twValue", "台股市值"], ["usValue", "美股市值"], ["twCost", "台股成本"], ["usCost", "美股成本"]] : [["twValue", "台股市值"], ["twCost", "台股成本"]]).map(([key, label]) => (
             <Field key={key} label={label}>
               <input type="number" inputMode="decimal" value={form[key]}
                 onChange={(e) => editField(key, e.target.value)}
@@ -6164,6 +6182,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
                 {rangeResult.twCostChange >= 0 ? "+" : ""}{nf(rangeResult.twCostChange)}
               </span>
             </div>
+            {showUsFields && (<>
             <div className="flex justify-between">
               <span style={{ color: COLORS.sub }}><UiLabel zh="美股市值變化" /></span>
               <span className="font-bold" style={{ color: rangeResult.usValueChange >= 0 ? COLORS.gain : COLORS.loss }}>
@@ -6176,6 +6195,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
                 {rangeResult.usCostChange >= 0 ? "+" : ""}{nf(rangeResult.usCostChange)}
               </span>
             </div>
+            </>)}
           </div>
         )}
       </Panel>
