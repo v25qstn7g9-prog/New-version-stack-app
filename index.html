@@ -2891,6 +2891,7 @@ function AssetTracker() {
                     holdings={holdingsWithShares} dailyRecords={sortedDaily} dividends={dividends}
                     yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue}
                     usHoldings={usHoldings}
+                    onFillDailyTw={(value) => { setDailyPrefill({ twValue: value }); goToTab("daily"); }}
                     onFillDailyUs={(value) => { setDailyPrefill({ usValue: value }); goToTab("daily"); }}
                     onGoDaily={() => goToTab("daily")}
                   />
