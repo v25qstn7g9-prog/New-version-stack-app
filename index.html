@@ -2907,7 +2907,7 @@ function AssetTracker() {
       <AiChatWidget holdings={holdingsWithShares} goal={goal} totalToday={totalToday} totalInvested={totalInvested}
         trades={trades} setTrades={setTrades} setHoldings={setHoldings} setGoal={setGoal}
         dailyRecords={dailyRecords} dividends={dividends} planItems={planItems} planSchedule={planSchedule}
-        goalDate={goalDate} aiFallbackConfig={aiFallbackConfig}
+        goalDate={goalDate} aiFallbackConfig={aiFallbackConfig} zinfSyncToken={zinfSyncToken}
         perf={{
           capitalGain, totalDividends, totalReturn, totalReturnPct, highPoint, drawdown, ytdGain, ytdPct,
           elapsedMonths, costLeadMonths, assetLeadMonths, startingCost: costBasis?.startingCost,
@@ -8054,7 +8054,7 @@ function cleanAiDisplayText(text) {
   return out;
 }
 
-function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTrades, setHoldings, setGoal, dailyRecords, dividends, planItems, planSchedule, goalDate, perf, aiFallbackConfig }) {
+function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTrades, setHoldings, setGoal, dailyRecords, dividends, planItems, planSchedule, goalDate, perf, aiFallbackConfig, zinfSyncToken }) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([]); // {role, content} 一般訊息，或 {role:'assistant', toolCall, status} 確認卡片
   const [input, setInput] = useState("");
@@ -8063,6 +8063,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
   const [error, setError] = useState("");
   const [providerInfo, setProviderInfo] = useState(null); // { provider, model, profile }
   const scrollRef = useRef(null);
+  const sendingRef = useRef(false);
 
   // 開啟 AI 助手時把背景頁面「鎖死」，不能被 iOS 內部的 scroll-into-view
   // 行為拖走。只用 overflow:hidden 不夠——那只能擋使用者手動滑動，擋不住
@@ -8126,7 +8127,9 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
 
     const callAskEndpoint = async (url, body, { fallback = false } = {}) => {
       setConnectionStatus(fallback ? "切換獨立備援中…" : "AI 回應中・主備援自動接續");
-      const headers = { "content-type": "application/json", "x-device-id": deviceId, ...(zinfSyncToken ? { authorization: "Bearer " + zinfSyncToken } : {}) };
+      const headers = { "content-type": "application/json", "x-device-id": deviceId };
+      // Z∞ sync token only belongs to the first-party Cloudflare endpoint.
+      if (!fallback && zinfSyncToken) headers.authorization = "Bearer " + zinfSyncToken;
       if (fallback && aiFallbackConfig?.token) headers["x-fallback-token"] = aiFallbackConfig.token;
       let res;
       try {
@@ -8179,7 +8182,9 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
 
   const send = async () => {
     const text = input.trim();
-    if (!text || sending) return;
+    // Lock synchronously so rapid taps cannot submit the same message twice before React state updates.
+    if (!text || sending || sendingRef.current) return;
+    sendingRef.current = true;
     setInput("");
     setError("");
     const nextMessages = [...messages, { role: "user", content: text }];
@@ -8275,6 +8280,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
     } catch (e) {
       setError(e?.message || uiText("問答失敗，請稍後再試"));
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
   };
