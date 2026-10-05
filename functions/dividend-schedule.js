@@ -12,7 +12,8 @@
 
 const SYMBOL_PATTERN = /^[0-9]{4,6}[A-Z]?$/;
 const TWSE_URL = "https://www.twse.com.tw/exchangeReport/TWT48U?response=json";
-const CACHE_TTL_SECONDS = 6 * 60 * 60; // 6 小時
+const TWSE_ETF_ANNOUNCEMENT_URL = "https://www.twse.com.tw/rwd/zh/ETFortune/announcement?response=json";
+const CACHE_TTL_SECONDS = 60 * 60; // 1 小時：配息公告期間縮短快取，讓預估/正式金額較快更新
 
 function isAllowedSymbol(s) {
   return SYMBOL_PATTERN.test(s);
@@ -102,6 +103,66 @@ async function getScheduleRows() {
   return rows;
 }
 
+function parseMoney(value) {
+  const n = parseFloat(String(value ?? "").replace(/,/g, "").match(/-?\d+(?:\.\d+)?/)?.[0]);
+  return Number.isFinite(n) ? n : null;
+}
+
+async function getEtfAnnouncementRows() {
+  const cache = caches.default;
+  const cacheKey = new Request("https://internal-cache.example/dividend-etf-announcements-v1");
+  const cached = await cache.match(cacheKey);
+  if (cached) return await cached.json();
+
+  const json = await fetchJson(TWSE_ETF_ANNOUNCEMENT_URL);
+  const fields = Array.isArray(json?.fields) ? json.fields : [];
+  const data = Array.isArray(json?.data) ? json.data : [];
+  const norm = (s) => String(s || "").replace(/\s+/g, "");
+  const findIdx = (...needles) => fields.findIndex((f) => needles.some((n) => norm(f).includes(n)));
+  const idx = {
+    symbol: findIdx("基金代號", "證券代號", "股票代號"),
+    name: findIdx("基金名稱", "名稱"),
+    estimated: findIdx("預估每受益權單位", "預估收益分配", "預估配息"),
+    actual: findIdx("實際每受益權單位", "實際收益分配", "實際配息"),
+    announceDate: findIdx("公告日期", "發布日期"),
+  };
+  const rows = data.map((r) => ({
+    symbol: String(idx.symbol >= 0 ? r[idx.symbol] : "").trim(),
+    name: String(idx.name >= 0 ? r[idx.name] : "").trim(),
+    estimatedDividend: idx.estimated >= 0 ? parseMoney(r[idx.estimated]) : null,
+    actualDividend: idx.actual >= 0 ? parseMoney(r[idx.actual]) : null,
+    announcementDate: idx.announceDate >= 0 ? rocDateToIso(r[idx.announceDate]) : null,
+  })).filter((r) => r.symbol);
+
+  const response = new Response(JSON.stringify(rows), { headers: { "content-type": "application/json", "cache-control": `max-age=${CACHE_TTL_SECONDS}` } });
+  await cache.put(cacheKey, response);
+  return rows;
+}
+
+async function enrichWithEtfAnnouncements(results) {
+  const pending = results.filter((r) => r?.found && r.cashDividend == null);
+  if (!pending.length) return results;
+  try {
+    const announcements = await getEtfAnnouncementRows();
+    return results.map((r) => {
+      if (!r?.found || r.cashDividend != null) return r;
+      const a = announcements.find((x) => x.symbol === r.symbol);
+      if (!a) return r;
+      const actual = a.actualDividend;
+      const estimated = a.estimatedDividend;
+      return {
+        ...r,
+        cashDividend: actual ?? r.cashDividend,
+        estimatedDividend: actual == null ? estimated : null,
+        dividendStatus: actual != null ? "official" : (estimated != null ? "estimated" : "pending"),
+        announcementDate: a.announcementDate || null,
+      };
+    });
+  } catch (_) {
+    return results; // 第二來源失敗時維持原本 TWT48U 行為
+  }
+}
+
 function buildEntry(symbol, match) {
   if (!match || !match.date) {
     // 沒公告不是錯誤——多數個股一年只公告一次，公告前本來就查不到。
@@ -113,6 +174,7 @@ function buildEntry(symbol, match) {
     date: match.date,
     type: match.type || null, // "息" / "權" / "權息"
     cashDividend: match.cashDividend, // 每股現金股利；ETF常顯示「待公告」→ null
+    dividendStatus: match.cashDividend != null ? "official" : "pending",
     name: match.name || null,
   };
 }
@@ -132,8 +194,9 @@ export async function onRequestGet({ request }) {
 
     try {
       const rows = await getScheduleRows();
-      const results = symbols.map((s) => buildEntry(s, rows.find((r) => r.symbol === s)));
-      return jsonResponse({ ok: true, source: "twse-exright-announcement", results });
+      const baseResults = symbols.map((s) => buildEntry(s, rows.find((r) => r.symbol === s)));
+      const results = await enrichWithEtfAnnouncements(baseResults);
+      return jsonResponse({ ok: true, source: "twse-exright-announcement+etf-announcement", results });
     } catch (err) {
       return jsonResponse({ ok: false, error: `查詢失敗：${String(err?.message || err)}` }, 502);
     }
@@ -147,7 +210,8 @@ export async function onRequestGet({ request }) {
   try {
     const rows = await getScheduleRows();
     const match = rows.find((r) => r.symbol === symbol);
-    return jsonResponse({ ok: true, source: "twse-exright-announcement", ...buildEntry(symbol, match) });
+    const [entry] = await enrichWithEtfAnnouncements([buildEntry(symbol, match)]);
+    return jsonResponse({ ok: true, source: "twse-exright-announcement+etf-announcement", ...entry });
   } catch (err) {
     return jsonResponse({ ok: false, error: `查詢失敗：${String(err?.message || err)}` }, 502);
   }
