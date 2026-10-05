@@ -371,7 +371,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.46.9-ai-daily-quota";
+const APP_VERSION = "4.7-personal-advisor-v2.46.10-owner-zinf";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -1822,6 +1822,7 @@ function AssetTracker() {
   // 沒填就完全不會對外送出任何資料。這組字串只存在這個瀏覽器跟你自己貼給 Z∞ 中控的地方。
   const [zinfSyncToken, setZinfSyncToken] = useState("");
   const [zinfSyncStatus, setZinfSyncStatus] = useState("");
+  const [isOwner, setIsOwner] = useState(false);
   // 系統健康卡片：由 Cloudflare 背景排程（或手動觸發）產生，App 開啟時抓一次現況。
   // 只是顯示用的暫存狀態，不寫進 localStorage/JSON 備份——它本來就是伺服器端的資料。
   const [healthCards, setHealthCards] = useState([]);
@@ -1913,6 +1914,26 @@ function AssetTracker() {
   useEffect(() => { if (ready) saveKey("aiFallbackConfig", aiFallbackConfig); }, [aiFallbackConfig, ready]);
   useEffect(() => { if (ready) saveKey("zinfSyncToken", zinfSyncToken); }, [zinfSyncToken, ready]);
   useEffect(() => { if (ready) saveKey("showUsFields", showUsFields); }, [showUsFields, ready]);
+
+  // Owner UI 判定只送現有同步 token 給 Worker 比對；伺服器只回 true/false。
+  // 一般使用者即使檢視前端原始碼，也拿不到 Owner Secret。
+  useEffect(() => {
+    if (!ready || !zinfSyncToken) { setIsOwner(false); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetchWithTimeout("/api/owner-status", {
+          cache: "no-store",
+          headers: { authorization: "Bearer " + zinfSyncToken },
+        }, 6000);
+        const data = res.ok ? await res.json().catch(() => null) : null;
+        if (!cancelled) setIsOwner(data?.owner === true);
+      } catch {
+        if (!cancelled) setIsOwner(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [ready, zinfSyncToken]);
 
 
   // ---- full backup / restore ----
@@ -2775,7 +2796,7 @@ function AssetTracker() {
                     planTotal={planTotal} goal={goal} setGoal={setGoal}
                     exportBackup={exportBackup} importBackup={importBackup} exportExcel={exportExcel} lastBackupAt={lastBackupAt} backupAgeDays={backupAgeDays} backupOverdue={backupOverdue}
                     aiFallbackConfig={aiFallbackConfig} setAiFallbackConfig={setAiFallbackConfig}
-                    zinfSyncToken={zinfSyncToken} setZinfSyncToken={setZinfSyncToken} zinfSyncStatus={zinfSyncStatus}
+                    zinfSyncToken={zinfSyncToken} setZinfSyncToken={setZinfSyncToken} zinfSyncStatus={zinfSyncStatus} isOwner={isOwner}
                     healthCards={healthCards} healthCardBusyId={healthCardBusyId} respondHealthCard={respondHealthCard} />
                 );
               case "progress":
@@ -7184,7 +7205,7 @@ function DividendsPanel({ dividends, setDividends, holdings }) {
 }
 
 // ---------------- Plan Panel ----------------
-function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBackup, importBackup, exportExcel, lastBackupAt, backupAgeDays, backupOverdue, aiFallbackConfig, setAiFallbackConfig, zinfSyncToken, setZinfSyncToken, zinfSyncStatus, healthCards, healthCardBusyId, respondHealthCard }) {
+function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBackup, importBackup, exportExcel, lastBackupAt, backupAgeDays, backupOverdue, aiFallbackConfig, setAiFallbackConfig, zinfSyncToken, setZinfSyncToken, zinfSyncStatus, isOwner, healthCards, healthCardBusyId, respondHealthCard }) {
   const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
   const [form, setForm] = useState({ symbol: "", amount: "", note: "" });
   const [fallbackTest, setFallbackTest] = useState({ status: "idle", message: "" });
@@ -7327,7 +7348,7 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
         </label>
       </Panel>
 
-      <Panel title="Z∞ 同步">
+      {isOwner && <Panel title="Z∞ 同步">
         <div className="text-[11px] leading-5" style={{ color: COLORS.sub }}>
           {UI_SHOW_ENGLISH
             ? "Optional: add a private Z∞ sync token to sync holdings, trades, dividends, daily asset records, plan and radar snapshots. Leave blank to disable syncing."
@@ -7352,7 +7373,7 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
             {syncTokenCopied ? M("Copied ✓", "已複製 ✓") : M("Copy", "複製")}
           </button>
         </div>
-      </Panel>
+      </Panel>}
 
       <Panel title="資料備份與還原">
         <div className="rounded-xl p-3 flex gap-2 items-start"
