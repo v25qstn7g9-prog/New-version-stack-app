@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="存股資產追蹤" />
   <link rel="manifest" href="/manifest.webmanifest" />
-  <script src="/bg-core.js?v=2"></script>
+  <script src="/bg-core.js?v=3"></script>
   <title>存股資產追蹤 V4.6 Personal v2</title>
 
   <style>
@@ -372,7 +372,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.46.20-unified-markets";
+const APP_VERSION = "4.7-personal-advisor-v2.46.21-unified-markets";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -2495,13 +2495,14 @@ function AssetTracker() {
   const autoPickupDoneRef = useRef("");
   const autoLocalBusyRef = useRef(false);
   const insertAutoRecords = (incoming) => {
-    const clean = (incoming || []).filter((r) => r && /^\d{4}-\d{2}-\d{2}$/.test(String(r.date)) && (Number(r.twValue) > 0 || Number(r.usValue) > 0));
+    const clean = (incoming || []).filter((r) => r && /^\d{4}-\d{2}-\d{2}$/.test(String(r.date)) && (Number(r.twValue) > 0 || Number(r.usValue) > 0)
+      && (!usHoldings.some((h) => h.shares > 0) || r.valuationVersion === 2));
     if (!clean.length) return;
     setDailyRecords((rs) => {
       const have = new Set(rs.map((r) => r.date));
       const add = clean.filter((r) => !have.has(r.date)).map((r) => ({
         id: uid(), date: r.date, twValue: Number(r.twValue), usValue: Number(r.usValue || 0),
-        twCost: Number(r.twCost || 0), usCost: Number(r.usCost || 0), source: "auto",
+        twCost: Number(r.twCost || 0), usCost: Number(r.usCost || 0), source: "auto", valuationVersion: r.valuationVersion,
       }));
       return add.length ? [...rs, ...add].sort((a, b) => a.date.localeCompare(b.date)) : rs;
     });
@@ -2540,7 +2541,7 @@ function AssetTracker() {
         const costSum = Math.round(holdingsWithShares.filter((h) => isTaiwanSymbol(h.symbol)).reduce((s, h) => s + Number(h.estCostBasis || 0), 0));
         const usCostSum = Math.round(holdingsWithShares.filter((h) => !isTaiwanSymbol(h.symbol)).reduce((s,h) => s + Number(h.estCostBasis || 0),0));
         insertAutoRecords([{
-          date: today,
+          date: today, valuationVersion: 2,
           twValue: Math.round(active.reduce((s, h) => s + Number(quotes[h.symbol].price) * Number(h.current), 0)),
           twCost: costSum > 0 ? costSum : Number(prior?.twCost || 0),
           usValue: usLive.totalNtd ?? (usHoldings.length > 0 ? 0 : Number(prior?.usValue || 0)),

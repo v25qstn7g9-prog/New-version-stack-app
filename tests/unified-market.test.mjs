@@ -27,7 +27,7 @@ test('USD trades preserve transaction FX and fees while old TWD amounts are unch
 test('one mixed-market automatic record includes both markets and TWD costs',()=>{
  const portfolio={holdings:[{symbol:'0050',shares:10,costBasis:800},{symbol:'AAPL',shares:1.25,costBasis:7000}],dataset:{dailyRecords:[]}};
  const result=buildAutoRecord(portfolio,{'0050':100,AAPL:200,USDTWD:32},'2026-10-05');
- assert.equal(result.ok,true);assert.equal(result.record.twValue,1000);assert.equal(result.record.usValue,8000);
+ assert.equal(result.ok,true);assert.equal(result.record.valuationVersion,2);assert.equal(result.record.twValue,1000);assert.equal(result.record.usValue,8000);
  assert.equal(result.record.twCost,800);assert.equal(result.record.usCost,7000);
  assert.equal(buildAutoRecord(portfolio,{'0050':100,AAPL:200},'2026-10-05').ok,false);
 });
@@ -44,7 +44,7 @@ test('background recording uses previous US session and current TW close in a si
  const fx={price:32,asOfDate:'2026-10-05T05:30:00Z'};
  const p={holdings:[{symbol:'0050',shares:10,costBasis:800},{symbol:'AAPL',shares:1.25,costBasis:7000}]};
  const r=c.self.ZinfBg.buildRecord(p,{'0050':tw,AAPL:us,USDTWD:fx},'2026-10-05');
- assert.equal(r.ok,true);assert.equal(r.record.usValue,8000);
+ assert.equal(r.ok,true);assert.equal(r.record.valuationVersion,2);assert.equal(r.record.usValue,8000);
  assert.equal(c.self.ZinfBg.buildRecord(p,{'0050':tw,AAPL:us},'2026-10-05').ok,false);
  assert.equal(c.self.ZinfBg.buildRecord(p,{'0050':tw,AAPL:{...us,asOfDate:'2026-09-01T20:00:00Z'},USDTWD:fx},'2026-10-05').ok,false);
 });
@@ -86,4 +86,13 @@ test('a buy in the shared trade form creates the holding without a second entry'
  const panel=formHarness('TradesPanel',{date:'2026-10-05',symbol:'aapl',action:'buy',shares:'.5',price:'200',fee:'0',tax:'',note:'',fxRate:'32'},{holdings:[],setHoldings:fn=>hs=fn(hs),setTrades:fn=>rows=fn(rows),usLive:{state:{}}},{fetchWithTimeout:async()=>({ok:true,json:async()=>({found:true,name:'Apple Inc.'})})});
  panel.add();await new Promise(resolve=>setImmediate(resolve));
  assert.equal(hs.length,1);assert.equal(hs[0].name,'Apple Inc.');assert.equal(holdingShareCount(hs[0],rows),.5);
+});
+test('mixed holdings reject old background calculations and import one compatible record',()=>{
+ const start=html.indexOf('  const insertAutoRecords ='),end=html.indexOf('  useEffect(',start);
+ let rows=[];const c=vm.createContext({usHoldings:[{symbol:'AAPL',shares:1}],uid:()=> 'daily-id',setDailyRecords:fn=>rows=fn(rows)});
+ vm.runInContext(html.slice(start,end)+'\nthis.insert=insertAutoRecords;',c);
+ const old={date:'2026-10-05',twValue:1000,usValue:0,twCost:800,usCost:0};
+ c.insert([old]);assert.equal(rows.length,0);
+ c.insert([{...old,usValue:8000,valuationVersion:2}]);assert.equal(rows.length,1);assert.equal(rows[0].usValue,8000);
+ c.insert([{...old,usValue:8000,valuationVersion:2}]);assert.equal(rows.length,1);
 });

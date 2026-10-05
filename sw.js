@@ -3,7 +3,7 @@
  *   13:45：提醒（已記錄就說已記錄）
  *   14:00：沒記錄 → 抓即時報價、算今天的記錄、存成「待收進 App」，並跳通知；有記錄 → 只通知。
  * iPhone 規定每次推播都必須顯示通知，所以每條路徑都會 showNotification。 */
-importScripts("/bg-core.js?v=2");
+importScripts("/bg-core.js?v=3");
 
 const DB = "zinf-bg", STORE = "kv";
 function idb() {

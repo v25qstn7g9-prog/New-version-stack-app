@@ -75,7 +75,7 @@ export function buildAutoRecord(summary, prices, date) {
   return {
     ok: true,
     record: {
-      date,
+      date, valuationVersion: 2,
       twValue,
       usValue,
       twCost,

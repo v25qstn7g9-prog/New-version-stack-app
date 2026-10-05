@@ -58,7 +58,7 @@
     return {
       ok: true,
       record: {
-        date: date, twValue: Math.round(twTotal), twCost: cost(tw, prior.twCost),
+        date: date, valuationVersion: 2, twValue: Math.round(twTotal), twCost: cost(tw, prior.twCost),
         usValue: us.length ? Math.round(usTotal) : mirror.tracksUs ? 0 : num(prior.usValue), usCost: cost(us, !us.length && mirror.tracksUs ? 0 : prior.usCost), source: "auto", autoAt: new Date().toISOString(),
       },
     };
