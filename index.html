@@ -371,7 +371,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.46.12-system-admin";
+const APP_VERSION = "4.7-personal-advisor-v2.46.13-collapsible-zinf";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -7230,6 +7230,7 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
   const [form, setForm] = useState({ symbol: "", amount: "", note: "" });
   const [fallbackTest, setFallbackTest] = useState({ status: "idle", message: "" });
   const [syncTokenCopied, setSyncTokenCopied] = useState(false);
+  const [zinfExpanded, setZinfExpanded] = useState(false);
 
   const generateSyncToken = () => {
     const bytes = new Uint8Array(24);
@@ -7391,6 +7392,16 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
       </Panel>}
 
       {isOwner && <Panel title="Z∞ 同步">
+        <button type="button" onClick={() => setZinfExpanded((v) => !v)}
+          className="w-full flex items-center justify-between rounded-xl px-3 py-2.5 text-left"
+          style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
+          <div>
+            <div className="text-[11px] font-bold" style={{ color: COLORS.text }}>{zinfExpanded ? "收合同步設定" : "展開同步設定"}</div>
+            {!zinfExpanded && zinfSyncStatus && <div className="mt-1 text-[10px]" style={{ color: COLORS.sub }}>{zinfSyncStatus}</div>}
+          </div>
+          <span className="text-sm" style={{ color: COLORS.gold, transform: zinfExpanded ? "rotate(180deg)" : "none", transition: "transform .2s" }}>⌄</span>
+        </button>
+        {zinfExpanded && <div className="mt-3">
         <div className="text-[11px] leading-5" style={{ color: COLORS.sub }}>
           {UI_SHOW_ENGLISH
             ? "Optional: add a private Z∞ sync token to sync holdings, trades, dividends, daily asset records, plan and radar snapshots. Leave blank to disable syncing."
@@ -7415,6 +7426,7 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
             {syncTokenCopied ? M("Copied ✓", "已複製 ✓") : M("Copy", "複製")}
           </button>
         </div>
+        </div>}
       </Panel>}
 
       <Panel title="資料備份與還原">
