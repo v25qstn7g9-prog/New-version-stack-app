@@ -8,6 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="存股資產追蹤" />
   <link rel="manifest" href="/manifest.webmanifest" />
+  <script src="/bg-core.js?v=1"></script>
   <title>存股資產追蹤 V4.6 Personal v2</title>
 
   <style>
@@ -1431,6 +1432,30 @@ function buildPortfolioContext(holdings, goal, totalToday, totalInvested, trades
 
 
 // ---------- storage helpers ----------
+
+// ---- 背景自動記錄（收盤推播）用的資料副本：Service Worker 讀不到 localStorage，所以另存一份在 IndexedDB ----
+const BG_DB = "zinf-bg";
+function bgIdb() {
+  return new Promise((resolve, reject) => {
+    const r = indexedDB.open(BG_DB, 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("kv");
+    r.onsuccess = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+  });
+}
+async function bgGet(key) {
+  const db = await bgIdb();
+  return new Promise((resolve, reject) => { const q = db.transaction("kv").objectStore("kv").get(key); q.onsuccess = () => resolve(q.result); q.onerror = () => reject(q.error); });
+}
+async function bgSet(key, value) {
+  const db = await bgIdb();
+  return new Promise((resolve, reject) => { const tx = db.transaction("kv", "readwrite"); tx.objectStore("kv").put(value, key); tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); });
+}
+function urlBase64ToUint8Array(b64) {
+  const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
 async function loadKey(key, fallback) {
   try {
     if (window.storage?.get) {
@@ -2422,6 +2447,62 @@ function AssetTracker() {
     const timer = setInterval(tryLocal, 60 * 1000);
     return () => clearInterval(timer);
   }, [ready, dailyRecords, holdingsWithShares]);
+
+  // ---- 背景自動記錄：資料副本、收進 Service Worker 算好的記錄、補齊缺漏交易日 ----
+  // ① 每次持股／記錄變動，把「持股、成本、已記錄的日期」存一份在 IndexedDB 給 sw.js 用。
+  useEffect(() => {
+    if (!ready || !window.indexedDB) return;
+    const active = holdingsWithShares.filter((h) => Number(h.current || 0) > 0 && h.symbol);
+    const lastRec = [...dailyRecords].sort((a, b) => a.date.localeCompare(b.date)).pop();
+    bgSet("mirror", {
+      updatedAt: new Date().toISOString(),
+      holdings: active.map((h) => ({ symbol: h.symbol, shares: Number(h.current), costBasis: Number(h.estCostBasis || 0) })),
+      recordDates: dailyRecords.map((r) => r.date).slice(-10),
+      prior: lastRec ? { twCost: lastRec.twCost, usValue: lastRec.usValue, usCost: lastRec.usCost } : null,
+    }).catch(() => {});
+  }, [ready, holdingsWithShares, dailyRecords]);
+  // ② Service Worker 在背景算好的今日記錄（存在 pendingAuto），App 打開或回到前景時收進來。
+  useEffect(() => {
+    if (!ready || !window.indexedDB) return;
+    const pickup = async () => {
+      try {
+        const pending = await bgGet("pendingAuto");
+        if (Array.isArray(pending) && pending.length) {
+          insertAutoRecords(pending);
+          await bgSet("pendingAuto", []);
+        }
+      } catch {}
+    };
+    pickup();
+    const onVisible = () => { if (document.visibilityState === "visible") pickup(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [ready]);
+  // ③ 補齊缺漏的交易日：幾天沒開 App，下次打開就用那幾天的收盤價把記錄補上（不含今天）。
+  const backfillDoneRef = useRef("");
+  useEffect(() => {
+    if (!ready || !window.ZinfBg) return;
+    const today = todayStr();
+    const last = [...dailyRecords].filter((r) => r.date < today).sort((a, b) => a.date.localeCompare(b.date)).pop();
+    if (!last || !window.ZinfBg.hasWeekdayGap(last.date, today)) return;
+    const active = holdingsWithShares.filter((h) => Number(h.current || 0) > 0 && h.symbol && isTaiwanSymbol(h.symbol));
+    if (!active.length || active.length !== holdingsWithShares.filter((h) => Number(h.current || 0) > 0).length) return;
+    const key = today + "|" + last.date + "|" + active.length;
+    if (backfillDoneRef.current === key) return;
+    backfillDoneRef.current = key;
+    (async () => {
+      try {
+        const res = await fetchWithTimeout(`/api/closes?days=45&symbols=${encodeURIComponent(active.map((h) => h.symbol).join(","))}`, { cache: "no-store" }, 12000);
+        const data = res.ok ? await res.json().catch(() => null) : null;
+        if (!data?.closes || (data.missing || []).length) return;
+        const plan = window.ZinfBg.planBackfill({
+          dailyRecords, trades, today, closes: data.closes,
+          holdings: active.map((h) => ({ symbol: h.symbol, shares: Number(h.current) })),
+        });
+        if (plan.records.length) insertAutoRecords(plan.records);
+      } catch {}
+    })();
+  }, [ready, dailyRecords, holdingsWithShares, trades]);
 
   // ---- Z∞ 背景同步（供 Muse Lite / 舊中控讀取）----
   // Assets App 是持股資料的唯一來源。資料變更後推到 Worker；失敗會保留 pending，
@@ -7284,6 +7365,8 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
         </label>
       </Panel>
 
+      <PushReminderPanel />
+
       <Panel title="Z∞ 同步">
         <div className="text-[11px] leading-5" style={{ color: COLORS.sub }}>
           {UI_SHOW_ENGLISH
@@ -7518,6 +7601,70 @@ function MissingHint({ missing }) {
     </div>
   );
 }
+// 收盤推播（13:45 提醒、14:00 自動記錄）的開關。自成一個元件，狀態不依賴 App 本體。
+function PushReminderPanel() {
+  const [pushState, setPushState] = useState("unknown");
+  const [pushMsg, setPushMsg] = useState("");
+  useEffect(() => {
+    (async () => {
+      try {
+        if (!("serviceWorker" in navigator) || !("PushManager" in window)) { setPushState("unsupported"); return; }
+        const reg = await navigator.serviceWorker.register("/sw.js");
+        const sub = await reg.pushManager.getSubscription();
+        setPushState(sub && Notification.permission === "granted" ? "on" : "off");
+      } catch { setPushState("unsupported"); }
+    })();
+  }, []);
+  const enablePush = async () => {
+    setPushMsg("");
+    try {
+      const standalone = window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone === true;
+      if (/iPad|iPhone|iPod/.test(navigator.userAgent) && !standalone) { setPushMsg("iPhone 要先用 Safari「分享 → 加入主畫面」，從主畫面打開 App 再開啟提醒。"); return; }
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") { setPushMsg("通知權限沒有開啟，請到手機設定允許通知。"); return; }
+      const reg = await navigator.serviceWorker.register("/sw.js");
+      await navigator.serviceWorker.ready;
+      const keyRes = await fetchWithTimeout("/api/push/key", { cache: "no-store" }, 8000);
+      const { publicKey } = await keyRes.json();
+      const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) });
+      const res = await fetchWithTimeout("/api/push/subscribe", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ endpoint: sub.endpoint }) }, 8000);
+      if (!res.ok) throw new Error("訂閱失敗");
+      setPushState("on");
+      setPushMsg("已開啟。開盤日 13:45 提醒、14:00 自動記錄。");
+    } catch (e) {
+      setPushMsg("開啟失敗：" + (e?.message || "請稍後再試"));
+    }
+  };
+  const disablePush = async () => {
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      const sub = await reg?.pushManager.getSubscription();
+      if (sub) {
+        await fetchWithTimeout("/api/push/unsubscribe", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ endpoint: sub.endpoint }) }, 8000).catch(() => null);
+        await sub.unsubscribe();
+      }
+      setPushState("off");
+      setPushMsg("已關閉。");
+    } catch (e) {
+      setPushMsg("關閉失敗：" + (e?.message || ""));
+    }
+  };
+  return (
+    <Panel title="收盤提醒與自動記錄">
+      <div className="text-[11px] leading-5" style={{ color: COLORS.sub }}>
+        開盤日 13:45 提醒你記帳；14:00 還沒記錄的話，手機會在背景用收盤價幫你記好（美股沿用上一筆），你之後手動改就以手動為準。伺服器只記得「要通知哪支手機」，不會收到你的持股或金額。
+      </div>
+      {pushState === "unsupported" && <div className="mt-2 text-[11px]" style={{ color: "#b45309" }}>這個瀏覽器不支援背景通知。iPhone 請用 Safari「加入主畫面」後從主畫面打開（iOS 16.4 以上）。</div>}
+      {pushMsg && <div className="mt-2 text-[11px]" style={{ color: COLORS.sub }}>{pushMsg}</div>}
+      <div className="mt-3">
+        {pushState === "on"
+          ? <button onClick={disablePush} className="w-full rounded-lg py-2 text-[11px] font-bold" style={{ background: COLORS.bg, color: COLORS.sub, border: `1px solid ${COLORS.panelBorder}` }}>已開啟 ✓　點一下關閉</button>
+          : <button onClick={enablePush} disabled={pushState === "unsupported"} className="w-full rounded-lg py-2 text-[11px] font-bold" style={{ background: COLORS.bg, color: COLORS.gold, border: `1px solid ${COLORS.gold}`, opacity: pushState === "unsupported" ? 0.5 : 1 }}>開啟收盤提醒與自動記錄</button>}
+      </div>
+    </Panel>
+  );
+}
+
 function AddButton({ onClick, label, disabled = false }) {
   return (
     <button onClick={onClick} disabled={disabled} className="premium-add-button mt-3 w-full flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-bold"

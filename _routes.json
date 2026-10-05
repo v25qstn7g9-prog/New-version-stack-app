@@ -7,6 +7,8 @@
     "/api/health-check",
     "/api/health-cards",
     "/api/portfolio-sync",
+    "/api/closes",
+    "/api/push/*",
     "/api/pending-trades",
     "/api/pending-trades/resolve",
     "/dividend-schedule",
