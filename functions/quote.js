@@ -363,7 +363,7 @@ async function fetchGlobalDailyQuote(symbol) {
 }
 
 async function fetchYahooUsPrice(symbol) {
-  const encoded = encodeURIComponent(symbol);
+  const encoded = encodeURIComponent(symbol.replace(/\./g, "-"));
   const intradayUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?interval=1m&range=1d&includePrePost=true&_ts=${Date.now()}`;
   const dailyUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?interval=1d&range=5d&_ts=${Date.now()}`;
 

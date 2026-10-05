@@ -372,7 +372,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.46.17-us-live-total";
+const APP_VERSION = "4.7-personal-advisor-v2.46.18-us-name-autofill";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -2892,6 +2892,7 @@ function AssetTracker() {
                     holdings={holdingsWithShares} dailyRecords={sortedDaily} dividends={dividends}
                     yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue}
                     usHoldings={usHoldings} usLive={usLive}
+                    onGoUsSettings={() => { setShowUsFields(true); goToTab("daily"); }}
                     onFillDailyTw={(value) => { setDailyPrefill({ twValue: value }); goToTab("daily"); }}
                     onFillDailyUs={(value) => { setDailyPrefill({ usValue: value }); goToTab("daily"); }}
                     onGoDaily={() => goToTab("daily")}
@@ -3750,6 +3751,40 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
 
 function UsHoldingsEditor({ holdings = [], setHoldings }) {
   const [form, setForm] = useState({ symbol: "", name: "", shares: "" });
+  const [nameHint, setNameHint] = useState(null); // null | "loading" | "found" | "missing" | "error"
+  const formRef = useRef(form);
+  formRef.current = form;
+  const autoNameRef = useRef({ symbol: "", name: "" });
+  useEffect(() => {
+    const sym = form.symbol.trim().toUpperCase();
+    const auto = autoNameRef.current;
+    if (auto.name && auto.symbol !== sym) {
+      setForm((f) => (f.name === auto.name ? { ...f, name: "" } : f));
+      autoNameRef.current = { symbol: "", name: "" };
+    }
+    if (!/^[A-Z][A-Z0-9.-]{0,9}$/.test(sym)) { setNameHint(null); return; }
+    if (auto.symbol === sym && auto.name) return; // already filled for this code
+    let cancelled = false;
+    setNameHint("loading");
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetchWithTimeout(`/stock-name?symbol=${encodeURIComponent(sym)}`, { cache: "no-store" }, 6000);
+        const data = await res.json();
+        if (cancelled) return;
+        if (!res.ok || !data?.ok) throw new Error("lookup failed");
+        if (!data.found || !data.name) { setNameHint("missing"); return; }
+        const typed = formRef.current.name;
+        if (typed && typed !== autoNameRef.current.name) { setNameHint(null); return; } // user's own name wins
+        autoNameRef.current = { symbol: sym, name: data.name };
+        setForm((f) => (f.symbol.trim().toUpperCase() === sym && (!f.name || f.name === auto.name) ? { ...f, name: data.name } : f));
+        setNameHint("found");
+      } catch (e) {
+        if (!cancelled) setNameHint("error");
+      }
+    }, 400);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [form.symbol]);
+
   const add = () => {
     const symbol = String(form.symbol || "").trim().toUpperCase();
     const shares = Number(form.shares);
@@ -3775,9 +3810,10 @@ function UsHoldingsEditor({ holdings = [], setHoldings }) {
       ))}
       <div className="grid grid-cols-[76px_minmax(0,1fr)_82px] gap-2">
         <input value={form.symbol} onChange={(e) => setForm({ ...form, symbol: e.target.value.toUpperCase() })} placeholder="AAPL" className="input !py-1.5" />
-        <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={uiText("名稱（可留白）")} className="input !py-1.5" />
+        <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={UI_SHOW_ENGLISH ? "Auto-filled name (editable)" : "名稱自動帶入（可修改）"} className="input !py-1.5" />
         <input type="number" inputMode="decimal" value={form.shares} onChange={(e) => setForm({ ...form, shares: e.target.value })} placeholder={uiText("股數")} className="input !py-1.5" />
       </div>
+      <div className="text-[11px]" style={{ color: COLORS.sub }} aria-live="polite">{nameHint === "loading" ? "查詢名稱中…" : nameHint === "missing" ? "找不到名稱，可手動填寫" : nameHint === "error" ? "名稱查詢暫時失敗，可手動填寫" : ""}</div>
       <button onClick={add} disabled={!form.symbol || !(Number(form.shares) > 0)}
         className="w-full rounded-lg py-1.5 text-[11px] font-bold"
         style={{ background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`, color: COLORS.gold, opacity: (!form.symbol || !(Number(form.shares) > 0)) ? 0.45 : 1 }}>
@@ -3864,18 +3900,18 @@ function useUsLivePrices(usHoldings, enabled) {
   return { state: current, active, totalNtd: usQuotePortfolioValue(active, current), refresh: (force = true) => refreshRef.current?.(force) };
 }
 
-function UsLivePricePanel({ usLive, onFillDailyUs, yesterdayUsValue }) {
+function UsLivePricePanel({ usLive, onFillDailyUs, yesterdayUsValue, onSetup }) {
   const { state, active, refresh: fetchUs } = usLive;
   const fx = Number(state.fx);
   const rows = active.map((h) => {
     const sym = String(h.symbol).toUpperCase();
     const q = state.quotes?.[sym];
     if (!q || !(Number(q.price) > 0)) return null;
-    const price = Number(q.price), prev = Number(q.prevClose);
+    const price = Number(q.price), prev = q.warning === "no_prevClose_available" ? NaN : Number(q.prevClose);
     const usdValue = price * Number(h.shares);
     const ntdValue = fx > 0 ? usdValue * fx : null;
     const chgPct = prev > 0 ? ((price - prev) / prev) * 100 : null;
-    return { ...h, symbol: sym, price, prev, usdValue, ntdValue, chgPct, asOfDate: q.asOfDate, stale: Boolean(q.isStale) || state.failed.includes(sym) || state.status === "error" };
+    return { ...h, symbol: sym, price, prev, usdValue, ntdValue, chgPct, change: prev > 0 ? price - prev : null, asOfDate: q.asOfDate, stale: Boolean(q.isStale) || state.failed.includes(sym) || state.status === "error" };
   }).filter(Boolean);
   const totalUsd = rows.reduce((a, r) => a + r.usdValue, 0);
   const totalNtd = usLive.totalNtd;
@@ -3885,9 +3921,14 @@ function UsLivePricePanel({ usLive, onFillDailyUs, yesterdayUsValue }) {
     onFillDailyUs(Math.round(totalNtd));
   };
 
-  if (!active.length) return null;
+  if (!active.length) return (
+    <Panel title="美股行情">
+      <div className="text-sm" style={{ color: COLORS.sub }}>尚未設定美股持股</div>
+      <button onClick={onSetup} className="w-full rounded-lg py-2 mt-2 text-sm font-bold" style={{ border: `1px solid ${COLORS.gold}`, color: COLORS.gold }}>設定美股代碼與股數</button>
+    </Panel>
+  );
   return (
-    <Panel title="美股自動報價">
+    <Panel title="美股行情">
       <div className="text-[11px] mb-1" style={{ color: COLORS.sub }}>報價時間以來源為準，可能延遲</div>
       <div className="flex justify-between items-center gap-2 mb-2">
         <div className="text-[11px]" style={{ color: COLORS.sub }}>
@@ -3903,12 +3944,14 @@ function UsLivePricePanel({ usLive, onFillDailyUs, yesterdayUsValue }) {
       </div>
       <div className="space-y-1.5">
         {rows.sort((a,b) => Number(b.ntdValue||0)-Number(a.ntdValue||0)).map((r) => (
-          <div key={r.symbol} className="grid grid-cols-[58px_1fr_1fr] gap-2 text-[11px] mono items-center">
-            <div><span className="font-bold" style={{ color: COLORS.text }}>{r.symbol}</span><div style={{ color: COLORS.sub }}>{nf(r.shares)} sh</div></div>
+          <div key={r.symbol} className="grid grid-cols-[minmax(80px,1fr)_1fr_1fr] gap-2 text-[11px] mono items-center">
+            <div><span className="font-bold" style={{ color: COLORS.text }}>{r.symbol}</span><div className="break-words" style={{ color: COLORS.sub }}>{r.name || "--"}</div><div style={{ color: COLORS.sub }}>{Number(r.shares).toLocaleString("zh-TW", { maximumFractionDigits: 6 })} 股</div></div>
             <div className="text-right">
               <div>US$ {r.price.toFixed(2)}</div>
+              <div style={{ color: COLORS.sub }}>昨收 {r.prev > 0 ? r.prev.toFixed(2) : "--"}</div>
               <div style={{ color: COLORS.sub }}>{r.asOfDate ? new Date(r.asOfDate).toLocaleTimeString("zh-TW", { hour12: false }) : "--"}{r.stale ? " · 上次價格" : " · Yahoo"}</div>
               <div style={{ color: r.stale ? COLORS.sub : ((r.chgPct ?? 0) >= 0 ? COLORS.gain : COLORS.loss) }}>{r.chgPct == null ? "--" : `${r.chgPct >= 0 ? "+" : ""}${r.chgPct.toFixed(2)}%`}</div>
+              <div style={{ color: COLORS.sub }}>漲跌 {r.change == null ? "--" : `${r.change >= 0 ? "+" : ""}${r.change.toFixed(2)}`}</div>
             </div>
             <div className="text-right">
               <div style={{ color: COLORS.gold }}>{r.ntdValue == null ? "--" : `NT$ ${nf(Math.round(r.ntdValue))}`}</div>
@@ -5958,7 +6001,7 @@ function GoalProgressCard({ goal, totalToday, goalDate }) {
 function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, dailyChangePct, capitalGain, totalDividends,
   totalReturn, totalReturnPct, twTotalReturn, twTotalReturnPct, usTotalReturn, usTotalReturnPct, hasUsAssets,
   highPoint, drawdown, ytdGain, ytdPct, chartData, goal, goalDate, totalInvested, holdings,
-  dailyRecords, dividends, yesterdayTwValue, yesterdayUsValue, onFillDailyTw, onFillDailyUs, usHoldings = [], usLive, onGoDaily }) {
+  dailyRecords, dividends, yesterdayTwValue, yesterdayUsValue, onFillDailyTw, onFillDailyUs, usHoldings = [], usLive, onGoUsSettings, onGoDaily }) {
   const up = dailyChange >= 0;
   // dailyChange compares the two most recent daily records. Until today's
   // record is saved, that is the previous session's change, so label it with
@@ -6135,9 +6178,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
       )}
 
       <LivePricePanel holdings={holdings.filter((h) => isTaiwanSymbol(h.symbol))} onFillDailyTw={onFillDailyTw} yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue} hasUsAssets={hasUsAssets} />
-      {(usHoldings.length > 0 || hasUsAssets) && (
-        <UsLivePricePanel usLive={usLive} onFillDailyUs={onFillDailyUs} yesterdayUsValue={yesterdayUsValue} />
-      )}
+      <UsLivePricePanel usLive={usLive} onFillDailyUs={onFillDailyUs} yesterdayUsValue={yesterdayUsValue} onSetup={onGoUsSettings} />
 
 
       <DashboardCollapsibleSection
@@ -9049,4 +9090,3 @@ ReactDOM.createRoot(document.getElementById('root')).render(<AssetTracker />);
   </script>
 </body>
 </html>
-
