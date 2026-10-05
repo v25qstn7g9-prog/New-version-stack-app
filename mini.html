@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0A0F1C" />
+<title>迷你報價</title>
+<style>
+  :root{--bg:#0A0F1C;--panel:#111A2E;--line:#1E2A44;--text:#E9EEF7;--sub:#7C88A3;--gain:#EF4444;--loss:#22C55E}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
+       padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px));line-height:1.35}
+  .mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
+  .up{color:var(--gain)} .down{color:var(--loss)} .flat{color:var(--sub)}
+  .bar{display:flex;justify-content:space-between;align-items:center;gap:8px;color:var(--sub);font-size:.75rem;margin-bottom:8px}
+  button{font:inherit;font-size:.75rem;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:4px 10px;cursor:pointer}
+  .box{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px}
+  .idx{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+  .idx .name{color:var(--sub);font-size:.8rem}
+  .idx .p{font-size:1.6rem;font-weight:700}
+  .idx .c{font-size:.95rem}
+  .row{display:grid;grid-template-columns:1fr auto auto;gap:4px 12px;align-items:baseline;padding:8px 0}
+  .row+.row{border-top:1px solid var(--line)}
+  .row .nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .row .sub{color:var(--sub);font-size:.72rem}
+  .row .pr{font-size:1.05rem;font-weight:600;text-align:right}
+  .row .ch{text-align:right;font-size:.85rem}
+  .tot{display:flex;justify-content:space-between;font-weight:600}
+  .msg{color:var(--sub);font-size:.8rem;padding:6px 0}
+  .warn{color:#FBBF24}
+</style>
+</head>
+<body>
+<div class="bar"><span id="status">載入中…</span><button id="refresh" type="button">立即更新</button></div>
+<div class="box"><div class="idx"><span class="name">加權指數</span><span class="p mono" id="ixp">—</span><span class="c mono" id="ixc"></span></div></div>
+<div class="box" id="list"><div class="msg">正在讀取你的持股…</div></div>
+<div class="box tot" id="total" hidden></div>
+<div class="msg" id="note"></div>
+
+<script type="module">
+import { readJsonKey, activeHoldings, buildView, quoteUrl } from "/mini-quote-core.js";
+
+const $ = (id) => document.getElementById(id);
+const fmt = (n, d = 2) => Math.abs(n).toLocaleString("zh-TW", { minimumFractionDigits: d, maximumFractionDigits: d });
+const sgn = (n) => (n > 0 ? "+" : n < 0 ? "−" : "");
+const cls = (n) => (n > 0 ? "up" : n < 0 ? "down" : "flat");
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const clock = () => new Date().toLocaleTimeString("zh-TW", { hour12: false, timeZone: "Asia/Taipei" });
+
+function tradingNow() {
+  const tw = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Taipei" }));
+  const d = tw.getDay(), m = tw.getHours() * 60 + tw.getMinutes();
+  return d !== 0 && d !== 6 && m >= 9 * 60 && m <= 13 * 60 + 45;
+}
+
+let busy = false;
+async function load(force = false) {
+  if (busy) return;
+  busy = true;
+  // 每次都重讀，主程式新增交易後這裡自動跟上。
+  const active = activeHoldings(readJsonKey(localStorage, "holdings", []), readJsonKey(localStorage, "trades", []));
+  if (!active.length) {
+    $("list").innerHTML = '<div class="msg">在這個瀏覽器裡找不到持股資料。請用同一個瀏覽器、同一個網址先打開主程式。</div>';
+    $("status").textContent = "沒有持股資料";
+    busy = false;
+    return;
+  }
+  try {
+    const res = await fetch(quoteUrl(active, force), { cache: "no-store" });
+    const data = await res.json();
+    if (!res.ok || !data?.ok || !data?.quotes) throw new Error(data?.error || `HTTP ${res.status}`);
+    render(buildView(active, data.quotes));
+    $("status").textContent = (tradingNow() ? "盤中 · 每 15 秒更新 · " : "非盤中 · ") + "更新於 " + clock();
+  } catch (e) {
+    $("status").textContent = "更新失敗,稍後自動重試";
+    $("note").textContent = String(e?.message || e);
+  } finally {
+    busy = false;
+  }
+}
+
+function render(v) {
+  if (v.index) {
+    $("ixp").textContent = fmt(v.index.price);
+    $("ixc").className = "c mono " + cls(v.index.change);
+    $("ixc").textContent = `${sgn(v.index.change)}${fmt(v.index.change)}  ${sgn(v.index.pct)}${fmt(v.index.pct)}%`;
+  } else { $("ixp").textContent = "—"; $("ixc").textContent = "暫無資料"; }
+
+  $("list").innerHTML = v.rows.map((r) => r.hasQuote
+    ? `<div class="row"><div class="nm">${esc(r.name)}<div class="sub mono">${esc(r.symbol)} · ${r.shares.toLocaleString("zh-TW")} 股</div></div>
+         <div class="pr mono">${fmt(r.price)}</div>
+         <div class="ch mono ${cls(r.change)}">${sgn(r.change)}${fmt(r.change)}<br>${sgn(r.pct)}${fmt(r.pct)}%</div></div>`
+    : `<div class="row"><div class="nm">${esc(r.name)}<div class="sub mono">${esc(r.symbol)} · ${r.shares.toLocaleString("zh-TW")} 股</div></div><div class="flat" style="grid-column:2/4;text-align:right">暫無報價</div></div>`
+  ).join("");
+
+  const t = $("total");
+  if (v.totalPnl == null) t.hidden = true;
+  else {
+    t.hidden = false;
+    t.innerHTML = `<span>今日合計損益</span><span class="mono ${cls(v.totalPnl)}">${sgn(v.totalPnl)}${fmt(v.totalPnl, 0)} 元 (${sgn(v.totalPct)}${fmt(v.totalPct)}%)</span>`;
+  }
+  $("note").textContent = "";
+  $("note").className = "msg" + (v.missing.length ? " warn" : "");
+  if (v.missing.length) $("note").textContent = "部分持股暫無報價:" + v.missing.join("、");
+}
+
+$("refresh").addEventListener("click", () => load(true));
+setInterval(() => { if (document.visibilityState === "visible" && tradingNow()) load(false); }, 15000);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") load(false); });
+load(false);
+try { navigator.wakeLock?.request("screen").catch(() => {}); } catch {}
+</script>
+</body>
+</html>
