@@ -29,3 +29,10 @@ test('TAIEX block shows previous close points and the point change', () => {
 test('new labels have English translations', () => {
   for (const zh of ['昨收', '漲跌', '點']) assert.match(html, new RegExp(`"${zh}": "`));
 });
+
+test('quote row cells share one font size (no mixed 10/11px text inside a row)', () => {
+  const start = html.indexOf('grid-rows-[18px_18px_18px] gap-x-1 text-xs mono');
+  const block = html.slice(start, html.indexOf('row-start-3 col-start-2 col-span-3', start));
+  assert.ok(start > 0 && block.length > 0);
+  assert.doesNotMatch(block, /text-\[(10|11)px\]/);
+});
