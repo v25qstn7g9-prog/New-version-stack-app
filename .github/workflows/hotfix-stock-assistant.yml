@@ -1,0 +1,79 @@
+name: hotfix-stock-assistant
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/hotfix-stock-assistant.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Patch AI chat scope and duplicate-send guard
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("index.html")
+          s = p.read_text(encoding="utf-8")
+
+          replacements = [
+              (
+                  'function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTrades, setHoldings, setGoal, dailyRecords, dividends, planItems, planSchedule, goalDate, perf, aiFallbackConfig }) {',
+                  'function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTrades, setHoldings, setGoal, dailyRecords, dividends, planItems, planSchedule, goalDate, perf, aiFallbackConfig, zinfSyncToken }) {'
+              ),
+              (
+                  '  const scrollRef = useRef(null);\n',
+                  '  const scrollRef = useRef(null);\n  const sendingRef = useRef(false);\n'
+              ),
+              (
+                  '      const headers = { "content-type": "application/json", "x-device-id": deviceId, ...(zinfSyncToken ? { authorization: "Bearer " + zinfSyncToken } : {}) };\n      if (fallback && aiFallbackConfig?.token) headers["x-fallback-token"] = aiFallbackConfig.token;',
+                  '      const headers = { "content-type": "application/json", "x-device-id": deviceId };\n      // Z∞ sync token only belongs to the first-party Cloudflare endpoint.\n      if (!fallback && zinfSyncToken) headers.authorization = "Bearer " + zinfSyncToken;\n      if (fallback && aiFallbackConfig?.token) headers["x-fallback-token"] = aiFallbackConfig.token;'
+              ),
+              (
+                  '  const send = async () => {\n    const text = input.trim();\n    if (!text || sending) return;',
+                  '  const send = async () => {\n    const text = input.trim();\n    // Lock synchronously so rapid taps cannot submit the same message twice before React state updates.\n    if (!text || sending || sendingRef.current) return;\n    sendingRef.current = true;'
+              ),
+              (
+                  '    } finally {\n      setSending(false);\n    }\n  };',
+                  '    } finally {\n      sendingRef.current = false;\n      setSending(false);\n    }\n  };'
+              ),
+              (
+                  '        goalDate={goalDate} aiFallbackConfig={aiFallbackConfig}\n',
+                  '        goalDate={goalDate} aiFallbackConfig={aiFallbackConfig} zinfSyncToken={zinfSyncToken}\n'
+              ),
+          ]
+
+          for old, new in replacements:
+              count = s.count(old)
+              if count != 1:
+                  raise SystemExit(f"Expected exactly one match, got {count}: {old[:90]!r}")
+              s = s.replace(old, new, 1)
+
+          p.write_text(s, encoding="utf-8")
+          PY
+
+      - name: Run tests
+        run: npm test
+
+      - name: Commit hotfix and remove temporary workflow
+        run: |
+          rm .github/workflows/hotfix-stock-assistant.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html .github/workflows/hotfix-stock-assistant.yml
+          git commit -m "Fix stock assistant sync token scope and duplicate sends"
+          git push
