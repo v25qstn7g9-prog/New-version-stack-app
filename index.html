@@ -371,7 +371,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.46.3-goal-asset-hero";
+const APP_VERSION = "4.7-personal-advisor-v2.46.4-mist-blue-asset-curve";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -5653,8 +5653,8 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
                 <AreaChart data={rangedChartData} margin={{ top: 6, right: 4, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="assetCurveFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={COLORS.gold} stopOpacity={0.28} />
-                      <stop offset="100%" stopColor={COLORS.gold} stopOpacity={0} />
+                      <stop offset="0%" stopColor="#6FAFC2" stopOpacity={0.18} />
+                      <stop offset="100%" stopColor="#6FAFC2" stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid stroke={COLORS.panelBorder} strokeDasharray="3 3" vertical={false} strokeOpacity={0.7} />
@@ -5676,8 +5676,8 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
                     cursor={{ stroke: COLORS.sub, strokeDasharray: "3 3" }}
                     formatter={(v) => [`NT$ ${nf(v)}`, uiText("總資產")]} />
                   <ReferenceLine y={goal.targetAmount} stroke={COLORS.gold} strokeDasharray="4 4" />
-                  <Area type="monotone" dataKey="total" stroke={COLORS.gold} strokeWidth={2} fill="url(#assetCurveFill)"
-                    dot={false} activeDot={{ r: 4, fill: COLORS.gold, stroke: COLORS.panel, strokeWidth: 2 }} />
+                  <Area type="monotone" dataKey="total" stroke="#6FAFC2" strokeWidth={2} fill="url(#assetCurveFill)"
+                    dot={false} activeDot={{ r: 4, fill: "#6FAFC2", stroke: COLORS.panel, strokeWidth: 2 }} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
