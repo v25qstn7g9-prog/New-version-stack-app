@@ -21,6 +21,49 @@
  * 跟舊式 Pages Functions（functions 資料夾會被自動偵測）不一樣，
  * 兩者需要的設定完全不同，不能只搬檔案就以為會動。
  */
+const STATS_TTL = 8 * 24 * 60 * 60;
+function statsTaipeiDate(offsetDays = 0) {
+  return new Date(Date.now() + 8 * 3600 * 1000 + offsetDays * 86400000).toISOString().slice(0, 10);
+}
+async function statsDeviceTag(request) {
+  const raw = String(request.headers.get("x-device-id") || request.headers.get("cf-connecting-ip") || "anonymous").slice(0, 100);
+  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode("usage:" + raw)));
+  return Array.from(bytes.slice(0, 10), b => b.toString(16).padStart(2, "0")).join("");
+}
+async function bumpUsage(env, request, kind) {
+  if (!env?.health_kv) return;
+  const date = statsTaipeiDate();
+  const tag = await statsDeviceTag(request);
+  await Promise.all([
+    env.health_kv.put(`usage-active:${date}:${tag}`, "1", { expirationTtl: STATS_TTL }),
+    env.health_kv.get(`usage-count:${date}:${kind}`).then(v => env.health_kv.put(`usage-count:${date}:${kind}`, String((Number(v) || 0) + 1), { expirationTtl: STATS_TTL })),
+  ]).catch(() => {});
+}
+async function readSystemStats(env) {
+  const today = statsTaipeiDate();
+  const days = Array.from({ length: 7 }, (_, i) => statsTaipeiDate(-i));
+  let todayActive = 0, weekActiveSet = new Set();
+  if (env?.health_kv?.list) {
+    for (const d of days) {
+      let cursor;
+      do {
+        const page = await env.health_kv.list({ prefix: `usage-active:${d}:`, cursor });
+        for (const k of page.keys || []) {
+          const tag = k.name.split(":").pop();
+          if (d === today) todayActive += 1;
+          weekActiveSet.add(tag);
+        }
+        cursor = page.list_complete ? undefined : page.cursor;
+      } while (cursor);
+    }
+  }
+  const [quoteRequests, aiRequests] = await Promise.all([
+    env?.health_kv?.get(`usage-count:${today}:quote`),
+    env?.health_kv?.get(`usage-count:${today}:ai`),
+  ]);
+  return { todayActive, weekActive: weekActiveSet.size, quoteRequests: Number(quoteRequests) || 0, aiRequests: Number(aiRequests) || 0 };
+}
+
 import { onRequestGet as quoteHandler } from "./functions/quote.js";
 import { onRequestGet as newsHandler } from "./functions/news.js";
 import { onRequestPost as askHandler } from "./functions/ask.js";
@@ -81,6 +124,7 @@ const API_METHODS = new Map([
   ["/api/portfolio-sync", ["GET", "POST"]],
   ["/api/auto-daily", ["GET"]],
   ["/api/owner-status", ["GET"]],
+  ["/api/system-stats", ["GET"]],
   ["/api/pending-trades", ["GET", "POST"]],
   ["/api/pending-trades/resolve", ["POST"]],
 ]);
@@ -134,13 +178,23 @@ export default {
       return apiJson({ ok: true, owner: Boolean(supplied && owner && supplied === owner) });
     }
 
+    if (url.pathname === "/api/system-stats" && request.method === "GET") {
+      const auth = String(request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
+      const owner = String(env.LINE_REMINDER_SYNC_TOKEN || "").trim();
+      if (!auth || !owner || auth !== owner) return new Response(JSON.stringify({ ok: false, error: "Forbidden" }), { status: 403, headers: { "content-type": "application/json" } });
+      const stats = await readSystemStats(env);
+      return new Response(JSON.stringify({ ok: true, ...stats }), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
+    }
+
     if (url.pathname === "/quote" && request.method === "GET") {
+      ctx.waitUntil(bumpUsage(env, request, "quote"));
       return quoteHandler({ request, env, ctx });
     }
     if (url.pathname === "/news" && request.method === "GET") {
       return newsHandler({ request, env, ctx });
     }
     if (url.pathname === "/ask" && request.method === "POST") {
+      ctx.waitUntil(bumpUsage(env, request, "ai"));
       return askHandler({ request, env, ctx });
     }
     if (url.pathname === "/dividend-schedule" && request.method === "GET") {
