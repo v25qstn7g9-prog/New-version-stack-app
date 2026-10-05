@@ -1,4 +1,4 @@
-# 存股 App v2.46.22 | Personal Advisor + Gemini 3.6 ✨
+# 存股 App v2.46.23 | Personal Advisor + Gemini 3.6 ✨
 
 **最後更新**: 2026年10月5日  
 **狀態**: 主線更新已驗證；線上版本以部署結果為準 | Gemini 內建 fallback  
@@ -15,7 +15,7 @@
 ---
 
 ## 主 App
-- App：`4.7-personal-advisor-v2.46.22-shared-market-layout`
+- App：`4.7-personal-advisor-v2.46.23-shared-market-layout`
 - 左右滑頁與穩定化手勢保留
 - 台股／美股共用持股、交易、配息、定期定額、每日紀錄與首頁行情模板；不另設美股專區
 - 舊美股持股在載入或匯入時整合進同一份持股資料，保留股數並避免舊交易重複計算

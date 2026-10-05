@@ -96,3 +96,20 @@ test('mixed holdings reject old background calculations and import one compatibl
  c.insert([{...old,usValue:8000,valuationVersion:2}]);assert.equal(rows.length,1);assert.equal(rows[0].usValue,8000);
  c.insert([{...old,usValue:8000,valuationVersion:2}]);assert.equal(rows.length,1);
 });
+test('automatic recording requires a recent FX quote and a recent US price',()=>{
+ const start=html.indexOf('function usSnapshotCanRecord('), end=html.indexOf('\n}',start)+2;
+ const c=vm.createContext({normalizeStockSymbol:s=>s.toUpperCase()});vm.runInContext(html.slice(start,end),c);
+ const now=new Date('2026-10-05T15:00:00Z'), hs=[{symbol:'AAPL',shares:.5}];
+ const snapshot={fx:32,fxAsOfDate:'2026-10-05T14:59:00Z',failed:[],quotes:{AAPL:{price:200,asOfDate:'2026-10-05T14:59:00Z'}}};
+ assert.equal(c.usSnapshotCanRecord(hs,snapshot,now),true);
+ assert.equal(c.usSnapshotCanRecord(hs,{...snapshot,fxAsOfDate:'2026-09-01T00:00:00Z'},now),false);
+ assert.equal(c.usSnapshotCanRecord(hs,{...snapshot,quotes:{AAPL:{...snapshot.quotes.AAPL,intradayFresh:false}}},now),false);
+});
+test('the app can derive US shares on the first render with a populated portfolio',()=>{
+ const begin=html.indexOf('  const [dailyRecords, setDailyRecords] = useState([]);'),end=html.indexOf('  const [dividends,',begin);
+ let i=0;const seeds=[[],[{symbol:'AAPL',initialShares:.5}],[{symbol:'AAPL',action:'buy',shares:1.5}]];
+ const c=vm.createContext({ready:true,showUsFields:true,useEffect:()=>{},useState:value=>[seeds[i++]??value,()=>{}],useUsLivePrices:h=>({active:h})});
+ vm.runInContext(html.slice(a,b),c);
+ vm.runInContext(html.slice(begin,end)+'\nthis.result=usHoldings[0].shares;',c);
+ assert.equal(c.result,2);
+});

@@ -372,7 +372,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.46.22-shared-market-layout";
+const APP_VERSION = "4.7-personal-advisor-v2.46.23-shared-market-layout";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -2527,7 +2527,7 @@ function AssetTracker() {
       if (autoLocalBusyRef.current || !needsTodayRecord(dailyRecords, new Date(), 14 * 60)) return;
       const active = holdingsWithShares.filter((h) => isTaiwanSymbol(h.symbol) && Number(h.current || 0) > 0 && h.symbol);
       if (!active.length && !usHoldings.some((h) => h.shares > 0)) return;
-      if (usHoldings.some((h) => h.shares > 0) && (usLive.totalNtd == null || usLive.state.failed.length > 0 || usHoldings.filter((h) => h.shares > 0).some((h) => usLive.state.quotes[h.symbol]?.intradayFresh === false))) return;
+      if (usHoldings.some((h) => h.shares > 0) && !usSnapshotCanRecord(usHoldings, usLive.state)) return;
       autoLocalBusyRef.current = true;
       try {
         const { quotes } = active.length ? await fetchQuotesWithFallback(active.map((h) => h.symbol), false) : { quotes: {} };
@@ -3792,7 +3792,18 @@ function mergeUsQuoteSnapshot(previous, incoming, symbols) {
   }
   const freshFx = Number(incoming?.USDTWD?.price);
   if (!(freshFx > 0)) failed.push("USD/TWD");
-  return { quotes, fx: freshFx > 0 ? freshFx : previous?.fx || null, failed };
+  return { quotes, fx: freshFx > 0 ? freshFx : previous?.fx || null,
+    fxAsOfDate: freshFx > 0 ? incoming?.USDTWD?.asOfDate || null : previous?.fxAsOfDate || null, failed };
+}
+
+function usSnapshotCanRecord(holdings, snapshot, now = new Date()) {
+  const active = holdings.filter((h) => Number(h.shares) > 0);
+  const recent = (iso) => { const at = Date.parse(iso || ""); return Number.isFinite(at) && at <= now.getTime() + 60000 && now.getTime() - at <= 4 * 86400000; };
+  return active.length > 0 && Number(snapshot?.fx) > 0 && recent(snapshot?.fxAsOfDate)
+    && !snapshot?.failed?.length && active.every((h) => {
+      const q = snapshot?.quotes?.[normalizeStockSymbol(h.symbol)];
+      return Number(q?.price) > 0 && !q.isStale && q.intradayFresh !== false && recent(q.asOfDate);
+    });
 }
 
 function usQuotePortfolioValue(holdings, snapshot) {
@@ -6376,6 +6387,10 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
     <div className="space-y-2">
       {/* 今天的紀錄：打開就自動填好，確認後按一次儲存；要補記其他天再改日期。 */}
       <Panel title="今天的紀錄">
+        <label className="mb-2 flex items-center gap-2 text-[11px] cursor-pointer" style={{ color: COLORS.sub }}>
+          <input type="checkbox" checked={showUsFields} onChange={(e) => setShowUsFields?.(e.target.checked)} />
+          {UI_SHOW_ENGLISH ? "Include US stocks" : "包含美股"}
+        </label>
         <div className="flex items-center justify-between gap-2 mb-2">
           <div className="text-sm font-bold mono">{form.date.slice(5).replace("-", "/")}{isToday ? (UI_SHOW_ENGLISH ? " (today)" : "（今天）") : ""}</div>
           <span className="text-[11px] font-bold rounded-full px-2 py-0.5"
