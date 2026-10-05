@@ -17,7 +17,8 @@ test('daily record: today card auto-fills TW value from quotes, TW cost from hol
   assert.match(daily, /<Panel title="今天的紀錄">/);
   assert.match(daily, /fetchQuotesWithFallback\(activeTw\.map\(\(h\) => h\.symbol\), force\)/);
   assert.match(daily, /Number\(quotes\[h\.symbol\]\.price\) \* Number\(h\.current\)/);
-  assert.match(daily, /holdings\.reduce\(\(sum, h\) => sum \+ Number\(h\.estCostBasis \|\| 0\), 0\)/, 'same cost the holdings tab shows');
+  assert.match(daily, /holdings\.filter\(\(h\) => isTaiwanSymbol\(h\.symbol\)\)\.reduce\(\(sum, h\) => sum \+ Number\(h\.estCostBasis \|\| 0\), 0\)/, 'TW cost excludes US holdings');
+  assert.match(daily, /fills\.usValue = String\(autoUs\.value\); from\.usValue = "usQuote"/, 'today uses US quotes when configured');
   assert.match(daily, /from\.usValue = "last"/);
   // 只填空的欄位，使用者自己清空的不會被塞回去
   assert.match(daily, /const canFill = \(k\) => form\[k\] === "" && autoFrom\[k\] !== "typed";/);
