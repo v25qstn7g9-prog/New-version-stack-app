@@ -34,7 +34,7 @@ test('auto record uses shares x today close, keeps cost and carries US values; a
   assert.equal(Z.buildRecord(mirror, Z.quoteMap({ quotes: { '0050': fresh(190), '00878': { ...fresh(22), isStale: true } } }), '2026-10-05').ok, false);
   assert.equal(Z.buildRecord(mirror, Z.quoteMap({ quotes: { '0050': fresh(190), '00878': { ...fresh(22), asOfDate: '2026-10-02T05:30:00.000Z' } } }), '2026-10-05').ok, false, 'yesterday quote is not today');
   assert.match(Z.message({ mode: 'record', recorded: false }, { ok: false }).title, /沒能自動記錄/);
-  assert.match(Z.message({ mode: 'record', recorded: false }, r).body, /NT\$ 300,000/);
+  assert.match(Z.message({ mode: 'record', recorded: false }, r).body, /NT\$ 305,000/);
 });
 
 test('backfill fills only missing trading days after the last record, never today, and never when trades happened since', () => {
@@ -60,7 +60,7 @@ test('weekday-gap check avoids network when nothing can be missing (e.g. Friday 
 test('index.html, sw.js and worker wiring are all in place', () => {
   const html = fs.readFileSync('index.html', 'utf8');
   const sw = fs.readFileSync('sw.js', 'utf8');
-  assert.match(html, /<script src="\/bg-core\.js\?v=1"><\/script>/);
+  assert.match(html, /<script src="\/bg-core\.js\?v=2"><\/script>/);
   assert.match(html, /register\("\/sw\.js"\)/);
   assert.match(html, /bgSet\("mirror"/);
   assert.match(html, /bgGet\("pendingAuto"\)/);
@@ -69,8 +69,9 @@ test('index.html, sw.js and worker wiring are all in place', () => {
   assert.match(html, /<PushReminderPanel \/>/);
   const app = html.slice(html.indexOf('function PushReminderPanel'), html.indexOf('function AddButton'));
   assert.match(app, /useState\("unknown"\)/, 'push state lives inside its own component, not the App body');
-  assert.match(sw, /importScripts\("\/bg-core\.js\?v=1"\)/);
+  assert.match(sw, /importScripts\("\/bg-core\.js\?v=2"\)/);
   assert.equal((sw.match(/showNotification/g) || []).length >= 2, true);
   assert.match(sw, /addEventListener\("push"/);
   assert.match(sw, /\.catch\(\(e\) => self\.registration\.showNotification/, 'a failing handler still shows a notification (iOS requires one per push)');
 });
+

@@ -26,7 +26,7 @@ test('changed holdings are valued from shares rather than a cached portfolio tot
   assert.equal(context.usQuotePortfolioValue([{symbol:' aapl ',shares:1.5}], {quotes:{AAPL:{price:100}},fx:32}), 4800);
 });
 test('US polling uses 30 seconds and pauses while hidden, then refreshes on return', async () => {
-  const hooks = html.slice(html.indexOf('function mergeUsQuoteSnapshot('), html.indexOf('function UsLivePricePanel('));
+  const hooks = html.slice(html.indexOf('function mergeUsQuoteSnapshot('), html.indexOf('// <margin-helpers>'));
   let state, tick, visible, interval, requests = 0, now = 100000;
   class Clock extends Date { constructor(...args) { super(...(args.length ? args : [now])); } static now() { return now; } }
   const document = { visibilityState: 'visible', addEventListener: (_, fn) => {visible = fn;}, removeEventListener() {} };

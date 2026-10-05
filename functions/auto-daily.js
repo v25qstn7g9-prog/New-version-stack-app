@@ -63,17 +63,23 @@ export function buildAutoRecord(summary, prices, date) {
   const missing = holdings.filter((h) => !(num(prices?.[h.symbol]) > 0)).map((h) => h.symbol);
   if (missing.length) return { ok: false, reason: "missing_prices", missing };
   const prior = lastRecordBefore(summary, date);
-  const twValue = Math.round(holdings.reduce((s, h) => s + num(prices[h.symbol]) * num(h.shares), 0));
-  const costs = holdings.map((h) => num(h.costBasis));
-  const twCost = costs.every((c) => c != null) ? Math.round(costs.reduce((s, c) => s + c, 0)) : (num(prior?.twCost) ?? 0);
+  const tw = holdings.filter((h) => /^[0-9]/.test(h.symbol));
+  const us = holdings.filter((h) => !/^[0-9]/.test(h.symbol));
+  const fx = num(prices.USDTWD);
+  if (us.length && !(fx > 0)) return { ok: false, reason: "missing_prices", missing: ["USDTWD"] };
+  const twValue = Math.round(tw.reduce((s,h) => s + num(prices[h.symbol]) * num(h.shares),0));
+  const usValue = us.length ? Math.round(us.reduce((s,h) => s + num(prices[h.symbol]) * num(h.shares) * fx,0)) : (summary?.dataset?.holdings?.some((h) => !/^[0-9]/.test(h.symbol)) ? 0 : (num(prior?.usValue) ?? 0));
+  const costFor = (rows, fallback) => rows.length && rows.every((h) => h.costBasis != null && num(h.costBasis) != null) ? Math.round(rows.reduce((s,h) => s + num(h.costBasis),0)) : fallback;
+  const twCost = costFor(tw, num(prior?.twCost) ?? 0);
+  const usCost = costFor(us, !us.length && summary?.dataset?.holdings?.some((h) => !/^[0-9]/.test(h.symbol)) ? 0 : num(prior?.usCost) ?? 0);
   return {
     ok: true,
     record: {
       date,
       twValue,
-      usValue: num(prior?.usValue) ?? 0,
+      usValue,
       twCost,
-      usCost: num(prior?.usCost) ?? 0,
+      usCost,
       source: "auto",
       autoAt: new Date().toISOString(),
     },
@@ -96,7 +102,15 @@ async function defaultFetchPrices(env, symbols, date) {
   url.searchParams.set("symbols", symbols.join(","));
   const res = await quoteGet({ request: new Request(url), env });
   const data = await res.json().catch(() => null);
-  return usablePrices(data, date);
+  const prices = usablePrices(data, date);
+  const end = Date.parse(date + "T16:00:00Z");
+  const quotes = data?.quotes || {};
+  for (const [symbol,q] of Object.entries(quotes)) {
+    if (/^[0-9]/.test(symbol)) continue;
+    const at = Date.parse(q?.asOfDate || "");
+    if (Number(q?.price) > 0 && !q.isStale && q.intradayFresh !== false && Number.isFinite(at) && at <= end && end - at <= 4 * 86400000) prices[symbol] = Number(q.price);
+  }
+  return prices;
 }
 
 async function listSyncTokens(env) {
@@ -172,6 +186,7 @@ export async function runAutoDaily(env, deps = {}) {
   const symbols = [...new Set(pending.flatMap(({ snapshot }) => (snapshot.holdings || []).map((h) => h?.symbol).filter(Boolean)))];
   const fetchPrices = deps.fetchPrices || ((syms) => defaultFetchPrices(env, syms, t.date));
   // usablePrices 只留「今天、非過期」的價格：休市日或報價還沒更新時會是空的，就不記。
+  if (symbols.some((s) => !/^[0-9]/.test(s))) symbols.push("USDTWD");
   const prices = symbols.length ? await fetchPrices(symbols) : {};
 
   let written = 0;
@@ -188,7 +203,7 @@ export async function runAutoDaily(env, deps = {}) {
     results.push({ ok: true });
     if (token === env.LINE_REMINDER_SYNC_TOKEN && lineConfigured(env)) {
       const r = built.record;
-      await pushLine(env, `🤖 已用收盤價自動記錄今天的資產\n台股 NT$ ${r.twValue.toLocaleString("en-US")}（美股沿用上一筆）\n打開 App 會自動收進「每日紀錄」，要改就直接改、再按更新。\n${APP_URL}`, deps.fetch || fetch).catch(() => null);
+      await pushLine(env, `🤖 已用收盤價自動記錄今天的資產\n總資產 NT$ ${(r.twValue + r.usValue).toLocaleString("en-US")}\n打開 App 會自動收進「每日紀錄」，要改就直接改、再按更新。\n${APP_URL}`, deps.fetch || fetch).catch(() => null);
     }
   }
   return { ok: true, written, results };
@@ -206,3 +221,4 @@ export async function onRequestGet({ request, env }) {
   const list = Object.values(stored.records || {}).filter((r) => r && /^\d{4}-\d{2}-\d{2}$/.test(r.date)).sort((a, b) => a.date.localeCompare(b.date));
   return json({ ok: true, records: list });
 }
+

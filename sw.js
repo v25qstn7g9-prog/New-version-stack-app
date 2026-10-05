@@ -3,7 +3,7 @@
  *   13:45：提醒（已記錄就說已記錄）
  *   14:00：沒記錄 → 抓即時報價、算今天的記錄、存成「待收進 App」，並跳通知；有記錄 → 只通知。
  * iPhone 規定每次推播都必須顯示通知，所以每條路徑都會 showNotification。 */
-importScripts("/bg-core.js?v=1");
+importScripts("/bg-core.js?v=2");
 
 const DB = "zinf-bg", STORE = "kv";
 function idb() {
@@ -31,7 +31,9 @@ async function handlePush() {
   let built = null;
   if (decision.mode === "record" && !decision.recorded) {
     try {
-      const symbols = mirror.holdings.filter((h) => h && h.symbol && Number(h.shares) > 0).map((h) => h.symbol).join(",");
+      const active = mirror.holdings.filter((h) => h && h.symbol && Number(h.shares) > 0).map((h) => h.symbol);
+      if (active.some((s) => !/^[0-9]/.test(s))) active.push("USDTWD");
+      const symbols = active.join(",");
       const res = await fetch("/quote?force=1&symbols=" + encodeURIComponent(symbols), { cache: "no-store" });
       built = self.ZinfBg.buildRecord(mirror, self.ZinfBg.quoteMap(res.ok ? await res.json() : null), decision.date);
     } catch (e) {
@@ -63,3 +65,4 @@ self.addEventListener("notificationclick", (event) => {
     return self.clients.openWindow((event.notification.data && event.notification.data.url) || "/");
   }));
 });
+

@@ -34,19 +34,32 @@
   function buildRecord(mirror, quotes, date) {
     var held = (mirror.holdings || []).filter(function (h) { return h && h.symbol && num(h.shares) > 0; });
     if (!held.length) return { ok: false, reason: "no_holdings" };
-    var total = 0;
+    var tw = held.filter(function(h) { return /^[0-9]/.test(h.symbol); });
+    var us = held.filter(function(h) { return !/^[0-9]/.test(h.symbol); });
+    var fx = num(quotes.USDTWD && quotes.USDTWD.price);
+    var end = Date.parse(date + "T16:00:00Z");
+    function recent(q) {
+      var at = Date.parse(q && q.asOfDate || "");
+      return q && num(q.price) > 0 && !q.isStale && q.intradayFresh !== false && isFinite(at) && at <= end && end - at <= 4 * 86400000;
+    }
+    if (us.length && (!(fx > 0) || !recent(quotes.USDTWD))) return { ok: false, reason: "quote_not_ready" };
+    var twTotal = 0, usTotal = 0;
     for (var i = 0; i < held.length; i++) {
-      var q = quotes[String(held[i].symbol).toUpperCase()];
-      if (!q || !(num(q.price) > 0) || q.isStale || taipeiDay(q.asOfDate) !== date) return { ok: false, reason: "quote_not_ready" };
-      total += num(q.price) * num(held[i].shares);
+      var h = held[i], q = quotes[String(h.symbol).toUpperCase()], isUS = !/^[0-9]/.test(h.symbol);
+      if (isUS ? !recent(q) : !q || !(num(q.price) > 0) || q.isStale || taipeiDay(q.asOfDate) !== date) return { ok: false, reason: "quote_not_ready" };
+      if (isUS) usTotal += num(q.price) * num(h.shares) * fx;
+      else twTotal += num(q.price) * num(h.shares);
     }
     var prior = mirror.prior || {};
-    var costSum = Math.round(held.reduce(function (s, h) { return s + num(h.costBasis); }, 0));
+    function cost(rows, fallback) {
+      var sum = Math.round(rows.reduce(function(s,h) { return s + num(h.costBasis); },0));
+      return sum > 0 ? sum : num(fallback);
+    }
     return {
       ok: true,
       record: {
-        date: date, twValue: Math.round(total), twCost: costSum > 0 ? costSum : num(prior.twCost),
-        usValue: num(prior.usValue), usCost: num(prior.usCost), source: "auto", autoAt: new Date().toISOString(),
+        date: date, twValue: Math.round(twTotal), twCost: cost(tw, prior.twCost),
+        usValue: us.length ? Math.round(usTotal) : mirror.tracksUs ? 0 : num(prior.usValue), usCost: cost(us, !us.length && mirror.tracksUs ? 0 : prior.usCost), source: "auto", autoAt: new Date().toISOString(),
       },
     };
   }
@@ -58,7 +71,7 @@
     if (decision.mode === "no_data") return { title: "📒 收盤提醒已開啟", body: "請打開 App 一次，之後才能在背景自動記錄。" };
     if (decision.recorded) return { title: "✓ 今天已記錄好了", body: "不用再記，辛苦了。" };
     if (decision.mode === "reminder") return { title: "📒 記帳提醒", body: "今天還沒記錄。14:00 前沒記的話，會用收盤價自動幫你記。" };
-    if (built && built.ok) return { title: "🤖 已自動記錄今天的資產", body: "台股 NT$ " + nf(built.record.twValue) + "（美股沿用上一筆）。打開 App 會收進每日紀錄，要改直接改。" };
+    if (built && built.ok) return { title: "🤖 已自動記錄今天的資產", body: "總資產 NT$ " + nf(built.record.twValue + built.record.usValue) + "。打開 App 會收進每日紀錄，要改直接改。" };
     return { title: "⚠️ 沒能自動記錄", body: "報價還沒更新或暫時抓不到。打開 App 會再試一次。" };
   }
 
@@ -100,3 +113,4 @@
 
   root.ZinfBg = { addDays: addDays, hasWeekdayGap: hasWeekdayGap, planBackfill: planBackfill, taipei: taipei, decide: decide, quoteMap: quoteMap, buildRecord: buildRecord, message: message, RECORD_FROM_MINUTE: RECORD_FROM_MINUTE };
 })(typeof self !== "undefined" ? self : globalThis);
+
