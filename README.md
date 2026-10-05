@@ -1,6 +1,6 @@
-# 存股 App v2.46.1 | Personal Advisor + Gemini 3.6 ✨
+# 存股 App v2.46.17 | Personal Advisor + Gemini 3.6 ✨
 
-**最後更新**: 2026年10月4日  
+**最後更新**: 2026年10月5日  
 **狀態**: ✅ 生產穩定版 | Gemini 內建 fallback  
 **架構**: Cloudflare Workers（主力）→ Gemini 3.6 Flash（同 Worker 內建備援）→ 舊 Vercel 備援（可選）
 
@@ -15,7 +15,7 @@
 ---
 
 ## 主 App
-- App：`4.7-personal-advisor-v2.46.1-mobile-overlay-stability`
+- App：`4.7-personal-advisor-v2.46.17-us-live-total`
 - 左右滑頁與穩定化手勢保留
 - 持股頁沿用首頁即時報價
 - 加權指數 TAIEX 已恢復
@@ -23,7 +23,7 @@
 - 備份／匯入、交易、持股、配息、計畫、資產曲線保留
 
 ## Cloudflare
-- `functions/quote.js`：`4.7-quote-schedule-5-high-low-overnight-fix`
+- `functions/quote.js`：`4.7-quote-schedule-6-us-live`
 - 支援一般台股代號 + `TAIEX`
 - TAIEX 使用 TWSE `tse_t00.tw`，Yahoo fallback 使用 `^TWII`
 - `functions/ask.js`：`4.7-personal-advisor-v3.2-bounded-learning`（Cloudflare GPT-OSS 20B + Gemini 3.6 Flash fallback）
@@ -128,3 +128,7 @@ npm run check:version
 在「計畫 → Z∞ 同步」填入私人同步 token 後，瀏覽器同步持股、交易、配息、每日資產紀錄、計畫與 Trend Radar／即時行情快照。頁面會顯示最近一次成功同步或失敗原因。Z∞ 中控按問題的日期、股票代號與資料種類擷取紀錄；超出單次模型上下文的資料會標示截斷，不能宣稱已完成全期間計算。原始資料仍以 App 瀏覽器本機為主，Z∞ 中控使用的是最後同步快照。完整資料同步限制為 1 MiB，超出會顯示同步失敗。
 
 `GET /api/portfolio-sync` 可用 `Authorization: Bearer <token>` 讀取；舊版 query token 方式暫保留相容。請勿把 token 放在公開網址、程式碼或日誌。
+
+## 美股自動報價
+
+每日紀錄勾選美股，設定股票代號與持有股數後，App 在美股一般交易時段、畫面可見時每 30 秒讀取 Yahoo 報價與 USD/TWD 匯率。換頁持續更新，回到前景會補抓；市值直接反映在目前總資產與損益。資料可能延遲，面板顯示來源報價時間。部分查詢失敗保留上次價格，不以不完整報價覆蓋總資產。每日歷史紀錄仍透過「帶入今日美股市值」後儲存，買賣後請更新股數。
