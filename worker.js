@@ -80,6 +80,7 @@ const API_METHODS = new Map([
   ["/api/health-check", ["GET"]],
   ["/api/portfolio-sync", ["GET", "POST"]],
   ["/api/auto-daily", ["GET"]],
+  ["/api/owner-status", ["GET"]],
   ["/api/pending-trades", ["GET", "POST"]],
   ["/api/pending-trades/resolve", ["POST"]],
 ]);
@@ -124,6 +125,13 @@ export default {
     if (url.pathname === "/api/health" && request.method === "GET") {
       const intraday = await readIntradayHealth(env);
       return apiJson({ ok: true, service: "new-version-stack-app", intraday });
+    }
+
+    if (url.pathname === "/api/owner-status" && request.method === "GET") {
+      const supplied = bearerToken(request);
+      const owner = String(env.LINE_REMINDER_SYNC_TOKEN || "").trim();
+      // 只回傳布林值；Secret 本身永遠不送到瀏覽器。
+      return apiJson({ ok: true, owner: Boolean(supplied && owner && supplied === owner) });
     }
 
     if (url.pathname === "/quote" && request.method === "GET") {
