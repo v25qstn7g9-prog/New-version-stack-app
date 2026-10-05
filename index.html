@@ -371,7 +371,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.46.5-soft-goal-progress";
+const APP_VERSION = "4.7-personal-advisor-v2.46.6-dividend-estimates";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -6922,7 +6922,7 @@ function UpcomingDividendReminder({ holdings }) {
             <div key={r.symbol} className="flex items-center justify-between text-sm">
               <div className="mono">{r.symbol}{r.name ? ` · ${r.name}` : ""}</div>
               <div className="text-right">
-                <span className="mono" style={{ color: COLORS.gold }}>{r.date}</span>
+                <span className="mono" style={{ color: COLORS.gold }}>{r.date}</span>{r.cashDividend != null ? <span className="text-[11px] ml-1" style={{ color: COLORS.sub }}>{UI_SHOW_ENGLISH ? `· ${r.cashDividend}/share` : `· 每股 ${r.cashDividend}`}</span> : (r.estimatedDividend != null ? <span className="text-[11px] ml-1" style={{ color: "#8BC4D4" }}>{UI_SHOW_ENGLISH ? `· est. ${r.estimatedDividend}` : `· 預估 ${r.estimatedDividend}`}</span> : <span className="text-[11px] ml-1" style={{ color: COLORS.sub }}><UiLabel zh="· 金額待公告" /></span>)}
                 <span className="text-[11px] ml-1" style={{ color: COLORS.sub }}>
                   {days === 0 ? <UiLabel zh="就是今天" /> : (UI_SHOW_ENGLISH ? `${days} days left` : `還有 ${days} 天`)}
                 </span>
@@ -7069,7 +7069,7 @@ function DividendsPanel({ dividends, setDividends, holdings }) {
           return {
             ...f,
             date: data.date || f.date,
-            perShare: (data.cashDividend != null) ? String(data.cashDividend) : f.perShare,
+            perShare: (data.cashDividend != null) ? String(data.cashDividend) : ((data.estimatedDividend != null) ? String(data.estimatedDividend) : f.perShare),
           };
         });
       } catch (e) {
@@ -7082,7 +7082,7 @@ function DividendsPanel({ dividends, setDividends, holdings }) {
   const scheduleHint = (() => {
     if (scheduleStatus === "loading") return { text: uiText("查詢最新除息公告中…"), color: COLORS.sub };
     if (scheduleStatus === "found") {
-      const cash = scheduleInfo?.cashDividend != null ? (UI_SHOW_ENGLISH ? `, ${scheduleInfo.cashDividend}/share` : `，每股 ${scheduleInfo.cashDividend}`) : "";
+      const cash = scheduleInfo?.cashDividend != null ? (UI_SHOW_ENGLISH ? `, official ${scheduleInfo.cashDividend}/share` : `，正式每股 ${scheduleInfo.cashDividend}`) : (scheduleInfo?.estimatedDividend != null ? (UI_SHOW_ENGLISH ? `, estimated ${scheduleInfo.estimatedDividend}/share (pending official amount)` : `，預估每股 ${scheduleInfo.estimatedDividend}（待正式公告）`) : (UI_SHOW_ENGLISH ? ", amount pending" : "，金額待公告"));
       const text = UI_SHOW_ENGLISH
         ? `Latest notice found: ex-${scheduleInfo.type === "息" || !scheduleInfo.type ? "dividend" : scheduleInfo.type} date ${scheduleInfo.date}${cash}`
         : `已抓到最新公告：${scheduleInfo.date} 除${scheduleInfo.type || "息"}${cash}`;
