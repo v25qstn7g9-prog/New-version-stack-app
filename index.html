@@ -371,7 +371,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.46.11-gemini-overflow";
+const APP_VERSION = "4.7-personal-advisor-v2.46.12-system-admin";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -1823,6 +1823,7 @@ function AssetTracker() {
   const [zinfSyncToken, setZinfSyncToken] = useState("");
   const [zinfSyncStatus, setZinfSyncStatus] = useState("");
   const [isOwner, setIsOwner] = useState(false);
+  const [systemStats, setSystemStats] = useState(null);
   // 系統健康卡片：由 Cloudflare 背景排程（或手動觸發）產生，App 開啟時抓一次現況。
   // 只是顯示用的暫存狀態，不寫進 localStorage/JSON 備份——它本來就是伺服器端的資料。
   const [healthCards, setHealthCards] = useState([]);
@@ -1934,6 +1935,25 @@ function AssetTracker() {
     })();
     return () => { cancelled = true; };
   }, [ready, zinfSyncToken]);
+
+  // Owner-only anonymous usage statistics. No names, holdings or raw IPs are stored.
+  useEffect(() => {
+    if (!ready || !isOwner || !zinfSyncToken) { setSystemStats(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetchWithTimeout("/api/system-stats", {
+          cache: "no-store",
+          headers: { authorization: "Bearer " + zinfSyncToken },
+        }, 6000);
+        const data = res.ok ? await res.json().catch(() => null) : null;
+        if (!cancelled) setSystemStats(data?.ok ? data : null);
+      } catch {
+        if (!cancelled) setSystemStats(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [ready, isOwner, zinfSyncToken]);
 
 
   // ---- full backup / restore ----
@@ -2796,7 +2816,7 @@ function AssetTracker() {
                     planTotal={planTotal} goal={goal} setGoal={setGoal}
                     exportBackup={exportBackup} importBackup={importBackup} exportExcel={exportExcel} lastBackupAt={lastBackupAt} backupAgeDays={backupAgeDays} backupOverdue={backupOverdue}
                     aiFallbackConfig={aiFallbackConfig} setAiFallbackConfig={setAiFallbackConfig}
-                    zinfSyncToken={zinfSyncToken} setZinfSyncToken={setZinfSyncToken} zinfSyncStatus={zinfSyncStatus} isOwner={isOwner}
+                    zinfSyncToken={zinfSyncToken} setZinfSyncToken={setZinfSyncToken} zinfSyncStatus={zinfSyncStatus} isOwner={isOwner} systemStats={systemStats}
                     healthCards={healthCards} healthCardBusyId={healthCardBusyId} respondHealthCard={respondHealthCard} />
                 );
               case "progress":
@@ -7205,7 +7225,7 @@ function DividendsPanel({ dividends, setDividends, holdings }) {
 }
 
 // ---------------- Plan Panel ----------------
-function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBackup, importBackup, exportExcel, lastBackupAt, backupAgeDays, backupOverdue, aiFallbackConfig, setAiFallbackConfig, zinfSyncToken, setZinfSyncToken, zinfSyncStatus, isOwner, healthCards, healthCardBusyId, respondHealthCard }) {
+function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBackup, importBackup, exportExcel, lastBackupAt, backupAgeDays, backupOverdue, aiFallbackConfig, setAiFallbackConfig, zinfSyncToken, setZinfSyncToken, zinfSyncStatus, isOwner, systemStats, healthCards, healthCardBusyId, respondHealthCard }) {
   const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
   const [form, setForm] = useState({ symbol: "", amount: "", note: "" });
   const [fallbackTest, setFallbackTest] = useState({ status: "idle", message: "" });
@@ -7347,6 +7367,28 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
             : "允許 Gemini 備援讀取 App 的持股／成本／資產資料。關閉時，公開資訊、聊天、新聞與即時股價仍可備援；需要私人資產資料時，Gemini 會改用唯讀工具請 App 查詢，不會把整份私人 context 送出去。"}</span>
         </label>
       </Panel>
+
+      {isOwner && <Panel title="系統管理">
+        <div className="text-[11px] leading-5 mb-3" style={{ color: COLORS.sub }}>
+          匿名使用統計，只計裝置與請求次數；不記姓名、持股內容或原始 IP。
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            ["今日活躍裝置", systemStats?.todayActive ?? "—"],
+            ["近 7 日活躍", systemStats?.weekActive ?? "—"],
+            ["今日股價請求", systemStats?.quoteRequests ?? "—"],
+            ["今日 AI 請求", systemStats?.aiRequests ?? "—"],
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-xl p-3" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
+              <div className="text-[10px]" style={{ color: COLORS.sub }}>{label}</div>
+              <div className="mt-1 mono text-lg font-bold" style={{ color: COLORS.gold }}>{value}</div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-2 text-[10px]" style={{ color: COLORS.sub }}>
+          版本 v{APP_DISPLAY_VERSION} · 統計自此版本啟用後開始累積
+        </div>
+      </Panel>}
 
       {isOwner && <Panel title="Z∞ 同步">
         <div className="text-[11px] leading-5" style={{ color: COLORS.sub }}>
