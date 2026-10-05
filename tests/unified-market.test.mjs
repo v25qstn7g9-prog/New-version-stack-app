@@ -18,10 +18,10 @@ test('migration retains fractional US shares without double-counting prior trade
  assert.equal(mergeLegacyUsHoldings(merged,legacy,trades).length,2);
 });
 test('USD trades preserve transaction FX and fees while old TWD amounts are unchanged',()=>{
- assert.equal(tradeAmountNtd({symbol:'AAPL',action:'buy',shares:.5,price:200,fee:1},32),3232);
- assert.equal(tradeAmountNtd({symbol:'AAPL',action:'sell',shares:.5,price:200,fee:1,tax:.1},31),3065.9);
+ assert.equal(tradeAmountNtd({symbol:'AAPL',currency:'USD',action:'buy',shares:.5,price:200,fee:1},32),3232);
+ assert.equal(tradeAmountNtd({symbol:'AAPL',currency:'USD',action:'sell',shares:.5,price:200,fee:1,tax:.1},31),3065.9);
  assert.equal(tradeAmountNtd({symbol:'0050',action:'buy',shares:10,price:100,fee:1},undefined),1001);
- assert.equal(tradeAmountNtd({symbol:'AAPL',action:'buy',shares:1,price:100},undefined),null);
+ assert.equal(tradeAmountNtd({symbol:'AAPL',currency:'USD',action:'buy',shares:1,price:100},undefined),null);
  assert.equal(isStockSymbol('BRK.B'),true);assert.equal(isStockSymbol('USDTWD'),false);
 });
 test('one mixed-market automatic record includes both markets and TWD costs',()=>{
@@ -56,22 +56,22 @@ function formHarness(name, form, props, extra={}) {
  vm.runInContext(html.slice(a,b),c);vm.runInContext(code,c);
  return c[name](props);
 }
-test('the shared trade form writes one USD transaction and updates the same holding',()=>{
+test('the shared US trade form writes TWD amounts without converting them again',()=>{
  let writes=0,rows=[];
  const form={date:'2026-10-05',symbol:'aapl',action:'buy',shares:'.5',price:'200',fee:'1',tax:'',note:'',fxRate:''};
  const panel=formHarness('TradesPanel',form,{usLive:{state:{fx:32}},setTrades:fn=>{writes++;rows=fn(rows);}});
- panel.add();assert.equal(writes,1);assert.equal(rows[0].symbol,'AAPL');assert.equal(rows[0].amount,3232);assert.equal(rows[0].currency,'USD');assert.equal(rows[0].fxRate,32);
+ panel.add();assert.equal(writes,1);assert.equal(rows[0].symbol,'AAPL');assert.equal(rows[0].amount,101);assert.equal(rows[0].currency,'TWD');assert.equal(rows[0].fxRate,1);
  assert.equal(holdingShareCount({symbol:'AAPL',initialShares:1.25},rows),1.75);
 });
-test('the shared dividend form saves net USD income as TWD with its exchange rate',()=>{
+test('the shared US dividend form saves net TWD income without multiplying by FX',()=>{
  let rows=[];
  const panel=formHarness('DividendsPanel',{date:'2026-10-05',symbol:'AAPL',shares:'2',perShare:'.5',fxRate:'32',withholdingTax:'.1'},{holdings:[],usLive:{state:{fx:33}},setDividends:fn=>rows=fn(rows)});
- panel.add();assert.equal(rows.length,1);assert.equal(rows[0].amount,28.8);assert.equal(rows[0].nativeAmount,.9);assert.equal(rows[0].fxRate,32);
+ panel.add();assert.equal(rows.length,1);assert.equal(rows[0].amount,.9);assert.equal(rows[0].nativeAmount,.9);assert.equal(rows[0].currency,'TWD');assert.equal(rows[0].fxRate,1);
 });
-test('past USD trades require an entered transaction exchange rate',()=>{
+test('past US trades entered in TWD do not require an exchange rate',()=>{
  let writes=0;
  const panel=formHarness('TradesPanel',{date:'2026-09-30',symbol:'AAPL',action:'buy',shares:'1',price:'200',fee:'',tax:'',fxRate:''},{usLive:{state:{fx:32}},setTrades:()=>writes++});
- panel.add();assert.equal(writes,0);
+ panel.add();assert.equal(writes,1);
 });
 test('backup validation accepts USD transaction amounts with saved FX',()=>{
  const c=vm.createContext({UI_SHOW_ENGLISH:false,BACKUP_SCHEMA_VERSION:2,parseLocalDate:s=>new Date(s+'T00:00:00')});
@@ -112,4 +112,35 @@ test('the app can derive US shares on the first render with a populated portfoli
  vm.runInContext(html.slice(a,b),c);
  vm.runInContext(html.slice(begin,end)+'\nthis.result=usHoldings[0].shares;',c);
  assert.equal(c.result,2);
+});
+
+test('US TWD settlements preserve fees and taxes without a second conversion',()=>{
+ assert.equal(tradeAmountNtd({symbol:'VOO',action:'buy',shares:3.81853,price:22000,fee:20},32),84027.66);
+ assert.equal(tradeAmountNtd({symbol:'VOO',action:'sell',shares:.5,price:22000,fee:20,tax:10},32),10970);
+});
+test('legacy USD values use their saved transaction FX, while TWD values remain unchanged',()=>{
+ const begin=html.indexOf('function recordValueNtd('),end=html.indexOf('function tradeAmountNtd(',begin);
+ assert.ok(begin>=0,'legacy history needs explicit currency conversion');
+ const c=vm.createContext({});vm.runInContext(html.slice(begin,end),c);
+ assert.equal(c.recordValueNtd({currency:'USD',fxRate:31},200),6200);
+ assert.equal(c.recordValueNtd({currency:'TWD',fxRate:32},6200),6200);
+ assert.equal(c.recordValueNtd({symbol:'AAPL'},6200),6200);
+ assert.equal(c.recordValueNtd({currency:'USD'},200),null);
+});
+test('mixed legacy USD and new TWD trades produce TWD average cost and holding cost',()=>{
+ const start=html.indexOf('  const holdingsWithShares = useMemo('),end=html.indexOf('  // 台股成本：',start);
+ const c=vm.createContext({showEnglish:false,UI_SHOW_ENGLISH:false,useMemo:fn=>fn(),holdings:[{symbol:'AAPL',initialShares:0,target2035:10}],trades:[
+  {symbol:'AAPL',date:'2026-10-01',action:'buy',shares:1,price:200,fee:1,currency:'USD',fxRate:32,amount:6432},
+  {symbol:'AAPL',date:'2026-10-02',action:'buy',shares:1,price:6500,fee:20,currency:'TWD',fxRate:1,amount:6520}
+ ]});
+ vm.runInContext(html.slice(a,b),c);vm.runInContext(html.slice(start,end)+'this.rows=holdingsWithShares;',c);
+ assert.equal(c.rows[0].current,2);assert.equal(c.rows[0].estCostBasis,12952);
+ assert.equal(c.rows[0].avgCost,6476);assert.equal(c.rows[0].avgTradePrice,6450);
+});
+test('US quotes convert displayed prices to TWD but portfolio value is converted only once',()=>{
+ const panel=html.indexOf('function LivePricePanel('),start=html.indexOf('  const rows = activeHoldings.map(',panel),end=html.indexOf('  const totalValue =',start);
+ const c=vm.createContext({activeHoldings:[{symbol:'AAPL',current:2}],live:{},failedSymbols:[],usLive:{state:{fx:32,failed:[],quotes:{AAPL:{price:200,prevClose:190,high:210,low:180}}}}});
+ vm.runInContext(html.slice(a,b),c);vm.runInContext(html.slice(start,end)+'this.rows=rows;this.display=quoteNtd;',c);
+ assert.equal(c.rows[0].value,12800);assert.equal(c.display(c.rows[0],c.rows[0].price),6400);
+ assert.equal(c.display(c.rows[0],c.rows[0].prevClose),6080);assert.equal(c.display(c.rows[0],c.rows[0].chg),320);
 });

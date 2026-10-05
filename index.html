@@ -372,7 +372,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.46.23-shared-market-layout";
+const APP_VERSION = "4.7-personal-advisor-v2.46.24-twd-subbrokerage";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -872,9 +872,17 @@ function mergeLegacyUsHoldings(holdings, legacy, trades) {
   }
   return merged;
 }
+// 表單與新紀錄一律 TWD；舊 USD 紀錄只使用當時保存的匯率，不套用今天匯率。
+function recordValueNtd(record, value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return null;
+  if (record.currency !== "USD") return amount;
+  const rate = Number(record.fxRate);
+  return rate > 0 ? amount * rate : null;
+}
 function tradeAmountNtd(form, fx) {
   const native = Number(form.shares) * Number(form.price) + (form.action === "buy" ? Number(form.fee || 0) : -Number(form.fee || 0) - Number(form.tax || 0));
-  return isTaiwanSymbol(form.symbol) ? native : (Number(fx) > 0 ? native * Number(fx) : null);
+  return form.currency === "USD" ? (Number(fx ?? form.fxRate) > 0 ? native * Number(fx ?? form.fxRate) : null) : native;
 }
 const isUsRegularTradingHours = (date = new Date()) => {
   try {
@@ -1418,8 +1426,8 @@ function buildPortfolioContext(holdings, goal, totalToday, totalInvested, trades
     const omitted = symbolTrades.length - recent.length;
     lines.push(`\n${h.symbol} 交易紀錄${omitted > 0 ? `（共${symbolTrades.length}筆，以下為最近20筆）` : `（共${symbolTrades.length}筆）`}：`);
     for (const t of recent) {
-      const fee = t.fee ? `，手續費${t.fee}` : "";
-      lines.push(`${t.date} ${t.action === "buy" ? "買進" : "賣出"} ${t.shares}股 @NT$${t.price}${fee}`);
+      const fee = t.fee ? `，手續費${recordValueNtd(t, t.fee) ?? "--"}` : "";
+      lines.push(`${t.date} ${t.action === "buy" ? "買進" : "賣出"} ${t.shares}股 @NT$${recordValueNtd(t, t.price) ?? "--"}${fee}`);
     }
   }
 
@@ -1446,7 +1454,7 @@ function buildPortfolioContext(holdings, goal, totalToday, totalInvested, trades
     const omitted = sortedDividends.length - recentDiv.length;
     lines.push(`\n配息紀錄${omitted > 0 ? `（共${sortedDividends.length}筆，以下為最近20筆）` : `（共${sortedDividends.length}筆）`}：`);
     for (const d of recentDiv) {
-      lines.push(`${d.date} ${d.symbol} ${nf(d.shares)}股 @NT$${d.perShare}/股 = NT$${nf(d.amount)}`);
+      lines.push(`${d.date} ${d.symbol} ${nf(d.shares)}股 @NT$${recordValueNtd(d, d.perShare) ?? "--"}/股 = NT$${nf(d.amount)}`);
     }
   }
 
@@ -2087,11 +2095,12 @@ function AssetTracker() {
         代號: t.symbol,
         買賣: t.action === "buy" ? "買" : "賣",
         股數: Number(t.shares || 0),
-        成交價: Number(t.price || 0),
-        手續費: Number(t.fee || 0),
-        交易稅: Number(t.tax || 0),
-        幣別: t.currency || "TWD",
-        匯率: Number(t.fxRate || 1),
+        成交價: recordValueNtd(t, t.price || 0),
+        手續費: recordValueNtd(t, t.fee || 0),
+        交易稅: recordValueNtd(t, t.tax || 0),
+        幣別: "TWD",
+        原始幣別: t.currency || "TWD",
+        原始匯率: Number(t.fxRate || 1),
         交易金額台幣: Number(t.amount || 0),
         備註: t.note || "",
       }));
@@ -2102,10 +2111,11 @@ function AssetTracker() {
         除息日: d.date,
         代號: d.symbol,
         股數: Number(d.shares || 0),
-        每股配息: Number(d.perShare || 0),
-        幣別: d.currency || "TWD",
-        匯率: Number(d.fxRate || 1),
-        預扣稅: Number(d.withholdingTax || 0),
+        每股配息: recordValueNtd(d, d.perShare || 0),
+        幣別: "TWD",
+        原始幣別: d.currency || "TWD",
+        原始匯率: Number(d.fxRate || 1),
+        預扣稅: recordValueNtd(d, d.withholdingTax || 0),
         配息總額台幣: Number(d.amount || 0),
       }));
 
@@ -2306,7 +2316,7 @@ function AssetTracker() {
     let runningSharesNoFee = 0, runningCostNoFee = 0; // 不含手續費，算「成交均價」用，永遠用全部交易紀錄
     for (const t of laterTrades) {
       if (t.action === "buy") {
-        runningCost += Number(t.amount ?? (t.shares * t.price + Number(t.fee || 0)));
+        runningCost += Number(t.amount ?? tradeAmountNtd(t, t.fxRate));
         runningShares += t.shares;
       } else {
         if (runningShares > 0) {
@@ -2319,7 +2329,7 @@ function AssetTracker() {
     }
     for (const t of symbolTrades) {
       if (t.action === "buy") {
-        runningCostNoFee += t.shares * t.price;
+        runningCostNoFee += t.shares * Number(recordValueNtd(t, t.price) ?? 0);
         runningSharesNoFee += t.shares;
       } else if (runningSharesNoFee > 0) {
         const avgPerShareNoFee = runningCostNoFee / runningSharesNoFee;
@@ -3561,6 +3571,7 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
     return { ...h, price: l.price, prevClose: l.prevClose, prevCloseOk, high: l.high, low: l.low, chg, chgPct, value, isUS, asOfDate: l.asOfDate, fetchedAt: l.fetchedAt, isFromCache, quoteIsStale };
   }).filter(Boolean);
 
+  const quoteNtd = (row, value) => recordValueNtd({ currency: row.isUS ? "USD" : "TWD", fxRate: usLive?.state?.fx }, value);
   const totalValue = rows.reduce((s, r) => s + r.value, 0);
   const hasLive = rows.length > 0;
   const quoteComplete = activeHoldings.length > 0
@@ -3699,14 +3710,14 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
 
                     {/* 第一行：高／低同一行；第二行：昨收，和右邊的漲跌價差／幅度對齊。 */}
                     <span className="row-start-1 col-start-2 whitespace-nowrap leading-none" style={{color:COLORS.sub}}>
-                      {Number.isFinite(Number(r.high)) ? Number(r.high).toFixed(2) : "--"}/{Number.isFinite(Number(r.low)) ? Number(r.low).toFixed(2) : "--"}
+                      {Number.isFinite(Number(r.high)) ? quoteNtd(r, r.high)?.toFixed(2) ?? "--" : "--"}/{Number.isFinite(Number(r.low)) ? quoteNtd(r, r.low)?.toFixed(2) ?? "--" : "--"}
                     </span>
                     <span className="row-start-2 col-start-2 whitespace-nowrap leading-none" style={{color:COLORS.sub}}>
-                      <UiLabel zh="昨收" /> {r.prevCloseOk ? Number(r.prevClose).toFixed(2) : "--"}
+                      <UiLabel zh="昨收" /> {r.prevCloseOk ? quoteNtd(r, r.prevClose)?.toFixed(2) ?? "--" : "--"}
                     </span>
 
                     <span className="row-start-1 col-start-3 text-right whitespace-nowrap leading-none">
-                      {r.isUS ? "US$ " : ""}{r.price.toFixed(2)}
+                      NT$ {quoteNtd(r, r.price)?.toFixed(2) ?? "--"}
                       {marketClosedNow && !r.isUS && (
                         <span className="ml-1 text-[7px] font-normal tracking-normal" style={{ color: COLORS.sub }}>
                           （<UiLabel zh="前一日收盤價" inline />）
@@ -3714,7 +3725,7 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
                       )}
                     </span>
                     <span className="row-start-2 col-start-3 text-right whitespace-nowrap leading-none" style={{ color: r.quoteIsStale ? COLORS.sub : (r.chg >= 0 ? COLORS.gain : COLORS.loss) }}>
-                      {r.quoteIsStale && isTwseTradingHours() && !isMarketClosedToday() ? <UiLabel zh="待更新" /> : <>{r.chg >= 0 ? "▲" : "▼"}{r.prevCloseOk ? <>{r.chg >= 0 ? "+" : ""}{r.chg.toFixed(2)}{" "}</> : null}{r.prevCloseOk ? <>{r.chgPct >= 0 ? "+" : ""}{r.chgPct.toFixed(2)}%</> : "--"}</>}
+                      {r.quoteIsStale && isTwseTradingHours() && !isMarketClosedToday() ? <UiLabel zh="待更新" /> : <>{r.chg >= 0 ? "▲" : "▼"}{r.prevCloseOk ? <>{r.chg >= 0 ? "+" : ""}{quoteNtd(r, r.chg)?.toFixed(2) ?? "--"}{" "}</> : null}{r.prevCloseOk ? <>{r.chgPct >= 0 ? "+" : ""}{r.chgPct.toFixed(2)}%</> : "--"}</>}
                     </span>
 
                     <span className="row-start-1 col-start-4 text-right font-bold whitespace-nowrap leading-none min-w-0">{r.value != null ? nf(r.value) : "--"}</span>
@@ -6942,7 +6953,7 @@ function HoldingsPanel({ holdings, allHoldings = holdings, setHoldings, usLive, 
                       <span className="text-[11px]" style={{ color: COLORS.sub }}>{h.name}</span>
                       {h.avgTradePrice != null && (
                         <span className="text-[11px] mono" style={{ color: COLORS.gold }}>
-                          <UiLabel zh="均價" inline /> {isTaiwanSymbol(h.symbol) ? "NT$ " : "US$ "}{h.avgTradePrice.toFixed(2)}
+                          <UiLabel zh="均價" inline /> NT$ {h.avgTradePrice.toFixed(2)}
                         </span>
                       )}
                     </div>
@@ -7072,10 +7083,10 @@ function TradesPanel({ trades, setTrades, holdings, setHoldings, usLive, costBas
     date: todayStr(), symbol: "", action: "buy", shares: "", price: "", fee: "", tax: "", note: "", fxRate: "",
   });
   const tradeIsUs = isStockSymbol(form.symbol) && !isTaiwanSymbol(form.symbol);
-  const tradeFx = tradeIsUs ? Number(form.fxRate || (form.date === todayStr() ? usLive?.state?.fx : null)) : 1;
+  const tradeFx = 1; // 複委託成交價、手續費與稅額均由券商台幣明細輸入。
   const [search, setSearch] = useState("");
   const add = () => {
-    if (!isStockSymbol(form.symbol) || !(Number(form.shares) > 0) || !(Number(form.price) > 0) || (tradeIsUs && !(tradeFx > 0))) return;
+    if (!isStockSymbol(form.symbol) || !(Number(form.shares) > 0) || !(Number(form.price) > 0)) return;
     const shares = Number(form.shares), price = Number(form.price);
     const fee = Number(form.fee || 0), tax = Number(form.tax || 0);
     const nativeAmount = form.action === "buy" ? shares * price + fee : shares * price - fee - tax;
@@ -7083,7 +7094,7 @@ function TradesPanel({ trades, setTrades, holdings, setHoldings, usLive, costBas
     if (!Number.isFinite(amount) || amount < 0 || fee < 0 || tax < 0) return;
     setTrades((t) => [...t, {
       id: uid(), date: form.date, symbol: normalizeStockSymbol(form.symbol), action: form.action,
-      shares, price, fee, tax, amount, nativeAmount, currency: tradeIsUs ? "USD" : "TWD", fxRate: tradeFx, note: form.note,
+      shares, price, fee, tax, amount, nativeAmount, currency: "TWD", fxRate: tradeFx, note: form.note,
     }]);
     const symbol = normalizeStockSymbol(form.symbol);
     if (form.action === "buy" && setHoldings && !holdings.some((h) => normalizeStockSymbol(h.symbol) === symbol)) {
@@ -7152,15 +7163,14 @@ function TradesPanel({ trades, setTrades, holdings, setHoldings, usLive, costBas
           </Field>
           <Field label="股數"><input type="number" step="any" inputMode="decimal" value={form.shares}
             onChange={(e) => setForm({ ...form, shares: e.target.value })} placeholder="例如 1000" className="input" /></Field>
-          <Field label={tradeIsUs ? "成交價（美元）" : "成交價"}><input type="number" inputMode="decimal" value={form.price}
+          <Field label="成交價（新台幣）"><input type="number" inputMode="decimal" value={form.price}
             onChange={(e) => setForm({ ...form, price: e.target.value })} placeholder="例如 57.8" className="input" /></Field>
-          <Field label={tradeIsUs ? "手續費（美元）" : "手續費"}><input type="number" value={form.fee}
+          <Field label="手續費（新台幣）"><input type="number" value={form.fee}
             onChange={(e) => setForm({ ...form, fee: e.target.value })} placeholder="0" className="input" /></Field>
           {form.action === "sell" && (
-            <Field label="交易稅（賣出）"><input type="number" value={form.tax}
+            <Field label="交易稅（新台幣，賣出）"><input type="number" value={form.tax}
               onChange={(e) => setForm({ ...form, tax: e.target.value })} placeholder="0" className="input" /></Field>
           )}
-          {tradeIsUs && <Field label="USD/TWD（成交時匯率，可修改）"><input type="number" step="any" inputMode="decimal" value={form.fxRate || (form.date === todayStr() ? usLive?.state?.fx : "") || ""} onChange={(e) => setForm({ ...form, fxRate: e.target.value })} className="input" /></Field>}
           <Field label="備註"><input value={form.note}
             onChange={(e) => setForm({ ...form, note: e.target.value })} className="input" /></Field>
         </div>
@@ -7172,7 +7182,7 @@ function TradesPanel({ trades, setTrades, holdings, setHoldings, usLive, costBas
           </div>
         )}
         <MissingHint missing={[!form.symbol && "代號", !form.shares && "股數", !form.price && "成交價"].filter(Boolean)} />
-        <AddButton onClick={add} label="新增交易" disabled={!isStockSymbol(form.symbol) || !(Number(form.shares) > 0) || !(Number(form.price) > 0) || (tradeIsUs && !(tradeFx > 0))} />
+        <AddButton onClick={add} label="新增交易" disabled={!isStockSymbol(form.symbol) || !(Number(form.shares) > 0) || !(Number(form.price) > 0)} />
       </Panel>
 
       <Panel title={M(`Trades (${filtered.length}${q ? ` / ${trades.length} total` : ""})`, `交易紀錄（${filtered.length}${q ? ` / 共${trades.length}` : ""}）`)}>
@@ -7216,7 +7226,7 @@ function TradesPanel({ trades, setTrades, holdings, setHoldings, usLive, costBas
                   </span> {t.symbol}
                 </div>
                 <div className="text-[11px]" style={{ color: COLORS.sub }}>
-                  {Number(t.shares).toLocaleString("en-US", { maximumFractionDigits: 6 })}{M("sh", "股")} @ {t.currency === "USD" ? "US$ " : "NT$ "}{t.price}
+                  {Number(t.shares).toLocaleString("en-US", { maximumFractionDigits: 6 })}{M("sh", "股")} @ NT$ {recordValueNtd(t, t.price)?.toFixed(2) ?? "--"}
                 </div>
               </div>
               <div className="text-right mono text-sm font-bold">
@@ -7406,7 +7416,7 @@ function DividendsPanel({ dividends, setDividends, holdings, usLive }) {
   const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
   const [form, setForm] = useState({ date: todayStr(), symbol: "", shares: "", perShare: "", fxRate: "", withholdingTax: "" });
   const dividendIsUs = isStockSymbol(form.symbol) && !isTaiwanSymbol(form.symbol);
-  const dividendFx = dividendIsUs ? Number(form.fxRate || (form.date === todayStr() ? usLive?.state?.fx : null)) : 1;
+  const dividendFx = 1; // 複委託配息與預扣稅一律以台幣入帳明細記錄。
   // Typing/selecting a symbol that matches a holding auto-fills 股數 with
   // that holding's current share count, so you don't have to look it up
   // and retype it every time — still a normal editable field afterward if
@@ -7479,13 +7489,13 @@ function DividendsPanel({ dividends, setDividends, holdings, usLive }) {
   })();
 
   const add = () => {
-    if (!isStockSymbol(form.symbol) || !(Number(form.shares) > 0) || !(Number(form.perShare) > 0) || (dividendIsUs && !(dividendFx > 0))) return;
+    if (!isStockSymbol(form.symbol) || !(Number(form.shares) > 0) || !(Number(form.perShare) > 0)) return;
     const nativeAmount = Number(form.shares) * Number(form.perShare) - Number(form.withholdingTax || 0);
     if (nativeAmount < 0 || Number(form.withholdingTax || 0) < 0) return;
     const amount = nativeAmount * dividendFx;
     setDividends((d) => [...d, {
       id: uid(), date: form.date, symbol: normalizeStockSymbol(form.symbol),
-      shares: Number(form.shares), perShare: Number(form.perShare), amount, nativeAmount, withholdingTax: Number(form.withholdingTax || 0), currency: dividendIsUs ? "USD" : "TWD", fxRate: dividendFx,
+      shares: Number(form.shares), perShare: Number(form.perShare), amount, nativeAmount, withholdingTax: Number(form.withholdingTax || 0), currency: "TWD", fxRate: dividendFx,
     }]);
     setForm({ date: todayStr(), symbol: "", shares: "", perShare: "", fxRate: "", withholdingTax: "" });
   };
@@ -7514,13 +7524,13 @@ function DividendsPanel({ dividends, setDividends, holdings, usLive }) {
           <Field label={
             scheduleStatus === "found" && scheduleInfo?.cashDividend != null
               ? "每股配息（已用最新公告帶入，請確認後再送出）"
-              : dividendIsUs ? "每股配息（美元）" : "每股配息"
+              : "每股配息（新台幣）"
           }><input type="number" step="0.01" value={form.perShare}
             onChange={(e) => setForm({ ...form, perShare: e.target.value })} className="input" /></Field>
         </div>
-        {dividendIsUs && <div className="grid grid-cols-2 gap-2 mt-2"><Field label="USD/TWD（入帳時匯率，可修改）"><input type="number" step="any" value={form.fxRate || (form.date === todayStr() ? usLive?.state?.fx : "") || ""} onChange={(e) => setForm({ ...form, fxRate: e.target.value })} className="input" /></Field><Field label="預扣稅（美元，選填）"><input type="number" step="any" value={form.withholdingTax} onChange={(e) => setForm({ ...form, withholdingTax: e.target.value })} className="input" /></Field></div>}
+        {dividendIsUs && <div className="mt-2"><Field label="預扣稅（新台幣，選填）"><input type="number" step="any" value={form.withholdingTax} onChange={(e) => setForm({ ...form, withholdingTax: e.target.value })} className="input" /></Field></div>}
         <MissingHint missing={[!form.symbol && "代號", !form.shares && "股數", !form.perShare && "每股配息"].filter(Boolean)} />
-        <AddButton onClick={add} label="新增配息紀錄" disabled={!isStockSymbol(form.symbol) || !(Number(form.shares) > 0) || !(Number(form.perShare) > 0) || (dividendIsUs && !(dividendFx > 0))} />
+        <AddButton onClick={add} label="新增配息紀錄" disabled={!isStockSymbol(form.symbol) || !(Number(form.shares) > 0) || !(Number(form.perShare) > 0)} />
       </Panel>
 
       <DividendHistoryChart dividends={dividends} />
@@ -7532,7 +7542,7 @@ function DividendsPanel({ dividends, setDividends, holdings, usLive }) {
               <div className="flex-1">
                 <div className="text-sm mono">{d.date} · {d.symbol}</div>
                 <div className="text-[11px]" style={{ color: COLORS.sub }}>
-                  {Number(d.shares).toLocaleString("en-US", { maximumFractionDigits: 6 })}{M("sh", "股")} × {d.currency === "USD" ? "US$ " : "NT$ "}{d.perShare}
+                  {Number(d.shares).toLocaleString("en-US", { maximumFractionDigits: 6 })}{M("sh", "股")} × NT$ {recordValueNtd(d, d.perShare)?.toFixed(2) ?? "--"}
                 </div>
               </div>
               <div className="text-right mono text-sm font-bold" style={{ color: COLORS.gold }}>
@@ -8289,9 +8299,9 @@ function executeReadTool(tc, { trades, dailyRecords, dividends, holdings }) {
     }
     const limit = Math.min(200, Number(a.limit) || 120);
     return list.slice(-limit).map((t) => {
-      const fee = t.fee ? `，手續費${t.fee}` : "";
-      const tax = t.tax ? `，證交稅${t.tax}` : "";
-      return `${t.date} ${t.symbol} ${t.action === "buy" ? "買進" : "賣出"} ${t.shares}股 @NT$${t.price}${fee}${tax}`;
+      const fee = t.fee ? `，手續費${recordValueNtd(t, t.fee) ?? "--"}` : "";
+      const tax = t.tax ? `，證交稅${recordValueNtd(t, t.tax) ?? "--"}` : "";
+      return `${t.date} ${t.symbol} ${t.action === "buy" ? "買進" : "賣出"} ${t.shares}股 @NT$${recordValueNtd(t, t.price) ?? "--"}${fee}${tax}`;
     }).join("\n");
   }
 
@@ -8308,7 +8318,7 @@ function executeReadTool(tc, { trades, dailyRecords, dividends, holdings }) {
       return `共${list.length}筆配息，總金額NT$${nf(total)}`;
     }
     const limit = Math.min(200, Number(a.limit) || 120);
-    return list.slice(-limit).map((d) => `${d.date} ${d.symbol} ${nf(d.shares)}股 @NT$${d.perShare}/股 = NT$${nf(d.amount)}`).join("\n");
+    return list.slice(-limit).map((d) => `${d.date} ${d.symbol} ${nf(d.shares)}股 @NT$${recordValueNtd(d, d.perShare) ?? "--"}/股 = NT$${nf(d.amount)}`).join("\n");
   }
 
   if (a.source === "holding_cost") {
@@ -8323,7 +8333,7 @@ function executeReadTool(tc, { trades, dailyRecords, dividends, holdings }) {
     let cost = 0; // 期初股數的成本沒有記錄，這裡當作0，結果只反映交易紀錄部分
     for (const t of symbolTrades) {
       if (t.action === "buy") {
-        cost += t.shares * t.price + Number(t.fee || 0);
+        cost += Number(t.amount ?? tradeAmountNtd(t, t.fxRate));
         shares += t.shares;
       } else if (shares > 0) {
         const avgPerShare = cost / shares;

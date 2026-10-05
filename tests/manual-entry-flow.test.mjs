@@ -58,7 +58,7 @@ test('needsTodayRecord only nags on trading days after 13:30 when today is missi
 test('trades: new trade first, set-once cost tracking last, tax only for sells, amount preview', () => {
   const trades = slice('TradesPanel');
   assert.ok(trades.indexOf('<Panel title="新增交易">') < trades.indexOf('<Panel title="成本追蹤">'));
-  assert.match(trades, /\{form\.action === "sell" && \(\s*<Field label="交易稅（賣出）">/);
+  assert.match(trades, /\{form\.action === "sell" && \(\s*<Field label="交易稅（新台幣，賣出）">/);
   assert.match(trades, /這筆買進金額/);
 });
 
