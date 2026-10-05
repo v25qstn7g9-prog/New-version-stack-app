@@ -42,6 +42,7 @@ import {
 } from "./functions/portfolio-sync.js";
 import { handlePreparedAssetMcp } from "./functions/ai-connector-prepared.js";
 import { INTRADAY_CRON, recordIntradayMinute, archiveIntradayDay, readIntradayHealth, noteIntradayRun } from "./functions/intraday.js";
+import { AUTO_DAILY_CRON, runAutoDaily, runDailyReminder, onRequestGet as autoDailyGetHandler } from "./functions/auto-daily.js";
 import { adminTokenMatches, bearerToken, writeAllowed } from "./functions/request-guard.js";
 import { isKnownSyncToken } from "./functions/portfolio-sync.js";
 import { handleAssetOAuth, verifyAssetAccessToken, readAssetMcpSyncToken } from "./functions/asset-mcp-oauth.js";
@@ -78,6 +79,7 @@ const API_METHODS = new Map([
   ["/api/health-cards", ["GET", "POST"]],
   ["/api/health-check", ["GET"]],
   ["/api/portfolio-sync", ["GET", "POST"]],
+  ["/api/auto-daily", ["GET"]],
   ["/api/pending-trades", ["GET", "POST"]],
   ["/api/pending-trades/resolve", ["POST"]],
 ]);
@@ -181,6 +183,9 @@ export default {
     if (url.pathname === "/api/portfolio-sync" && request.method === "POST") {
       return portfolioSyncPostHandler({ request, env, ctx });
     }
+    if (url.pathname === "/api/auto-daily" && request.method === "GET") {
+      return autoDailyGetHandler({ request, env, ctx });
+    }
     if (url.pathname === "/api/pending-trades" && request.method === "GET") {
       return pendingTradesGetHandler({ request, env, ctx });
     }
@@ -231,7 +236,14 @@ export default {
         if (result && result.skipped === "outside_market_hours") {
           await archiveIntradayDay(env);
         }
+        // 13:36、13:45 記帳提醒（只在那兩分鐘真的動作；沒設定 LINE 就跳過）
+        try { await runDailyReminder(env); } catch (e) { console.warn("daily reminder failed", e?.message || e); }
       })());
+      return;
+    }
+    if (event && event.cron === AUTO_DAILY_CRON) {
+      // 14:00 用收盤價自動記錄還沒記的今天（休市日、報價不完整都不記）
+      ctx.waitUntil(runAutoDaily(env).catch((e) => console.warn("auto daily failed", e?.message || e)));
       return;
     }
     ctx.waitUntil((async () => {

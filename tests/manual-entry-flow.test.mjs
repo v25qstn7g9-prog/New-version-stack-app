@@ -67,3 +67,23 @@ test('add forms say what is missing and disable the button until complete', () =
     assert.match(html, new RegExp(`<AddButton onClick=\\{add\\} label="${label}" disabled=\\{`), label);
   }
 });
+
+test('auto daily record (app): server pickup and same-day fallback never overwrite an existing day', () => {
+  const app = html.slice(html.indexOf('// ---- 每日資產自動記帳（App 端）----'), html.indexOf('// ---- Z∞ 背景同步'));
+  assert.ok(app.length > 0);
+  assert.match(app, /const have = new Set\(rs\.map\(\(r\) => r\.date\)\);/);
+  assert.match(app, /clean\.filter\(\(r\) => !have\.has\(r\.date\)\)/, 'manual (or any existing) record for that day wins');
+  assert.match(app, /source: "auto"/);
+  assert.match(app, /fetchWithTimeout\("\/api\/auto-daily", \{ cache: "no-store", headers: \{ authorization: "Bearer " \+ zinfSyncToken \} \}/);
+  // 本機備案：14:00 後、交易日、今天沒紀錄；報價要齊、非過期、而且是今天的
+  assert.match(app, /needsTodayRecord\(dailyRecords, new Date\(\), 14 \* 60\)/);
+  assert.match(app, /!q\.isStale && taipeiDay\(q\.asOfDate\) === today/);
+});
+
+test('daily tab labels auto records and saving turns them into manual ones', () => {
+  const daily = slice('DailyPanel');
+  assert.match(daily, /sameDayRecord\.source === "auto" \? "🤖 自動記錄" : "✅ 已記錄"/);
+  // add() 重新建立整筆紀錄，不帶 source → 手動儲存後就是手動紀錄
+  const add = daily.slice(daily.indexOf('const add = () => {'), daily.indexOf('const remove ='));
+  assert.doesNotMatch(add, /source/);
+});

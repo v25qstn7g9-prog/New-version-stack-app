@@ -11,13 +11,13 @@ const body = html.slice(dashStart, html.indexOf('\n}\n', dashStart));
 
 test('dashboard follows the paid finance app order', () => {
   const order = [
+    '<NewsCarousel',
     'premium-asset-hero',
     '<UiLabel zh="累積報酬" inline />',
     '<UiLabel zh="資產曲線" />',
     '<UiLabel zh="資產高點" />',
     '<LivePricePanel',
     'title="今日趨勢雷達"',
-    '<NewsCarousel',
     '<DailyClosingAiReport',
     '<GoalProgressCard',
     'title="進階績效分析"',
