@@ -2617,9 +2617,6 @@ function AssetTracker() {
 
       <div ref={headerRef}>
         <Header goal={goal} totalToday={totalToday} goalDate={goalDate} backupOverdue={backupOverdue} backupAgeDays={backupAgeDays} showEnglish={showEnglish} onToggleBilingual={toggleBilingual} />
-        <div className="px-4 pt-1 flex justify-end">
-          <a href="/mini.html" className="text-[11px] font-bold" style={{ color: COLORS.gold }}>迷你報價 →</a>
-        </div>
         {pendingTrades.length > 0 && (
           <PendingTradesBanner trades={pendingTrades} onApply={applyPendingTrade} onDismiss={dismissPendingTrade} showEnglish={showEnglish} />
         )}
