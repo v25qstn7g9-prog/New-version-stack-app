@@ -722,6 +722,8 @@ const UI_EN = {
   "目前報價不完整：已禁止把部分市值寫入每日紀錄": "Quotes incomplete; partial value cannot be saved.",
   "請先到「持股進度」新增持股並填入股數，才能抓取即時股價": "Add holdings and share counts in Holdings first to fetch live quotes.",
   "高": "High",
+  "在高點": "At high",
+  "回撤": "Drawdown",
   "高／低・昨收": "High / Low · Prev",
   "昨收": "Prev Close",
   "漲跌": "Change",
@@ -5480,7 +5482,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
   }, [chartData, chartRangeId]);
   return (
     <div className="space-y-2 premium-dashboard">
-      {/* 總覽順序依使用習慣：先看總資產 → 今天的即時股價 → 今天的分析（趨勢雷達、新聞、收盤報告）→ 歷史曲線 → 進階分析。 */}
+      {/* 總覽順序：同主題放一起，主題內先今天再歷史。我的資產（總資產＋高點回撤 → 即時股價 → 資產曲線）→ 市場分析（趨勢雷達、新聞、收盤報告）→ 進階分析。 */}
       <div className="rounded-2xl p-4 premium-asset-hero" style={{
         background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`,
         boxShadow: "0 4px 16px rgba(0,0,0,0.28)",
@@ -5513,23 +5515,28 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
             </div>
           </div>
         )}
+
+        {/* 高點與回撤講的是「目前總資產離歷史高點多遠」，所以跟總資產放在同一張卡。 */}
+        {highPoint.value > 0 && highPoint.value !== -Infinity && (
+          <div className="mt-2.5 pt-2.5 flex items-baseline justify-between gap-3" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
+            <div className="min-w-0">
+              <span className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="資產高點" /></span>
+              <span className="text-sm font-bold mono ml-2" style={{ color: COLORS.gold }}>NT$ {nf(highPoint.value)}</span>
+              {highPoint.date && <span className="text-[10px] mono ml-1.5" style={{ color: COLORS.sub }}>{highPoint.date.slice(5).replace("-", "/")}</span>}
+            </div>
+            <div className="text-right whitespace-nowrap">
+              <span className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="回撤" /></span>
+              <span className="text-sm font-bold mono ml-2" style={{ color: drawdown < -0.005 ? COLORS.loss : COLORS.gold }}>
+                {drawdown < -0.005 ? pf(drawdown) : <UiLabel zh="在高點" inline />}
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
       <LivePricePanel holdings={holdings} onFillDailyTw={onFillDailyTw} yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue} hasUsAssets={hasUsAssets} />
 
-      <DashboardCollapsibleSection
-        storageKey="dashboardTrendRadarOpen"
-        title="今日趨勢雷達"
-        subtitle="盤中訊號、KD、法人與明日方向"
-        defaultOpen={false}>
-        <TrendRadar holdings={holdings} embedded />
-      </DashboardCollapsibleSection>
-
-      <NewsCarousel holdings={holdings} />
-
-      <DailyClosingAiReport holdings={holdings} dailyRecords={dailyRecords} />
-
-      {/* 歷史放在今天之後：資產曲線、高點與回撤 */}
+      {/* 我的資產（歷史）：資產曲線，緊接在今天的即時股價後面 */}
       {chartData.length > 1 && (
       <div className="rounded-2xl p-4" style={{ background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`, boxShadow: "0 4px 16px rgba(0,0,0,0.28)" }}>
           <div className="flex items-center justify-between mb-2">
@@ -5584,26 +5591,21 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
               </AreaChart>
             </ResponsiveContainer>
           </div>
-
-          <div className="grid grid-cols-2 gap-3 mt-2.5 pt-2.5" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
-            <div className="min-w-0">
-              <div className="text-[10px]" style={{ color: COLORS.sub }}><UiLabel zh="資產高點" /></div>
-              <div className="text-xs mono mt-1" style={{ color: COLORS.text }}>
-                {highPoint.date || "—"}
-              </div>
-              <div className="text-sm font-bold mono mt-0.5 truncate" style={{ color: COLORS.gold }}>
-                NT$ {nf(highPoint.value === -Infinity ? 0 : highPoint.value)}
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="text-[10px]" style={{ color: COLORS.sub }}><UiLabel zh="目前回撤" /></div>
-              <div className="text-lg font-black mono mt-1.5" style={{ color: drawdown < 0 ? COLORS.loss : COLORS.text }}>
-                {pf(drawdown)}
-              </div>
-            </div>
-          </div>
         </div>
       )}
+
+      <DashboardCollapsibleSection
+        storageKey="dashboardTrendRadarOpen"
+        title="今日趨勢雷達"
+        subtitle="盤中訊號、KD、法人與明日方向"
+        defaultOpen={false}>
+        <TrendRadar holdings={holdings} embedded />
+      </DashboardCollapsibleSection>
+
+      <NewsCarousel holdings={holdings} />
+
+      <DailyClosingAiReport holdings={holdings} dailyRecords={dailyRecords} />
+
 
       <DashboardCollapsibleSection
         storageKey="dashboardAdvancedPerformanceOpen"
