@@ -5723,7 +5723,8 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
     setAutoTw((s) => ({ ...s, status: "loading" }));
     try {
       const { quotes } = await fetchQuotesWithFallback(activeTw.map((h) => h.symbol), force);
-      const missing = activeTw.filter((h) => !(Number(quotes?.[h.symbol]?.price) > 0)).map((h) => h.symbol);
+      // 抓不到或是過期的報價（例如休市日拿到前一天的價）都不拿來當今天的市值。
+      const missing = activeTw.filter((h) => !(Number(quotes?.[h.symbol]?.price) > 0) || quotes?.[h.symbol]?.isStale).map((h) => h.symbol);
       if (missing.length) { setAutoTw({ status: "partial", value: null, missing }); return; }
       const value = Math.round(activeTw.reduce((sum, h) => sum + Number(quotes[h.symbol].price) * Number(h.current), 0));
       setAutoTw({ status: "ok", value, missing: [] });

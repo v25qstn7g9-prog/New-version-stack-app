@@ -23,6 +23,7 @@ test('daily record: today card auto-fills TW value from quotes, TW cost from hol
   assert.match(daily, /const canFill = \(k\) => form\[k\] === "" && autoFrom\[k\] !== "typed";/);
   // 報價不完整就不自動帶入市值
   assert.match(daily, /if \(missing\.length\) \{ setAutoTw\(\{ status: "partial"/);
+  assert.match(daily, /\|\| quotes\?\.\[h\.symbol\]\?\.isStale\)/, 'stale quotes never become today\'s value');
   assert.match(daily, /isToday && isTwseTradingHours\(\)/, 'intraday note');
   assert.match(daily, /label="補記其他日期"/);
 });
