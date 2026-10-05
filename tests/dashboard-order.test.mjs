@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 // 總覽採付費理財 App 的順序：
-// ①總資產＋今日損益＋累積報酬＋走勢圖（含台股/美股、高點回撤）
-// ②大盤＋持股行情（依市值排序、含佔比）③今日分析（雷達、快訊、收盤報告）④目標進度與進階績效。
+// ①總資產＋今日損益＋累積報酬＋目標進度＋走勢圖（含台股/美股、高點回撤）
+// ②大盤＋持股行情（依市值排序、含佔比）③今日分析（雷達、快訊、收盤報告）④進階績效。
 const html = fs.readFileSync('index.html', 'utf8');
 const dashStart = html.indexOf('function Dashboard({ totalToday');
 const body = html.slice(dashStart, html.indexOf('\n}\n', dashStart));
@@ -14,12 +14,12 @@ test('dashboard follows the paid finance app order', () => {
     '<NewsCarousel',
     'premium-asset-hero',
     '<UiLabel zh="累積報酬" inline />',
+    '目標進度併入總資產 Hero',
     '<UiLabel zh="資產曲線" />',
     '<UiLabel zh="資產高點" />',
     '<LivePricePanel',
     'title="今日趨勢雷達"',
     '<DailyClosingAiReport',
-    '<GoalProgressCard',
     'title="進階績效分析"',
   ].map((marker) => {
     const at = body.indexOf(marker);
@@ -38,16 +38,16 @@ test('the asset curve lives inside the total-assets card, with high point and dr
   assert.equal((body.match(/AreaChart data=/g) || []).length, 1, 'only one asset chart on the page');
 });
 
-test('goal progress moved from the shared header into a dashboard card', () => {
+test('goal progress lives inside the total-assets hero, not the shared header or a separate card', () => {
   const hStart = html.indexOf('function Header({');
   const header = html.slice(hStart, html.indexOf('\n}\n', hStart));
   assert.doesNotMatch(header, /已達成|距目標/);
-  const gStart = html.indexOf('function GoalProgressCard(');
-  assert.ok(gStart > 0);
-  const card = html.slice(gStart, html.indexOf('\n}\n', gStart));
-  assert.match(card, /已達成/);
-  assert.match(card, /距目標/);
-  assert.match(card, /預計 \$\{goalDate\} 達成/);
+  assert.doesNotMatch(body, /<GoalProgressCard/);
+  const heroStart = body.indexOf('premium-asset-hero');
+  const hero = body.slice(heroStart, body.indexOf('<LivePricePanel', heroStart));
+  assert.match(hero, /已達成/);
+  assert.match(hero, /距目標/);
+  assert.match(hero, /預計 \$\{goalDate\} 達成/);
 });
 
 test('live quotes: market index first, holdings sorted by value with weight', () => {
