@@ -371,7 +371,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.46.14-market-api-label";
+const APP_VERSION = "4.7-personal-advisor-v2.46.15-collapsible-ai-fallback";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -7231,6 +7231,7 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
   const [fallbackTest, setFallbackTest] = useState({ status: "idle", message: "" });
   const [syncTokenCopied, setSyncTokenCopied] = useState(false);
   const [zinfExpanded, setZinfExpanded] = useState(false);
+  const [aiFallbackExpanded, setAiFallbackExpanded] = useState(false);
 
   const generateSyncToken = () => {
     const bytes = new Uint8Array(24);
@@ -7348,6 +7349,16 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
       )}
 
       <Panel title="AI 雙層備援（自動）">
+        <button type="button" onClick={() => setAiFallbackExpanded((v) => !v)}
+          className="w-full flex items-center justify-between rounded-xl px-3 py-2.5 text-left"
+          style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
+          <div>
+            <div className="text-[11px] font-bold" style={{ color: COLORS.text }}>{aiFallbackExpanded ? "收合備援設定" : "展開備援設定"}</div>
+            {!aiFallbackExpanded && <div className="mt-1 text-[10px]" style={{ color: COLORS.sub }}>Cloudflare AI → Gemini 3.6 Flash</div>}
+          </div>
+          <span className="text-sm" style={{ color: COLORS.gold, transform: aiFallbackExpanded ? "rotate(180deg)" : "none", transition: "transform .2s" }}>⌄</span>
+        </button>
+        {aiFallbackExpanded && <div className="mt-3">
         <div className="text-[11px] leading-5" style={{ color: COLORS.sub }}>
           {UI_SHOW_ENGLISH
             ? <>Primary AI: <span style={{ color: COLORS.gold }}>Cloudflare GLM (light) / GPT-OSS (complex tasks)</span>. If it hits a quota limit, 429, timeout or service error, the same Cloudflare Worker <span style={{ color: COLORS.gold }}>switches directly to Gemini 3.6 Flash</span> — no Vercel needed, and the Gemini API key never touches your phone.</>
@@ -7367,6 +7378,8 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
             ? "Allow the Gemini fallback to read the app's holdings/cost/asset data. When off, public info, chat, news and live quotes can still use the fallback; when private data is needed, Gemini uses a read-only tool to query the app instead of sending the whole private context."
             : "允許 Gemini 備援讀取 App 的持股／成本／資產資料。關閉時，公開資訊、聊天、新聞與即時股價仍可備援；需要私人資產資料時，Gemini 會改用唯讀工具請 App 查詢，不會把整份私人 context 送出去。"}</span>
         </label>
+
+        </div>}
       </Panel>
 
       {isOwner && <Panel title="系統管理">
