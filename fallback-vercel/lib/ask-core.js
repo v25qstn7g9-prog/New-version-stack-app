@@ -33,6 +33,48 @@ const MAX_CONTEXT_LEN = 12000;
 const MAX_TOKENS = 1000;
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_SERVER_SEARCH_ROUNDS = 2;
+
+// 家人／朋友內測的 AI 成本保護：一般裝置每天最多 15 次模型請求。
+// Owner 沿用 LINE_REMINDER_SYNC_TOKEN 作伺服器端識別；token 只透過 Authorization header 傳送，
+// 不寫進公開程式碼。沒有設定 health_kv 時安全退化成只保留原本的短期限流。
+const DAILY_AI_LIMIT = 15;
+const AI_QUOTA_PREFIX = "ai-daily-quota:";
+const AI_QUOTA_TTL_SECONDS = 60 * 60 * 48;
+
+function taiwanQuotaDate() {
+  const t = new Date(Date.now() + 8 * 60 * 60 * 1000);
+  return t.toISOString().slice(0, 10);
+}
+
+function bearerToken(request) {
+  const auth = String(request?.headers?.get("authorization") || "");
+  return /^Bearer\s+/i.test(auth) ? auth.replace(/^Bearer\s+/i, "").trim() : "";
+}
+
+function isOwnerAsk(request, env) {
+  const supplied = bearerToken(request);
+  const owner = String(env?.LINE_REMINDER_SYNC_TOKEN || "").trim();
+  return Boolean(supplied && owner && supplied === owner);
+}
+
+async function quotaDeviceTag(deviceId, clientIp) {
+  const raw = deviceId ? `device:${deviceId}` : (clientIp ? `ip:${clientIp}` : "anonymous");
+  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`ask-quota:${raw}`)));
+  return Array.from(bytes.slice(0, 10), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function consumeDailyAiQuota(env, deviceId, clientIp) {
+  if (!env?.health_kv) return { ok: true, skipped: "no_kv" };
+  const date = taiwanQuotaDate();
+  const tag = await quotaDeviceTag(deviceId, clientIp);
+  const key = `${AI_QUOTA_PREFIX}${date}:${tag}`;
+  let used = Number(await env.health_kv.get(key) || 0);
+  if (!Number.isFinite(used) || used < 0) used = 0;
+  if (used >= DAILY_AI_LIMIT) return { ok: false, used, limit: DAILY_AI_LIMIT };
+  used += 1;
+  await env.health_kv.put(key, String(used), { expirationTtl: AI_QUOTA_TTL_SECONDS });
+  return { ok: true, used, limit: DAILY_AI_LIMIT };
+}
 const primaryCooldown = new WeakMap();
 const PRIMARY_AI_TIMEOUT_MS = 30000;
 const GEMINI_AI_TIMEOUT_MS = 25000;
@@ -591,6 +633,16 @@ export async function onRequestPost(context) {
       return jsonResponse({ ok: true, version: ASK_VERSION, ...cached, fromCache: true, provider: cached.provider || "cache" });
     }
 
+    // 快取命中不耗模型額度。一般使用者每天前 15 次可走 Cloudflare AI；
+    // 超過後不封鎖聊天，直接略過付費主模型、改走 Gemini 備援。
+    // Owner 由伺服器 Secret 對應同步 token 驗證，不受此每日 Cloudflare 額度限制。
+    let forceGeminiOnly = false;
+    let dailyQuota = null;
+    if (!isOwnerAsk(context.request, context.env)) {
+      dailyQuota = await consumeDailyAiQuota(context.env, deviceId, clientIp);
+      forceGeminiOnly = !dailyQuota.ok;
+    }
+
     const dateLine = `現在的日期時間是：${taiwanNowLabel()}。問「今天」「現在」「幾天後」以此為準。`;
     const finalizeLine = forceAnswer ? "\n\n【系統】唯讀工具資料已經取得完成。請立刻根據上面的工具結果直接回答使用者；不要再次呼叫任何工具，也不要要求使用者重送問題。" : "";
     const systemPrompt = contextText
@@ -641,14 +693,15 @@ export async function onRequestPost(context) {
 
     let result;
     try {
+      if (forceGeminiOnly) throw new Error(`Cloudflare AI 每日額度已用完（${dailyQuota?.limit || DAILY_AI_LIMIT} 次），改用 Gemini 備援`);
       result = await runModel();
     } catch (e) {
       primaryError = e;
       // 只有「輕量模型本身出錯」才升級 20B 再試一次；額度用完（429）、服務暫停
       // （502/503）、逾時或冷卻中這類整個 Workers AI 共通的暫時性錯誤，換模型也
       // 一樣會失敗，只會讓使用者多等一輪才輪到 Gemini 備援。
-      const transientFailure = /429|quota|timeout|逾時|503|502|temporar|冷卻/i.test(String(e?.message));
-      if (activeModel === LIGHT_MODEL && ai && !transientFailure) {
+      const transientFailure = /429|quota|額度|timeout|逾時|503|502|temporar|冷卻/i.test(String(e?.message));
+      if (!forceGeminiOnly && activeModel === LIGHT_MODEL && ai && !transientFailure) {
         try {
           activeModel = HEAVY_MODEL;
           primaryError = null;
@@ -721,3 +774,4 @@ export async function onRequestPost(context) {
     return jsonResponse({ error: friendlyAiError(e?.message), version: ASK_VERSION }, 500);
   }
 }
+
