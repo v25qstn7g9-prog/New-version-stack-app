@@ -371,7 +371,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.46.8-market-toggle";
+const APP_VERSION = "4.7-personal-advisor-v2.46.9-ai-daily-quota";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -5047,7 +5047,7 @@ function PortfolioPerformanceCard({
 
       const res = await fetchWithTimeout("/ask", {
         method: "POST",
-        headers: { "content-type": "application/json", "x-device-id": deviceId },
+        headers: { "content-type": "application/json", "x-device-id": deviceId, ...(zinfSyncToken ? { authorization: "Bearer " + zinfSyncToken } : {}) },
         body: JSON.stringify({
           message,
           history: [],
@@ -8038,7 +8038,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
 
     const callAskEndpoint = async (url, body, { fallback = false } = {}) => {
       setConnectionStatus(fallback ? "切換獨立備援中…" : "AI 回應中・主備援自動接續");
-      const headers = { "content-type": "application/json", "x-device-id": deviceId };
+      const headers = { "content-type": "application/json", "x-device-id": deviceId, ...(zinfSyncToken ? { authorization: "Bearer " + zinfSyncToken } : {}) };
       if (fallback && aiFallbackConfig?.token) headers["x-fallback-token"] = aiFallbackConfig.token;
       let res;
       try {

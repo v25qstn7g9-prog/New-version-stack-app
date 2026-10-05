@@ -33,6 +33,48 @@ const MAX_CONTEXT_LEN = 12000;
 const MAX_TOKENS = 1000;
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_SERVER_SEARCH_ROUNDS = 2;
+
+// 家人／朋友內測的 AI 成本保護：一般裝置每天最多 15 次模型請求。
+// Owner 沿用 LINE_REMINDER_SYNC_TOKEN 作伺服器端識別；token 只透過 Authorization header 傳送，
+// 不寫進公開程式碼。沒有設定 health_kv 時安全退化成只保留原本的短期限流。
+const DAILY_AI_LIMIT = 15;
+const AI_QUOTA_PREFIX = "ai-daily-quota:";
+const AI_QUOTA_TTL_SECONDS = 60 * 60 * 48;
+
+function taiwanQuotaDate() {
+  const t = new Date(Date.now() + 8 * 60 * 60 * 1000);
+  return t.toISOString().slice(0, 10);
+}
+
+function bearerToken(request) {
+  const auth = String(request?.headers?.get("authorization") || "");
+  return /^Bearer\s+/i.test(auth) ? auth.replace(/^Bearer\s+/i, "").trim() : "";
+}
+
+function isOwnerAsk(request, env) {
+  const supplied = bearerToken(request);
+  const owner = String(env?.LINE_REMINDER_SYNC_TOKEN || "").trim();
+  return Boolean(supplied && owner && supplied === owner);
+}
+
+async function quotaDeviceTag(deviceId, clientIp) {
+  const raw = deviceId ? `device:${deviceId}` : (clientIp ? `ip:${clientIp}` : "anonymous");
+  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`ask-quota:${raw}`)));
+  return Array.from(bytes.slice(0, 10), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function consumeDailyAiQuota(env, deviceId, clientIp) {
+  if (!env?.health_kv) return { ok: true, skipped: "no_kv" };
+  const date = taiwanQuotaDate();
+  const tag = await quotaDeviceTag(deviceId, clientIp);
+  const key = `${AI_QUOTA_PREFIX}${date}:${tag}`;
+  let used = Number(await env.health_kv.get(key) || 0);
+  if (!Number.isFinite(used) || used < 0) used = 0;
+  if (used >= DAILY_AI_LIMIT) return { ok: false, used, limit: DAILY_AI_LIMIT };
+  used += 1;
+  await env.health_kv.put(key, String(used), { expirationTtl: AI_QUOTA_TTL_SECONDS });
+  return { ok: true, used, limit: DAILY_AI_LIMIT };
+}
 const primaryCooldown = new WeakMap();
 const PRIMARY_AI_TIMEOUT_MS = 30000;
 const GEMINI_AI_TIMEOUT_MS = 25000;
@@ -589,6 +631,21 @@ export async function onRequestPost(context) {
     const cached = cacheEnabled ? readAskCache(cacheKey) : null;
     if (cached) {
       return jsonResponse({ ok: true, version: ASK_VERSION, ...cached, fromCache: true, provider: cached.provider || "cache" });
+    }
+
+    // 快取命中不耗模型額度；真正要呼叫 AI 前才扣每日次數。
+    // Owner 以伺服器 Secret 對應的同步 token 驗證，不靠前端 owner=true 之類可偽造旗標。
+    if (!isOwnerAsk(context.request, context.env)) {
+      const quota = await consumeDailyAiQuota(context.env, deviceId, clientIp);
+      if (!quota.ok) {
+        return jsonResponse({
+          error: `今天的 AI 使用額度已用完（${quota.limit} 次），明天會自動恢復。`,
+          code: "daily_ai_limit",
+          used: quota.used,
+          limit: quota.limit,
+          version: ASK_VERSION,
+        }, 429);
+      }
     }
 
     const dateLine = `現在的日期時間是：${taiwanNowLabel()}。問「今天」「現在」「幾天後」以此為準。`;
