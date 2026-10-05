@@ -372,7 +372,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.46.21-unified-markets";
+const APP_VERSION = "4.7-personal-advisor-v2.46.22-shared-market-layout";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -1656,7 +1656,7 @@ function AssetTracker() {
   // had just filled in). Owning it here means it survives tab switches.
   const [dailyForm, setDailyForm] = useState({ date: todayStr(), twValue: "", usValue: "", twCost: "", usCost: "" });
   // 每日紀錄的市場顯示偏好：台股固定啟用，美股由使用者自行勾選。
-  // null 舊資料第一次升級時會依既有美股紀錄自動判斷，避免老使用者升級後突然看不到欄位。
+  // 只有明確勾選才顯示美股版面；歷史持股不決定顯示偏好。
   const [showUsFields, setShowUsFields] = useState(false);
 
   // 左右滑動切換分頁（仿 iOS 分頁）：頁面會跟著手指走、下一頁從旁邊露出來；
@@ -1872,6 +1872,9 @@ function AssetTracker() {
 
   const [dailyRecords, setDailyRecords] = useState([]);
   const [holdings, setHoldings] = useState([]);
+  const [trades, setTrades] = useState([]);
+  const [holdingsMarket, setHoldingsMarket] = useState("tw");
+  useEffect(() => { if (!showUsFields) setHoldingsMarket("tw"); }, [showUsFields]);
   const usHoldings = holdings.filter((h) => !isTaiwanSymbol(h.symbol)).map((h) => ({ ...h, shares: holdingShareCount(h, trades) }));
   const usLive = useUsLivePrices(usHoldings, ready);
   const [portfolioQuotes, setPortfolioQuotes] = useState({});
@@ -1882,7 +1885,6 @@ function AssetTracker() {
     loadKey("livePrices", null).then((cache) => { if (!cancelled && cache?.map) setPortfolioQuotes((current) => Object.keys(current).length ? current : cache.map); });
     return () => { cancelled = true; window.removeEventListener("livePricesUpdated", receive); };
   }, []);
-  const [trades, setTrades] = useState([]);
   const [dividends, setDividends] = useState([]);
   const [planItems, setPlanItems] = useState([]);
   const [goal, setGoal] = useState({ targetAmount: 10000000, targetYear: 2035 });
@@ -1943,8 +1945,7 @@ function AssetTracker() {
         allowPrivate: afc.allowPrivate === true,
       } : { url: "", token: "", allowPrivate: false });
       setZinfSyncToken(typeof lst === "string" ? lst : "");
-      const hadUsHistory = Array.isArray(dr) && dr.some((r) => Number(r?.usValue || 0) > 0 || Number(r?.usCost || 0) > 0);
-      setShowUsFields(typeof suf === "boolean" ? suf : hadUsHistory);
+      setShowUsFields(suf === true);
       setReady(true);
     })();
   }, []);
@@ -2926,14 +2927,14 @@ function AssetTracker() {
                     capitalGain={capitalGain} totalDividends={totalDividends} totalReturn={totalReturn}
                     totalReturnPct={totalReturnPct}
                     twTotalReturn={twTotalReturn} twTotalReturnPct={twTotalReturnPct}
-                    usTotalReturn={usTotalReturn} usTotalReturnPct={usTotalReturnPct} hasUsAssets={hasUsAssets}
+                    usTotalReturn={usTotalReturn} usTotalReturnPct={usTotalReturnPct} hasUsAssets={hasUsAssets} showUsFields={showUsFields}
                     highPoint={highPoint} drawdown={drawdown}
                     ytdGain={ytdGain} ytdPct={ytdPct}
                     chartData={chartData} goal={goal} goalDate={goalDate} totalInvested={totalInvested}
-                    holdings={holdingsWithShares} dailyRecords={sortedDaily} dividends={dividends}
+                    holdings={showUsFields ? holdingsWithShares : holdingsWithShares.filter((h) => isTaiwanSymbol(h.symbol))} dailyRecords={sortedDaily} dividends={dividends}
                     yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue}
                     usHoldings={usHoldings} usLive={usLive}
-                    onGoUsSettings={() => goToTab("holdings")}
+                    onGoUsSettings={() => { setHoldingsMarket("us"); goToTab("holdings"); }}
                     onFillDailyTw={(value) => { setDailyPrefill({ twValue: value, ...(usLive.totalNtd != null ? { usValue: usLive.totalNtd } : {}) }); goToTab("daily"); }}
                     onFillDailyUs={(value) => { setDailyPrefill({ usValue: value }); goToTab("daily"); }}
                     onGoDaily={() => goToTab("daily")}
@@ -2944,21 +2945,22 @@ function AssetTracker() {
                   <DailyPanel records={sortedDaily} setRecords={setDailyRecords} prefill={dailyPrefill}
                     form={dailyForm} setForm={setDailyForm} holdings={holdingsWithShares}
                     usHoldings={usHoldings} usLive={usLive}
-                    showUsFields={usHoldings.length > 0 || showUsFields} setShowUsFields={setShowUsFields} />
+                    showUsFields={showUsFields} setShowUsFields={setShowUsFields} />
                 );
               case "holdings":
                 return (
-                  <HoldingsPanel holdings={holdingsWithShares} setHoldings={setHoldings} usLive={usLive} />
+                  <HoldingsWorkspace holdings={holdingsWithShares} setHoldings={setHoldings} usLive={usLive}
+                    showUsFields={showUsFields} market={holdingsMarket} setMarket={setHoldingsMarket} />
                 );
               case "trades":
                 return (
-                  <TradesPanel trades={trades} setTrades={setTrades} holdings={holdings} setHoldings={setHoldings} usLive={usLive}
+                  <TradesPanel trades={trades} setTrades={setTrades} holdings={showUsFields ? holdings : holdings.filter((h) => isTaiwanSymbol(h.symbol))} setHoldings={setHoldings} usLive={usLive}
                     costBasis={costBasis} setCostBasis={setCostBasis} accumulatedCost={accumulatedCost}
                   />
                 );
               case "dividends":
                 return (
-                  <DividendsPanel dividends={dividends} setDividends={setDividends} holdings={holdingsWithShares} usLive={usLive} />
+                  <DividendsPanel dividends={dividends} setDividends={setDividends} holdings={showUsFields ? holdingsWithShares : holdingsWithShares.filter((h) => isTaiwanSymbol(h.symbol))} usLive={usLive} />
                 );
               case "plan":
                 return (
@@ -5862,7 +5864,7 @@ function GoalProgressCard({ goal, totalToday, goalDate }) {
 }
 
 function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, dailyChangePct, capitalGain, totalDividends,
-  totalReturn, totalReturnPct, twTotalReturn, twTotalReturnPct, usTotalReturn, usTotalReturnPct, hasUsAssets,
+  totalReturn, totalReturnPct, twTotalReturn, twTotalReturnPct, usTotalReturn, usTotalReturnPct, hasUsAssets, showUsFields = false,
   highPoint, drawdown, ytdGain, ytdPct, chartData, goal, goalDate, totalInvested, holdings,
   dailyRecords, dividends, yesterdayTwValue, yesterdayUsValue, onFillDailyTw, onFillDailyUs, usHoldings = [], usLive, onGoUsSettings, onGoDaily }) {
   const up = dailyChange >= 0;
@@ -5903,13 +5905,13 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
         <div className="flex items-center gap-2">
           <div className="text-xs" style={{ color: COLORS.sub }}><UiLabel zh="目前總資產" /></div>
           <div className="text-[10px]" style={{ color: COLORS.sub, opacity: 0.85 }}>
-            <UiLabel zh={hasUsAssets ? "台股＋美股合計" : "台股合計"} />
+            <UiLabel zh={showUsFields && hasUsAssets ? "台股＋美股合計" : "總資產合計"} />
           </div>
         </div>
         <div className="text-3xl font-black mono mt-1"><AnimatedNumber value={totalToday} prefix="NT$ " /></div>
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] mono" style={{ color: COLORS.sub }}>
           <span><UiLabel zh="台股資產" inline /> <span style={{ color: COLORS.text }}>NT$ {nf(currentTwValue)}</span></span>
-          <span><UiLabel zh="美股資產" inline /> <span style={{ color: COLORS.text }}>NT$ {nf(currentUsValue)}</span></span>
+          {showUsFields && <span><UiLabel zh="美股資產" inline /> <span style={{ color: COLORS.text }}>NT$ {nf(currentUsValue)}</span></span>}
         </div>
         <div className="inline-flex items-center gap-1 mt-1.5 text-xs mono rounded-full px-2 py-0.5"
           style={{ color: up ? COLORS.gain : COLORS.loss, background: up ? "rgba(239,68,68,0.12)" : "rgba(34,197,94,0.12)" }}>
@@ -6030,7 +6032,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
         </button>
       )}
 
-      <LivePricePanel holdings={holdings} usLive={usLive} onFillDailyTw={onFillDailyTw} yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue} hasUsAssets={hasUsAssets} />
+      <LivePricePanel holdings={holdings} usLive={usLive} onFillDailyTw={onFillDailyTw} yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue} hasUsAssets={showUsFields && hasUsAssets} />
 
 
       <DashboardCollapsibleSection
@@ -6064,7 +6066,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
             twTotalReturnPct={twTotalReturnPct}
             usTotalReturn={usTotalReturn}
             usTotalReturnPct={usTotalReturnPct}
-            hasUsAssets={hasUsAssets}
+            hasUsAssets={showUsFields && hasUsAssets}
             ytdGain={ytdGain}
             ytdPct={ytdPct}
             totalInvested={totalInvested}
@@ -6651,11 +6653,11 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
                     <div className="flex-1">
                       <div className="text-sm mono">{r.date}{r.source === "auto" && <span className="ml-1.5 text-[10px]" style={{ color: COLORS.gold }}>🤖 <UiLabel zh="自動" inline /></span>}</div>
                       <div className="text-[11px]" style={{ color: COLORS.sub }}>
-                        {M(`TW ${nf(r.twValue)} / US ${nf(r.usValue)}`, `台 ${nf(r.twValue)} ／ 美 ${nf(r.usValue)}`)}
+                        {showUsFields ? M(`TW ${nf(r.twValue)} / US ${nf(r.usValue)}`, `台 ${nf(r.twValue)} ／ 美 ${nf(r.usValue)}`) : M(`TW ${nf(r.twValue)}`, `台 ${nf(r.twValue)}`)}
                       </div>
                       {totalCost > 0 && (
                         <div className="text-[11px] mono" style={{ color: COLORS.sub }}>
-                          {M(`Cost TW ${nf(r.twCost)} / US ${nf(r.usCost)}`, `成本 台 ${nf(r.twCost)} ／ 美 ${nf(r.usCost)}`)}
+                          {showUsFields ? M(`Cost TW ${nf(r.twCost)} / US ${nf(r.usCost)}`, `成本 台 ${nf(r.twCost)} ／ 美 ${nf(r.usCost)}`) : M(`Cost TW ${nf(r.twCost)}`, `成本 台 ${nf(r.twCost)}`)}
                         </div>
                       )}
                     </div>
@@ -6685,7 +6687,27 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
 }
 
 // ---------------- Holdings Panel ----------------
-function HoldingsPanel({ holdings, setHoldings, usLive, onFillDailyCost }) {
+function HoldingsWorkspace({ holdings, setHoldings, usLive, market, setMarket, showUsFields = false }) {
+  const activeMarket = showUsFields && market === "us" ? "us" : "tw";
+  const visibleHoldings = holdings.filter((h) => activeMarket === "tw" ? isTaiwanSymbol(h.symbol) : !isTaiwanSymbol(h.symbol));
+  return (
+    <div className="space-y-2">
+      {showUsFields && <div className="flex gap-1 rounded-xl p-1" style={{ background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}` }}>
+        {[["tw", "台股", "TW"], ["us", "美股", "US"]].map(([key, zh, en]) => (
+          <button key={key} onClick={() => setMarket(key)} aria-pressed={activeMarket === key}
+            className="flex-1 rounded-lg py-2 text-xs font-bold"
+            style={{ background: activeMarket === key ? COLORS.bg : "transparent", color: activeMarket === key ? COLORS.gold : COLORS.sub }}>
+            {UI_SHOW_ENGLISH ? en : zh}
+          </button>
+        ))}
+      </div>}
+      <HoldingsPanel key={activeMarket} market={activeMarket} holdings={visibleHoldings}
+        allHoldings={holdings} setHoldings={setHoldings} usLive={usLive} />
+    </div>
+  );
+}
+
+function HoldingsPanel({ holdings, allHoldings = holdings, setHoldings, usLive, onFillDailyCost, market = "tw" }) {
   const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
   const [form, setForm] = useState({ symbol: "", name: "", initialShares: "", target2035: "", costBasis: "" });
   const [editingId, setEditingId] = useState(null);
@@ -6752,7 +6774,7 @@ function HoldingsPanel({ holdings, setHoldings, usLive, onFillDailyCost }) {
   }, []);
 
   const add = () => {
-    if (!isStockSymbol(form.symbol) || holdings.some((h) => normalizeStockSymbol(h.symbol) === normalizeStockSymbol(form.symbol))) return;
+    if (!isStockSymbol(form.symbol) || allHoldings.some((h) => normalizeStockSymbol(h.symbol) === normalizeStockSymbol(form.symbol))) return;
     const costAmount = form.costBasis === "" ? null : Number(form.costBasis);
     setHoldings((h) => [...h, {
       id: uid(), symbol: normalizeStockSymbol(form.symbol), name: form.name,
@@ -6871,7 +6893,7 @@ function HoldingsPanel({ holdings, setHoldings, usLive, onFillDailyCost }) {
                       onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} className="input" /></Field>
                     <Field label="期初股數"><input type="number" step="any" value={editForm.initialShares}
                       onChange={(e) => setEditForm({ ...editForm, initialShares: e.target.value })} className="input" /></Field>
-                    <Field label="目標股數"><input type="number" value={editForm.target2035}
+                    <Field label="目標股數"><input type="number" step="any" value={editForm.target2035}
                       onChange={(e) => setEditForm({ ...editForm, target2035: e.target.value })} className="input" /></Field>
                     <div className="col-span-2">
                       <Field label="持有成本（直接輸入目前總成本，例如對照券商App的數字）">
@@ -6993,10 +7015,10 @@ function HoldingsPanel({ holdings, setHoldings, usLive, onFillDailyCost }) {
         <div className="grid grid-cols-2 gap-2">
           <Field label="代號"><input value={form.symbol}
             onChange={(e) => setForm({ ...form, symbol: normalizeStockSymbol(e.target.value) })}
-            placeholder="0056" className="input" /></Field>
+            placeholder={market === "us" ? "AAPL" : "0056"} className="input" /></Field>
           <Field label="名稱"><input value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
-            placeholder="高股息ETF" className="input" />
+            placeholder={market === "us" ? "Apple Inc." : "高股息ETF"} className="input" />
             {nameHint && (
               <div className="text-[10px] mt-1" aria-live="polite"
                 style={{ color: nameHint === "found" ? COLORS.gold : COLORS.sub }}>
@@ -7010,7 +7032,7 @@ function HoldingsPanel({ holdings, setHoldings, usLive, onFillDailyCost }) {
           <Field label="期初股數"><input type="number" step="any" value={form.initialShares}
             onChange={(e) => setForm({ ...form, initialShares: e.target.value })}
             placeholder="0" className="input" /></Field>
-          <Field label="2035目標股數"><input type="number" value={form.target2035}
+          <Field label="2035目標股數"><input type="number" step="any" value={form.target2035}
             onChange={(e) => setForm({ ...form, target2035: e.target.value })}
             placeholder="0" className="input" /></Field>
           <div className="col-span-2">
