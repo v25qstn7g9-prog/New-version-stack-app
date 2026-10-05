@@ -67,3 +67,8 @@ test('mini.html is a static page not blocked by .assetsignore and only calls /qu
   assert.doesNotMatch(ignore, /^mini/m);
   assert.doesNotMatch(html, /setItem|removeItem|localStorage\.clear/, 'mini page must be read-only on app data');
 });
+
+test('main app links to /mini.html and the mini page links back', () => {
+  assert.match(fs.readFileSync('index.html', 'utf8'), /href="\/mini\.html"/);
+  assert.match(fs.readFileSync('mini.html', 'utf8'), /href="\/"/);
+});
