@@ -372,7 +372,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.46.15-collapsible-ai-fallback";
+const APP_VERSION = "4.7-personal-advisor-v2.46.16-us-live-quotes";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -855,6 +855,21 @@ const todayStr = () => {
 };
 // 台股代號以數字開頭（含 2882A、00937B 這類後綴）；美股一般為英文字母代號。
 const isTaiwanSymbol = (symbol) => /^[0-9]/.test(String(symbol || "").trim());
+const isUsRegularTradingHours = (date = new Date()) => {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false,
+    }).formatToParts(date);
+    const get = (type) => parts.find((p) => p.type === type)?.value;
+    const wd = get("weekday");
+    if (wd === "Sat" || wd === "Sun") return false;
+    const mins = Number(get("hour")) * 60 + Number(get("minute"));
+    return Number.isFinite(mins) && mins >= 9 * 60 + 30 && mins <= 16 * 60 + 5;
+  } catch {
+    return false;
+  }
+};
 const nf = (n) => (n ?? 0).toLocaleString("zh-TW", { maximumFractionDigits: 0 });
 
 // A categorical XAxis (dataKey pointing at a string) spaces every point
@@ -1513,6 +1528,7 @@ function inspectBackupPayload(payload) {
 
   const requiredArrays = ["dailyRecords", "holdings", "trades", "dividends", "planItems"];
   requiredArrays.forEach((k) => { if (!Array.isArray(data[k])) errors.push(M(`${k} is not an array`, `${k} 不是陣列`)); });
+  if (data.usHoldings != null && !Array.isArray(data.usHoldings)) errors.push(M("usHoldings is not an array", "usHoldings 不是陣列"));
   if (!isObject(data.goal)) errors.push(M("goal is missing or malformed", "goal 不存在或格式錯誤"));
   if (!isObject(data.planSchedule)) errors.push(M("planSchedule is missing or malformed", "planSchedule 不存在或格式錯誤"));
   if (errors.length) return { ok: false, errors, warnings, data, schemaVersion };
@@ -1832,6 +1848,7 @@ function AssetTracker() {
 
   const [dailyRecords, setDailyRecords] = useState([]);
   const [holdings, setHoldings] = useState([]);
+  const [usHoldings, setUsHoldings] = useState([]);
   const [trades, setTrades] = useState([]);
   const [dividends, setDividends] = useState([]);
   const [planItems, setPlanItems] = useState([]);
@@ -1857,9 +1874,10 @@ function AssetTracker() {
   // ---- initial load ----
   useEffect(() => {
     (async () => {
-      const [dr, h, t, dv, p, g, ps, cb, lba, afc, lst, suf] = await Promise.all([
+      const [dr, h, uh, t, dv, p, g, ps, cb, lba, afc, lst, suf] = await Promise.all([
         loadKey("dailyRecords", defaultDailyRecords()),
         loadKey("holdings", defaultHoldings()),
+        loadKey("usHoldings", []),
         loadKey("trades", defaultTrades()),
         loadKey("dividends", defaultDividends()),
         loadKey("planItems", defaultPlan()),
@@ -1873,6 +1891,7 @@ function AssetTracker() {
       ]);
       setDailyRecords(dr);
       setHoldings(h);
+      setUsHoldings(Array.isArray(uh) ? uh : []);
       setTrades(t);
       setDividends(dv);
       setPlanItems(p);
@@ -1931,6 +1950,7 @@ function AssetTracker() {
   // ---- persist on change (after ready) ----
   useEffect(() => { if (ready) saveKey("dailyRecords", dailyRecords); }, [dailyRecords, ready]);
   useEffect(() => { if (ready) saveKey("holdings", holdings); }, [holdings, ready]);
+  useEffect(() => { if (ready) saveKey("usHoldings", usHoldings); }, [usHoldings, ready]);
   useEffect(() => { if (ready) saveKey("trades", trades); }, [trades, ready]);
   useEffect(() => { if (ready) saveKey("dividends", dividends); }, [dividends, ready]);
   useEffect(() => { if (ready) saveKey("planItems", planItems); }, [planItems, ready]);
@@ -1989,7 +2009,7 @@ function AssetTracker() {
       appVersion: APP_VERSION,
       schemaVersion: BACKUP_SCHEMA_VERSION,
       exportedAt,
-      data: { dailyRecords, holdings, trades, dividends, planItems, goal, planSchedule, costBasis },
+      data: { dailyRecords, holdings, usHoldings, trades, dividends, planItems, goal, planSchedule, costBasis },
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -2128,6 +2148,7 @@ function AssetTracker() {
       const data = check.data;
       setDailyRecords(data.dailyRecords);
       setHoldings(data.holdings);
+      setUsHoldings(Array.isArray(data.usHoldings) ? data.usHoldings : []);
       setTrades(data.trades);
       setDividends(data.dividends);
       setPlanItems(data.planItems);
@@ -2343,7 +2364,7 @@ function AssetTracker() {
   const currentTwCost = twHoldingCost > 0 ? twHoldingCost : latestTwCost;
   // 總覽是否顯示「美股」只看最新每日紀錄的美股市值；
   // usValue = 0 代表目前沒有美股，整個總覽都不出現美股字樣。
-  const hasUsAssets = currentUsValue > 0;
+  const hasUsAssets = currentUsValue > 0 || usHoldings.some((h) => Number(h?.shares || 0) > 0);
   const currentUsCost = hasUsAssets
     ? (latestUsCost > 0 ? latestUsCost : usHoldingCostFallback)
     : 0;
@@ -2869,13 +2890,17 @@ function AssetTracker() {
                     chartData={chartData} goal={goal} goalDate={goalDate} totalInvested={totalInvested}
                     holdings={holdingsWithShares} dailyRecords={sortedDaily} dividends={dividends}
                     yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue}
+                    usHoldings={usHoldings}
+                    onFillDailyUs={(value) => { setDailyPrefill({ usValue: value }); goToTab("daily"); }}
                     onGoDaily={() => goToTab("daily")}
                   />
                 );
               case "daily":
                 return (
                   <DailyPanel records={sortedDaily} setRecords={setDailyRecords} prefill={dailyPrefill}
-                    form={dailyForm} setForm={setDailyForm} holdings={holdingsWithShares} showUsFields={showUsFields} setShowUsFields={setShowUsFields} />
+                    form={dailyForm} setForm={setDailyForm} holdings={holdingsWithShares}
+                    usHoldings={usHoldings} setUsHoldings={setUsHoldings}
+                    showUsFields={showUsFields} setShowUsFields={setShowUsFields} />
                 );
               case "holdings":
                 return (
@@ -3716,6 +3741,170 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
         </div>
       )}
       {!activeHoldings.length && <Empty text="請先到「持股進度」新增持股並填入股數，才能抓取即時股價" />}
+    </Panel>
+  );
+}
+
+
+function UsHoldingsEditor({ holdings = [], setHoldings }) {
+  const [form, setForm] = useState({ symbol: "", name: "", shares: "" });
+  const add = () => {
+    const symbol = String(form.symbol || "").trim().toUpperCase();
+    const shares = Number(form.shares);
+    if (!/^[A-Z][A-Z0-9.-]{0,9}$/.test(symbol) || !(shares > 0)) return;
+    setHoldings?.((list) => {
+      const existing = (list || []).find((x) => String(x.symbol).toUpperCase() === symbol);
+      if (existing) return list.map((x) => x.id === existing.id ? { ...x, name: form.name || x.name, shares } : x);
+      return [...(list || []), { id: uid(), symbol, name: form.name.trim(), shares }];
+    });
+    setForm({ symbol: "", name: "", shares: "" });
+  };
+  return (
+    <div className="space-y-2">
+      {(holdings || []).map((h) => (
+        <div key={h.id || h.symbol} className="flex items-center gap-2 text-[11px] mono">
+          <span className="font-bold w-16" style={{ color: COLORS.gold }}>{h.symbol}</span>
+          <span className="min-w-0 flex-1 truncate" style={{ color: COLORS.sub }}>{h.name || ""}</span>
+          <input type="number" inputMode="decimal" value={h.shares}
+            onChange={(e) => setHoldings?.((list) => list.map((x) => x.id === h.id ? { ...x, shares: Number(e.target.value || 0) } : x))}
+            className="input !py-1 !px-2 w-24 text-right" />
+          <button onClick={() => setHoldings?.((list) => list.filter((x) => x.id !== h.id))} style={{ color: COLORS.sub }}><TrashIcon size={14} /></button>
+        </div>
+      ))}
+      <div className="grid grid-cols-[76px_minmax(0,1fr)_82px] gap-2">
+        <input value={form.symbol} onChange={(e) => setForm({ ...form, symbol: e.target.value.toUpperCase() })} placeholder="AAPL" className="input !py-1.5" />
+        <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={uiText("名稱（可留白）")} className="input !py-1.5" />
+        <input type="number" inputMode="decimal" value={form.shares} onChange={(e) => setForm({ ...form, shares: e.target.value })} placeholder={uiText("股數")} className="input !py-1.5" />
+      </div>
+      <button onClick={add} disabled={!form.symbol || !(Number(form.shares) > 0)}
+        className="w-full rounded-lg py-1.5 text-[11px] font-bold"
+        style={{ background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`, color: COLORS.gold, opacity: (!form.symbol || !(Number(form.shares) > 0)) ? 0.45 : 1 }}>
+        <UiLabel zh="新增／更新美股持股" />
+      </button>
+    </div>
+  );
+}
+
+function UsLivePricePanel({ usHoldings = [], onFillDailyUs, yesterdayUsValue }) {
+  const active = usHoldings.filter((h) => Number(h.shares || 0) > 0 && h.symbol);
+  const activeKey = active.map((h) => `${String(h.symbol).toUpperCase()}:${h.shares}`).sort().join(",");
+  const [state, setState] = useState({ status: "idle", quotes: {}, fx: null, at: null, failed: [] });
+  const busyRef = useRef(false);
+  const lastFetchRef = useRef(0);
+
+  const fetchUs = async (force = false) => {
+    if (!active.length || busyRef.current) return;
+    busyRef.current = true;
+    setState((x) => ({ ...x, status: "loading" }));
+    try {
+      const symbols = [...active.map((h) => String(h.symbol).trim().toUpperCase()), "USDTWD"];
+      const result = await fetchQuotesWithFallback(symbols, force);
+      const fx = Number(result.quotes?.USDTWD?.price);
+      const failed = active.map((h) => String(h.symbol).toUpperCase()).filter((sym) => !(Number(result.quotes?.[sym]?.price) > 0));
+      if (!(fx > 0)) failed.push("USD/TWD");
+      const next = { status: failed.length ? "partial" : "done", quotes: result.quotes || {}, fx: fx > 0 ? fx : null, at: new Date(), failed };
+      setState(next);
+      lastFetchRef.current = Date.now();
+      saveKey("usLivePrices", { ...next, at: next.at.toISOString(), activeKey });
+    } catch {
+      setState((x) => ({ ...x, status: "error", at: new Date() }));
+    } finally {
+      busyRef.current = false;
+    }
+  };
+
+  useEffect(() => {
+    let dead = false;
+    (async () => {
+      const cached = await loadKey("usLivePrices", null);
+      if (!dead && cached && cached.activeKey === activeKey) {
+        const at = cached.at ? new Date(cached.at) : null;
+        setState({ ...cached, at });
+        if (at) lastFetchRef.current = at.getTime();
+      }
+      if (!dead && active.length && (!cached || cached.activeKey !== activeKey || Date.now() - Date.parse(cached.at || 0) > 30000)) fetchUs(false);
+    })();
+    return () => { dead = true; };
+  }, [activeKey]);
+
+  useEffect(() => {
+    if (!active.length) return;
+    const timer = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      if (isUsRegularTradingHours() && Date.now() - lastFetchRef.current >= 29000) fetchUs(false);
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [activeKey]);
+
+  const fx = Number(state.fx);
+  const rows = active.map((h) => {
+    const sym = String(h.symbol).toUpperCase();
+    const q = state.quotes?.[sym];
+    if (!q || !(Number(q.price) > 0)) return null;
+    const price = Number(q.price), prev = Number(q.prevClose);
+    const usdValue = price * Number(h.shares);
+    const ntdValue = fx > 0 ? usdValue * fx : null;
+    const chgPct = prev > 0 ? ((price - prev) / prev) * 100 : null;
+    return { ...h, symbol: sym, price, prev, usdValue, ntdValue, chgPct, stale: Boolean(q.isStale) };
+  }).filter(Boolean);
+  const totalUsd = rows.reduce((a, r) => a + r.usdValue, 0);
+  const totalNtd = fx > 0 ? rows.reduce((a, r) => a + Number(r.ntdValue || 0), 0) : null;
+  const complete = active.length > 0 && rows.length === active.length && fx > 0 && state.failed.length === 0;
+  const record = () => {
+    if (!complete || !onFillDailyUs) return;
+    onFillDailyUs(Math.round(totalNtd));
+  };
+
+  if (!active.length) return null;
+  return (
+    <Panel title="美股即時股價">
+      <div className="flex justify-between items-center gap-2 mb-2">
+        <div className="text-[11px]" style={{ color: COLORS.sub }}>
+          {state.status === "loading" ? <UiLabel zh="更新中…" />
+            : state.at ? <>{isUsRegularTradingHours() ? (UI_SHOW_ENGLISH ? "US market open · 30s refresh" : "美股盤中・每 30 秒更新") : (UI_SHOW_ENGLISH ? "US market closed · latest close" : "美股休市／收盤・顯示最新價格")} · {state.at.toLocaleTimeString("zh-TW", { hour12: false })}</>
+            : (UI_SHOW_ENGLISH ? "Auto-fetches configured US holdings" : "自動抓取已設定的美股持股")}
+        </div>
+        <button onClick={() => fetchUs(true)} disabled={state.status === "loading"}
+          className="text-[11px] font-bold rounded-lg px-2.5 py-1.5"
+          style={{ background: COLORS.gold, color: COLORS.bg, opacity: state.status === "loading" ? 0.5 : 1 }}>
+          <UiLabel zh="更新美股" />
+        </button>
+      </div>
+      <div className="space-y-1.5">
+        {rows.sort((a,b) => Number(b.ntdValue||0)-Number(a.ntdValue||0)).map((r) => (
+          <div key={r.symbol} className="grid grid-cols-[58px_1fr_1fr] gap-2 text-[11px] mono items-center">
+            <div><span className="font-bold" style={{ color: COLORS.text }}>{r.symbol}</span><div style={{ color: COLORS.sub }}>{nf(r.shares)} sh</div></div>
+            <div className="text-right">
+              <div>US$ {r.price.toFixed(2)}</div>
+              <div style={{ color: r.stale ? COLORS.sub : ((r.chgPct ?? 0) >= 0 ? COLORS.gain : COLORS.loss) }}>{r.chgPct == null ? "--" : `${r.chgPct >= 0 ? "+" : ""}${r.chgPct.toFixed(2)}%`}</div>
+            </div>
+            <div className="text-right">
+              <div style={{ color: COLORS.gold }}>{r.ntdValue == null ? "--" : `NT$ ${nf(Math.round(r.ntdValue))}`}</div>
+              <div style={{ color: COLORS.sub }}>US$ {nf(Math.round(r.usdValue))}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-2 pt-2" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
+        <div className="flex justify-between text-xs mono font-bold">
+          <span style={{ color: COLORS.sub }}><UiLabel zh="美股總市值" /></span>
+          <span style={{ color: COLORS.gold }}>{totalNtd == null ? "--" : `NT$ ${nf(Math.round(totalNtd))}`}</span>
+        </div>
+        <div className="flex justify-between text-[10px] mono mt-0.5" style={{ color: COLORS.sub }}>
+          <span>US$ {nf(Math.round(totalUsd))}</span>
+          <span>USD/TWD {fx > 0 ? fx.toFixed(3) : "--"}</span>
+        </div>
+        {Number(yesterdayUsValue || 0) > 0 && totalNtd != null && (() => {
+          const diff = totalNtd - Number(yesterdayUsValue);
+          return <div className="text-[10px] mono mt-0.5" style={{ color: diff >= 0 ? COLORS.gain : COLORS.loss }}>{UI_SHOW_ENGLISH ? "vs yesterday " : "較昨日 "}{diff >= 0 ? "+" : ""}{nf(Math.round(diff))}</div>;
+        })()}
+        <button onClick={record} disabled={!complete}
+          className="w-full rounded-lg py-1.5 mt-2 text-[11px] font-bold"
+          style={{ border: `1px solid ${COLORS.gold}`, color: COLORS.gold, opacity: complete ? 1 : 0.45 }}>
+          <UiLabel zh="帶入今日美股市值" />
+        </button>
+      </div>
+      {state.failed.length > 0 && <div className="text-[10px] mt-2" style={{ color: COLORS.loss }}>抓取失敗：{state.failed.join("、")}</div>}
     </Panel>
   );
 }
@@ -5737,7 +5926,7 @@ function GoalProgressCard({ goal, totalToday, goalDate }) {
 function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, dailyChangePct, capitalGain, totalDividends,
   totalReturn, totalReturnPct, twTotalReturn, twTotalReturnPct, usTotalReturn, usTotalReturnPct, hasUsAssets,
   highPoint, drawdown, ytdGain, ytdPct, chartData, goal, goalDate, totalInvested, holdings,
-  dailyRecords, dividends, yesterdayTwValue, yesterdayUsValue, onFillDailyTw, onGoDaily }) {
+  dailyRecords, dividends, yesterdayTwValue, yesterdayUsValue, onFillDailyTw, onFillDailyUs, usHoldings = [], onGoDaily }) {
   const up = dailyChange >= 0;
   // dailyChange compares the two most recent daily records. Until today's
   // record is saved, that is the previous session's change, so label it with
@@ -5913,7 +6102,10 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
         </button>
       )}
 
-      <LivePricePanel holdings={holdings} onFillDailyTw={onFillDailyTw} yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue} hasUsAssets={hasUsAssets} />
+      <LivePricePanel holdings={holdings.filter((h) => isTaiwanSymbol(h.symbol))} onFillDailyTw={onFillDailyTw} yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue} hasUsAssets={hasUsAssets} />
+      {(usHoldings.length > 0 || hasUsAssets) && (
+        <UsLivePricePanel usHoldings={usHoldings} onFillDailyUs={onFillDailyUs} yesterdayUsValue={yesterdayUsValue} />
+      )}
 
 
       <DashboardCollapsibleSection
@@ -5970,7 +6162,7 @@ function StatCard({ label, value, tone, className = "" }) {
 }
 
 // ---------------- Daily Panel ----------------
-function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = [], showUsFields = false, setShowUsFields }) {
+function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = [], usHoldings = [], setUsHoldings, showUsFields = false, setShowUsFields }) {
   const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
   // When "帶入「每日紀錄」..." is pressed elsewhere in the app, prefill is
   // set to a fresh object each time — that reference change is what makes
@@ -5982,6 +6174,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
     setForm((f) => {
       const next = { ...f, date: todayStr() };
       if (prefill.twValue != null) next.twValue = String(prefill.twValue);
+      if (prefill.usValue != null) next.usValue = String(prefill.usValue);
       if (prefill.twCost != null) next.twCost = String(prefill.twCost);
       return next;
     });
@@ -5991,11 +6184,14 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
   const isToday = form.date === today;
   const sameDayRecord = records.find((x) => x.date === form.date) || null;
   const lastBefore = [...records].filter((x) => x.date < form.date).sort((a, b) => a.date.localeCompare(b.date)).pop() || null;
-  const activeTw = holdings.filter((h) => Number(h.current || 0) > 0 && h.symbol);
+  const activeTw = holdings.filter((h) => isTaiwanSymbol(h.symbol) && Number(h.current || 0) > 0 && h.symbol);
   const activeKey = activeTw.map((h) => `${h.symbol}:${h.current}`).join(",");
+  const activeUs = (usHoldings || []).filter((h) => Number(h.shares || 0) > 0 && h.symbol);
+  const activeUsKey = activeUs.map((h) => `${String(h.symbol).toUpperCase()}:${h.shares}`).sort().join(",");
   // 和「持股進度」頁的「總持有成本」同一個算法（App 計算目前績效也用這個）。
-  const autoTwCost = Math.round(holdings.reduce((sum, h) => sum + Number(h.estCostBasis || 0), 0));
+  const autoTwCost = Math.round(holdings.filter((h) => isTaiwanSymbol(h.symbol)).reduce((sum, h) => sum + Number(h.estCostBasis || 0), 0));
   const [autoTw, setAutoTw] = useState({ status: "idle", value: null, missing: [] });
+  const [autoUs, setAutoUs] = useState({ status: "idle", value: null, missing: [], fx: null });
   const [autoFrom, setAutoFrom] = useState({});
   const loadAutoTw = async (force = false) => {
     if (!activeTw.length) { setAutoTw({ status: "none", value: null, missing: [] }); return; }
@@ -6012,6 +6208,23 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
     }
   };
   useEffect(() => { loadAutoTw(false); }, [activeKey]);
+  const loadAutoUs = async (force = false) => {
+    if (!activeUs.length) { setAutoUs({ status: "none", value: null, missing: [], fx: null }); return; }
+    setAutoUs((v) => ({ ...v, status: "loading" }));
+    try {
+      const symbols = [...activeUs.map((h) => String(h.symbol).trim().toUpperCase()), "USDTWD"];
+      const { quotes } = await fetchQuotesWithFallback(symbols, force);
+      const fx = Number(quotes?.USDTWD?.price);
+      const missing = activeUs.filter((h) => !(Number(quotes?.[String(h.symbol).trim().toUpperCase()]?.price) > 0)).map((h) => String(h.symbol).toUpperCase());
+      if (!(fx > 0)) missing.push("USD/TWD");
+      if (missing.length) { setAutoUs({ status: "partial", value: null, missing, fx: fx > 0 ? fx : null }); return; }
+      const usd = activeUs.reduce((sum, h) => sum + Number(quotes[String(h.symbol).trim().toUpperCase()].price) * Number(h.shares), 0);
+      setAutoUs({ status: "ok", value: Math.round(usd * fx), missing: [], fx });
+    } catch {
+      setAutoUs({ status: "error", value: null, missing: [], fx: null });
+    }
+  };
+  useEffect(() => { if (showUsFields) loadAutoUs(false); }, [activeUsKey, showUsFields]);
   // 只填「空的」欄位，絕不覆蓋使用者自己打的數字；換日期時先清掉自動帶入的值再重算。
   useEffect(() => {
     const fills = {};
@@ -6022,22 +6235,27 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
     if (isToday && autoFrom.twValue === "wantQuote" && form.twValue === "" && autoTw.status === "ok") {
       fills.twValue = String(autoTw.value); from.twValue = "quote";
     }
+    if (isToday && autoFrom.usValue === "wantQuote" && form.usValue === "" && autoUs.status === "ok") {
+      fills.usValue = String(autoUs.value); from.usValue = "usQuote";
+    }
     if (sameDayRecord) {
       ["twValue", "usValue", "twCost", "usCost"].forEach((k) => {
         if (k === "twValue" && autoFrom.twValue === "wantQuote") return;
+        if (k === "usValue" && autoFrom.usValue === "wantQuote") return;
         if (canFill(k) && fills[k] == null && sameDayRecord[k] != null) { fills[k] = String(sameDayRecord[k]); from[k] = "saved"; }
       });
     } else {
       if (isToday && canFill("twValue") && fills.twValue == null && autoTw.status === "ok") { fills.twValue = String(autoTw.value); from.twValue = "quote"; }
+      if (isToday && canFill("usValue") && fills.usValue == null && autoUs.status === "ok") { fills.usValue = String(autoUs.value); from.usValue = "usQuote"; }
       if (isToday && canFill("twCost") && autoTwCost > 0) { fills.twCost = String(autoTwCost); from.twCost = "holdings"; }
-      if (canFill("usValue") && lastBefore && Number(lastBefore.usValue) > 0) { fills.usValue = String(lastBefore.usValue); from.usValue = "last"; }
+      if (canFill("usValue") && fills.usValue == null && lastBefore && Number(lastBefore.usValue) > 0) { fills.usValue = String(lastBefore.usValue); from.usValue = "last"; }
       if (canFill("usCost") && lastBefore && Number(lastBefore.usCost) > 0) { fills.usCost = String(lastBefore.usCost); from.usCost = "last"; }
     }
     if (Object.keys(fills).length) {
       setForm((f) => ({ ...f, ...fills }));
       setAutoFrom((a) => ({ ...a, ...from }));
     }
-  }, [form.date, autoTw.status, autoTw.value, autoTwCost, sameDayRecord?.id, lastBefore?.id, form.twValue, form.twCost, form.usValue, form.usCost, autoFrom]);
+  }, [form.date, autoTw.status, autoTw.value, autoUs.status, autoUs.value, autoTwCost, sameDayRecord?.id, lastBefore?.id, form.twValue, form.twCost, form.usValue, form.usCost, autoFrom]);
   const editField = (key, value) => {
     setForm((f) => ({ ...f, [key]: value }));
     setAutoFrom((a) => ({ ...a, [key]: "typed" }));
@@ -6048,6 +6266,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
   };
   const sourceNote = (key) => ({
     quote: "自動帶入：即時報價 × 目前股數",
+    usQuote: `自動帶入：美股報價 × 股數 × USD/TWD${autoUs.fx ? `（${autoUs.fx.toFixed(3)}）` : ""}`,
     holdings: "自動帶入：持股進度的總持有成本",
     last: `沿用上一筆（${lastBefore ? lastBefore.date.slice(5).replace("-", "/") : ""}），有變再改`,
   }[autoFrom[key]] || "");
@@ -6273,6 +6492,12 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
         {isToday && autoTw.status === "error" && (
           <div className="text-[11px] mb-2" style={{ color: COLORS.sub }}><UiLabel zh="報價暫時抓不到，台股市值請手動輸入或稍後按「重新抓報價」。" /></div>
         )}
+        {isToday && showUsFields && autoUs.status === "partial" && (
+          <div className="text-[11px] mb-2" style={{ color: COLORS.sub }}>美股報價尚未完整：{autoUs.missing.join("、")}</div>
+        )}
+        {isToday && showUsFields && autoUs.status === "error" && (
+          <div className="text-[11px] mb-2" style={{ color: COLORS.sub }}><UiLabel zh="美股報價暫時抓不到，先沿用上一筆或稍後重試。" /></div>
+        )}
         {sameDayRecord && (
           <div className="text-[11px] mb-2" style={{ color: COLORS.sub }}>
             <UiLabel zh={sameDayRecord.source === "auto"
@@ -6290,6 +6515,26 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
             </Field>
           ))}
         </div>
+        {showUsFields && (
+          <div className="mt-3 rounded-xl p-3" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div>
+                <div className="text-[11px] font-bold" style={{ color: COLORS.text }}><UiLabel zh="美股自動報價設定" /></div>
+                <div className="text-[10px]" style={{ color: COLORS.sub }}><UiLabel zh="只要設定一次代號與股數，之後會自動換算成台幣市值" /></div>
+              </div>
+              {activeUs.length > 0 && (
+                <button onClick={() => { setForm((f) => ({ ...f, usValue: "" })); setAutoFrom((a) => ({ ...a, usValue: "wantQuote" })); loadAutoUs(true); }}
+                  className="text-[10px] font-bold rounded-lg px-2.5 py-1.5 whitespace-nowrap"
+                  style={{ border: `1px solid ${COLORS.gold}`, color: COLORS.gold }}>
+                  <UiLabel zh={autoUs.status === "loading" ? "抓取中…" : "更新美股"} inline />
+                </button>
+              )}
+            </div>
+            {autoUs.status === "partial" && <div className="text-[10px] mb-2" style={{ color: COLORS.loss }}>抓不到：{autoUs.missing.join("、")}</div>}
+            {autoUs.status === "error" && <div className="text-[10px] mb-2" style={{ color: COLORS.loss }}><UiLabel zh="美股報價暫時抓不到，稍後再試" /></div>}
+            <UsHoldingsEditor holdings={usHoldings} setHoldings={setUsHoldings} />
+          </div>
+        )}
         <MissingHint missing={dailyMissing} />
         <AddButton onClick={add} disabled={dailyMissing.length > 0}
           label={sameDayRecord ? (isToday ? "更新今天紀錄" : "更新這天紀錄") : (isToday ? "儲存今天紀錄" : "儲存這天紀錄")} />
