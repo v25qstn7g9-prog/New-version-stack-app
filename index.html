@@ -371,7 +371,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.46.6-dividend-estimates";
+const APP_VERSION = "4.7-personal-advisor-v2.46.7-compact-radar-note";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -3644,6 +3644,12 @@ function marginForRecord(m) {
 }
 // </margin-helpers>
 
+function trendRadarMethodNote(showEnglish = false) {
+  return showEnglish
+    ? "Uses institutional flow, price and volume, trends, and overseas signals. Missing inputs are downweighted. Checked after the close; for trend reference only."
+    : "判斷會綜合法人、量價、趨勢與海外市場訊號；資料不足時會自動降低該項權重。預測結果會在收盤後核對，僅供趨勢參考。";
+}
+
 function TrendRadar({ holdings, embedded = false }) {
   const [rows, setRows] = useState([]);
   const [asOf, setAsOf] = useState(null);
@@ -4684,9 +4690,7 @@ function TrendRadar({ holdings, embedded = false }) {
       {accuracy&&<div className="text-[9px] mt-2 mono" style={{color:COLORS.gold}}>{UI_SHOW_ENGLISH ? `Last ${accuracy.n} validated "morning" forecasts: ${((accuracy.hits/accuracy.n)*100).toFixed(1)}% hit rate (excludes unclear direction; stats only, not a guarantee)` : `近 ${accuracy.n} 次已驗證「上午」預測：方向命中 ${((accuracy.hits/accuracy.n)*100).toFixed(1)}%（已排除方向不明，僅統計，不代表未來）`}</div>}
       {closeLockAccuracy&&<div className="text-[9px] mt-1 mono" style={{color:COLORS.gold}}>{UI_SHOW_ENGLISH ? `Last ${closeLockAccuracy.n} validated "pre-close lock" forecasts: ${((closeLockAccuracy.hits/closeLockAccuracy.n)*100).toFixed(1)}% hit rate (locked at 13:25, far easier than morning — kept separate above)` : `近 ${closeLockAccuracy.n} 次已驗證「收盤前鎖定」預測：方向命中 ${((closeLockAccuracy.hits/closeLockAccuracy.n)*100).toFixed(1)}%（13:25 才鎖定，難度遠低於上午，跟上面分開看）`}</div>}
       {tomorrowAccuracy&&<div className="text-[9px] mt-1 mono" style={{color:COLORS.gold}}>{UI_SHOW_ENGLISH ? `Last ${tomorrowAccuracy.n} validated "tomorrow" forecasts: ${((tomorrowAccuracy.hits/tomorrowAccuracy.n)*100).toFixed(1)}% hit rate (excludes unclear direction; stats only, not a guarantee)` : `近 ${tomorrowAccuracy.n} 次已驗證「明日」預測：方向命中 ${((tomorrowAccuracy.hits/tomorrowAccuracy.n)*100).toFixed(1)}%（已排除方向不明，僅統計，不代表未來）`}</div>}
-      <div className="text-[9px] mt-2 leading-relaxed" style={{color:COLORS.sub}}>{UI_SHOW_ENGLISH
-        ? <>Institutional: TWSE post-close public data; ETF institutional flow and dealer flow are downweighted to reduce hedging/market-making noise, and the market score now includes the whole-market institutional total. {instStatus==="unavailable"?"Institutional source is temporarily unavailable; the radar falls back to the base model.":"Institutional data is cached for 6 hours."} 5/15/60m KD is built from continuous 15-second quote sampling aggregated into OHLC; daily/monthly KD comes from real historical bars. The tomorrow forecast is driven mainly by overnight signals (TX front-month futures / US equities / SOX / FX); {globalStatus==="unavailable"?"the overnight signal is temporarily unavailable, so tomorrow's forecast falls back to extrapolating today's momentum.":"today's own momentum is only a secondary adjustment."} Each morning's forecast is saved and checked against the same day's close; the tomorrow forecast is checked the next day against its own target trading date, with hit rates tracked separately. Margin/short balances (TWSE post-close data) {marginStatus==="unavailable"?"are temporarily unavailable":"are record-only for now and not part of the probability"} until the factor backtest shows they help.</>
-        : <>法人：證交所盤後公開資料；ETF 法人流量降低權重，自營商亦降低權重以減少避險/造市影響，大盤分數已納入全市場法人加總。{instStatus==="unavailable"?"目前法人來源暫不可用，雷達會自動退回原模型。":"法人資料快取6小時。"} 5/15/60分KD由15秒即時報價持續取樣、聚合OHLC後運算；日/月KD取自真實歷史K線。模型另納入RVOL相對量能、VWAP位置/斜率與證交所全市場漲跌廣度（同日資料可用時）；來源不足時該因子自動降為0權重。明日預測以台指近月／美股／費半／匯率等隔夜訊號為主，{globalStatus==="unavailable"?"目前隔夜訊號暫不可用，明日預測退回今日動能外推。":"今日動能僅作次要修正。"} 每日上午預測會保存，收盤後自動核對方向；明日預測則以「目標交易日」為準，隔天核對，兩者準確率分開統計。融資融券（證交所盤後公開資料）{marginStatus==="unavailable"?"目前暫不可用":"目前只記錄、不計入機率"}，待因子回測確認有用才會納入。</>}</div>
+      <div className="text-[9px] mt-1.5 leading-snug" style={{color:COLORS.sub}}>{trendRadarMethodNote(UI_SHOW_ENGLISH)}</div>
     </div>
   );
 }
