@@ -722,6 +722,9 @@ const UI_EN = {
   "目前報價不完整：已禁止把部分市值寫入每日紀錄": "Quotes incomplete; partial value cannot be saved.",
   "請先到「持股進度」新增持股並填入股數，才能抓取即時股價": "Add holdings and share counts in Holdings first to fetch live quotes.",
   "高": "High",
+  "昨收": "Prev Close",
+  "漲跌": "Change",
+  "點": "pts",
   "低": "Low",
   "買": "Buy",
   "賣": "Sell",
@@ -3274,7 +3277,9 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
     const value = l.price * h.current;
     const isFromCache = failedSymbols.includes(h.symbol);
     const quoteIsStale = Boolean(l.isStale);
-    return { ...h, price: l.price, prevClose: l.prevClose, high: l.high, low: l.low, chg, chgPct, value, isUS: l.isUS, fetchedAt: l.fetchedAt, isFromCache, quoteIsStale };
+    // quote.js 抓不到真正的前收時會把 prevClose 設成現價並加 warning，那不是昨收，不能顯示成昨收。
+    const prevCloseOk = l.warning !== "no_prevClose_available" && Number.isFinite(Number(l.prevClose)) && Number(l.prevClose) > 0;
+    return { ...h, price: l.price, prevClose: l.prevClose, prevCloseOk, high: l.high, low: l.low, chg, chgPct, value, isUS: l.isUS, fetchedAt: l.fetchedAt, isFromCache, quoteIsStale };
   }).filter(Boolean);
 
   const totalValue = rows.reduce((s, r) => s + r.value, 0);
@@ -3290,6 +3295,8 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
     && Number.isFinite(indexPrevClose) && indexPrevClose > 0;
   const indexChange = hasMarketIndex ? indexPrice - indexPrevClose : 0;
   const indexChangePct = hasMarketIndex ? (indexChange / indexPrevClose) * 100 : null;
+  const indexPrevCloseOk = hasMarketIndex && marketIndex?.warning !== "no_prevClose_available";
+  const fmt2 = (v) => Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const portfolioDayPct = yesterdayTwValue
     ? ((totalValue - yesterdayTwValue) / yesterdayTwValue) * 100
     : null;
@@ -3381,7 +3388,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
             {rows.map((r) => (
               <div key={r.id}>
                 <div className="py-0.5">
-                  <div className="grid grid-cols-[36px_68px_132px_minmax(0,1fr)] grid-rows-[18px_18px_18px] gap-x-1 text-xs mono items-center">
+                  <div className="grid grid-cols-[36px_68px_132px_minmax(0,1fr)] grid-rows-[18px_18px_18px_18px] gap-x-1 text-xs mono items-center">
                     <span className="row-start-1 col-start-1" style={{ color: COLORS.sub }}>{r.symbol}</span>
 
                     <span className="row-start-1 col-start-2 whitespace-nowrap leading-none" style={{color:COLORS.sub}}>
@@ -3389,6 +3396,9 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
                     </span>
                     <span className="row-start-2 col-start-2 whitespace-nowrap leading-none" style={{color:COLORS.sub}}>
                       <UiLabel zh="低" /> {Number.isFinite(Number(r.low)) ? Number(r.low).toFixed(2) : "--"}
+                    </span>
+                    <span className="row-start-3 col-start-2 whitespace-nowrap leading-none" style={{color:COLORS.sub}}>
+                      <UiLabel zh="昨收" /> {r.prevCloseOk ? Number(r.prevClose).toFixed(2) : "--"}
                     </span>
 
                     <span className="row-start-1 col-start-3 text-right whitespace-nowrap leading-none">
@@ -3400,14 +3410,14 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
                       )}
                     </span>
                     <span className="row-start-2 col-start-3 text-right whitespace-nowrap leading-none" style={{ color: r.quoteIsStale ? COLORS.sub : (r.chg >= 0 ? COLORS.gain : COLORS.loss) }}>
-                      {r.quoteIsStale && isTwseTradingHours() && !isMarketClosedToday() ? <UiLabel zh="待更新" /> : <>{r.chg >= 0 ? "▲" : "▼"}{r.chgPct >= 0 ? "+" : ""}{r.chgPct.toFixed(2)}%</>}
+                      {r.quoteIsStale && isTwseTradingHours() && !isMarketClosedToday() ? <UiLabel zh="待更新" /> : <>{r.chg >= 0 ? "▲" : "▼"}{r.prevCloseOk ? <>{r.chg >= 0 ? "+" : ""}{r.chg.toFixed(2)}{" "}</> : null}{r.chgPct >= 0 ? "+" : ""}{r.chgPct.toFixed(2)}%</>}
                     </span>
 
                     <span className="row-start-1 col-start-4 text-right font-bold whitespace-nowrap leading-none min-w-0">{nf(r.value)}</span>
                     <span className="row-start-2 col-start-4 text-right whitespace-nowrap leading-none min-w-0" style={{ color: r.quoteIsStale ? COLORS.sub : (r.chg >= 0 ? COLORS.gain : COLORS.loss) }}>
                       {!r.quoteIsStale ? <><UiLabel zh="今日損益" /> {r.chg >= 0 ? "+" : ""}{nf(Math.round(r.chg * r.current))}</> : ""}
                     </span>
-                    <div className="row-start-3 col-start-2 col-span-3 h-[18px] opacity-80">
+                    <div className="row-start-4 col-start-2 col-span-3 h-[18px] opacity-80">
                       <SessionSparkline points={withLive(sparkFor(r.symbol), r.quoteIsStale || r.isFromCache ? null : r.price)} baseline={r.prevClose} width={240} height={18} tone={r.chg>=0?COLORS.gain:COLORS.loss} />
                     </div>
                   </div>
@@ -3475,6 +3485,14 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
                   </span>
                 )}
               </div>
+              {indexPrevCloseOk && (
+                <div className="flex justify-between items-baseline gap-2 text-[10px] mono mt-0.5">
+                  <span style={{ color: COLORS.sub }}><UiLabel zh="昨收" inline /> {fmt2(indexPrevClose)}</span>
+                  <span style={{ color: indexChange >= 0 ? COLORS.gain : COLORS.loss }}>
+                    <UiLabel zh="漲跌" inline /> {indexChange >= 0 ? "+" : "−"}{fmt2(Math.abs(indexChange))} <UiLabel zh="點" inline />
+                  </span>
+                </div>
+              )}
               <div className="h-[22px] mt-1 opacity-80">
                 <SessionSparkline points={indexSpark} baseline={indexPrevClose} width={300} height={22} tone={indexChange>=0?COLORS.gain:COLORS.loss} />
               </div>
