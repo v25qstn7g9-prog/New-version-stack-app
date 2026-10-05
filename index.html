@@ -371,7 +371,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.46.4-mist-blue-asset-curve";
+const APP_VERSION = "4.7-personal-advisor-v2.46.5-soft-goal-progress";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -5536,7 +5536,7 @@ function GoalProgressCard({ goal, totalToday, goalDate }) {
           <span className="font-bold" style={{ color: COLORS.gold }}>{showEnglish ? `${pct.toFixed(1)}% done` : `已達成 ${pct.toFixed(1)}%`}</span>
         </div>
         <div className="mt-1 h-1.5 rounded-full overflow-hidden" style={{ background: COLORS.panel }}>
-          <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: COLORS.gold }} />
+          <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: "#6FAFC2" }} />
         </div>
         <div className="mt-1 flex items-baseline justify-between gap-2 text-[11px] mono" style={{ color: COLORS.sub }}>
           <span>{showEnglish ? `NT$ ${nf(remain)} to go` : `距目標 NT$ ${nf(remain)}`}</span>
@@ -5613,7 +5613,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
             <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
               <div className="flex items-baseline justify-between gap-2 text-[11px] mono">
                 <span style={{ color: COLORS.sub }}>{UI_SHOW_ENGLISH ? "Goal" : "目標"} {goal.targetYear} · NT$ {nf(goal.targetAmount)}</span>
-                <span className="font-bold" style={{ color: COLORS.gold }}>{UI_SHOW_ENGLISH ? `${pct.toFixed(1)}% done` : `已達成 ${pct.toFixed(1)}%`}</span>
+                <span className="font-bold" style={{ color: "#8BC4D4" }}>{UI_SHOW_ENGLISH ? `${pct.toFixed(1)}% done` : `已達成 ${pct.toFixed(1)}%`}</span>
               </div>
               <div className="mt-1.5 h-1.5 rounded-full overflow-hidden" style={{ background: COLORS.bg }}>
                 <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: COLORS.gold }} />
