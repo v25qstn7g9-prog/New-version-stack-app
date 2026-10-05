@@ -517,7 +517,6 @@ const UI_EN = {
   "今日 vs 大盤": "Today vs Market",
   "贏大盤": "Beat Market",
   "輸大盤": "Lag Market",
-  "帶入「每日紀錄」台股市值": "Send TW Value to Daily Record",
   "AI 今日／明日趨勢雷達": "AI Today / Tomorrow Trend Radar",
   "今日": "Today",
   "明日": "Tomorrow",
@@ -722,7 +721,26 @@ const UI_EN = {
   "目前報價不完整：已禁止把部分市值寫入每日紀錄": "Quotes incomplete; partial value cannot be saved.",
   "請先到「持股進度」新增持股並填入股數，才能抓取即時股價": "Add holdings and share counts in Holdings first to fetch live quotes.",
   "高": "High",
-  "代號／佔比": "Symbol / Weight",
+  "這天已經存過，下面是已儲存的數字；要修改就直接改，再按「更新」。": "Already saved for this date; edit the numbers and press Update.",
+  "佔比": "Weight",
+  "這筆賣出入帳": "Sell proceeds",
+  "這筆買進金額": "Buy amount",
+  "報價暫時抓不到，台股市值請手動輸入或稍後按「重新抓報價」。": "Quotes unavailable; enter the TW value manually or press Refresh quotes later.",
+  "現在是盤中，市值還會變動；收盤（13:30）後再記最準，先記也可以，之後再按更新。": "Market is open; values still move. Recording after the 13:30 close is most accurate — you can save now and update later.",
+  "自動帶入：持股進度的總持有成本": "Auto: total holding cost",
+  "自動帶入：即時報價 × 目前股數": "Auto: live price × shares",
+  "去記錄 →": "Record →",
+  "⏳ 今天還沒記錄每日資產": "⏳ Today's assets not recorded",
+  "更新這天紀錄": "Update this record",
+  "儲存這天紀錄": "Save this record",
+  "更新今天紀錄": "Update today's record",
+  "儲存今天紀錄": "Save today's record",
+  "抓取中…": "Loading…",
+  "重新抓報價": "Refresh quotes",
+  "補記其他日期": "Record another date",
+  "⏳ 還沒記錄": "⏳ Not recorded",
+  "✅ 已記錄": "✅ Recorded",
+  "今天的紀錄": "Today's Record",
   "累積報酬": "Total Return",
   "目標進度": "Goal Progress",
   "在高點": "At high",
@@ -751,7 +769,6 @@ const UI_EN = {
   "均價": "Avg. Trade",
   "達成率": "Progress",
   "高股息ETF": "High-Dividend ETF",
-  "帶入「每日紀錄」台股成本": "Send TW Cost to Daily Record",
   "(手動)": "(Manual)",
   "會跳到「每日紀錄」並自動填好今天的台股成本，確認後按「儲存紀錄」即可": "This jumps to Daily Record and fills in today's TW cost automatically — just confirm and press \"Save Record\".",
   "建議：不用做什麼，等它自動恢復即可。": "Suggestion: no action needed — it should recover on its own.",
@@ -2653,25 +2670,22 @@ function AssetTracker() {
                     chartData={chartData} goal={goal} goalDate={goalDate} totalInvested={totalInvested}
                     holdings={holdingsWithShares} dailyRecords={sortedDaily} dividends={dividends}
                     yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue}
-                    onFillDailyTw={(value) => { setDailyPrefill({ twValue: value, nonce: Date.now() }); goToTab("daily"); }}
+                    onGoDaily={() => goToTab("daily")}
                   />
                 );
               case "daily":
                 return (
                   <DailyPanel records={sortedDaily} setRecords={setDailyRecords} prefill={dailyPrefill}
-                    form={dailyForm} setForm={setDailyForm} />
+                    form={dailyForm} setForm={setDailyForm} holdings={holdingsWithShares} />
                 );
               case "holdings":
                 return (
-                  <HoldingsPanel holdings={holdingsWithShares} setHoldings={setHoldings}
-                    onFillDailyCost={(value) => { setDailyPrefill({ twCost: value, nonce: Date.now() }); goToTab("daily"); }}
-                  />
+                  <HoldingsPanel holdings={holdingsWithShares} setHoldings={setHoldings} />
                 );
               case "trades":
                 return (
                   <TradesPanel trades={trades} setTrades={setTrades} holdings={holdings}
                     costBasis={costBasis} setCostBasis={setCostBasis} accumulatedCost={accumulatedCost}
-                    onFillDailyCost={(value) => { setDailyPrefill({ twCost: value, nonce: Date.now() }); goToTab("daily"); }}
                   />
                 );
               case "dividends":
@@ -3411,7 +3425,7 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
             </div>
           )}
           <div className="grid grid-cols-[30px_94px_108px_minmax(0,1fr)] gap-1 text-[10px] pb-1.5 mb-1.5 items-center" style={{ color: COLORS.sub, borderBottom: `1px solid ${COLORS.panelBorder}` }}>
-            <span><UiLabel zh="代號／佔比" /></span><span><UiLabel zh="高／低・昨收" /></span><span className="text-right"><UiLabel zh="股價／漲跌幅" /></span><span className="text-right"><UiLabel zh="市值／今日損益" /></span>
+            <span className="leading-tight"><UiLabel zh="代號" /><br /><UiLabel zh="佔比" /></span><span><UiLabel zh="高／低・昨收" /></span><span className="text-right"><UiLabel zh="股價／漲跌幅" /></span><span className="text-right"><UiLabel zh="市值／今日損益" /></span>
           </div>
           <div className="space-y-1 max-h-64 overflow-y-auto">
             {[...rows].sort((x, y) => y.value - x.value).map((r) => (
@@ -3493,22 +3507,6 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
           </div>
 
 
-          {onFillDailyTw && (
-            <>
-              <button onClick={recordToday} disabled={!quoteComplete}
-                className="mt-2 w-full rounded-lg py-2 text-[11px] font-bold"
-                style={{ background: COLORS.bg, border: `1px solid ${quoteComplete ? COLORS.gold : COLORS.panelBorder}`, color: quoteComplete ? COLORS.gold : COLORS.sub, opacity: quoteComplete ? 1 : 0.6 }}>
-                <UiLabel zh="帶入「每日紀錄」台股市值" />
-              </button>
-              <div className="text-[10px] mt-1" style={{ color: COLORS.sub }}>
-                <UiLabel zh={quoteComplete
-                  ? (hasUsAssets
-                    ? "會跳到「每日紀錄」並自動填好台股市值，美股記得手動補上再儲存"
-                    : "會跳到「每日紀錄」並自動填好台股市值，可直接儲存")
-                  : "目前報價不完整：已禁止把部分市值寫入每日紀錄"} />
-              </div>
-            </>
-          )}
         </div>
       )}
       {liveStatus === "done" && failedSymbols.length > 0 && (
@@ -5444,6 +5442,17 @@ function DashboardCollapsibleSection({ storageKey, title, subtitle, children, de
   );
 }
 
+// 交易日收盤（13:30）後、今天還沒有每日紀錄時才提醒；盤前、盤中、休市日都不打擾。
+function needsTodayRecord(dailyRecords, now = new Date()) {
+  const today = todayStr();
+  if ((dailyRecords || []).some((r) => r?.date === today)) return false;
+  const tw = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Taipei" }));
+  const day = tw.getDay();
+  if (day === 0 || day === 6) return false;
+  if (isMarketClosedToday(now)) return false;
+  return tw.getHours() * 60 + tw.getMinutes() >= 13 * 60 + 30;
+}
+
 // 目標進度：付費理財 App 把「目標」當成計畫功能放在績效區，不佔頂部；頂部留給「現在多少錢、今天賺賠多少」。
 function GoalProgressCard({ goal, totalToday, goalDate }) {
   const showEnglish = UI_SHOW_ENGLISH;
@@ -5470,7 +5479,7 @@ function GoalProgressCard({ goal, totalToday, goalDate }) {
 function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, dailyChangePct, capitalGain, totalDividends,
   totalReturn, totalReturnPct, twTotalReturn, twTotalReturnPct, usTotalReturn, usTotalReturnPct, hasUsAssets,
   highPoint, drawdown, ytdGain, ytdPct, chartData, goal, goalDate, totalInvested, holdings,
-  dailyRecords, dividends, yesterdayTwValue, yesterdayUsValue, onFillDailyTw }) {
+  dailyRecords, dividends, yesterdayTwValue, yesterdayUsValue, onFillDailyTw, onGoDaily }) {
   const up = dailyChange >= 0;
   // dailyChange compares the two most recent daily records. Until today's
   // record is saved, that is the previous session's change, so label it with
@@ -5613,6 +5622,15 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
         )}
       </div>
 
+      {/* 收盤後還沒記今天：一行提醒，點了直接到「每日紀錄」（那裡會自動帶入數字） */}
+      {onGoDaily && needsTodayRecord(dailyRecords) && (
+        <button onClick={onGoDaily} className="w-full rounded-xl px-3 py-2 flex items-center justify-between text-[12px] font-bold"
+          style={{ background: COLORS.panel, border: `1px solid ${COLORS.gold}`, color: COLORS.gold }}>
+          <span><UiLabel zh="⏳ 今天還沒記錄每日資產" inline /></span>
+          <span><UiLabel zh="去記錄 →" inline /></span>
+        </button>
+      )}
+
       <LivePricePanel holdings={holdings} onFillDailyTw={onFillDailyTw} yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue} hasUsAssets={hasUsAssets} />
 
 
@@ -5673,7 +5691,7 @@ function StatCard({ label, value, tone, className = "" }) {
 }
 
 // ---------------- Daily Panel ----------------
-function DailyPanel({ records, setRecords, prefill, form, setForm }) {
+function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = [] }) {
   const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
   // When "帶入「每日紀錄」..." is pressed elsewhere in the app, prefill is
   // set to a fresh object each time — that reference change is what makes
@@ -5689,14 +5707,84 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
       return next;
     });
   }, [prefill]);
+  // ── 今天的紀錄：台股市值用即時報價自動算、台股成本用持股頁的持有成本、美股沿用上一筆 ──
+  const today = todayStr();
+  const isToday = form.date === today;
+  const sameDayRecord = records.find((x) => x.date === form.date) || null;
+  const lastBefore = [...records].filter((x) => x.date < form.date).sort((a, b) => a.date.localeCompare(b.date)).pop() || null;
+  const activeTw = holdings.filter((h) => Number(h.current || 0) > 0 && h.symbol);
+  const activeKey = activeTw.map((h) => `${h.symbol}:${h.current}`).join(",");
+  // 和「持股進度」頁的「總持有成本」同一個算法（App 計算目前績效也用這個）。
+  const autoTwCost = Math.round(holdings.reduce((sum, h) => sum + Number(h.estCostBasis || 0), 0));
+  const [autoTw, setAutoTw] = useState({ status: "idle", value: null, missing: [] });
+  const [autoFrom, setAutoFrom] = useState({});
+  const loadAutoTw = async (force = false) => {
+    if (!activeTw.length) { setAutoTw({ status: "none", value: null, missing: [] }); return; }
+    setAutoTw((s) => ({ ...s, status: "loading" }));
+    try {
+      const { quotes } = await fetchQuotesWithFallback(activeTw.map((h) => h.symbol), force);
+      const missing = activeTw.filter((h) => !(Number(quotes?.[h.symbol]?.price) > 0)).map((h) => h.symbol);
+      if (missing.length) { setAutoTw({ status: "partial", value: null, missing }); return; }
+      const value = Math.round(activeTw.reduce((sum, h) => sum + Number(quotes[h.symbol].price) * Number(h.current), 0));
+      setAutoTw({ status: "ok", value, missing: [] });
+    } catch {
+      setAutoTw({ status: "error", value: null, missing: [] });
+    }
+  };
+  useEffect(() => { loadAutoTw(false); }, [activeKey]);
+  // 只填「空的」欄位，絕不覆蓋使用者自己打的數字；換日期時先清掉自動帶入的值再重算。
+  useEffect(() => {
+    const fills = {};
+    const from = {};
+    // 使用者自己清空、正在重打的欄位不要再塞值回去。
+    const canFill = (k) => form[k] === "" && autoFrom[k] !== "typed";
+    // 按了「重新抓報價」：台股市值改用最新報價（即使這天已經存過）。
+    if (isToday && autoFrom.twValue === "wantQuote" && form.twValue === "" && autoTw.status === "ok") {
+      fills.twValue = String(autoTw.value); from.twValue = "quote";
+    }
+    if (sameDayRecord) {
+      ["twValue", "usValue", "twCost", "usCost"].forEach((k) => {
+        if (k === "twValue" && autoFrom.twValue === "wantQuote") return;
+        if (canFill(k) && fills[k] == null && sameDayRecord[k] != null) { fills[k] = String(sameDayRecord[k]); from[k] = "saved"; }
+      });
+    } else {
+      if (isToday && canFill("twValue") && fills.twValue == null && autoTw.status === "ok") { fills.twValue = String(autoTw.value); from.twValue = "quote"; }
+      if (isToday && canFill("twCost") && autoTwCost > 0) { fills.twCost = String(autoTwCost); from.twCost = "holdings"; }
+      if (canFill("usValue") && lastBefore && Number(lastBefore.usValue) > 0) { fills.usValue = String(lastBefore.usValue); from.usValue = "last"; }
+      if (canFill("usCost") && lastBefore && Number(lastBefore.usCost) > 0) { fills.usCost = String(lastBefore.usCost); from.usCost = "last"; }
+    }
+    if (Object.keys(fills).length) {
+      setForm((f) => ({ ...f, ...fills }));
+      setAutoFrom((a) => ({ ...a, ...from }));
+    }
+  }, [form.date, autoTw.status, autoTw.value, autoTwCost, sameDayRecord?.id, lastBefore?.id, form.twValue, form.twCost, form.usValue, form.usCost, autoFrom]);
+  const editField = (key, value) => {
+    setForm((f) => ({ ...f, [key]: value }));
+    setAutoFrom((a) => ({ ...a, [key]: "typed" }));
+  };
+  const changeDate = (date) => {
+    setForm({ date, twValue: "", usValue: "", twCost: "", usCost: "" });
+    setAutoFrom({});
+  };
+  const sourceNote = (key) => ({
+    quote: "自動帶入：即時報價 × 目前股數",
+    holdings: "自動帶入：持股進度的總持有成本",
+    last: `沿用上一筆（${lastBefore ? lastBefore.date.slice(5).replace("-", "/") : ""}），有變再改`,
+  }[autoFrom[key]] || "");
+  const dailyMissing = (!sameDayRecord && form.twValue === "" && form.usValue === "")
+    ? [isToday && autoTw.status === "loading" ? "台股市值（報價抓取中…）" : "台股市值"]
+    : [];
+
   const add = () => {
     const sameDayExists = records.some((x) => x.date === form.date);
     if (!sameDayExists && !form.twValue && !form.usValue) return;
     if (!form.twValue && !form.usValue && !form.twCost && !form.usCost) return;
     setRecords((r) => {
       const existing = r.find((x) => x.date === form.date);
+      const prior = [...r].filter((x) => x.date < form.date).sort((a, b) => a.date.localeCompare(b.date)).pop();
+      // 留白：同一天已有紀錄就保留原值；新的一天的美股欄位沿用上一筆（以前會變成 0，總資產會突然掉一截）。
       const keepOrNumber = (raw, key) => raw === "" || raw == null
-        ? Number(existing?.[key] || 0)
+        ? Number(existing?.[key] ?? (key.startsWith("us") ? prior?.[key] : 0) ?? 0)
         : Number(raw);
       const filtered = r.filter((x) => x.date !== form.date);
       return [...filtered, {
@@ -5706,6 +5794,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
       }].sort((a, b) => a.date.localeCompare(b.date));
     });
     setForm({ date: todayStr(), twValue: "", usValue: "", twCost: "", usCost: "" });
+    setAutoFrom({});
   };
   const remove = (id) => setRecords((r) => r.filter((x) => x.id !== id));
   const sortedRecords = [...records].sort((a, b) => a.date.localeCompare(b.date));
@@ -5869,26 +5958,58 @@ function DailyPanel({ records, setRecords, prefill, form, setForm }) {
 
   return (
     <div className="space-y-2">
-      <Panel title="新增每日紀錄">
-        <div className="grid grid-cols-2 gap-2">
-          <Field label="日期"><input type="date" value={form.date}
-            onChange={(e) => setForm({ ...form, date: e.target.value })}
-            className="input" /></Field>
-          <div />
-          <Field label="台股市值"><input type="number" value={form.twValue}
-            onChange={(e) => setForm({ ...form, twValue: e.target.value })}
-            placeholder="0" className="input" /></Field>
-          <Field label="美股市值"><input type="number" value={form.usValue}
-            onChange={(e) => setForm({ ...form, usValue: e.target.value })}
-            placeholder="0" className="input" /></Field>
-          <Field label="台股成本"><input type="number" value={form.twCost}
-            onChange={(e) => setForm({ ...form, twCost: e.target.value })}
-            placeholder="0" className="input" /></Field>
-          <Field label="美股成本"><input type="number" value={form.usCost}
-            onChange={(e) => setForm({ ...form, usCost: e.target.value })}
-            placeholder="0" className="input" /></Field>
+      {/* 今天的紀錄：打開就自動填好，確認後按一次儲存；要補記其他天再改日期。 */}
+      <Panel title="今天的紀錄">
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <div className="text-sm font-bold mono">{form.date.slice(5).replace("-", "/")}{isToday ? (UI_SHOW_ENGLISH ? " (today)" : "（今天）") : ""}</div>
+          <span className="text-[11px] font-bold rounded-full px-2 py-0.5"
+            style={sameDayRecord
+              ? { color: COLORS.gold, background: "rgba(201,162,75,0.12)" }
+              : { color: COLORS.sub, background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
+            <UiLabel zh={sameDayRecord ? "✅ 已記錄" : "⏳ 還沒記錄"} inline />
+          </span>
         </div>
-        <AddButton onClick={add} label="儲存紀錄" />
+        {isToday && isTwseTradingHours() && (
+          <div className="text-[11px] mb-2 rounded-lg px-2.5 py-1.5" style={{ color: COLORS.gold, background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
+            <UiLabel zh="現在是盤中，市值還會變動；收盤（13:30）後再記最準，先記也可以，之後再按更新。" />
+          </div>
+        )}
+        {isToday && autoTw.status === "partial" && (
+          <div className="text-[11px] mb-2" style={{ color: COLORS.sub }}>
+            {UI_SHOW_ENGLISH ? "Some quotes are missing, TW value not auto-filled: " : "部分持股抓不到報價，台股市值先不自動帶入："}{autoTw.missing.join("、")}
+          </div>
+        )}
+        {isToday && autoTw.status === "error" && (
+          <div className="text-[11px] mb-2" style={{ color: COLORS.sub }}><UiLabel zh="報價暫時抓不到，台股市值請手動輸入或稍後按「重新抓報價」。" /></div>
+        )}
+        {sameDayRecord && (
+          <div className="text-[11px] mb-2" style={{ color: COLORS.sub }}><UiLabel zh="這天已經存過，下面是已儲存的數字；要修改就直接改，再按「更新」。" /></div>
+        )}
+        <div className="grid grid-cols-2 gap-2">
+          {[["twValue", "台股市值"], ["usValue", "美股市值"], ["twCost", "台股成本"], ["usCost", "美股成本"]].map(([key, label]) => (
+            <Field key={key} label={label}>
+              <input type="number" inputMode="decimal" value={form[key]}
+                onChange={(e) => editField(key, e.target.value)}
+                placeholder={key.startsWith("us") ? (UI_SHOW_ENGLISH ? "0 if none" : "沒有就填 0") : ""} className="input" />
+              {sourceNote(key) && <div className="text-[10px] mt-1 leading-snug" style={{ color: COLORS.sub }}><UiLabel zh={sourceNote(key)} inline /></div>}
+            </Field>
+          ))}
+        </div>
+        <MissingHint missing={dailyMissing} />
+        <AddButton onClick={add} disabled={dailyMissing.length > 0}
+          label={sameDayRecord ? (isToday ? "更新今天紀錄" : "更新這天紀錄") : (isToday ? "儲存今天紀錄" : "儲存這天紀錄")} />
+        <div className="flex items-end justify-between gap-3 mt-3 pt-3" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
+          <Field label="補記其他日期">
+            <input type="date" value={form.date} onChange={(e) => changeDate(e.target.value)} className="input" />
+          </Field>
+          {isToday && activeTw.length > 0 && (
+            <button onClick={() => { setForm((f) => ({ ...f, twValue: "" })); setAutoFrom((a) => ({ ...a, twValue: "wantQuote" })); loadAutoTw(true); }}
+              className="text-[11px] font-bold rounded-lg px-3 py-2 whitespace-nowrap"
+              style={{ border: `1px solid ${COLORS.gold}`, color: COLORS.gold }}>
+              <UiLabel zh={autoTw.status === "loading" ? "抓取中…" : "重新抓報價"} inline />
+            </button>
+          )}
+        </div>
       </Panel>
 
       <Panel title="區間查詢（精算，非AI）">
@@ -6273,13 +6394,6 @@ function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
             <div className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="總持有成本（所有標的合計）" /></div>
             <div className="text-base font-bold mono" style={{ color: COLORS.gold }}>NT$ {nf(totalHoldingCost)}</div>
           </div>
-          {onFillDailyCost && (
-            <button onClick={() => onFillDailyCost(Math.round(totalHoldingCost))}
-              className="text-[11px] px-2.5 py-1.5 rounded-lg font-bold"
-              style={{ border: `1px solid ${COLORS.gold}`, color: COLORS.gold }}>
-              <UiLabel zh="帶入「每日紀錄」台股成本" />
-            </button>
-          )}
         </div>
 
         {allocationData.length > 0 && (
@@ -6478,7 +6592,8 @@ function HoldingsPanel({ holdings, setHoldings, onFillDailyCost }) {
             </Field>
           </div>
         </div>
-        <AddButton onClick={add} label="新增標的" />
+        <MissingHint missing={[!form.symbol && "代號"].filter(Boolean)} />
+        <AddButton onClick={add} label="新增標的" disabled={!form.symbol} />
       </Panel>
     </div>
   );
@@ -6540,38 +6655,13 @@ function TradesPanel({ trades, setTrades, holdings, costBasis, setCostBasis, acc
 
   return (
     <div className="space-y-2">
-      {costBasis && (
-        <Panel title="成本追蹤">
-          <Field label="起始成本（交易紀錄開始追蹤之前，已經投入的成本）">
-            <input type="number" value={costBasis.startingCost}
-              onChange={(e) => setCostBasis({ ...costBasis, startingCost: Number(e.target.value || 0) })}
-              className="input" />
-          </Field>
-          <div className="flex justify-between items-baseline mt-3 text-sm mono">
-            <span style={{ color: COLORS.sub }}><UiLabel zh="目前累積成本（起始成本 + 全部買賣紀錄）" /></span>
-            <span className="font-bold" style={{ color: COLORS.gold }}>NT$ {nf(accumulatedCost)}</span>
-          </div>
-          {onFillDailyCost && (
-            <>
-              <button onClick={() => onFillDailyCost(Math.round(accumulatedCost))}
-                className="mt-3 w-full rounded-lg py-2 text-[11px] font-bold"
-                style={{ background: COLORS.bg, border: `1px solid ${COLORS.gold}`, color: COLORS.gold }}>
-                <UiLabel zh="帶入「每日紀錄」台股成本" />
-              </button>
-              <div className="text-[10px] mt-1" style={{ color: COLORS.sub }}>
-                <UiLabel zh="會跳到「每日紀錄」並自動填好今天的台股成本，確認後按「儲存紀錄」即可" />
-              </div>
-            </>
-          )}
-        </Panel>
-      )}
 
       <Panel title="新增交易">
         <div className="grid grid-cols-2 gap-2">
           <Field label="日期"><input type="date" value={form.date}
             onChange={(e) => setForm({ ...form, date: e.target.value })} className="input" /></Field>
           <Field label="買賣">
-            <select value={form.action} onChange={(e) => setForm({ ...form, action: e.target.value })} className="input">
+            <select value={form.action} onChange={(e) => setForm({ ...form, action: e.target.value, tax: e.target.value === "buy" ? "" : form.tax })} className="input">
               <option value="buy">{uiText("買")}</option>
               <option value="sell">{uiText("賣")}</option>
             </select>
@@ -6581,18 +6671,30 @@ function TradesPanel({ trades, setTrades, holdings, costBasis, setCostBasis, acc
               placeholder="0050" list="symbols" className="input" />
             <datalist id="symbols">{holdings.map((h) => <option key={h.id} value={h.symbol} />)}</datalist>
           </Field>
-          <Field label="股數"><input type="number" value={form.shares}
-            onChange={(e) => setForm({ ...form, shares: e.target.value })} className="input" /></Field>
-          <Field label="成交價"><input type="number" value={form.price}
-            onChange={(e) => setForm({ ...form, price: e.target.value })} className="input" /></Field>
+          <Field label="股數"><input type="number" inputMode="numeric" value={form.shares}
+            onChange={(e) => setForm({ ...form, shares: e.target.value })} placeholder="例如 1000" className="input" /></Field>
+          <Field label="成交價"><input type="number" inputMode="decimal" value={form.price}
+            onChange={(e) => setForm({ ...form, price: e.target.value })} placeholder="例如 57.8" className="input" /></Field>
           <Field label="手續費"><input type="number" value={form.fee}
             onChange={(e) => setForm({ ...form, fee: e.target.value })} placeholder="0" className="input" /></Field>
-          <Field label="交易稅（賣出）"><input type="number" value={form.tax}
-            onChange={(e) => setForm({ ...form, tax: e.target.value })} placeholder="0" className="input" /></Field>
+          {form.action === "sell" && (
+            <Field label="交易稅（賣出）"><input type="number" value={form.tax}
+              onChange={(e) => setForm({ ...form, tax: e.target.value })} placeholder="0" className="input" /></Field>
+          )}
           <Field label="備註"><input value={form.note}
             onChange={(e) => setForm({ ...form, note: e.target.value })} className="input" /></Field>
         </div>
-        <AddButton onClick={add} label="新增交易" />
+        {/* 送出前先看到這筆的金額（買進＝股數×價格＋手續費；賣出＝股數×價格－手續費－交易稅） */}
+        {Number(form.shares) > 0 && Number(form.price) > 0 && (
+          <div className="flex justify-between text-[12px] mono mt-2" style={{ color: COLORS.sub }}>
+            <span><UiLabel zh={form.action === "buy" ? "這筆買進金額" : "這筆賣出入帳"} inline /></span>
+            <span className="font-bold" style={{ color: COLORS.gold }}>NT$ {nf(Math.round(form.action === "buy"
+              ? Number(form.shares) * Number(form.price) + Number(form.fee || 0)
+              : Number(form.shares) * Number(form.price) - Number(form.fee || 0) - Number(form.tax || 0)))}</span>
+          </div>
+        )}
+        <MissingHint missing={[!form.symbol && "代號", !form.shares && "股數", !form.price && "成交價"].filter(Boolean)} />
+        <AddButton onClick={add} label="新增交易" disabled={!form.symbol || !form.shares || !form.price} />
       </Panel>
 
       <Panel title={M(`Trades (${filtered.length}${q ? ` / ${trades.length} total` : ""})`, `交易紀錄（${filtered.length}${q ? ` / 共${trades.length}` : ""}）`)}>
@@ -6647,6 +6749,21 @@ function TradesPanel({ trades, setTrades, holdings, costBasis, setCostBasis, acc
           {filtered.length === 0 && <Empty text={q ? "查無符合的交易紀錄" : "尚無交易紀錄"} />}
         </div>
       </Panel>
+
+      {/* 成本追蹤是設定一次的東西，放在最下面，不擋住每天的「新增交易」 */}
+      {costBasis && (
+        <Panel title="成本追蹤">
+          <Field label="起始成本（交易紀錄開始追蹤之前，已經投入的成本）">
+            <input type="number" value={costBasis.startingCost}
+              onChange={(e) => setCostBasis({ ...costBasis, startingCost: Number(e.target.value || 0) })}
+              className="input" />
+          </Field>
+          <div className="flex justify-between items-baseline mt-3 text-sm mono">
+            <span style={{ color: COLORS.sub }}><UiLabel zh="目前累積成本（起始成本 + 全部買賣紀錄）" /></span>
+            <span className="font-bold" style={{ color: COLORS.gold }}>NT$ {nf(accumulatedCost)}</span>
+          </div>
+        </Panel>
+      )}
     </div>
   );
 }
@@ -6918,7 +7035,8 @@ function DividendsPanel({ dividends, setDividends, holdings }) {
           }><input type="number" step="0.01" value={form.perShare}
             onChange={(e) => setForm({ ...form, perShare: e.target.value })} className="input" /></Field>
         </div>
-        <AddButton onClick={add} label="新增配息紀錄" />
+        <MissingHint missing={[!form.symbol && "代號", !form.shares && "股數", !form.perShare && "每股配息"].filter(Boolean)} />
+        <AddButton onClick={add} label="新增配息紀錄" disabled={!form.symbol || !form.shares || !form.perShare} />
       </Panel>
 
       <DividendHistoryChart dividends={dividends} />
@@ -7032,7 +7150,8 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
               onChange={(e) => setForm({ ...form, note: e.target.value })} className="input" /></Field>
           </div>
         </div>
-        <AddButton onClick={add} label="新增項目" />
+        <MissingHint missing={[!form.symbol && "代號", !form.amount && "月投入金額"].filter(Boolean)} />
+        <AddButton onClick={add} label="新增項目" disabled={!form.symbol || !form.amount} />
       </Panel>
 
       {healthCards.length > 0 && (
@@ -7313,10 +7432,19 @@ function Field({ label, children }) {
     </label>
   );
 }
-function AddButton({ onClick, label }) {
+// 新增表單共用：還沒填齊時按鈕變淡，並在下面直接說還差哪幾格，不會「按了沒反應」。
+function MissingHint({ missing }) {
+  if (!missing || !missing.length) return null;
   return (
-    <button onClick={onClick} className="premium-add-button mt-3 w-full flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-bold"
-      style={{ background: COLORS.gold, color: "#0A0F1C" }}>
+    <div className="text-[11px] mt-2" style={{ color: COLORS.sub }} aria-live="polite">
+      {UI_SHOW_ENGLISH ? "Still needed: " : "還差："}{missing.map((m) => uiText(m)).join("、")}
+    </div>
+  );
+}
+function AddButton({ onClick, label, disabled = false }) {
+  return (
+    <button onClick={onClick} disabled={disabled} className="premium-add-button mt-3 w-full flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-bold"
+      style={{ background: COLORS.gold, color: "#0A0F1C", opacity: disabled ? 0.45 : 1 }}>
       <Plus size={16} /> <UiLabel zh={label} inline />
     </button>
   );
