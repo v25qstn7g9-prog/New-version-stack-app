@@ -107,8 +107,10 @@
   // functions/intraday.js 每分鐘取樣 4 次（每 15 秒）存成當天 1 分鐘 K，給 MCP intraday_bars 用。
   // 字串必須和 functions/intraday.js 的 INTRADAY_CRON 完全一致。
   // 每天約 271 次 KV 寫入（共用帳號的每日額度有限）；程式內只在 09:00–13:45 才真的寫入。
+  // "0 6 * * MON-FRI" = 台北 14:00：每日資產自動記帳（functions/auto-daily.js 的 AUTO_DAILY_CRON，字串必須一致）；
+  // 每個同步帳號每天最多 1 次 KV 寫入。13:36／13:45 的 LINE 提醒掛在上面的盤中 cron 裡，不另開 cron。
   "triggers": {
-    "crons": ["0 0 * * *", "* 1-5 * * MON-FRI"]
+    "crons": ["0 0 * * *", "* 1-5 * * MON-FRI", "0 6 * * MON-FRI"]
   },
 
   // ============================================
@@ -158,7 +160,7 @@
       },
       "triggers": {
         // 每天一次健康檢查（UTC 午夜）＋ 台股盤中每分鐘分時取樣（見上方 triggers 說明）
-        "crons": ["0 0 * * *", "* 1-5 * * MON-FRI"]
+        "crons": ["0 0 * * *", "* 1-5 * * MON-FRI", "0 6 * * MON-FRI"]
       }
     }
   }
