@@ -86,6 +86,8 @@ import {
 import { handlePreparedAssetMcp } from "./functions/ai-connector-prepared.js";
 import { INTRADAY_CRON, recordIntradayMinute, archiveIntradayDay, readIntradayHealth, noteIntradayRun } from "./functions/intraday.js";
 import { AUTO_DAILY_CRON, runAutoDaily, runDailyReminder, onRequestGet as autoDailyGetHandler } from "./functions/auto-daily.js";
+import { onRequestGet as closesGetHandler } from "./functions/closes.js";
+import { onRequestPush as pushHandler, runPushRound } from "./functions/push.js";
 import { adminTokenMatches, bearerToken, writeAllowed } from "./functions/request-guard.js";
 import { isKnownSyncToken } from "./functions/portfolio-sync.js";
 import { handleAssetOAuth, verifyAssetAccessToken, readAssetMcpSyncToken } from "./functions/asset-mcp-oauth.js";
@@ -125,11 +127,16 @@ const API_METHODS = new Map([
   ["/api/auto-daily", ["GET"]],
   ["/api/owner-status", ["GET"]],
   ["/api/system-stats", ["GET"]],
+  ["/api/closes", ["GET"]],
+  ["/api/push/key", ["GET"]],
+  ["/api/push/subscribe", ["POST"]],
+  ["/api/push/unsubscribe", ["POST"]],
   ["/api/pending-trades", ["GET", "POST"]],
   ["/api/pending-trades/resolve", ["POST"]],
 ]);
 
-const WRITE_PATHS = new Set(["/api/portfolio-sync", "/api/pending-trades", "/api/pending-trades/resolve", "/api/health-cards"]);
+const PUSH_PATHS = new Set(["/api/push/key", "/api/push/subscribe", "/api/push/unsubscribe"]);
+const WRITE_PATHS = new Set(["/api/push/subscribe", "/api/push/unsubscribe", "/api/portfolio-sync", "/api/pending-trades", "/api/pending-trades/resolve", "/api/health-cards"]);
 
 export default {
   async fetch(request, env, ctx) {
@@ -248,6 +255,12 @@ export default {
     if (url.pathname === "/api/auto-daily" && request.method === "GET") {
       return autoDailyGetHandler({ request, env, ctx });
     }
+    if (url.pathname === "/api/closes" && request.method === "GET") {
+      return closesGetHandler({ request, env, ctx });
+    }
+    if (PUSH_PATHS.has(url.pathname)) {
+      return pushHandler({ request, env, ctx });
+    }
     if (url.pathname === "/api/pending-trades" && request.method === "GET") {
       return pendingTradesGetHandler({ request, env, ctx });
     }
@@ -300,12 +313,18 @@ export default {
         }
         // 13:36、13:45 記帳提醒（只在那兩分鐘真的動作；沒設定 LINE 就跳過）
         try { await runDailyReminder(env); } catch (e) { console.warn("daily reminder failed", e?.message || e); }
+        // 13:45 網頁推播（只在那一分鐘動作；休市日不發）
+        try { await runPushRound(env); } catch (e) { console.warn("push round failed", e?.message || e); }
       })());
       return;
     }
     if (event && event.cron === AUTO_DAILY_CRON) {
       // 14:00 用收盤價自動記錄還沒記的今天（休市日、報價不完整都不記）
-      ctx.waitUntil(runAutoDaily(env).catch((e) => console.warn("auto daily failed", e?.message || e)));
+      ctx.waitUntil((async () => {
+        await runAutoDaily(env).catch((e) => console.warn("auto daily failed", e?.message || e));
+        // 14:00 再推一次，讓手機上的 Service Worker 用本機資料自動記錄
+        await runPushRound(env, { force: true }).catch((e) => console.warn("push round failed", e?.message || e));
+      })());
       return;
     }
     ctx.waitUntil((async () => {
