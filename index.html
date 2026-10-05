@@ -5480,8 +5480,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
   }, [chartData, chartRangeId]);
   return (
     <div className="space-y-2 premium-dashboard">
-      <NewsCarousel holdings={holdings} />
-
+      {/* 總覽順序依使用習慣：先看總資產 → 今天的即時股價 → 今天的分析（趨勢雷達、新聞、收盤報告）→ 歷史曲線 → 進階分析。 */}
       <div className="rounded-2xl p-4 premium-asset-hero" style={{
         background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`,
         boxShadow: "0 4px 16px rgba(0,0,0,0.28)",
@@ -5514,86 +5513,9 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
             </div>
           </div>
         )}
-
-        {chartData.length > 1 && (
-          <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-xs" style={{ color: COLORS.sub }}><UiLabel zh="資產曲線" /></div>
-              <div className="flex rounded-lg p-0.5" role="tablist"
-                style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
-                {CHART_RANGES.map((r) => {
-                  const active = chartRangeId === r.id;
-                  return (
-                    <button key={r.id} onClick={() => setChartRangeId(r.id)} role="tab" aria-selected={active}
-                      className="rounded-md px-2 py-1 text-[10px] font-bold whitespace-nowrap"
-                      style={{
-                        background: active ? "rgba(201,162,75,0.18)" : "transparent",
-                        color: active ? COLORS.gold : COLORS.sub,
-                      }}>
-                      <UiLabel zh={r.label} />
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-            <div style={{ height: 180 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={rangedChartData} margin={{ top: 6, right: 4, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="assetCurveFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={COLORS.gold} stopOpacity={0.28} />
-                      <stop offset="100%" stopColor={COLORS.gold} stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid stroke={COLORS.panelBorder} strokeDasharray="3 3" vertical={false} strokeOpacity={0.7} />
-                  <XAxis dataKey="t" type="number" domain={["dataMin", "dataMax"]} axisLine={false} tickLine={false}
-                    tick={{ fontSize: 9, fill: COLORS.sub }}
-                    ticks={pickEvenTimeTicks(rangedChartData, "t", 6)} tickFormatter={formatTickDate} />
-                  {/* Fit the axis to the data instead of starting at 0 — a
-                      line shows change, and a zero baseline flattened a
-                      108–119萬 range into a straight line at the top. */}
-                  <YAxis tick={{ fontSize: 9, fill: COLORS.sub }} domain={["auto", "auto"]} axisLine={false} tickLine={false}
-                    tickFormatter={(v) => {
-                      const unit = UI_SHOW_ENGLISH ? 1000 : 10000;
-                      const n = v / unit;
-                      return `${Number.isInteger(n) ? n : n.toFixed(1)}${UI_SHOW_ENGLISH ? "K" : "萬"}`;
-                    }} width={44} />
-                  <Tooltip
-                    labelFormatter={formatTickDate}
-                    contentStyle={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, fontSize: 12 }}
-                    cursor={{ stroke: COLORS.sub, strokeDasharray: "3 3" }}
-                    formatter={(v) => [`NT$ ${nf(v)}`, uiText("總資產")]} />
-                  <ReferenceLine y={goal.targetAmount} stroke={COLORS.gold} strokeDasharray="4 4" />
-                  <Area type="monotone" dataKey="total" stroke={COLORS.gold} strokeWidth={2} fill="url(#assetCurveFill)"
-                    dot={false} activeDot={{ r: 4, fill: COLORS.gold, stroke: COLORS.panel, strokeWidth: 2 }} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-  
-            <div className="grid grid-cols-2 gap-3 mt-2.5 pt-2.5" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
-              <div className="min-w-0">
-                <div className="text-[10px]" style={{ color: COLORS.sub }}><UiLabel zh="資產高點" /></div>
-                <div className="text-xs mono mt-1" style={{ color: COLORS.text }}>
-                  {highPoint.date || "—"}
-                </div>
-                <div className="text-sm font-bold mono mt-0.5 truncate" style={{ color: COLORS.gold }}>
-                  NT$ {nf(highPoint.value === -Infinity ? 0 : highPoint.value)}
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="text-[10px]" style={{ color: COLORS.sub }}><UiLabel zh="目前回撤" /></div>
-                <div className="text-lg font-black mono mt-1.5" style={{ color: drawdown < 0 ? COLORS.loss : COLORS.text }}>
-                  {pf(drawdown)}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
 
       <LivePricePanel holdings={holdings} onFillDailyTw={onFillDailyTw} yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue} hasUsAssets={hasUsAssets} />
-
-
 
       <DashboardCollapsibleSection
         storageKey="dashboardTrendRadarOpen"
@@ -5603,7 +5525,85 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
         <TrendRadar holdings={holdings} embedded />
       </DashboardCollapsibleSection>
 
+      <NewsCarousel holdings={holdings} />
+
       <DailyClosingAiReport holdings={holdings} dailyRecords={dailyRecords} />
+
+      {/* 歷史放在今天之後：資產曲線、高點與回撤 */}
+      {chartData.length > 1 && (
+      <div className="rounded-2xl p-4" style={{ background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`, boxShadow: "0 4px 16px rgba(0,0,0,0.28)" }}>
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-xs" style={{ color: COLORS.sub }}><UiLabel zh="資產曲線" /></div>
+            <div className="flex rounded-lg p-0.5" role="tablist"
+              style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
+              {CHART_RANGES.map((r) => {
+                const active = chartRangeId === r.id;
+                return (
+                  <button key={r.id} onClick={() => setChartRangeId(r.id)} role="tab" aria-selected={active}
+                    className="rounded-md px-2 py-1 text-[10px] font-bold whitespace-nowrap"
+                    style={{
+                      background: active ? "rgba(201,162,75,0.18)" : "transparent",
+                      color: active ? COLORS.gold : COLORS.sub,
+                    }}>
+                    <UiLabel zh={r.label} />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div style={{ height: 180 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={rangedChartData} margin={{ top: 6, right: 4, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="assetCurveFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={COLORS.gold} stopOpacity={0.28} />
+                    <stop offset="100%" stopColor={COLORS.gold} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke={COLORS.panelBorder} strokeDasharray="3 3" vertical={false} strokeOpacity={0.7} />
+                <XAxis dataKey="t" type="number" domain={["dataMin", "dataMax"]} axisLine={false} tickLine={false}
+                  tick={{ fontSize: 9, fill: COLORS.sub }}
+                  ticks={pickEvenTimeTicks(rangedChartData, "t", 6)} tickFormatter={formatTickDate} />
+                {/* Fit the axis to the data instead of starting at 0 — a
+                    line shows change, and a zero baseline flattened a
+                    108–119萬 range into a straight line at the top. */}
+                <YAxis tick={{ fontSize: 9, fill: COLORS.sub }} domain={["auto", "auto"]} axisLine={false} tickLine={false}
+                  tickFormatter={(v) => {
+                    const unit = UI_SHOW_ENGLISH ? 1000 : 10000;
+                    const n = v / unit;
+                    return `${Number.isInteger(n) ? n : n.toFixed(1)}${UI_SHOW_ENGLISH ? "K" : "萬"}`;
+                  }} width={44} />
+                <Tooltip
+                  labelFormatter={formatTickDate}
+                  contentStyle={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, fontSize: 12 }}
+                  cursor={{ stroke: COLORS.sub, strokeDasharray: "3 3" }}
+                  formatter={(v) => [`NT$ ${nf(v)}`, uiText("總資產")]} />
+                <ReferenceLine y={goal.targetAmount} stroke={COLORS.gold} strokeDasharray="4 4" />
+                <Area type="monotone" dataKey="total" stroke={COLORS.gold} strokeWidth={2} fill="url(#assetCurveFill)"
+                  dot={false} activeDot={{ r: 4, fill: COLORS.gold, stroke: COLORS.panel, strokeWidth: 2 }} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 mt-2.5 pt-2.5" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
+            <div className="min-w-0">
+              <div className="text-[10px]" style={{ color: COLORS.sub }}><UiLabel zh="資產高點" /></div>
+              <div className="text-xs mono mt-1" style={{ color: COLORS.text }}>
+                {highPoint.date || "—"}
+              </div>
+              <div className="text-sm font-bold mono mt-0.5 truncate" style={{ color: COLORS.gold }}>
+                NT$ {nf(highPoint.value === -Infinity ? 0 : highPoint.value)}
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-[10px]" style={{ color: COLORS.sub }}><UiLabel zh="目前回撤" /></div>
+              <div className="text-lg font-black mono mt-1.5" style={{ color: drawdown < 0 ? COLORS.loss : COLORS.text }}>
+                {pf(drawdown)}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <DashboardCollapsibleSection
         storageKey="dashboardAdvancedPerformanceOpen"
