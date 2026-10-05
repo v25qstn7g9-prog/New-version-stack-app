@@ -371,7 +371,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.46.2-closing-report-acceptance";
+const APP_VERSION = "4.7-personal-advisor-v2.46.3-goal-asset-hero";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -5605,6 +5605,27 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
           </div>
         )}
 
+        {/* 目標進度併入總資產 Hero：資產數字 → 目標 → 曲線，同一張卡一次看完。 */}
+        {goal?.targetAmount > 0 && (() => {
+          const remain = Math.max(0, goal.targetAmount - totalToday);
+          const pct = Math.min(100, (totalToday / goal.targetAmount) * 100);
+          return (
+            <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
+              <div className="flex items-baseline justify-between gap-2 text-[11px] mono">
+                <span style={{ color: COLORS.sub }}>{UI_SHOW_ENGLISH ? "Goal" : "目標"} {goal.targetYear} · NT$ {nf(goal.targetAmount)}</span>
+                <span className="font-bold" style={{ color: COLORS.gold }}>{UI_SHOW_ENGLISH ? `${pct.toFixed(1)}% done` : `已達成 ${pct.toFixed(1)}%`}</span>
+              </div>
+              <div className="mt-1.5 h-1.5 rounded-full overflow-hidden" style={{ background: COLORS.bg }}>
+                <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: COLORS.gold }} />
+              </div>
+              <div className="mt-1.5 flex items-baseline justify-between gap-2 text-[11px] mono" style={{ color: COLORS.sub }}>
+                <span>{UI_SHOW_ENGLISH ? `NT$ ${nf(remain)} to go` : `距目標 NT$ ${nf(remain)}`}</span>
+                {goalDate && <span style={{ color: COLORS.gold }}>{UI_SHOW_ENGLISH ? `Est. ${goalDate}` : `預計 ${goalDate} 達成`}</span>}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* 走勢圖直接接在總資產下面（付費 App 的做法：數字和曲線一起看） */}
         {chartData.length > 1 && (
           <div className="mt-3">
@@ -5718,8 +5739,6 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
 
       <DailyClosingAiReport holdings={holdings} dailyRecords={dailyRecords} />
 
-
-      <GoalProgressCard goal={goal} totalToday={totalToday} goalDate={goalDate} />
 
       <DashboardCollapsibleSection
         storageKey="dashboardAdvancedPerformanceOpen"
