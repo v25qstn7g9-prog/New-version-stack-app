@@ -21,7 +21,8 @@
  */
 
 const SYMBOL_PATTERN = /^[0-9]{4,6}[A-Z]?$/;
-const QUOTE_VERSION = "4.7-quote-schedule-5-high-low-overnight-fix";
+const US_SYMBOL_PATTERN = /^[A-Z][A-Z0-9.-]{0,9}$/;
+const QUOTE_VERSION = "4.7-quote-schedule-6-us-live";
 const QUOTE_REFRESH_INTERVAL_MS = 15 * 1000;
 const QUOTE_AUTO_STOP_HOUR = 13;
 const QUOTE_AUTO_STOP_MINUTE = 45;
@@ -37,8 +38,16 @@ function isGlobalSymbol(s) {
   return Object.prototype.hasOwnProperty.call(GLOBAL_SYMBOLS, s);
 }
 
+function isTwListedSymbol(s) {
+  return SYMBOL_PATTERN.test(s);
+}
+
+function isUsEquitySymbol(s) {
+  return US_SYMBOL_PATTERN.test(s) && !isGlobalSymbol(s) && s !== "TAIEX";
+}
+
 function isAllowedSymbol(s) {
-  return s === "TAIEX" || isGlobalSymbol(s) || SYMBOL_PATTERN.test(s);
+  return s === "TAIEX" || isGlobalSymbol(s) || isTwListedSymbol(s) || isUsEquitySymbol(s);
 }
 
 function shouldAutoStopQuoteRequests(now = new Date()) {
@@ -109,6 +118,28 @@ function isTaiwanTradingHours(d = new Date()) {
   if (day === 0 || day === 6) return false;
   const minutes = t.getUTCHours() * 60 + t.getUTCMinutes();
   return minutes >= 9 * 60 && minutes <= 13 * 60 + 45;
+}
+
+function isUsRegularTradingHours(d = new Date()) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      weekday: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(d);
+    const get = (type) => parts.find((p) => p.type === type)?.value;
+    const weekday = get("weekday");
+    if (weekday === "Sat" || weekday === "Sun") return false;
+    const hour = Number(get("hour"));
+    const minute = Number(get("minute"));
+    if (!Number.isFinite(hour) || !Number.isFinite(minute)) return false;
+    const mins = hour * 60 + minute;
+    return mins >= 9 * 60 + 30 && mins <= 16 * 60 + 5;
+  } catch {
+    return false;
+  }
 }
 
 async function fetchJson(url, timeoutMs = 7000) {
@@ -331,6 +362,89 @@ async function fetchGlobalDailyQuote(symbol) {
   };
 }
 
+async function fetchYahooUsPrice(symbol) {
+  const encoded = encodeURIComponent(symbol);
+  const intradayUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?interval=1m&range=1d&includePrePost=true&_ts=${Date.now()}`;
+  const dailyUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?interval=1d&range=5d&_ts=${Date.now()}`;
+
+  const [intradayResult, dailyResult] = await Promise.allSettled([
+    fetchJson(intradayUrl, 6500),
+    fetchJson(dailyUrl, 6500),
+  ]);
+
+  let price = null;
+  let high = null;
+  let low = null;
+  let priceAsOf = null;
+  let latestTs = null;
+  let meta = {};
+
+  if (intradayResult.status === "fulfilled") {
+    const r = intradayResult.value?.chart?.result?.[0];
+    meta = r?.meta || {};
+    const timestamps = Array.isArray(r?.timestamp) ? r.timestamp : [];
+    const quote = r?.indicators?.quote?.[0] || {};
+    const closes = quote.close || [];
+    const highs = (quote.high || []).map(Number).filter((v) => Number.isFinite(v) && v > 0);
+    const lows = (quote.low || []).map(Number).filter((v) => Number.isFinite(v) && v > 0);
+    if (highs.length) high = Math.max(...highs);
+    if (lows.length) low = Math.min(...lows);
+
+    for (let i = Math.min(timestamps.length, closes.length) - 1; i >= 0; i--) {
+      const c = Number(closes[i]);
+      const ts = Number(timestamps[i]);
+      if (Number.isFinite(c) && c > 0 && Number.isFinite(ts)) {
+        price = c;
+        latestTs = ts;
+        priceAsOf = new Date(ts * 1000).toISOString();
+        break;
+      }
+    }
+
+    const metaPrice = Number(meta.regularMarketPrice);
+    const metaTs = Number(meta.regularMarketTime);
+    if (Number.isFinite(metaPrice) && metaPrice > 0 && Number.isFinite(metaTs) && (!latestTs || metaTs >= latestTs)) {
+      price = metaPrice;
+      latestTs = metaTs;
+      priceAsOf = new Date(metaTs * 1000).toISOString();
+    }
+  }
+
+  let prevClose = Number(meta.regularMarketPreviousClose ?? meta.chartPreviousClose);
+  if (dailyResult.status === "fulfilled") {
+    const r = dailyResult.value?.chart?.result?.[0];
+    const dMeta = r?.meta || {};
+    const closes = (r?.indicators?.quote?.[0]?.close || []).map(Number).filter((v) => Number.isFinite(v) && v > 0);
+    if (!(Number.isFinite(prevClose) && prevClose > 0)) {
+      prevClose = Number(dMeta.regularMarketPreviousClose ?? dMeta.chartPreviousClose);
+    }
+    if (!(Number.isFinite(prevClose) && prevClose > 0) && closes.length >= 2) {
+      prevClose = closes[closes.length - 2];
+    }
+    if (!(Number.isFinite(price) && price > 0) && closes.length) {
+      price = closes[closes.length - 1];
+    }
+  }
+
+  if (!(Number.isFinite(price) && price > 0)) throw new Error("Yahoo US no price");
+
+  const marketOpen = isUsRegularTradingHours();
+  const ageMs = latestTs ? Date.now() - latestTs * 1000 : Infinity;
+  const intradayFresh = !marketOpen || ageMs < 20 * 60 * 1000;
+
+  return {
+    price,
+    prevClose: Number.isFinite(prevClose) && prevClose > 0 ? prevClose : null,
+    high: Number.isFinite(high) ? high : null,
+    low: Number.isFinite(low) ? low : null,
+    asOfDate: priceAsOf,
+    source: "Yahoo-US",
+    intradayFresh,
+    isUS: true,
+    marketOpen,
+  };
+}
+
 async function fetchYahooPrice(symbol) {
   if (isGlobalSymbol(symbol)) return fetchGlobalDailyQuote(symbol);
   const yahooSymbol = symbol === "TAIEX"
@@ -491,7 +605,8 @@ export async function onRequestGet(context) {
       return jsonResponse({ ...cachedQuick, fromCache: true, version: QUOTE_VERSION });
     }
 
-    if (!forceRefresh && shouldAutoStopQuoteRequests()) {
+    const hasUsEquities = symbols.some(isUsEquitySymbol);
+    if (!forceRefresh && !hasUsEquities && shouldAutoStopQuoteRequests()) {
       if (cachedQuick) {
         return jsonResponse({ ...cachedQuick, fromCache: true, stale: true, autoStopped: true, version: QUOTE_VERSION });
       }
@@ -506,7 +621,7 @@ export async function onRequestGet(context) {
 
     const quotes = {};
     const errors = [];
-    const twseSymbols = symbols.filter((s) => !isGlobalSymbol(s));
+    const twseSymbols = symbols.filter((s) => s === "TAIEX" || isTwListedSymbol(s));
 
     if (twseSymbols.length) {
       try {
@@ -554,7 +669,7 @@ export async function onRequestGet(context) {
     const needPrice = symbols.filter((s) => !quotes[s] || quotes[s].price == null || !Number.isFinite(quotes[s].price));
 
     if (needPrice.length) {
-      const results = await Promise.allSettled(needPrice.map(fetchYahooPrice));
+      const results = await Promise.allSettled(needPrice.map((sym) => isUsEquitySymbol(sym) ? fetchYahooUsPrice(sym) : fetchYahooPrice(sym)));
 
       results.forEach((result, i) => {
         const symbol = needPrice[i];
@@ -573,24 +688,32 @@ export async function onRequestGet(context) {
         const yq = result.value;
 
         if (quotes[symbol] && Number.isFinite(quotes[symbol].prevClose)) {
+          const relevantMarketOpen = yq.isUS ? isUsRegularTradingHours() : isTaiwanTradingHours();
           quotes[symbol] = {
             price: yq.price,
             prevClose: quotes[symbol].prevClose,
-            isStale: !yq.intradayFresh && isTaiwanTradingHours(),
+            high: yq.high ?? quotes[symbol].high ?? null,
+            low: yq.low ?? quotes[symbol].low ?? null,
+            isStale: !yq.intradayFresh && relevantMarketOpen,
             asOfDate: yq.asOfDate,
-            source: quotes[symbol].source === "cache" ? "cache+Yahoo" : "TWSE+Yahoo",
+            source: yq.isUS ? "cache+Yahoo-US" : (quotes[symbol].source === "cache" ? "cache+Yahoo" : "TWSE+Yahoo"),
             priceSource: "yahoo",
+            isUS: Boolean(yq.isUS),
           };
         } else {
           const yahooPrev = Number.isFinite(yq.prevClose) && yq.prevClose > 0 ? yq.prevClose : yq.price;
 
+          const relevantMarketOpen = yq.isUS ? isUsRegularTradingHours() : isTaiwanTradingHours();
           quotes[symbol] = {
             price: yq.price,
             prevClose: yahooPrev,
-            isStale: (!yq.intradayFresh && isTaiwanTradingHours()) || !Number.isFinite(yq.prevClose) || yq.prevClose <= 0,
+            high: yq.high ?? null,
+            low: yq.low ?? null,
+            isStale: (!yq.intradayFresh && relevantMarketOpen) || !Number.isFinite(yq.prevClose) || yq.prevClose <= 0,
             asOfDate: yq.asOfDate,
-            source: "Yahoo",
+            source: yq.isUS ? "Yahoo-US" : "Yahoo",
             priceSource: "yahoo",
+            isUS: Boolean(yq.isUS),
             warning: Number.isFinite(yq.prevClose) && yq.prevClose > 0 ? undefined : "no_prevClose_available",
           };
         }
