@@ -722,6 +722,9 @@ const UI_EN = {
   "目前報價不完整：已禁止把部分市值寫入每日紀錄": "Quotes incomplete; partial value cannot be saved.",
   "請先到「持股進度」新增持股並填入股數，才能抓取即時股價": "Add holdings and share counts in Holdings first to fetch live quotes.",
   "高": "High",
+  "代號／佔比": "Symbol / Weight",
+  "累積報酬": "Total Return",
+  "目標進度": "Goal Progress",
   "在高點": "At high",
   "回撤": "Drawdown",
   "高／低・昨收": "High / Low · Prev",
@@ -2647,7 +2650,7 @@ function AssetTracker() {
                     usTotalReturn={usTotalReturn} usTotalReturnPct={usTotalReturnPct} hasUsAssets={hasUsAssets}
                     highPoint={highPoint} drawdown={drawdown}
                     ytdGain={ytdGain} ytdPct={ytdPct}
-                    chartData={chartData} goal={goal} totalInvested={totalInvested}
+                    chartData={chartData} goal={goal} goalDate={goalDate} totalInvested={totalInvested}
                     holdings={holdingsWithShares} dailyRecords={sortedDaily} dividends={dividends}
                     yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue}
                     onFillDailyTw={(value) => { setDailyPrefill({ twValue: value, nonce: Date.now() }); goToTab("daily"); }}
@@ -2825,8 +2828,6 @@ function PendingTradesBanner({ trades, onApply, onDismiss, showEnglish }) {
 
 // ---------------- Header ----------------
 function Header({ goal, totalToday, goalDate, backupOverdue, backupAgeDays, showEnglish, onToggleBilingual }) {
-  const remain = Math.max(0, goal.targetAmount - totalToday);
-  const pct = Math.min(100, (totalToday / goal.targetAmount) * 100);
   return (
     <div
       className="px-4 pb-3"
@@ -2850,17 +2851,6 @@ function Header({ goal, totalToday, goalDate, backupOverdue, backupAgeDays, show
             style={{ color: COLORS.gold, border: "1px solid rgba(201,162,75,0.75)", background: "rgba(201,162,75,0.08)" }}>
             {showEnglish ? "EN / 中" : "中 / EN"}
           </button>
-        </div>
-        <div className="mt-2 flex items-baseline justify-between gap-2 text-[11px] mono" style={{ color: COLORS.sub }}>
-          <span>{showEnglish ? "Goal" : "目標"} {goal.targetYear} · NT$ {nf(goal.targetAmount)}</span>
-          <span className="font-bold" style={{ color: COLORS.gold }}>{showEnglish ? `${pct.toFixed(1)}% done` : `已達成 ${pct.toFixed(1)}%`}</span>
-        </div>
-        <div className="mt-1 h-1.5 rounded-full overflow-hidden" style={{ background: COLORS.panel }}>
-          <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: COLORS.gold }} />
-        </div>
-        <div className="mt-1 flex items-baseline justify-between gap-2 text-[11px] mono" style={{ color: COLORS.sub }}>
-          <span>{showEnglish ? `NT$ ${nf(remain)} to go` : `距目標 NT$ ${nf(remain)}`}</span>
-          {goalDate && <span style={{ color: COLORS.gold }}>{showEnglish ? `Est. ${goalDate}` : `預計 ${goalDate} 達成`}</span>}
         </div>
         {backupOverdue && (
           <div className="mt-2 rounded-lg px-2.5 py-1.5 text-[10px] font-bold"
@@ -3384,15 +3374,53 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
 
       {hasLive && (
         <div>
+          {/* 大盤放最上面：先知道今天是大盤帶動還是自己選股 */}
+          {hasMarketIndex && (
+            <div className="mb-2 pb-2" style={{ borderBottom: `1px solid ${COLORS.panelBorder}` }}>
+              <div className="flex justify-between items-baseline gap-2 text-[11px] mono">
+                <span style={{ color: COLORS.sub }}><UiLabel zh="加權指數" /></span>
+                <span style={{ color: indexChange >= 0 ? COLORS.gain : COLORS.loss }}>
+                  {nf(Math.round(indexPrice))}　{indexChange >= 0 ? "▲" : "▼"} {indexChangePct >= 0 ? "+" : ""}{indexChangePct.toFixed(2)}%
+                </span>
+              </div>
+              <div className="flex justify-between items-baseline gap-2 text-[10px] mono mt-0.5" style={{ color: COLORS.sub }}>
+                <span>
+                  {Number.isFinite(Number(marketIndex?.high))&&Number.isFinite(Number(marketIndex?.low))
+                    ? (UI_SHOW_ENGLISH
+                      ? <>High {nf(Math.round(Number(marketIndex.high)))} | Low {nf(Math.round(Number(marketIndex.low)))}</>
+                      : <>高 {nf(Math.round(Number(marketIndex.high)))}｜低 {nf(Math.round(Number(marketIndex.low)))}</>)
+                    : null}
+                </span>
+                {vsMarketPct != null && (
+                  <span style={{ color: vsMarketPct >= 0 ? COLORS.gain : COLORS.loss }}>
+                    <UiLabel zh={vsMarketPct >= 0 ? "贏大盤" : "輸大盤"} inline /> {vsMarketPct >= 0 ? "+" : ""}{vsMarketPct.toFixed(2)}%
+                  </span>
+                )}
+              </div>
+              {indexPrevCloseOk && (
+                <div className="flex justify-between items-baseline gap-2 text-[10px] mono mt-0.5">
+                  <span style={{ color: COLORS.sub }}><UiLabel zh="昨收" inline /> {fmt2(indexPrevClose)}</span>
+                  <span style={{ color: indexChange >= 0 ? COLORS.gain : COLORS.loss }}>
+                    <UiLabel zh="漲跌" inline /> {indexChange >= 0 ? "+" : "−"}{fmt2(Math.abs(indexChange))} <UiLabel zh="點" inline />
+                  </span>
+                </div>
+              )}
+              <div className="h-[22px] mt-1 opacity-80">
+                <SessionSparkline points={indexSpark} baseline={indexPrevClose} width={300} height={22} tone={indexChange>=0?COLORS.gain:COLORS.loss} />
+              </div>
+            </div>
+          )}
           <div className="grid grid-cols-[30px_94px_108px_minmax(0,1fr)] gap-1 text-[10px] pb-1.5 mb-1.5 items-center" style={{ color: COLORS.sub, borderBottom: `1px solid ${COLORS.panelBorder}` }}>
-            <span><UiLabel zh="代號" /></span><span><UiLabel zh="高／低・昨收" /></span><span className="text-right"><UiLabel zh="股價／漲跌幅" /></span><span className="text-right"><UiLabel zh="市值／今日損益" /></span>
+            <span><UiLabel zh="代號／佔比" /></span><span><UiLabel zh="高／低・昨收" /></span><span className="text-right"><UiLabel zh="股價／漲跌幅" /></span><span className="text-right"><UiLabel zh="市值／今日損益" /></span>
           </div>
           <div className="space-y-1 max-h-64 overflow-y-auto">
-            {rows.map((r) => (
+            {[...rows].sort((x, y) => y.value - x.value).map((r) => (
               <div key={r.id}>
                 <div className="py-0.5">
                   <div className="grid grid-cols-[30px_94px_108px_minmax(0,1fr)] grid-rows-[18px_18px_18px] gap-x-1 text-xs mono items-center">
                     <span className="row-start-1 col-start-1" style={{ color: COLORS.sub }}>{r.symbol}</span>
+                    {/* 佔比：這檔市值佔目前台股市值的比例 */}
+                    <span className="row-start-2 col-start-1 whitespace-nowrap leading-none" style={{ color: COLORS.sub }}>{totalValue > 0 ? `${Math.round((r.value / totalValue) * 100)}%` : ""}</span>
 
                     {/* 第一行：高／低同一行；第二行：昨收，和右邊的漲跌價差／幅度對齊。 */}
                     <span className="row-start-1 col-start-2 whitespace-nowrap leading-none" style={{color:COLORS.sub}}>
@@ -3464,41 +3492,6 @@ function LivePricePanel({ holdings, onFillDailyTw, yesterdayTwValue, yesterdayUs
             </div>
           </div>
 
-          {hasMarketIndex && (
-            <div className="mt-2 pt-2" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
-              <div className="flex justify-between items-baseline gap-2 text-[11px] mono">
-                <span style={{ color: COLORS.sub }}><UiLabel zh="加權指數" /></span>
-                <span style={{ color: indexChange >= 0 ? COLORS.gain : COLORS.loss }}>
-                  {nf(Math.round(indexPrice))}　{indexChange >= 0 ? "▲" : "▼"} {indexChangePct >= 0 ? "+" : ""}{indexChangePct.toFixed(2)}%
-                </span>
-              </div>
-              <div className="flex justify-between items-baseline gap-2 text-[10px] mono mt-0.5" style={{ color: COLORS.sub }}>
-                <span>
-                  {Number.isFinite(Number(marketIndex?.high))&&Number.isFinite(Number(marketIndex?.low))
-                    ? (UI_SHOW_ENGLISH
-                      ? <>High {nf(Math.round(Number(marketIndex.high)))} | Low {nf(Math.round(Number(marketIndex.low)))}</>
-                      : <>高 {nf(Math.round(Number(marketIndex.high)))}｜低 {nf(Math.round(Number(marketIndex.low)))}</>)
-                    : null}
-                </span>
-                {vsMarketPct != null && (
-                  <span style={{ color: vsMarketPct >= 0 ? COLORS.gain : COLORS.loss }}>
-                    <UiLabel zh={vsMarketPct >= 0 ? "贏大盤" : "輸大盤"} inline /> {vsMarketPct >= 0 ? "+" : ""}{vsMarketPct.toFixed(2)}%
-                  </span>
-                )}
-              </div>
-              {indexPrevCloseOk && (
-                <div className="flex justify-between items-baseline gap-2 text-[10px] mono mt-0.5">
-                  <span style={{ color: COLORS.sub }}><UiLabel zh="昨收" inline /> {fmt2(indexPrevClose)}</span>
-                  <span style={{ color: indexChange >= 0 ? COLORS.gain : COLORS.loss }}>
-                    <UiLabel zh="漲跌" inline /> {indexChange >= 0 ? "+" : "−"}{fmt2(Math.abs(indexChange))} <UiLabel zh="點" inline />
-                  </span>
-                </div>
-              )}
-              <div className="h-[22px] mt-1 opacity-80">
-                <SessionSparkline points={indexSpark} baseline={indexPrevClose} width={300} height={22} tone={indexChange>=0?COLORS.gain:COLORS.loss} />
-              </div>
-            </div>
-          )}
 
           {onFillDailyTw && (
             <>
@@ -5451,9 +5444,32 @@ function DashboardCollapsibleSection({ storageKey, title, subtitle, children, de
   );
 }
 
+// 目標進度：付費理財 App 把「目標」當成計畫功能放在績效區，不佔頂部；頂部留給「現在多少錢、今天賺賠多少」。
+function GoalProgressCard({ goal, totalToday, goalDate }) {
+  const showEnglish = UI_SHOW_ENGLISH;
+  const remain = Math.max(0, goal.targetAmount - totalToday);
+  const pct = goal.targetAmount > 0 ? Math.min(100, (totalToday / goal.targetAmount) * 100) : 0;
+  return (
+    <div className="rounded-2xl p-4" style={{ background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`, boxShadow: "0 4px 16px rgba(0,0,0,0.28)" }}>
+      <div className="text-xs font-bold" style={{ color: COLORS.gold }}><UiLabel zh="目標進度" /></div>
+      <div className="mt-2 flex items-baseline justify-between gap-2 text-[11px] mono" style={{ color: COLORS.sub }}>
+          <span>{showEnglish ? "Goal" : "目標"} {goal.targetYear} · NT$ {nf(goal.targetAmount)}</span>
+          <span className="font-bold" style={{ color: COLORS.gold }}>{showEnglish ? `${pct.toFixed(1)}% done` : `已達成 ${pct.toFixed(1)}%`}</span>
+        </div>
+        <div className="mt-1 h-1.5 rounded-full overflow-hidden" style={{ background: COLORS.panel }}>
+          <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: COLORS.gold }} />
+        </div>
+        <div className="mt-1 flex items-baseline justify-between gap-2 text-[11px] mono" style={{ color: COLORS.sub }}>
+          <span>{showEnglish ? `NT$ ${nf(remain)} to go` : `距目標 NT$ ${nf(remain)}`}</span>
+          {goalDate && <span style={{ color: COLORS.gold }}>{showEnglish ? `Est. ${goalDate}` : `預計 ${goalDate} 達成`}</span>}
+        </div>
+    </div>
+  );
+}
+
 function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, dailyChangePct, capitalGain, totalDividends,
   totalReturn, totalReturnPct, twTotalReturn, twTotalReturnPct, usTotalReturn, usTotalReturnPct, hasUsAssets,
-  highPoint, drawdown, ytdGain, ytdPct, chartData, goal, totalInvested, holdings,
+  highPoint, drawdown, ytdGain, ytdPct, chartData, goal, goalDate, totalInvested, holdings,
   dailyRecords, dividends, yesterdayTwValue, yesterdayUsValue, onFillDailyTw }) {
   const up = dailyChange >= 0;
   // dailyChange compares the two most recent daily records. Until today's
@@ -5482,7 +5498,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
   }, [chartData, chartRangeId]);
   return (
     <div className="space-y-2 premium-dashboard">
-      {/* 總覽順序：同主題放一起，主題內先今天再歷史。我的資產（總資產＋高點回撤 → 即時股價 → 資產曲線）→ 市場分析（趨勢雷達、新聞、收盤報告）→ 進階分析。 */}
+      {/* 總覽採付費理財 App 的順序：①總資產＋今日損益＋走勢圖（含高點回撤）②大盤＋持股行情（依市值、含佔比）③今日分析（雷達、快訊、收盤報告）④目標進度與進階績效。 */}
       <div className="rounded-2xl p-4 premium-asset-hero" style={{
         background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`,
         boxShadow: "0 4px 16px rgba(0,0,0,0.28)",
@@ -5501,6 +5517,69 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
             ? <>{pf(dailyChangePct)} {nf(dailyChange)} {changeDateLabel ? `(${changeDateLabel} record)` : "Today"}</>
             : <>{nf(dailyChange)}（{pf(dailyChangePct)}）{changeDateLabel ? `${changeDateLabel} 紀錄` : "今日"}</>}
         </div>
+        {Number.isFinite(Number(totalReturn)) && (
+          <div className="mt-1.5 text-[11px] mono" style={{ color: COLORS.sub }}>
+            <UiLabel zh="累積報酬" inline /> <span style={{ color: totalReturn >= 0 ? COLORS.gain : COLORS.loss }}>{totalReturn >= 0 ? "+" : ""}{nf(totalReturn)}（{pf(totalReturnPct)}）</span>
+          </div>
+        )}
+
+        {/* 走勢圖直接接在總資產下面（付費 App 的做法：數字和曲線一起看） */}
+        {chartData.length > 1 && (
+          <div className="mt-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xs" style={{ color: COLORS.sub }}><UiLabel zh="資產曲線" /></div>
+              <div className="flex rounded-lg p-0.5" role="tablist"
+                style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
+                {CHART_RANGES.map((r) => {
+                  const active = chartRangeId === r.id;
+                  return (
+                    <button key={r.id} onClick={() => setChartRangeId(r.id)} role="tab" aria-selected={active}
+                      className="rounded-md px-2 py-1 text-[10px] font-bold whitespace-nowrap"
+                      style={{
+                        background: active ? "rgba(201,162,75,0.18)" : "transparent",
+                        color: active ? COLORS.gold : COLORS.sub,
+                      }}>
+                      <UiLabel zh={r.label} />
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div style={{ height: 180 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={rangedChartData} margin={{ top: 6, right: 4, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="assetCurveFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={COLORS.gold} stopOpacity={0.28} />
+                      <stop offset="100%" stopColor={COLORS.gold} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid stroke={COLORS.panelBorder} strokeDasharray="3 3" vertical={false} strokeOpacity={0.7} />
+                  <XAxis dataKey="t" type="number" domain={["dataMin", "dataMax"]} axisLine={false} tickLine={false}
+                    tick={{ fontSize: 9, fill: COLORS.sub }}
+                    ticks={pickEvenTimeTicks(rangedChartData, "t", 6)} tickFormatter={formatTickDate} />
+                  {/* Fit the axis to the data instead of starting at 0 — a
+                      line shows change, and a zero baseline flattened a
+                      108–119萬 range into a straight line at the top. */}
+                  <YAxis tick={{ fontSize: 9, fill: COLORS.sub }} domain={["auto", "auto"]} axisLine={false} tickLine={false}
+                    tickFormatter={(v) => {
+                      const unit = UI_SHOW_ENGLISH ? 1000 : 10000;
+                      const n = v / unit;
+                      return `${Number.isInteger(n) ? n : n.toFixed(1)}${UI_SHOW_ENGLISH ? "K" : "萬"}`;
+                    }} width={44} />
+                  <Tooltip
+                    labelFormatter={formatTickDate}
+                    contentStyle={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, fontSize: 12 }}
+                    cursor={{ stroke: COLORS.sub, strokeDasharray: "3 3" }}
+                    formatter={(v) => [`NT$ ${nf(v)}`, uiText("總資產")]} />
+                  <ReferenceLine y={goal.targetAmount} stroke={COLORS.gold} strokeDasharray="4 4" />
+                  <Area type="monotone" dataKey="total" stroke={COLORS.gold} strokeWidth={2} fill="url(#assetCurveFill)"
+                    dot={false} activeDot={{ r: 4, fill: COLORS.gold, stroke: COLORS.panel, strokeWidth: 2 }} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
 
         {/* With only TW holdings this breakdown would just repeat the headline number. */}
         {hasUsAssets && (
@@ -5536,63 +5615,6 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
 
       <LivePricePanel holdings={holdings} onFillDailyTw={onFillDailyTw} yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue} hasUsAssets={hasUsAssets} />
 
-      {/* 我的資產（歷史）：資產曲線，緊接在今天的即時股價後面 */}
-      {chartData.length > 1 && (
-      <div className="rounded-2xl p-4" style={{ background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`, boxShadow: "0 4px 16px rgba(0,0,0,0.28)" }}>
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-xs" style={{ color: COLORS.sub }}><UiLabel zh="資產曲線" /></div>
-            <div className="flex rounded-lg p-0.5" role="tablist"
-              style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
-              {CHART_RANGES.map((r) => {
-                const active = chartRangeId === r.id;
-                return (
-                  <button key={r.id} onClick={() => setChartRangeId(r.id)} role="tab" aria-selected={active}
-                    className="rounded-md px-2 py-1 text-[10px] font-bold whitespace-nowrap"
-                    style={{
-                      background: active ? "rgba(201,162,75,0.18)" : "transparent",
-                      color: active ? COLORS.gold : COLORS.sub,
-                    }}>
-                    <UiLabel zh={r.label} />
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <div style={{ height: 180 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={rangedChartData} margin={{ top: 6, right: 4, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="assetCurveFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={COLORS.gold} stopOpacity={0.28} />
-                    <stop offset="100%" stopColor={COLORS.gold} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid stroke={COLORS.panelBorder} strokeDasharray="3 3" vertical={false} strokeOpacity={0.7} />
-                <XAxis dataKey="t" type="number" domain={["dataMin", "dataMax"]} axisLine={false} tickLine={false}
-                  tick={{ fontSize: 9, fill: COLORS.sub }}
-                  ticks={pickEvenTimeTicks(rangedChartData, "t", 6)} tickFormatter={formatTickDate} />
-                {/* Fit the axis to the data instead of starting at 0 — a
-                    line shows change, and a zero baseline flattened a
-                    108–119萬 range into a straight line at the top. */}
-                <YAxis tick={{ fontSize: 9, fill: COLORS.sub }} domain={["auto", "auto"]} axisLine={false} tickLine={false}
-                  tickFormatter={(v) => {
-                    const unit = UI_SHOW_ENGLISH ? 1000 : 10000;
-                    const n = v / unit;
-                    return `${Number.isInteger(n) ? n : n.toFixed(1)}${UI_SHOW_ENGLISH ? "K" : "萬"}`;
-                  }} width={44} />
-                <Tooltip
-                  labelFormatter={formatTickDate}
-                  contentStyle={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, fontSize: 12 }}
-                  cursor={{ stroke: COLORS.sub, strokeDasharray: "3 3" }}
-                  formatter={(v) => [`NT$ ${nf(v)}`, uiText("總資產")]} />
-                <ReferenceLine y={goal.targetAmount} stroke={COLORS.gold} strokeDasharray="4 4" />
-                <Area type="monotone" dataKey="total" stroke={COLORS.gold} strokeWidth={2} fill="url(#assetCurveFill)"
-                  dot={false} activeDot={{ r: 4, fill: COLORS.gold, stroke: COLORS.panel, strokeWidth: 2 }} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      )}
 
       <DashboardCollapsibleSection
         storageKey="dashboardTrendRadarOpen"
@@ -5606,6 +5628,8 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
 
       <DailyClosingAiReport holdings={holdings} dailyRecords={dailyRecords} />
 
+
+      <GoalProgressCard goal={goal} totalToday={totalToday} goalDate={goalDate} />
 
       <DashboardCollapsibleSection
         storageKey="dashboardAdvancedPerformanceOpen"
