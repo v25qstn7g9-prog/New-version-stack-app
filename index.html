@@ -1781,6 +1781,29 @@ function setMarketClosedToday(closed, date = new Date()) {
 function isNonTradingDay(date = new Date()) {
   return Boolean(marketClosureFromCache(date)) || isMarketClosedToday(date);
 }
+// The app often stays open (or parked in the background) across midnight, e.g.
+// from Sunday into Monday. Anything decided "for today" — the weekend/holiday
+// closure above — must be re-decided when the Taipei date rolls over, not only
+// on a cold start. iOS freezes timers in the background, so resume events also
+// trigger a check.
+function useTaipeiDayKey() {
+  const [dayKey, setDayKey] = useState(() => taipeiDateKey(new Date()));
+  useEffect(() => {
+    const sync = () => setDayKey(taipeiDateKey(new Date()));
+    const onVisible = () => { if (document.visibilityState === "visible") sync(); };
+    const timer = setInterval(sync, 30000);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", sync);
+    window.addEventListener("pageshow", sync);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", sync);
+      window.removeEventListener("pageshow", sync);
+    };
+  }, []);
+  return dayKey;
+}
 // true = closed today, false = open today, null = can't tell yet.
 function detectMarketClosed(quotes, now = new Date()) {
   if (!quotes || !isTwseTradingHours(now)) return null;
@@ -3995,6 +4018,7 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
   const [tapePoints, setTapePoints] = useState([]);
   const [marketClosure, setMarketClosure] = useState(() => marketClosureFromCache(new Date()));
   const [marketCalendarReady, setMarketCalendarReady] = useState(false);
+  const dayKey = useTaipeiDayKey();
   const liveRef = useRef({});
   const isFetchingRef = useRef(false);
   const lastFetchAtRef = useRef(0);
@@ -4005,6 +4029,9 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
 
   useEffect(() => {
     let cancelled = false;
+    // New day: drop yesterday's closure right away (the cached calendar answers
+    // synchronously), then confirm against the official schedule.
+    setMarketClosure((prev) => (prev && prev.date !== dayKey ? marketClosureFromCache(new Date()) : prev));
     (async () => {
       const days = await refreshTwseHolidaySchedule(new Date());
       if (cancelled) return;
@@ -4016,7 +4043,7 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
       setMarketCalendarReady(true);
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [dayKey]);
 
   useEffect(() => {
     let dead=false;
@@ -4186,15 +4213,16 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
   useEffect(() => {
     if (!cacheLoaded || !activeSymbolsKey || !marketCalendarReady) return;
     const isFresh = Date.now() - lastFetchAtRef.current < 12000;
-    const shouldAutoFetch = () => isTwseTradingHours() && !marketClosure && !isMarketClosedToday();
+    const shouldAutoFetch = () => isTwseTradingHours() && !(marketClosure && marketClosure.date === taipeiDateKey(new Date())) && !isMarketClosedToday();
     if (!isFresh && shouldAutoFetch()) fetchAllLive();
     const timer = setInterval(() => {
       if (shouldAutoFetch()) fetchAllLive();
     }, 15000);
     return () => clearInterval(timer);
-  }, [cacheLoaded, activeSymbolsKey, marketCalendarReady, marketClosure?.date]);
+  }, [cacheLoaded, activeSymbolsKey, marketCalendarReady, marketClosure?.date, dayKey]);
 
-  const marketClosedNow = Boolean(marketClosure || isMarketClosedToday());
+  const todayClosure = marketClosure && marketClosure.date === taipeiDateKey(new Date()) ? marketClosure : null;
+  const marketClosedNow = Boolean(todayClosure || isMarketClosedToday());
 
   const rows = activeHoldings.map((h) => {
     const isUS = !isTaiwanSymbol(h.symbol);
@@ -4285,8 +4313,8 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
         <div className={`live-status-line text-[11px] ${marketClosedNow ? "is-closed" : ""}`} style={{ color: COLORS.sub }}>
           {/* 休市日（週末、國定假日、補假）提醒：v2.46 原有，10/05 美股改版時被拿掉，這裡補回 */}
           {marketClosedNow && <span className="live-closed-note">{UI_SHOW_ENGLISH
-            ? `${marketClosure?.name || "Market holiday"} · Taiwan market closed, auto refresh paused${staleOne ? ` · showing ${staleOne.asOfDate.getMonth() + 1}/${staleOne.asOfDate.getDate()} close` : ""}`
-            : `${marketClosure?.name || "今日休市"}・台股休市，已停止自動更新${staleOne ? `・顯示 ${staleOne.asOfDate.getMonth() + 1}/${staleOne.asOfDate.getDate()} 收盤價` : ""}`}</span>}
+            ? `${todayClosure?.name || "Market holiday"} · Taiwan market closed, auto refresh paused${staleOne ? ` · showing ${staleOne.asOfDate.getMonth() + 1}/${staleOne.asOfDate.getDate()} close` : ""}`
+            : `${todayClosure?.name || "今日休市"}・台股休市，已停止自動更新${staleOne ? `・顯示 ${staleOne.asOfDate.getMonth() + 1}/${staleOne.asOfDate.getDate()} 收盤價` : ""}`}</span>}
           {!marketClosedNow && <span>{UI_SHOW_ENGLISH ? "TW: 15s when open" : "台股開盤每 15 秒"}</span>}
           {activeHoldings.some((h) => !isTaiwanSymbol(h.symbol)) && <span>{UI_SHOW_ENGLISH ? " · US: 30s when open" : "・美股開盤每 30 秒"}</span>}
           {liveAt && <span>・{liveAt.toLocaleTimeString("zh-TW", { hour12: false })}</span>}
@@ -6284,6 +6312,7 @@ function PortfolioPerformanceCard({
 }
 
 function DailyClosingAiReport({ holdings, dailyRecords }) {
+  const dayKey = useTaipeiDayKey(); // re-render (and re-check) when the date rolls over
   const [report, setReport] = useState(null);
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState("");
@@ -6474,7 +6503,7 @@ function DailyClosingAiReport({ holdings, dailyRecords }) {
     check();
     timer = setInterval(check, 60 * 1000);
     return () => { dead = true; if (timer) clearInterval(timer); };
-  }, [holdings, dailyRecords]);
+  }, [holdings, dailyRecords, dayKey]);
 
   const p = taiwanDateParts();
   const closedToday = isNonTradingDay();
