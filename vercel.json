@@ -3,6 +3,10 @@
   "cleanUrls": true,
   "rewrites": [
     {
+      "source": "/stock-name",
+      "destination": "/api/stock-name"
+    },
+    {
       "source": "/api/:path*",
       "destination": "https://new-version-stack-app.9n94fh64jr.workers.dev/api/:path*"
     },
