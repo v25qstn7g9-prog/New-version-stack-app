@@ -9,8 +9,10 @@ const html = fs.readFileSync('index.html', 'utf8');
 test('each holding row shows previous close and the price difference', () => {
   assert.match(html, /<UiLabel zh="昨收" \/> \{r\.prevCloseOk \? Number\(r\.prevClose\)\.toFixed\(2\) : "--"\}/);
   assert.match(html, /\{r\.chg >= 0 \? "\+" : ""\}\{r\.chg\.toFixed\(2\)\}/);
-  assert.match(html, /grid-rows-\[18px_18px_18px_18px\]/);
-  assert.match(html, /row-start-4 col-start-2 col-span-3 h-\[18px\]/, 'sparkline moves below the new 昨收 line');
+  // 高／低同一行、昨收和漲跌放第二行：維持兩行字加一條走勢線。
+  assert.match(html, /grid-rows-\[18px_18px_18px\] gap-x-1 text-xs mono/);
+  assert.match(html, /row-start-2 col-start-2[^>]*>\s*<UiLabel zh="昨收" \/>/);
+  assert.match(html, /row-start-3 col-start-2 col-span-3 h-\[18px\]/);
 });
 
 test('a fake previous close (no_prevClose_available) is never shown as 昨收', () => {
