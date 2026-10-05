@@ -633,19 +633,14 @@ export async function onRequestPost(context) {
       return jsonResponse({ ok: true, version: ASK_VERSION, ...cached, fromCache: true, provider: cached.provider || "cache" });
     }
 
-    // 快取命中不耗模型額度；真正要呼叫 AI 前才扣每日次數。
-    // Owner 以伺服器 Secret 對應的同步 token 驗證，不靠前端 owner=true 之類可偽造旗標。
+    // 快取命中不耗模型額度。一般使用者每天前 15 次可走 Cloudflare AI；
+    // 超過後不封鎖聊天，直接略過付費主模型、改走 Gemini 備援。
+    // Owner 由伺服器 Secret 對應同步 token 驗證，不受此每日 Cloudflare 額度限制。
+    let forceGeminiOnly = false;
+    let dailyQuota = null;
     if (!isOwnerAsk(context.request, context.env)) {
-      const quota = await consumeDailyAiQuota(context.env, deviceId, clientIp);
-      if (!quota.ok) {
-        return jsonResponse({
-          error: `今天的 AI 使用額度已用完（${quota.limit} 次），明天會自動恢復。`,
-          code: "daily_ai_limit",
-          used: quota.used,
-          limit: quota.limit,
-          version: ASK_VERSION,
-        }, 429);
-      }
+      dailyQuota = await consumeDailyAiQuota(context.env, deviceId, clientIp);
+      forceGeminiOnly = !dailyQuota.ok;
     }
 
     const dateLine = `現在的日期時間是：${taiwanNowLabel()}。問「今天」「現在」「幾天後」以此為準。`;
@@ -698,14 +693,15 @@ export async function onRequestPost(context) {
 
     let result;
     try {
+      if (forceGeminiOnly) throw new Error(`Cloudflare AI 每日額度已用完（${dailyQuota?.limit || DAILY_AI_LIMIT} 次），改用 Gemini 備援`);
       result = await runModel();
     } catch (e) {
       primaryError = e;
       // 只有「輕量模型本身出錯」才升級 20B 再試一次；額度用完（429）、服務暫停
       // （502/503）、逾時或冷卻中這類整個 Workers AI 共通的暫時性錯誤，換模型也
       // 一樣會失敗，只會讓使用者多等一輪才輪到 Gemini 備援。
-      const transientFailure = /429|quota|timeout|逾時|503|502|temporar|冷卻/i.test(String(e?.message));
-      if (activeModel === LIGHT_MODEL && ai && !transientFailure) {
+      const transientFailure = /429|quota|額度|timeout|逾時|503|502|temporar|冷卻/i.test(String(e?.message));
+      if (!forceGeminiOnly && activeModel === LIGHT_MODEL && ai && !transientFailure) {
         try {
           activeModel = HEAVY_MODEL;
           primaryError = null;
