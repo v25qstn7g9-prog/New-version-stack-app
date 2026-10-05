@@ -371,7 +371,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.46.13-collapsible-zinf";
+const APP_VERSION = "4.7-personal-advisor-v2.46.14-market-api-label";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -7377,7 +7377,7 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
           {[
             ["今日活躍裝置", systemStats?.todayActive ?? "—"],
             ["近 7 日活躍", systemStats?.weekActive ?? "—"],
-            ["今日股價請求", systemStats?.quoteRequests ?? "—"],
+            ["今日行情 API 呼叫", systemStats?.quoteRequests ?? "—"],
             ["今日 AI 請求", systemStats?.aiRequests ?? "—"],
           ].map(([label, value]) => (
             <div key={label} className="rounded-xl p-3" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
