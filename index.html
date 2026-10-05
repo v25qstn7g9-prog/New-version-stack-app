@@ -372,7 +372,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.46.16-us-live-quotes";
+const APP_VERSION = "4.7-personal-advisor-v2.46.17-us-live-total";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -1849,6 +1849,7 @@ function AssetTracker() {
   const [dailyRecords, setDailyRecords] = useState([]);
   const [holdings, setHoldings] = useState([]);
   const [usHoldings, setUsHoldings] = useState([]);
+  const usLive = useUsLivePrices(usHoldings, ready);
   const [trades, setTrades] = useState([]);
   const [dividends, setDividends] = useState([]);
   const [planItems, setPlanItems] = useState([]);
@@ -2183,7 +2184,7 @@ function AssetTracker() {
   const prev = sortedDaily[sortedDaily.length - 2];
   // 每日紀錄中的 twValue / usValue 都已是新台幣金額；總覽直接用這兩欄拆分顯示，不做匯率換算。
   const currentTwValue = latest ? Number(latest.twValue || 0) : 0;
-  const currentUsValue = latest ? Number(latest.usValue || 0) : 0;
+  const currentUsValue = usLive.totalNtd ?? (latest ? Number(latest.usValue || 0) : 0);
   const totalToday = currentTwValue + currentUsValue;
   const totalPrev = prev ? Number(prev.twValue || 0) + Number(prev.usValue || 0) : null;
   const dailyChange = totalPrev != null ? totalToday - totalPrev : 0;
@@ -2890,7 +2891,7 @@ function AssetTracker() {
                     chartData={chartData} goal={goal} goalDate={goalDate} totalInvested={totalInvested}
                     holdings={holdingsWithShares} dailyRecords={sortedDaily} dividends={dividends}
                     yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue}
-                    usHoldings={usHoldings}
+                    usHoldings={usHoldings} usLive={usLive}
                     onFillDailyTw={(value) => { setDailyPrefill({ twValue: value }); goToTab("daily"); }}
                     onFillDailyUs={(value) => { setDailyPrefill({ usValue: value }); goToTab("daily"); }}
                     onGoDaily={() => goToTab("daily")}
@@ -3786,57 +3787,85 @@ function UsHoldingsEditor({ holdings = [], setHoldings }) {
   );
 }
 
-function UsLivePricePanel({ usHoldings = [], onFillDailyUs, yesterdayUsValue }) {
-  const active = usHoldings.filter((h) => Number(h.shares || 0) > 0 && h.symbol);
-  const activeKey = active.map((h) => `${String(h.symbol).toUpperCase()}:${h.shares}`).sort().join(",");
-  const [state, setState] = useState({ status: "idle", quotes: {}, fx: null, at: null, failed: [] });
-  const busyRef = useRef(false);
-  const lastFetchRef = useRef(0);
-
-  const fetchUs = async (force = false) => {
-    if (!active.length || busyRef.current) return;
-    busyRef.current = true;
-    setState((x) => ({ ...x, status: "loading" }));
-    try {
-      const symbols = [...active.map((h) => String(h.symbol).trim().toUpperCase()), "USDTWD"];
-      const result = await fetchQuotesWithFallback(symbols, force);
-      const fx = Number(result.quotes?.USDTWD?.price);
-      const failed = active.map((h) => String(h.symbol).toUpperCase()).filter((sym) => !(Number(result.quotes?.[sym]?.price) > 0));
-      if (!(fx > 0)) failed.push("USD/TWD");
-      const next = { status: failed.length ? "partial" : "done", quotes: result.quotes || {}, fx: fx > 0 ? fx : null, at: new Date(), failed };
-      setState(next);
-      lastFetchRef.current = Date.now();
-      saveKey("usLivePrices", { ...next, at: next.at.toISOString(), activeKey });
-    } catch {
-      setState((x) => ({ ...x, status: "error", at: new Date() }));
-    } finally {
-      busyRef.current = false;
+function mergeUsQuoteSnapshot(previous, incoming, symbols) {
+  const quotes = {}, failed = [];
+  for (const symbol of symbols) {
+    const fresh = incoming?.[symbol];
+    if (Number(fresh?.price) > 0) quotes[symbol] = fresh;
+    else {
+      failed.push(symbol);
+      if (Number(previous?.quotes?.[symbol]?.price) > 0) quotes[symbol] = previous.quotes[symbol];
     }
-  };
+  }
+  const freshFx = Number(incoming?.USDTWD?.price);
+  if (!(freshFx > 0)) failed.push("USD/TWD");
+  return { quotes, fx: freshFx > 0 ? freshFx : previous?.fx || null, failed };
+}
 
+function usQuotePortfolioValue(holdings, snapshot) {
+  const fx = Number(snapshot?.fx);
+  if (!holdings.length || !(fx > 0)) return null;
+  let usd = 0;
+  for (const holding of holdings) {
+    const price = Number(snapshot?.quotes?.[String(holding.symbol).trim().toUpperCase()]?.price);
+    if (!(price > 0)) return null;
+    usd += price * Number(holding.shares);
+  }
+  return Math.round(usd * fx);
+}
+
+function useUsLivePrices(usHoldings, enabled) {
+  const active = usHoldings.filter((h) => Number(h.shares) > 0 && h.symbol);
+  const activeKey = active.map((h) => `${String(h.symbol).trim().toUpperCase()}:${h.shares}`).sort().join(",");
+  const empty = { status: "idle", quotes: {}, fx: null, at: null, failed: [], activeKey };
+  const [state, setState] = useState(empty);
+  const refreshRef = useRef(null);
   useEffect(() => {
-    let dead = false;
+    if (!enabled || !active.length) { setState(empty); return; }
+    let dead = false, busy = false, snapshot = empty, lastAttempt = 0;
+    const symbols = [...new Set(active.map((h) => String(h.symbol).trim().toUpperCase()))];
+    const fetchUs = async (force = false) => {
+      if (dead || busy || (!force && document.visibilityState !== "visible")) return;
+      busy = true;
+      lastAttempt = Date.now();
+      setState((x) => ({ ...(x.activeKey === activeKey ? x : empty), status: "loading" }));
+      try {
+        const result = await fetchQuotesWithFallback([...symbols, "USDTWD"], force);
+        if (dead) return;
+        const merged = mergeUsQuoteSnapshot(snapshot, result.quotes || {}, symbols);
+        snapshot = { ...merged, status: merged.failed.length ? "partial" : "done", at: new Date(), activeKey };
+        setState(snapshot);
+        await saveKey("usLivePrices", { ...snapshot, at: snapshot.at.toISOString() });
+      } catch {
+        if (!dead) {
+          snapshot = { ...snapshot, status: "error", failed: [...symbols, "USD/TWD"] };
+          setState(snapshot);
+        }
+      } finally { busy = false; }
+    };
+    refreshRef.current = fetchUs;
     (async () => {
       const cached = await loadKey("usLivePrices", null);
-      if (!dead && cached && cached.activeKey === activeKey) {
-        const at = cached.at ? new Date(cached.at) : null;
-        setState({ ...cached, at });
-        if (at) lastFetchRef.current = at.getTime();
+      if (dead) return;
+      if (cached?.activeKey === activeKey) {
+        snapshot = { ...cached, at: cached.at ? new Date(cached.at) : null };
+        setState(snapshot);
       }
-      if (!dead && active.length && (!cached || cached.activeKey !== activeKey || Date.now() - Date.parse(cached.at || 0) > 30000)) fetchUs(false);
+      await fetchUs(false);
     })();
-    return () => { dead = true; };
-  }, [activeKey]);
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && Date.now() - lastAttempt >= 30000) fetchUs(false);
+    };
+    const timer = setInterval(() => { if (isUsRegularTradingHours()) onVisible(); }, 30000);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { dead = true; clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); refreshRef.current = null; };
+  }, [enabled, activeKey]);
+  const current = state.activeKey === activeKey ? state : empty;
+  return { state: current, active, totalNtd: usQuotePortfolioValue(active, current), refresh: (force = true) => refreshRef.current?.(force) };
+}
 
-  useEffect(() => {
-    if (!active.length) return;
-    const timer = setInterval(() => {
-      if (document.visibilityState !== "visible") return;
-      if (isUsRegularTradingHours() && Date.now() - lastFetchRef.current >= 29000) fetchUs(false);
-    }, 15000);
-    return () => clearInterval(timer);
-  }, [activeKey]);
-
+function UsLivePricePanel({ usLive, onFillDailyUs, yesterdayUsValue }) {
+  const { state, active, refresh: fetchUs } = usLive;
   const fx = Number(state.fx);
   const rows = active.map((h) => {
     const sym = String(h.symbol).toUpperCase();
@@ -3846,10 +3875,10 @@ function UsLivePricePanel({ usHoldings = [], onFillDailyUs, yesterdayUsValue }) 
     const usdValue = price * Number(h.shares);
     const ntdValue = fx > 0 ? usdValue * fx : null;
     const chgPct = prev > 0 ? ((price - prev) / prev) * 100 : null;
-    return { ...h, symbol: sym, price, prev, usdValue, ntdValue, chgPct, stale: Boolean(q.isStale) };
+    return { ...h, symbol: sym, price, prev, usdValue, ntdValue, chgPct, asOfDate: q.asOfDate, stale: Boolean(q.isStale) || state.failed.includes(sym) || state.status === "error" };
   }).filter(Boolean);
   const totalUsd = rows.reduce((a, r) => a + r.usdValue, 0);
-  const totalNtd = fx > 0 ? rows.reduce((a, r) => a + Number(r.ntdValue || 0), 0) : null;
+  const totalNtd = usLive.totalNtd;
   const complete = active.length > 0 && rows.length === active.length && fx > 0 && state.failed.length === 0;
   const record = () => {
     if (!complete || !onFillDailyUs) return;
@@ -3858,7 +3887,8 @@ function UsLivePricePanel({ usHoldings = [], onFillDailyUs, yesterdayUsValue }) 
 
   if (!active.length) return null;
   return (
-    <Panel title="美股即時股價">
+    <Panel title="美股自動報價">
+      <div className="text-[11px] mb-1" style={{ color: COLORS.sub }}>報價時間以來源為準，可能延遲</div>
       <div className="flex justify-between items-center gap-2 mb-2">
         <div className="text-[11px]" style={{ color: COLORS.sub }}>
           {state.status === "loading" ? <UiLabel zh="更新中…" />
@@ -3877,6 +3907,7 @@ function UsLivePricePanel({ usHoldings = [], onFillDailyUs, yesterdayUsValue }) 
             <div><span className="font-bold" style={{ color: COLORS.text }}>{r.symbol}</span><div style={{ color: COLORS.sub }}>{nf(r.shares)} sh</div></div>
             <div className="text-right">
               <div>US$ {r.price.toFixed(2)}</div>
+              <div style={{ color: COLORS.sub }}>{r.asOfDate ? new Date(r.asOfDate).toLocaleTimeString("zh-TW", { hour12: false }) : "--"}{r.stale ? " · 上次價格" : " · Yahoo"}</div>
               <div style={{ color: r.stale ? COLORS.sub : ((r.chgPct ?? 0) >= 0 ? COLORS.gain : COLORS.loss) }}>{r.chgPct == null ? "--" : `${r.chgPct >= 0 ? "+" : ""}${r.chgPct.toFixed(2)}%`}</div>
             </div>
             <div className="text-right">
@@ -3892,7 +3923,7 @@ function UsLivePricePanel({ usHoldings = [], onFillDailyUs, yesterdayUsValue }) 
           <span style={{ color: COLORS.gold }}>{totalNtd == null ? "--" : `NT$ ${nf(Math.round(totalNtd))}`}</span>
         </div>
         <div className="flex justify-between text-[10px] mono mt-0.5" style={{ color: COLORS.sub }}>
-          <span>US$ {nf(Math.round(totalUsd))}</span>
+          <span>US$ {totalNtd == null ? "--" : nf(Math.round(totalUsd))}</span>
           <span>USD/TWD {fx > 0 ? fx.toFixed(3) : "--"}</span>
         </div>
         {Number(yesterdayUsValue || 0) > 0 && totalNtd != null && (() => {
@@ -3905,7 +3936,7 @@ function UsLivePricePanel({ usHoldings = [], onFillDailyUs, yesterdayUsValue }) 
           <UiLabel zh="帶入今日美股市值" />
         </button>
       </div>
-      {state.failed.length > 0 && <div className="text-[10px] mt-2" style={{ color: COLORS.loss }}>抓取失敗：{state.failed.join("、")}</div>}
+      {state.failed.length > 0 && <div className="text-[10px] mt-2" style={{ color: COLORS.loss }}>抓取失敗，保留上次價格：{state.failed.join("、")}</div>}
     </Panel>
   );
 }
@@ -5927,7 +5958,7 @@ function GoalProgressCard({ goal, totalToday, goalDate }) {
 function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, dailyChangePct, capitalGain, totalDividends,
   totalReturn, totalReturnPct, twTotalReturn, twTotalReturnPct, usTotalReturn, usTotalReturnPct, hasUsAssets,
   highPoint, drawdown, ytdGain, ytdPct, chartData, goal, goalDate, totalInvested, holdings,
-  dailyRecords, dividends, yesterdayTwValue, yesterdayUsValue, onFillDailyTw, onFillDailyUs, usHoldings = [], onGoDaily }) {
+  dailyRecords, dividends, yesterdayTwValue, yesterdayUsValue, onFillDailyTw, onFillDailyUs, usHoldings = [], usLive, onGoDaily }) {
   const up = dailyChange >= 0;
   // dailyChange compares the two most recent daily records. Until today's
   // record is saved, that is the previous session's change, so label it with
@@ -6105,7 +6136,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
 
       <LivePricePanel holdings={holdings.filter((h) => isTaiwanSymbol(h.symbol))} onFillDailyTw={onFillDailyTw} yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue} hasUsAssets={hasUsAssets} />
       {(usHoldings.length > 0 || hasUsAssets) && (
-        <UsLivePricePanel usHoldings={usHoldings} onFillDailyUs={onFillDailyUs} yesterdayUsValue={yesterdayUsValue} />
+        <UsLivePricePanel usLive={usLive} onFillDailyUs={onFillDailyUs} yesterdayUsValue={yesterdayUsValue} />
       )}
 
 
