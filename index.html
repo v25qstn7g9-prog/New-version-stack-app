@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="存股資產追蹤" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <script src="/bg-core.js?v=3"></script>
-  <script src="/forecast-core.js?v=2.47.2"></script>
+  <script src="/forecast-core.js?v=2.47.3"></script>
   <title>存股資產追蹤 V4.6 Personal v2</title>
 
   <style>
@@ -280,6 +280,64 @@
     @media(prefers-reduced-motion:reduce){
       *{scroll-behavior:auto!important;transition:none!important}
     }
+
+    /* Shared final acceptance polish: keep one visual rhythm across all seven pages. */
+    :root{color-scheme:dark}
+    .premium-main{padding-top:14px!important;padding-bottom:calc(156px + env(safe-area-inset-bottom,0px))!important}
+    .premium-tab{font-size:14px;line-height:1.55}
+    .premium-tab .space-y-2>:not([hidden])~:not([hidden]){margin-top:12px}
+    .premium-tab .space-y-3>:not([hidden])~:not([hidden]){margin-top:12px}
+    .premium-panel{padding:18px!important;border-radius:18px!important;box-shadow:0 4px 16px rgba(0,0,0,.14)!important}
+    .premium-panel>.premium-panel-title{font-size:13px!important;line-height:1.5;letter-spacing:.01em;color:#aab5c6!important;margin-bottom:14px}
+    .premium-field{min-width:0}
+    .premium-field-label{font-size:12px!important;line-height:1.5;margin-bottom:6px;overflow-wrap:anywhere}
+    .premium-tab .grid:has(>.premium-field){align-items:end;column-gap:12px!important;row-gap:14px!important}
+    .premium-tab .input{min-width:0;max-width:100%;min-height:46px!important;padding:10px 12px!important;font-size:14px!important;line-height:1.45;border-radius:12px!important}
+    .premium-tab .input::placeholder{color:#7f8da3;opacity:1}
+    .premium-tab input[type="checkbox"]{accent-color:var(--premium-gold);width:18px;height:18px;flex-shrink:0}
+    .premium-tab [class~="text-[10px]"],.premium-tab [class~="text-[11px]"]{font-size:12px;line-height:1.55}
+    .premium-tab [class~="text-[9px]"]{font-size:11px;line-height:1.55}
+    .premium-tab [class~="text-[8px]"]{font-size:10px;line-height:1.5}
+    .premium-dashboard{gap:12px!important}
+    .premium-dashboard>.rounded-xl{padding:16px!important}
+    .premium-tab .premium-add-button{min-height:46px;font-size:14px!important;margin-top:14px!important;border-radius:12px!important}
+    .premium-tab button:disabled{cursor:not-allowed}
+    .premium-empty{line-height:1.65;color:#a3afc1!important;padding:20px 14px!important}
+    .premium-row{padding:12px!important}
+    .premium-row-delete,.holding-action{width:40px;min-width:40px;height:40px;display:inline-flex;align-items:center;justify-content:center;border-radius:10px;flex-shrink:0}
+    .holding-action:hover{background:rgba(137,150,170,.08)}
+    .holding-header{gap:10px}
+    .holding-header .holding-name{overflow-wrap:anywhere;line-height:1.5}
+    .holding-cost-summary{padding:12px 0;margin-top:10px!important;border-top:1px solid var(--premium-line);border-bottom:1px solid var(--premium-line);row-gap:12px!important}
+    .premium-tabbar button{min-height:56px;padding:6px 2px!important;gap:4px!important}
+    .premium-tabbar button>span:first-child{width:38px!important;height:24px!important}
+    .premium-tabbar svg{width:18px!important;height:18px!important}
+    .premium-tabbar button>span:last-child{font-size:10px!important;line-height:1.2!important}
+    .premium-tabbar button[data-active="false"]{opacity:.9}
+    .premium-ai-launcher{bottom:calc(78px + env(safe-area-inset-bottom,4px))!important}
+    .ai-panel-h textarea{font-size:16px!important;line-height:1.55}
+    .premium-header h1{line-height:1.35}
+    .premium-header button{min-height:32px;min-width:58px;font-size:11px}
+    .premium-header [class~="text-[10px]"]{font-size:11px;line-height:1.6}
+    @media(max-width:640px){
+      .premium-panel{padding:14px!important}
+      .premium-tab .input{font-size:16px!important;min-height:46px!important;padding:10px!important}
+      .premium-dashboard>.premium-asset-hero{padding:16px!important}
+      .premium-tab-holdings .space-y-3>div.rounded-xl{padding:14px!important}
+      .premium-tab-progress .grid.grid-cols-2.gap-3{gap:10px!important}
+      .premium-tab-progress .grid.grid-cols-2.gap-3>div{padding:12px!important}
+      .premium-tabbar svg{width:18px!important;height:18px!important}
+      .premium-tab-plan .grid.grid-cols-3.gap-2{gap:8px!important}
+      .premium-tab-plan .grid.grid-cols-3.gap-2 button,.premium-tab-plan .grid.grid-cols-3.gap-2 label{min-height:44px;line-height:1.4}
+      .holding-action{width:36px;min-width:36px;height:40px}
+      .premium-header h1{font-size:17px}
+      .premium-header h1>span{white-space:normal}
+    }
+    @media(max-width:380px){
+      .premium-tabbar button>span:last-child{font-size:9px!important}
+      .premium-tab .holding-header{flex-wrap:wrap}
+      .premium-tab-plan .grid.grid-cols-3.gap-2{grid-template-columns:1fr}
+    }
   </style>
 
   <script>
@@ -373,7 +431,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.47.2-shared-holding-layout";
+const APP_VERSION = "4.7-personal-advisor-v2.47.3-final-ui-polish";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -2912,7 +2970,7 @@ function AssetTracker() {
 
       <main
         ref={setMainEl}
-        className="relative px-0 pt-4 pb-24 max-w-none mx-auto overflow-x-hidden"
+        className="premium-main relative px-0 pt-4 pb-24 max-w-none mx-auto overflow-x-hidden"
         style={{ touchAction: "pan-y", ...(mainMinHeight != null ? { minHeight: `${mainMinHeight}px` } : {}) }}
       >
         {(() => {
@@ -3113,7 +3171,7 @@ function PendingTradesBanner({ trades, onApply, onDismiss, showEnglish }) {
 function Header({ goal, totalToday, goalDate, backupOverdue, backupAgeDays, showEnglish, onToggleBilingual }) {
   return (
     <div
-      className="px-4 pb-3"
+      className="premium-header px-4 pb-3"
       style={{
         borderBottom: `1px solid ${COLORS.panelBorder}`,
         // Start the header fully below the status bar. With viewport-fit=cover
@@ -6452,7 +6510,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
 
       <Panel title="區間查詢（精算，非AI）">
         <div className="text-[11px] mb-2" style={{ color: COLORS.sub }}>
-          {M("Pick two dates and this computes the asset/principal/P&L change directly from your raw records — guaranteed accurate.", "選兩個日期，直接用你的原始紀錄計算資產/本金/損益變化，數字保證準確")}
+          {M("Pick two dates and this computes the asset/principal/P&L change directly from your raw records — guaranteed accurate.", "選兩個日期，依已儲存紀錄比較資產、本金與損益變化")}
         </div>
         <div className="grid grid-cols-2 gap-2">
           <Field label="起始日期"><input type="date" value={rangeFrom}
@@ -6936,21 +6994,21 @@ function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldi
                 </div>
               ) : (
                 <>
-                  <div className="flex justify-between items-start">
+                  <div className="holding-header flex justify-between items-start">
                     <div className="flex flex-wrap items-baseline gap-2 min-w-0">
                       <span className="font-bold mono">{h.symbol}</span>
-                      <span className="text-[11px]" style={{ color: COLORS.sub }}>{h.name}</span>
+                      <span className="holding-name text-[11px]" style={{ color: COLORS.sub }}>{h.name}</span>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <button onClick={() => startEdit(h)} style={{ color: COLORS.sub }}><PencilIcon size={15} /></button>
-                      <button onClick={() => remove(h.id)} style={{ color: COLORS.sub }}><TrashIcon size={15} /></button>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button className="holding-action" aria-label={M(`Edit ${h.symbol}`, `編輯 ${h.symbol}`)} onClick={() => startEdit(h)} style={{ color: COLORS.sub }}><PencilIcon size={15} /></button>
+                      <button className="holding-action" aria-label={M(`Delete ${h.symbol}`, `刪除 ${h.symbol}`)} onClick={() => remove(h.id)} style={{ color: COLORS.sub }}><TrashIcon size={15} /></button>
                     </div>
                   </div>
                   <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[11px] mono mt-2" style={{ color: COLORS.gold }}>
                     <UiLabel zh="成交均價（不含手續費）" inline />
                     <span>{h.avgTradePrice != null ? `NT$ ${h.avgTradePrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}／股` : M("— (no trade records)", "—（尚無交易紀錄）")}</span>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs mono mt-2">
+                  <div className="holding-cost-summary grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs mono mt-2">
                     <div>
                       <div style={{ color: COLORS.sub }}><UiLabel zh="總持有成本" inline /></div>
                       <div className="font-bold mt-1" style={{ color: COLORS.gold }}>{h.estCostBasis != null ? `NT$ ${nf(h.estCostBasis)}` : "-"}</div>
@@ -7945,15 +8003,15 @@ function Panel({ title, children }) {
       background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`,
       boxShadow: "0 4px 16px rgba(0,0,0,0.28)",
     }}>
-      <div className="text-xs font-bold mb-3" style={{ color: COLORS.sub }}><UiLabel zh={title} /></div>
+      <div className="premium-panel-title text-xs font-bold mb-3" style={{ color: COLORS.sub }}><UiLabel zh={title} /></div>
       {children}
     </div>
   );
 }
 function Field({ label, children }) {
   return (
-    <label className="block">
-      <div className="text-[10px] mb-1" style={{ color: COLORS.sub }}><UiLabel zh={label} /></div>
+    <label className="premium-field block">
+      <div className="premium-field-label text-[10px] mb-1" style={{ color: COLORS.sub }}><UiLabel zh={label} /></div>
       {children}
       <style>{`
         .input {
@@ -8733,7 +8791,8 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
   return (
     <>
       <button onClick={() => setOpen(true)}
-        className="fixed z-40 rounded-full flex items-center justify-center"
+        aria-label={UI_SHOW_ENGLISH ? "Open investment assistant" : "開啟投資助手"}
+        className="premium-ai-launcher fixed z-40 rounded-full flex items-center justify-center"
         style={{
           right: 14, bottom: "calc(64px + env(safe-area-inset-bottom, 4px))",
           width: 46, height: 46, background: "rgba(17,24,39,0.48)", color: COLORS.gold,
