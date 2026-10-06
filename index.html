@@ -732,6 +732,32 @@
     .trend-radar-shell button{
       min-height:36px;
     }
+    .trend-radar-predictions{
+      border-top:1px solid rgba(32,43,62,.72);
+      border-bottom:1px solid rgba(32,43,62,.72);
+      padding:5px 0;
+    }
+    .trend-radar-pred-row{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      min-height:24px;
+      font-size:10px;
+      line-height:1.35;
+    }
+    .trend-radar-pred-row+.trend-radar-pred-row{
+      border-top:1px dashed rgba(32,43,62,.6);
+    }
+    .trend-radar-band{
+      display:grid;
+      gap:2px;
+      line-height:1.35!important;
+    }
+    .trend-radar-market,
+    .trend-radar-stock{
+      min-height:0!important;
+    }
     @media(max-width:640px){
       .trend-radar-shell{padding:10px!important}
       .trend-radar-global{min-height:74px}
@@ -833,7 +859,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.47.17-step4-stable-radar-redesign";
+const APP_VERSION = "4.7-personal-advisor-v2.47.18-step4-comfort-radar-layout";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -5498,18 +5524,52 @@ function TrendRadar({ holdings, embedded = false }) {
             <div className="mt-0.5 text-[9px]" style={{color:COLORS.sub}}>TAIEX {marketRow.indexPct>=0?"+":""}{marketRow.indexPct.toFixed(2)}% ｜ {uiText(ms.watch)}</div>
           </div>;
         })()}
-        {marketRow&&<div className="trend-radar-card trend-radar-market rounded-xl px-3 py-2" style={{background:COLORS.bg,border:"1px solid "+COLORS.gold}}>
-          <div className="flex items-center justify-between"><div className="text-xs font-bold"><UiLabel zh="加權指數" inline /> <span className="font-normal" style={{color:COLORS.sub}}>TAIEX</span></div><div className="text-[10px] font-black mono text-right" style={{color:marketRow.direction.includes("漲")?COLORS.gain:marketRow.direction.includes("跌")?COLORS.loss:COLORS.sub}}><span><UiLabel zh="今日收盤預測" inline /> <UiLabel zh={marketRow.direction} inline /> {marketRow.probability.toFixed(0)}%</span><span className="ml-2" style={{color:tomorrowMap.TAIEX?.direction?.includes("漲")?COLORS.gain:tomorrowMap.TAIEX?.direction?.includes("跌")?COLORS.loss:COLORS.sub}}>{UI_SHOW_ENGLISH?"Next session":targetLabel(tomorrowMap.TAIEX)} {tomorrowMap.TAIEX?<><UiLabel zh={tomorrowMap.TAIEX.direction} inline />{" "+tomorrowMap.TAIEX.probability.toFixed(0)+"%"}</>:<UiLabel zh="資料累積中" inline />}</span></div></div>
-          <div className="flex justify-between mt-1 text-[9px]" style={{color:COLORS.sub}}><span><UiLabel zh="目前" inline /> {marketRow.indexPct>=0?"+":""}{marketRow.indexPct.toFixed(2)}%</span><span><UiLabel zh={marketRow.breadthSource==="market"?"全市場上漲廣度":"持股上漲廣度"} inline /> {(marketRow.breadth*100).toFixed(0)}%</span><span><UiLabel zh="盤中趨勢" inline /> <UiLabel zh={intradayTrend(marketRow.kd5,marketRow.kd15,marketRow.kd60)} inline /></span></div>
-          {(marketRow.priceBand||tomorrowMap.TAIEX?.priceBand)&&<div className="mt-1 text-[9px] mono" style={{color:COLORS.gold}}>{UI_SHOW_ENGLISH?"Volatility reference: ":"波動參考區間："}{marketRow.priceBand?`今日 ${bandText(marketRow.priceBand)} ｜ `:""}{tomorrowMap.TAIEX?.priceBand?`${targetLabel(tomorrowMap.TAIEX)} ${bandText(tomorrowMap.TAIEX.priceBand)}`:""}</div>}
-          {detailsOpen&&<div className="mt-1.5 pt-1.5 text-[9px] mono" style={{color:COLORS.sub,borderTop:"1px solid "+COLORS.panelBorder}}>
-            <div className="flex justify-between"><span><UiLabel zh="大盤 KD 5分" /></span><span>{kdCell(marketRow.kd5)}</span></div>
-            <div className="flex justify-between"><span><UiLabel zh="大盤 KD 15分" /></span><span>{kdCell(marketRow.kd15)}</span></div>
-            <div className="flex justify-between"><span><UiLabel zh="大盤 KD 60分" /></span><span>{kdCell(marketRow.kd60)}</span></div>
-            <div className="flex justify-between"><span><UiLabel zh="大盤 KD 日線" /></span><span>{kdCell(marketRow.kdDaily)}</span></div>
-            <div className="flex justify-between"><span><UiLabel zh="大盤 KD 月線" /></span><span>{kdCell(marketRow.kdMonthly)}</span></div>
-          </div>}
-        </div>}
+        {marketRow&&(()=>{
+          const ms=easyMarketSummary(marketRow);
+          const marketTone=marketRow.direction.includes("漲")?COLORS.gain:marketRow.direction.includes("跌")?COLORS.loss:COLORS.sub;
+          const next=tomorrowMap.TAIEX;
+          const nextTone=next?.direction?.includes("漲")?COLORS.gain:next?.direction?.includes("跌")?COLORS.loss:COLORS.sub;
+          return <div className="trend-radar-card trend-radar-market rounded-xl px-3 py-2" style={{background:COLORS.bg,border:"1px solid "+COLORS.gold}}>
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-xs font-bold mono">TAIEX <span className="font-normal" style={{color:COLORS.sub}}><UiLabel zh="加權指數" /></span></div>
+              </div>
+              <div className="text-right flex-shrink-0">
+                <div className="text-[8px]" style={{color:COLORS.sub}}><UiLabel zh="盤中狀態" /></div>
+                <div className="text-[12px] font-black" style={{color:ms.tone}}>{ms.arrow} {ms.text}</div>
+              </div>
+            </div>
+            <div className="flex justify-between gap-3 mt-1 text-[9px]" style={{color:COLORS.sub}}>
+              <span><UiLabel zh="目前" inline /> {marketRow.indexPct>=0?"+":""}{marketRow.indexPct.toFixed(2)}%</span>
+              <span><UiLabel zh="盤中趨勢" inline /> <UiLabel zh={intradayTrend(marketRow.kd5,marketRow.kd15,marketRow.kd60)} inline /></span>
+            </div>
+            <div className="trend-radar-predictions mt-2">
+              <div className="trend-radar-pred-row">
+                <span style={{color:COLORS.sub}}><UiLabel zh="今日收盤預測" /></span>
+                <span className="font-black mono" style={{color:marketTone}}><UiLabel zh={marketRow.direction} inline /> {marketRow.probability.toFixed(0)}%</span>
+              </div>
+              <div className="trend-radar-pred-row">
+                <span style={{color:COLORS.sub}}>{UI_SHOW_ENGLISH?"Next session":targetLabel(next)}</span>
+                <span className="font-black mono" style={{color:nextTone}}>{next?<><UiLabel zh={next.direction} inline />{" "+next.probability.toFixed(0)+"%"}</>:<UiLabel zh="資料累積中" inline />}</span>
+              </div>
+            </div>
+            <div className="flex justify-between gap-3 mt-1.5 text-[9px]" style={{color:COLORS.sub}}>
+              <span><UiLabel zh={marketRow.breadthSource==="market"?"全市場上漲廣度":"持股上漲廣度"} inline /> {(marketRow.breadth*100).toFixed(0)}%</span>
+              <span><UiLabel zh="觀察" inline />{UI_SHOW_ENGLISH?": ":"："}{uiText(ms.watch)}</span>
+            </div>
+            {(marketRow.priceBand||next?.priceBand)&&<div className="trend-radar-band mt-1.5 text-[9px] mono" style={{color:COLORS.gold}}>
+              {marketRow.priceBand&&<div><UiLabel zh="今日波動" inline />：{bandText(marketRow.priceBand)}</div>}
+              {next?.priceBand&&<div>{targetLabel(next)}：{bandText(next.priceBand)}</div>}
+            </div>}
+            {detailsOpen&&<div className="mt-1.5 pt-1.5 text-[9px] mono" style={{color:COLORS.sub,borderTop:"1px solid "+COLORS.panelBorder}}>
+              <div className="flex justify-between"><span><UiLabel zh="大盤 KD 5分" /></span><span>{kdCell(marketRow.kd5)}</span></div>
+              <div className="flex justify-between"><span><UiLabel zh="大盤 KD 15分" /></span><span>{kdCell(marketRow.kd15)}</span></div>
+              <div className="flex justify-between"><span><UiLabel zh="大盤 KD 60分" /></span><span>{kdCell(marketRow.kd60)}</span></div>
+              <div className="flex justify-between"><span><UiLabel zh="大盤 KD 日線" /></span><span>{kdCell(marketRow.kdDaily)}</span></div>
+              <div className="flex justify-between"><span><UiLabel zh="大盤 KD 月線" /></span><span>{kdCell(marketRow.kdMonthly)}</span></div>
+            </div>}
+          </div>;
+        })()}
         {rows.map((r)=>{
 
           const tone=r.direction.includes("漲")?COLORS.gain:r.direction.includes("跌")?COLORS.loss:COLORS.sub;
@@ -5528,11 +5588,20 @@ function TrendRadar({ holdings, embedded = false }) {
               <span><UiLabel zh="觀察" inline />{UI_SHOW_ENGLISH?": ":"："}{uiText(easy.watch)}</span>
             </div>
             {keyText&&<div className="mt-1 text-[9px] font-bold" style={{color:COLORS.gold}}><UiLabel zh="關鍵價位" inline />{UI_SHOW_ENGLISH?": ":"："}{keyText}</div>}
-            <div className="flex justify-between gap-2 mt-1 text-[9px] mono" style={{color:COLORS.sub}}>
-              <span><UiLabel zh="今日收盤預測" inline /> <span style={{color:tone}}><UiLabel zh={r.direction} inline /> {r.probability.toFixed(0)}%</span></span>
-              <span>{targetLabel(tomorrowMap[r.symbol])} {tomorrowMap[r.symbol]?<span style={{color:tomorrowMap[r.symbol]?.direction?.includes("漲")?COLORS.gain:tomorrowMap[r.symbol]?.direction?.includes("跌")?COLORS.loss:COLORS.sub}}><UiLabel zh={tomorrowMap[r.symbol].direction} inline />{" "+tomorrowMap[r.symbol].probability.toFixed(0)+"%"}</span>:<UiLabel zh="資料累積中" inline />}</span>
+            <div className="trend-radar-predictions mt-2">
+              <div className="trend-radar-pred-row">
+                <span style={{color:COLORS.sub}}><UiLabel zh="今日收盤預測" /></span>
+                <span className="font-black mono" style={{color:tone}}><UiLabel zh={r.direction} inline /> {r.probability.toFixed(0)}%</span>
+              </div>
+              <div className="trend-radar-pred-row">
+                <span style={{color:COLORS.sub}}>{targetLabel(tomorrowMap[r.symbol])}</span>
+                <span className="font-black mono" style={{color:tomorrowMap[r.symbol]?.direction?.includes("漲")?COLORS.gain:tomorrowMap[r.symbol]?.direction?.includes("跌")?COLORS.loss:COLORS.sub}}>{tomorrowMap[r.symbol]?<><UiLabel zh={tomorrowMap[r.symbol].direction} inline />{" "+tomorrowMap[r.symbol].probability.toFixed(0)+"%"}</>:<UiLabel zh="資料累積中" inline />}</span>
+              </div>
             </div>
-            {(r.priceBand||tomorrowMap[r.symbol]?.priceBand)&&<div className="mt-1 text-[9px] mono" style={{color:COLORS.gold}}>{UI_SHOW_ENGLISH?"NT$ volatility reference: ":"NT$ 波動參考："}{r.priceBand?`今日 ${bandText(r.priceBand)} ｜ `:""}{tomorrowMap[r.symbol]?.priceBand?`${targetLabel(tomorrowMap[r.symbol])} ${bandText(tomorrowMap[r.symbol].priceBand)}`:""}</div>}
+            {(r.priceBand||tomorrowMap[r.symbol]?.priceBand)&&<div className="trend-radar-band mt-1.5 text-[9px] mono" style={{color:COLORS.gold}}>
+              {r.priceBand&&<div><UiLabel zh="今日波動" inline />：{bandText(r.priceBand)}</div>}
+              {tomorrowMap[r.symbol]?.priceBand&&<div>{targetLabel(tomorrowMap[r.symbol])}：{bandText(tomorrowMap[r.symbol].priceBand)}</div>}
+            </div>}
             {detailsOpen&&<div className="mt-1 text-[9px] leading-snug" style={{color:COLORS.sub}}>{explainRow(r)}</div>}
             {detailsOpen&&<><div className="mt-1.5 pt-1.5 text-[9px] mono" style={{color:COLORS.sub,borderTop:"1px solid "+COLORS.panelBorder}}>
               <div className="flex justify-between"><span><UiLabel zh="KD 5分" /></span><span>{kdCell(r.kd5)}</span></div>
