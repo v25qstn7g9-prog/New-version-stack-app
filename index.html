@@ -640,7 +640,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.48.1-stable-live-refresh";
+const APP_VERSION = "4.7-personal-advisor-v2.48.2-atomic-radar-render";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -4269,6 +4269,9 @@ function TrendRadar({ holdings, embedded = false }) {
   const [marketRow, setMarketRow] = useState(null);
   const [tomorrowMap, setTomorrowMap] = useState({});
   const [globalRow, setGlobalRow] = useState(null);
+  // Visible radar state is committed as one atomic snapshot. React can then
+  // patch only changed text/value nodes instead of showing half-updated cards.
+  const committedViewSigRef = useRef("");
 
   useEffect(() => {
     let cancelled = false;
@@ -4623,10 +4626,10 @@ function TrendRadar({ holdings, embedded = false }) {
         if(cache?.key===todayKey+"|"+slowPhase+"|"+symbolKey&&Date.now()-Date.parse(cache.at)<30*60000)return cache.days;
         const days=await fetchInstitutional(active.map(h=>String(h.symbol)));if(!days.length)throw Error("institutions unavailable");
         await saveKey("institutionalFlow",{key:todayKey+"|"+slowPhase+"|"+symbolKey,at:new Date().toISOString(),days});return days;
-      },days=>{memoInstDays=days;setInstStatus("ok");});
+      },days=>{memoInstDays=days;});
       launchSlow("margin",todayKey+"|"+slowPhase+"|"+symbolKey,30*60000,async()=>{
         const days=await fetchMargin(active.map(h=>String(h.symbol)));if(!days.length)throw Error("margin unavailable");return days;
-      },days=>{memoMarginDays=days;setMarginStatus("ok");});
+      },days=>{memoMarginDays=days;});
       const instDays=memoInstDays||[],marginDays=memoMarginDays||[];
       const signScore=(v)=>v>0?1:v<0?-1:0;
       const marketSum=(key,n)=>instDays.slice(0,n).reduce((a,d)=>a+(Number(d?.marketTotal?.[key])||0),0);
@@ -4800,7 +4803,6 @@ function TrendRadar({ holdings, embedded = false }) {
         const pct=(Number(bars[i].close)/Number(bars[i-1].close)-1)*100;
         return {pct,up:Math.abs(pct)<1e-8?null:pct>0,sourceAt:day+"T13:30:00+08:00",source:"completed-daily-bar"};
       };
-      setMarketRow(computedMarketRow);
       // Save one evaluation snapshot per symbol/day. This creates the training/
       // calibration history needed to replace hand-tuned weights with measured ones.
       try{
@@ -4854,7 +4856,7 @@ function TrendRadar({ holdings, embedded = false }) {
       launchSlow("global",todayKey,60000,async()=>{
         const value=await fetchGlobalSignal();if(!value)throw Error("global unavailable");
         await saveKey("trendRadarGlobalSignal",{at:Date.now(),value});return value;
-      },value=>{memoGlobal=value;memoGlobalAt=Date.now();setGlobalStatus("ok");setGlobalRow(value);});
+      },value=>{memoGlobal=value;memoGlobalAt=Date.now();});
       const global=memoGlobal&&Date.now()-memoGlobalAt<5*60000?memoGlobal:null;
       // Next-session model v2.45.
       // Preview starts at 10:30 and updates with every live quote. The final
@@ -5064,8 +5066,30 @@ function TrendRadar({ holdings, embedded = false }) {
           statuses:{institutional:instDays.length?"ok":"unavailable",global:global?"ok":"unavailable"},
         });
       } catch(e) {}
-      setTomorrowMap(tomorrow);
-      setRows(next); setAsOf(new Date());
+      // Commit the complete visible analysis in one batch only after every
+      // displayed value for this cycle is ready. If the displayed snapshot is
+      // identical, keep the previous React state references and do not repaint.
+      const nextInstStatus = instDays.length ? "ok" : (slots.get("institutions")?.busy ? "loading" : "unavailable");
+      const nextMarginStatus = marginDays.length ? "ok" : (slots.get("margin")?.busy ? "loading" : "unavailable");
+      const nextGlobalStatus = global ? "ok" : (slots.get("global")?.busy ? "loading" : "unavailable");
+      const viewSig = JSON.stringify({
+        market: computedMarketRow,
+        rows: next,
+        tomorrow,
+        global,
+        statuses: [nextInstStatus, nextMarginStatus, nextGlobalStatus],
+      });
+      if (viewSig !== committedViewSigRef.current) {
+        committedViewSigRef.current = viewSig;
+        setMarketRow(computedMarketRow);
+        setRows(next);
+        setTomorrowMap(tomorrow);
+        setGlobalRow(global);
+        setInstStatus(nextInstStatus);
+        setMarginStatus(nextMarginStatus);
+        setGlobalStatus(nextGlobalStatus);
+        setAsOf(new Date());
+      }
       } finally {
         recalcRunning = false;
         if (recalcQueued && !cancelled) {
@@ -5092,10 +5116,11 @@ function TrendRadar({ holdings, embedded = false }) {
         const cutoff=ts-15*60*1000;
         fastTape=fastTape.filter(p=>p.ts>=cutoff).slice(-80);
       }
-      // Keep collecting fresh quote ticks for the model, but do not repaint
-      // the analysis card on every 15-second quote batch. The visible radar is
-      // committed on the 60-second cadence below, which prevents flicker/jump
-      // while the live-quote table above continues updating normally.
+      // Recalculate from the fresh 15-second quote batch. The visible UI is
+      // committed atomically at the end of recalc(), so only changed values are
+      // patched and the card structure itself never enters a half-updated state.
+      clearTimeout(liveSyncTimer);
+      liveSyncTimer=setTimeout(()=>{ if(!cancelled) recalc(); },80);
     };
     window.addEventListener("livePricesUpdated",onLivePricesUpdated);
     const onVisible=()=>{if(document.visibilityState==="visible")recalc();};
