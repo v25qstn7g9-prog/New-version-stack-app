@@ -2103,18 +2103,8 @@ function AssetTracker() {
   const [holdingsMarket, setHoldingsMarket] = useState("tw");
   useEffect(() => { if (!showUsFields) setHoldingsMarket("tw"); }, [showUsFields]);
   const usHoldings = holdings.filter((h) => !isTaiwanSymbol(h.symbol)).map((h) => ({ ...h, shares: holdingShareCount(h, trades) }));
-  const rawUsLive = useUsLivePrices(usHoldings, ready);
-  const usCalibrationKey = usHoldingsCalibrationKey(usHoldings);
-  const usCalibrationActive = validUsBrokerCalibration(usBrokerCalibration, usCalibrationKey);
-  const calibratedUsTotalNtd = applyUsBrokerCalibration(rawUsLive.totalNtd, usBrokerCalibration, usCalibrationKey);
-  const usLive = {
-    ...rawUsLive,
-    totalNtd: calibratedUsTotalNtd,
-    rawTotalNtd: rawUsLive.totalNtd,
-    calibrationFactor: usCalibrationActive ? Number(usBrokerCalibration.factor) : 1,
-    brokerCalibrationActive: usCalibrationActive,
-    brokerCalibrationStale: usBrokerCalibration.enabled === true && !usCalibrationActive,
-  };
+  // 保留原始行情 hook 的形狀不變；券商校準只套在「資產市值層」，不改原始報價。
+  const usLive = useUsLivePrices(usHoldings, ready);
   const [portfolioQuotes, setPortfolioQuotes] = useState({});
   useEffect(() => {
     let cancelled = false;
@@ -2143,6 +2133,17 @@ function AssetTracker() {
   // 只是顯示用的暫存狀態，不寫進 localStorage/JSON 備份——它本來就是伺服器端的資料。
   const [healthCards, setHealthCards] = useState([]);
   const [healthCardBusyId, setHealthCardBusyId] = useState("");
+  const usCalibrationKey = usHoldingsCalibrationKey(usHoldings);
+  const usCalibrationActive = validUsBrokerCalibration(usBrokerCalibration, usCalibrationKey);
+  const calibratedUsTotalNtd = applyUsBrokerCalibration(usLive.totalNtd, usBrokerCalibration, usCalibrationKey);
+  const usAssetLive = {
+    ...usLive,
+    totalNtd: calibratedUsTotalNtd,
+    rawTotalNtd: usLive.totalNtd,
+    calibrationFactor: usCalibrationActive ? Number(usBrokerCalibration.factor) : 1,
+    brokerCalibrationActive: usCalibrationActive,
+    brokerCalibrationStale: usBrokerCalibration.enabled === true && !usCalibrationActive,
+  };
 
   // ---- initial load ----
   useEffect(() => {
@@ -2484,7 +2485,7 @@ function AssetTracker() {
   const twHeld = holdings.filter((h) => isTaiwanSymbol(h.symbol) && holdingShareCount(h, trades) > 0);
   const twQuotesComplete = twHeld.length > 0 && twHeld.every((h) => Number(portfolioQuotes[h.symbol]?.price) > 0);
   const currentTwValue = twQuotesComplete ? Math.round(twHeld.reduce((sum,h) => sum + Number(portfolioQuotes[h.symbol].price) * holdingShareCount(h,trades),0)) : holdings.some((h) => isTaiwanSymbol(h.symbol)) && !twHeld.length ? 0 : latest ? Number(latest.twValue || 0) : 0;
-  const currentUsValue = usHoldings.length > 0 && !usHoldings.some((h) => h.shares > 0) ? 0 : usLive.totalNtd ?? (latest ? Number(latest.usValue || 0) : 0);
+  const currentUsValue = usHoldings.length > 0 && !usHoldings.some((h) => h.shares > 0) ? 0 : usAssetLive.totalNtd ?? (latest ? Number(latest.usValue || 0) : 0);
   const totalToday = currentTwValue + currentUsValue;
   const totalPrev = prev ? Number(prev.twValue || 0) + Number(prev.usValue || 0) : null;
   const dailyChange = totalPrev != null ? totalToday - totalPrev : 0;
@@ -3155,7 +3156,7 @@ function AssetTracker() {
                     chartData={chartData} goal={goal} goalDate={goalDate} totalInvested={totalInvested}
                     holdings={showUsFields ? holdingsWithShares : holdingsWithShares.filter((h) => isTaiwanSymbol(h.symbol))} dailyRecords={sortedDaily} dividends={dividends}
                     yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue}
-                    usHoldings={usHoldings} usLive={usLive}
+                    usHoldings={usHoldings} usLive={usAssetLive}
                     onGoUsSettings={() => { setHoldingsMarket("us"); goToTab("holdings"); }}
                     onFillDailyTw={(value) => { setDailyPrefill({ twValue: value, ...(usLive.totalNtd != null ? { usValue: usLive.totalNtd } : {}) }); goToTab("daily"); }}
                     onFillDailyUs={(value) => { setDailyPrefill({ usValue: value }); goToTab("daily"); }}
@@ -3166,24 +3167,24 @@ function AssetTracker() {
                 return (
                   <DailyPanel records={sortedDaily} setRecords={setDailyRecords} prefill={dailyPrefill}
                     form={dailyForm} setForm={setDailyForm} holdings={holdingsWithShares}
-                    usHoldings={usHoldings} usLive={usLive}
+                    usHoldings={usHoldings} usLive={usAssetLive}
                     showUsFields={showUsFields} setShowUsFields={setShowUsFields} />
                 );
               case "holdings":
                 return (
-                  <HoldingsWorkspace trades={trades} holdings={holdingsWithShares} setHoldings={setHoldings} usLive={usLive}
+                  <HoldingsWorkspace trades={trades} holdings={holdingsWithShares} setHoldings={setHoldings} usLive={usAssetLive}
                     showUsFields={showUsFields} market={holdingsMarket} setMarket={setHoldingsMarket}
                     usBrokerCalibration={usBrokerCalibration} setUsBrokerCalibration={setUsBrokerCalibration} />
                 );
               case "trades":
                 return (
-                  <TradesPanel trades={trades} setTrades={setTrades} holdings={showUsFields ? holdings : holdings.filter((h) => isTaiwanSymbol(h.symbol))} setHoldings={setHoldings} usLive={usLive}
+                  <TradesPanel trades={trades} setTrades={setTrades} holdings={showUsFields ? holdings : holdings.filter((h) => isTaiwanSymbol(h.symbol))} setHoldings={setHoldings} usLive={usAssetLive}
                     costBasis={costBasis} setCostBasis={setCostBasis} accumulatedCost={accumulatedCost}
                   />
                 );
               case "dividends":
                 return (
-                  <DividendsPanel dividends={dividends} setDividends={setDividends} holdings={showUsFields ? holdingsWithShares : holdingsWithShares.filter((h) => isTaiwanSymbol(h.symbol))} usLive={usLive} />
+                  <DividendsPanel dividends={dividends} setDividends={setDividends} holdings={showUsFields ? holdingsWithShares : holdingsWithShares.filter((h) => isTaiwanSymbol(h.symbol))} usLive={usAssetLive} />
                 );
               case "plan":
                 return (
@@ -6268,7 +6269,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
         </button>
       )}
 
-      <LivePricePanel holdings={holdings} usLive={usLive} onFillDailyTw={onFillDailyTw} yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue} hasUsAssets={showUsFields && hasUsAssets} />
+      <LivePricePanel holdings={holdings} usLive={usAssetLive} onFillDailyTw={onFillDailyTw} yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue} hasUsAssets={showUsFields && hasUsAssets} />
 
 
       <DashboardCollapsibleSection
@@ -6983,10 +6984,10 @@ function HoldingsWorkspace({ trades = [], holdings, setHoldings, usLive, market,
         ))}
       </div>}
       {activeMarket === "us" && (
-        <UsBrokerCalibrationCard usLive={usLive} calibration={usBrokerCalibration} setCalibration={setUsBrokerCalibration} />
+        <UsBrokerCalibrationCard usLive={usAssetLive} calibration={usBrokerCalibration} setCalibration={setUsBrokerCalibration} />
       )}
       <HoldingsPanel trades={trades} key={activeMarket} market={activeMarket} holdings={visibleHoldings}
-        allHoldings={holdings} setHoldings={setHoldings} usLive={usLive} />
+        allHoldings={holdings} setHoldings={setHoldings} usLive={usAssetLive} />
     </div>
   );
 }
