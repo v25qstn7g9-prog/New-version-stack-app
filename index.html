@@ -7708,7 +7708,7 @@ function UpcomingDividendReminder({ holdings }) {
         setStatus("done");
         saveKey(cacheKey, { symbolsKey, items: upcoming, at: new Date().toISOString() }).catch(() => {});
       } catch (e) {
-        if (!cancelled && !items.length) setStatus("error");
+        if (!cancelled && !(cached?.items?.length)) setStatus("error");
       }
     })();
     return () => { cancelled = true; };
