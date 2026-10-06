@@ -844,35 +844,35 @@
     .trend-radar-key,
     .trend-radar-pred-row,
     .trend-radar-band{
-      font-size:9px!important;
-      line-height:17px!important;
+      font-size:10px!important;
+      line-height:18px!important;
     }
     .trend-radar-current{
       margin-top:0!important;
-      min-height:17px!important;
+      min-height:18px!important;
     }
     .trend-radar-meta-row{
-      min-height:17px!important;
+      min-height:18px!important;
       align-items:center;
     }
     .trend-radar-watch,
     .trend-radar-key{
-      min-height:17px!important;
-      line-height:17px!important;
+      min-height:18px!important;
+      line-height:18px!important;
     }
     .trend-radar-predictions{
       margin-top:3px!important;
       padding:2px 0!important;
     }
     .trend-radar-pred-row{
-      min-height:21px!important;
-      line-height:17px!important;
+      min-height:22px!important;
+      line-height:18px!important;
     }
     .trend-radar-band{
       margin-top:3px!important;
-      min-height:34px!important;
+      min-height:36px!important;
       gap:0!important;
-      line-height:17px!important;
+      line-height:18px!important;
     }
 </style>
 
@@ -967,7 +967,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.47.21-final-radar-typography";
+const APP_VERSION = "4.7-personal-advisor-v2.47.22-radar-postclose-range";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -4799,6 +4799,19 @@ function TrendRadar({ holdings, embedded = false }) {
         return [...buckets.values()].sort((a,b)=>a.ts-b.ts);
       };
       const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
+      const todayRangeBand=(bars,q,currentPx)=>{
+        const px=Number(currentPx);
+        if(sessionClock>=810){
+          const hi=Number(q?.high), lo=Number(q?.low);
+          if(hi>0 && lo>0 && hi>=lo) return {lower:lo,upper:hi};
+          const last=(bars||[]).at(-1);
+          if(last?.day===todayKey && Number(last.high)>0 && Number(last.low)>0) {
+            return {lower:Number(last.low),upper:Number(last.high)};
+          }
+          return null;
+        }
+        return F.priceBand(bars,px,{beforeDay:todayKey,remainingMinutes:Math.max(0,810-sessionClock)});
+      };
       // 15-second micro momentum. Uses fastTape first, then the persisted
       // minute tape as a cold-start fallback. Three horizons reduce whipsaw.
       const microMomentum=(sym,currentPx)=>F.micro([...tape,...fastTape],sym,currentPx,now);
@@ -5024,7 +5037,7 @@ function TrendRadar({ holdings, embedded = false }) {
       const marketCalibration=F.calibrate(marketProbability,historyRecords,{symbol:"TAIEX",phase:sessionClock<630?"morning":"closeLock",modelVersion:TREND_MODEL_VERSION,beforeDay:todayKey});
       if(marketFresh)marketProbability=marketCalibration.probability;
       const marketDirection=marketProbability>=64?"明顯偏漲":marketProbability>=55?"稍偏漲":marketProbability<=36?"明顯偏跌":marketProbability<=45?"稍偏跌":"方向不明";
-      let computedMarketRow={rawProbability:marketRawProbability,calibration:marketCalibration,quoteFresh:marketFresh,currentPrice:Number(idx?.price)||null,priceBand:marketFresh?F.priceBand(dailyBarsMap.TAIEX,Number(idx?.price),{beforeDay:todayKey,remainingMinutes:810-sessionClock}):null,probability:marketProbability,direction:marketDirection,indexPct,breadth,breadthSource,breadthCounts:breadthSource==="market"?{up:fullBreadth?.up,down:fullBreadth?.down,flat:fullBreadth?.flat}:null,kd5:marketKd5,kd15:marketKd15,kd60:marketKd60,kdDaily:marketKdDaily,kdMonthly:marketKdMonthly,micro:marketMicro,range:marketRange,volumePrice:marketVolumePrice,evidence:marketEvidence,marketCloseBoost,modelVersion:TREND_MODEL_VERSION};
+      let computedMarketRow={rawProbability:marketRawProbability,calibration:marketCalibration,quoteFresh:marketFresh,currentPrice:Number(idx?.price)||null,priceBand:marketFresh?todayRangeBand(dailyBarsMap.TAIEX,idx,Number(idx?.price)):null,probability:marketProbability,direction:marketDirection,indexPct,breadth,breadthSource,breadthCounts:breadthSource==="market"?{up:fullBreadth?.up,down:fullBreadth?.down,flat:fullBreadth?.flat}:null,kd5:marketKd5,kd15:marketKd15,kd60:marketKd60,kdDaily:marketKdDaily,kdMonthly:marketKdMonthly,micro:marketMicro,range:marketRange,volumePrice:marketVolumePrice,evidence:marketEvidence,marketCloseBoost,modelVersion:TREND_MODEL_VERSION};
       if(cancelled) return;
       let next = active.map((h) => {
         const q = quoteMap[h.symbol] || {};
@@ -5108,7 +5121,7 @@ function TrendRadar({ holdings, embedded = false }) {
         const conviction = Math.abs(probability-50);
         const confidence = (calibration.calibrated && evidence>=3.5 && flows.length>=3 && conviction>=14 && kdSignals.length>=3) ? "高"
           : (evidence>=2.5 && conviction>=7) ? "中" : "低";
-        return {symbol:h.symbol,name:h.name||"",rawProbability,calibration,probability,direction,confidence,indexPct,stockPct,priceBand:quoteFresh?F.priceBand(dailyBarsMap[h.symbol],Number(q.price),{beforeDay:todayKey,remainingMinutes:810-sessionClock}):null,currentPrice:Number(q.price)||null,dayHigh:Number(q.high)||null,dayLow:Number(q.low)||null,newsScore,flows,f1,f3,f5,t1,t3,t5,d1,d3,d5,kd5,kd15,kd60,kdDaily,kdMonthly,micro,range,volumePrice,margin,breadth,breadthSource,breadthTerm,evidence,quoteFresh,modelVersion:TREND_MODEL_VERSION,lateProgress,closeProgress,closeDirectionBoost,weights:{indexW,stockW,newsW,instTimeW},timedKdScore};
+        return {symbol:h.symbol,name:h.name||"",rawProbability,calibration,probability,direction,confidence,indexPct,stockPct,priceBand:quoteFresh?todayRangeBand(dailyBarsMap[h.symbol],q,Number(q.price)):null,currentPrice:Number(q.price)||null,dayHigh:Number(q.high)||null,dayLow:Number(q.low)||null,newsScore,flows,f1,f3,f5,t1,t3,t5,d1,d3,d5,kd5,kd15,kd60,kdDaily,kdMonthly,micro,range,volumePrice,margin,breadth,breadthSource,breadthTerm,evidence,quoteFresh,modelVersion:TREND_MODEL_VERSION,lateProgress,closeProgress,closeDirectionBoost,weights:{indexW,stockW,newsW,instTimeW},timedKdScore};
       });
 
       // Model correction #2: freeze today's forecast at/after 13:25.
