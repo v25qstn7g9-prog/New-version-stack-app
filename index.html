@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="存股資產追蹤" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <script src="/bg-core.js?v=3"></script>
-  <script src="/forecast-core.js?v=2.47.0"></script>
+  <script src="/forecast-core.js?v=2.47.1"></script>
   <title>存股資產追蹤 V4.6 Personal v2</title>
 
   <style>
@@ -373,7 +373,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.47.0-forecast-freshness";
+const APP_VERSION = "4.7-personal-advisor-v2.47.1-holding-cost-units";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -627,6 +627,9 @@ const UI_EN = {
   "新增標的": "Add Holding",
   "取消": "Cancel",
   "平均成本": "Average Cost",
+  "每股平均成本": "Average Cost per Share",
+  "總持有成本": "Total Holding Cost",
+  "成交均價（不含手續費）": "Average Trade Price (excl. fees)",
   "預估損益": "Estimated P/L",
   "累積獲利率": "Cumulative Return",
   "目前累積成本（起始成本 + 全部買賣紀錄）": "Current Accumulated Cost",
@@ -880,6 +883,31 @@ function recordValueNtd(record, value) {
   if (record.currency !== "USD") return amount;
   const rate = Number(record.fxRate);
   return rate > 0 ? amount * rate : null;
+}
+// 持股頁與成本查詢共用：總成本為新台幣，平均成本由總成本／目前股數倒算。
+function holdingCostAt(holding, trades, asOfDate = "9999-12-31") {
+  const rows = (trades || []).filter((t) => normalizeStockSymbol(t.symbol) === normalizeStockSymbol(holding.symbol) && t.date <= asOfDate)
+    .slice().sort((a, b) => a.date.localeCompare(b.date));
+  const snapshot = holding.costOverride;
+  const hasOverride = snapshot != null && Number.isFinite(Number(snapshot.amount)) && (snapshot.asOfDate || "0000-01-01") <= asOfDate;
+  const snapshotDate = hasOverride ? (snapshot.asOfDate || "0000-01-01") : "0000-01-01";
+  const included = hasOverride && Array.isArray(snapshot.includedTradeIds) ? new Set(snapshot.includedTradeIds) : null;
+  const later = hasOverride ? rows.filter((t) => t.date > snapshotDate || (t.date === snapshotDate && included && !included.has(t.id))) : rows;
+  const current = holdingShareCount(holding, rows);
+  // 從目前股數倒推快照股數，避免編輯期初股數後仍沿用舊分母。
+  let shares = hasOverride ? current - later.reduce((sum, t) => sum + (t.action === "buy" ? 1 : -1) * Number(t.shares || 0), 0)
+    : Number(holding.initialShares || 0) - Number(holding.migrationTradeOffset || 0);
+  let cost = hasOverride ? Number(snapshot.amount) : 0;
+  for (const t of later) {
+    const qty = Number(t.shares || 0);
+    if (t.action === "buy") { cost += Number(t.amount ?? tradeAmountNtd(t, t.fxRate)); shares += qty; }
+    else if (shares > 0) { const sold = Math.min(qty, shares); cost -= cost / shares * sold; shares -= sold; }
+  }
+  const manual = Number(holding.manualAvgCost);
+  const isManualAvgCost = !hasOverride && holding.manualAvgCost !== "" && Number.isFinite(manual) && manual > 0;
+  const estCostBasis = isManualAvgCost ? Math.round(manual * current) : (hasOverride || rows.length || current > 0 ? Math.round(cost) : null);
+  return { current, estCostBasis, avgCost: current > 0 && estCostBasis != null ? estCostBasis / current : null, isManualAvgCost,
+    missingInitialCost: !hasOverride && !isManualAvgCost && Number(holding.initialShares || 0) - Number(holding.migrationTradeOffset || 0) > 0 };
 }
 function tradeAmountNtd(form, fx) {
   const native = Number(form.shares) * Number(form.price) + (form.action === "buy" ? Number(form.fee || 0) : -Number(form.fee || 0) - Number(form.tax || 0));
@@ -2296,38 +2324,10 @@ function AssetTracker() {
     const current = holdingShareCount(h, trades);
     const pct = h.target2035 ? Math.min(100, (current / h.target2035) * 100) : 0;
 
-    // 持有成本用「快照＋往後疊加」的方式算：
-    // costOverride = { amount, asOfDate, asOfShares } 記錄「在 asOfDate 這天，
-    // 手動輸入的總持有成本是 amount，當時股數是 asOfShares」。
-    // 之後只會把「asOfDate 之後」的買賣紀錄疊加上去（用移動加權平均法），
-    // 不會重複計算 asOfDate（含）當天以前已經發生、已經算進 amount 裡的交易。
-    // 平均成本＝疊加後的持有成本 ÷ 股數，用倒算的，不用另外手動輸入均價。
-    // 沒有設定過 costOverride 的舊資料，預設等同「一開始（很久以前）成本 0、
-    // 股數＝期初股數」，等於整段交易紀錄都照算，跟改版前的行為一致。
-    const symbolTrades = trades
-      .filter((t) => normalizeStockSymbol(t.symbol) === normalizeStockSymbol(h.symbol))
-      .slice()
-      .sort((a, b) => a.date.localeCompare(b.date));
-
-    const hasOverride = h.costOverride && Number.isFinite(Number(h.costOverride.amount));
-    const overrideAsOfDate = hasOverride ? (h.costOverride.asOfDate || "0000-01-01") : "0000-01-01";
-    let runningShares = hasOverride ? Number(h.costOverride.asOfShares || 0) : Number(h.initialShares || 0) - Number(h.migrationTradeOffset || 0);
-    let runningCost = hasOverride ? Number(h.costOverride.amount || 0) : 0;
-    const laterTrades = symbolTrades.filter((t) => t.date > overrideAsOfDate);
-    let runningSharesNoFee = 0, runningCostNoFee = 0; // 不含手續費，算「成交均價」用，永遠用全部交易紀錄
-    for (const t of laterTrades) {
-      if (t.action === "buy") {
-        runningCost += Number(t.amount ?? tradeAmountNtd(t, t.fxRate));
-        runningShares += t.shares;
-      } else {
-        if (runningShares > 0) {
-          const avgPerShare = runningCost / runningShares;
-          const sellShares = Math.min(t.shares, runningShares);
-          runningCost -= avgPerShare * sellShares;
-          runningShares -= sellShares;
-        }
-      }
-    }
+    const symbolTrades = trades.filter((t) => normalizeStockSymbol(t.symbol) === normalizeStockSymbol(h.symbol))
+      .slice().sort((a, b) => a.date.localeCompare(b.date));
+    const { avgCost, estCostBasis, isManualAvgCost: hasManualAvgCost } = holdingCostAt(h, trades);
+    let runningSharesNoFee = 0, runningCostNoFee = 0;
     for (const t of symbolTrades) {
       if (t.action === "buy") {
         runningCostNoFee += t.shares * Number(recordValueNtd(t, t.price) ?? 0);
@@ -2339,19 +2339,7 @@ function AssetTracker() {
         runningSharesNoFee -= sellSharesNoFee;
       }
     }
-    const autoAvgCost = runningShares > 0 ? runningCost / runningShares : null;
     const avgTradePrice = runningSharesNoFee > 0 ? runningCostNoFee / runningSharesNoFee : null; // 不含手續費的成交均價
-
-    // 舊版相容：更早的版本是直接手動輸入「平均成本」整個覆蓋掉自動計算，且不會隨新交易更新。
-    // 現在編輯持股改成填「持有成本」快照，這裡只保留讀取舊資料／AI 指令相容用途。
-    const manualAvgCost = Number(h.manualAvgCost);
-    const hasManualAvgCost = h.manualAvgCost !== undefined && h.manualAvgCost !== "" && Number.isFinite(manualAvgCost) && manualAvgCost > 0;
-    const avgCost = hasManualAvgCost ? manualAvgCost : autoAvgCost;
-    const estCostBasis = hasManualAvgCost
-      ? (avgCost != null ? Math.round(avgCost * current) : null)
-      : (runningShares > 0 || runningCost > 0 ? Math.round(runningCost) : null);
-
-
 
     // 本季（自然季度：1-3月/4-6月/7-9月/10-12月）淨增加股數，過季就歸零重算。
     const now = new Date();
@@ -2960,7 +2948,7 @@ function AssetTracker() {
                 );
               case "holdings":
                 return (
-                  <HoldingsWorkspace holdings={holdingsWithShares} setHoldings={setHoldings} usLive={usLive}
+                  <HoldingsWorkspace trades={trades} holdings={holdingsWithShares} setHoldings={setHoldings} usLive={usLive}
                     showUsFields={showUsFields} market={holdingsMarket} setMarket={setHoldingsMarket} />
                 );
               case "trades":
@@ -6711,7 +6699,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
 }
 
 // ---------------- Holdings Panel ----------------
-function HoldingsWorkspace({ holdings, setHoldings, usLive, market, setMarket, showUsFields = false }) {
+function HoldingsWorkspace({ trades = [], holdings, setHoldings, usLive, market, setMarket, showUsFields = false }) {
   const activeMarket = showUsFields && market === "us" ? "us" : "tw";
   const visibleHoldings = holdings.filter((h) => activeMarket === "tw" ? isTaiwanSymbol(h.symbol) : !isTaiwanSymbol(h.symbol));
   return (
@@ -6725,13 +6713,13 @@ function HoldingsWorkspace({ holdings, setHoldings, usLive, market, setMarket, s
           </button>
         ))}
       </div>}
-      <HoldingsPanel key={activeMarket} market={activeMarket} holdings={visibleHoldings}
+      <HoldingsPanel trades={trades} key={activeMarket} market={activeMarket} holdings={visibleHoldings}
         allHoldings={holdings} setHoldings={setHoldings} usLive={usLive} />
     </div>
   );
 }
 
-function HoldingsPanel({ holdings, allHoldings = holdings, setHoldings, usLive, onFillDailyCost, market = "tw" }) {
+function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldings, usLive, onFillDailyCost, market = "tw" }) {
   const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
   const [form, setForm] = useState({ symbol: "", name: "", initialShares: "", target2035: "", costBasis: "" });
   const [editingId, setEditingId] = useState(null);
@@ -6799,11 +6787,12 @@ function HoldingsPanel({ holdings, allHoldings = holdings, setHoldings, usLive, 
 
   const add = () => {
     if (!isStockSymbol(form.symbol) || allHoldings.some((h) => normalizeStockSymbol(h.symbol) === normalizeStockSymbol(form.symbol))) return;
+    const symbol = normalizeStockSymbol(form.symbol);
     const costAmount = form.costBasis === "" ? null : Number(form.costBasis);
     setHoldings((h) => [...h, {
       id: uid(), symbol: normalizeStockSymbol(form.symbol), name: form.name,
       initialShares: Number(form.initialShares || 0), target2035: Number(form.target2035 || 0),
-      costOverride: costAmount != null ? { amount: costAmount, asOfDate: todayStr(), asOfShares: Number(form.initialShares || 0) } : null,
+      costOverride: costAmount != null ? { amount: costAmount, asOfDate: todayStr(), asOfShares: holdingShareCount({ symbol, initialShares: Number(form.initialShares || 0) }, trades), includedTradeIds: trades.filter((t) => normalizeStockSymbol(t.symbol) === symbol && t.date <= todayStr()).map((t) => t.id) } : null,
     }]);
     setForm({ symbol: "", name: "", initialShares: "", target2035: "", costBasis: "" });
   };
@@ -6822,7 +6811,8 @@ function HoldingsPanel({ holdings, allHoldings = holdings, setHoldings, usLive, 
   const saveEdit = () => {
     // asOfShares 用目前算出來的股數（來自 holdings 這個已經算好 current 的 prop），
     // 不是 setHoldings 裡那個還沒算過的原始資料，兩者不能搞混。
-    const currentShares = holdings.find((x) => x.id === editingId)?.current ?? 0;
+    const editedHolding = holdings.find((x) => x.id === editingId);
+    const currentShares = Number(editedHolding?.current || 0) + Number(editForm.initialShares || 0) - Number(editedHolding?.initialShares || 0);
     setHoldings((hs) => hs.map((h) => h.id === editingId ? {
       ...h, symbol: normalizeStockSymbol(editForm.symbol), name: editForm.name,
       initialShares: Number(editForm.initialShares || 0), target2035: Number(editForm.target2035 || 0),
@@ -6830,6 +6820,7 @@ function HoldingsPanel({ holdings, allHoldings = holdings, setHoldings, usLive, 
       // 日期「之後」發生的買賣紀錄，不會重複計算今天以前已經算進這個數字裡的交易。
       costOverride: editForm.costBasis === "" ? null : {
         amount: Number(editForm.costBasis || 0), asOfDate: todayStr(), asOfShares: currentShares,
+        includedTradeIds: trades.filter((t) => normalizeStockSymbol(t.symbol) === normalizeStockSymbol(editForm.symbol) && t.date <= todayStr()).map((t) => t.id),
       },
       // 一旦手動編輯過持股，就不再吃舊版的手動平均成本覆蓋，全部改由「持有成本快照＋交易紀錄」自動算。
       manualAvgCost: "",
@@ -6946,12 +6937,12 @@ function HoldingsPanel({ holdings, allHoldings = holdings, setHoldings, usLive, 
               ) : (
                 <>
                   <div className="flex justify-between items-start">
-                    <div className="flex items-baseline gap-2">
+                    <div className="flex flex-wrap items-baseline gap-2 min-w-0">
                       <span className="font-bold mono">{h.symbol}</span>
                       <span className="text-[11px]" style={{ color: COLORS.sub }}>{h.name}</span>
                       {h.avgTradePrice != null && (
                         <span className="text-[11px] mono" style={{ color: COLORS.gold }}>
-                          <UiLabel zh="均價" inline /> NT$ {h.avgTradePrice.toFixed(2)}
+                          <UiLabel zh="成交均價（不含手續費）" inline /> NT$ {h.avgTradePrice.toFixed(2)}／股
                         </span>
                       )}
                     </div>
@@ -6960,14 +6951,17 @@ function HoldingsPanel({ holdings, allHoldings = holdings, setHoldings, usLive, 
                       <button onClick={() => remove(h.id)} style={{ color: COLORS.sub }}><TrashIcon size={15} /></button>
                     </div>
                   </div>
-                  <div className="flex justify-between text-xs mono mt-2">
-                    <span style={{ color: COLORS.sub }}>
-                      <UiLabel zh="平均成本" inline /> <span style={{ color: COLORS.text }}>{h.avgCost != null ? `NT$ ${h.avgCost.toFixed(2)}` : "-"}</span>
-                      {h.isManualAvgCost && <span style={{ color: COLORS.gold }}> <UiLabel zh="(手動)" inline /></span>}
-                    </span>
-                    <span style={{ color: COLORS.sub }}>
-                      <UiLabel zh="持有成本" inline /> <span style={{ color: COLORS.text }}>{h.estCostBasis != null ? `NT$ ${nf(h.estCostBasis)}` : "-"}</span>
-                    </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs mono mt-2">
+                    <div>
+                      <div style={{ color: COLORS.sub }}><UiLabel zh="總持有成本" inline /></div>
+                      <div className="font-bold mt-1" style={{ color: COLORS.gold }}>{h.estCostBasis != null ? `NT$ ${nf(h.estCostBasis)}` : "-"}</div>
+                    </div>
+                    <div>
+                      <div style={{ color: COLORS.sub }}><UiLabel zh="每股平均成本" inline /></div>
+                      <div className="mt-1" style={{ color: COLORS.text }}>{h.avgCost != null ? `NT$ ${h.avgCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}／股` : "-"}
+                        {h.isManualAvgCost && <span style={{ color: COLORS.gold }}> <UiLabel zh="(手動)" inline /></span>}
+                      </div>
+                    </div>
                   </div>
                   <div className="flex justify-between text-xs mono mt-2">
                     <span style={{ color: COLORS.sub }}>{M(`Current ${shareFormat(h.current)} shares`, `目前 ${shareFormat(h.current)} 股`)}</span>
@@ -8320,32 +8314,12 @@ function executeReadTool(tc, { trades, dailyRecords, dividends, holdings }) {
   }
 
   if (a.source === "holding_cost") {
-    const h = (holdings || []).find((x) => x.symbol === a.symbol);
-    const initialShares = h ? Number(h.initialShares || 0) - Number(h.migrationTradeOffset || 0) : 0;
-    const symbolTrades = (trades || [])
-      .filter((t) => t.symbol === a.symbol && t.date <= a.asOfDate)
-      .slice()
-      .sort((x, y) => x.date.localeCompare(y.date));
-
-    let shares = initialShares;
-    let cost = 0; // 期初股數的成本沒有記錄，這裡當作0，結果只反映交易紀錄部分
-    for (const t of symbolTrades) {
-      if (t.action === "buy") {
-        cost += Number(t.amount ?? tradeAmountNtd(t, t.fxRate));
-        shares += t.shares;
-      } else if (shares > 0) {
-        const avgPerShare = cost / shares;
-        const sellShares = Math.min(t.shares, shares);
-        cost -= avgPerShare * sellShares;
-        shares -= sellShares;
-      }
-    }
-    const avgCost = shares > 0 ? cost / shares : null;
-    const caveat = initialShares > 0
-      ? "（注意：期初股數的成本沒有記錄，這個均價只反映交易紀錄部分，可能不完全準確）"
-      : "";
-    if (shares <= 0) return `截至${a.asOfDate}：${a.symbol} 股數為0或查無資料${caveat}`;
-    return `截至${a.asOfDate}：${a.symbol} 股數${nf(shares)}股，均價NT$${avgCost.toFixed(2)}，總成本NT$${nf(Math.round(cost))}${caveat}`;
+    const h = (holdings || []).find((x) => normalizeStockSymbol(x.symbol) === normalizeStockSymbol(a.symbol)) || { symbol: a.symbol, initialShares: 0 };
+    const date = a.asOfDate || todayStr();
+    const { current: shares, estCostBasis: cost, avgCost, missingInitialCost } = holdingCostAt(h, trades, date);
+    const caveat = missingInitialCost ? "（期初股數的成本沒有記錄，成本可能不完整）" : "";
+    if (shares <= 0) return `截至${date}：${a.symbol} 股數為0或查無資料${caveat}`;
+    return `截至${date}：${a.symbol} 股數${nf(shares)}股，每股平均成本NT$${avgCost.toFixed(2)}/股，總持有成本NT$${nf(cost)}${caveat}`;
   }
 
   return `不支援的 source：${a.source}`;
