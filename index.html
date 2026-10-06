@@ -927,7 +927,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.47.19-step4-compact-fixed-market";
+const APP_VERSION = "4.7-personal-advisor-v2.47.20-fix-yesterday-baseline";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -2861,14 +2861,18 @@ function AssetTracker() {
     [dailyRecords]
   );
   const latest = sortedDaily[sortedDaily.length - 1];
-  const prev = sortedDaily[sortedDaily.length - 2];
+  // 「今日即時資產」一定要對「今天之前最近一筆每日紀錄」。
+  // 不能單純拿 sortedDaily 倒數第二筆，因為今天尚未存每日紀錄時，
+  // 倒數第二筆其實會變成前天，造成昨日／今日基準錯位。
+  const yesterdayRecord = [...sortedDaily].reverse().find((r) => r.date < todayStr()) || null;
+
   // 每日紀錄中的 twValue / usValue 都已是新台幣金額；總覽直接用這兩欄拆分顯示，不做匯率換算。
   const twHeld = holdings.filter((h) => isTaiwanSymbol(h.symbol) && holdingShareCount(h, trades) > 0);
   const twQuotesComplete = twHeld.length > 0 && twHeld.every((h) => Number(portfolioQuotes[h.symbol]?.price) > 0);
   const currentTwValue = twQuotesComplete ? Math.round(twHeld.reduce((sum,h) => sum + Number(portfolioQuotes[h.symbol].price) * holdingShareCount(h,trades),0)) : holdings.some((h) => isTaiwanSymbol(h.symbol)) && !twHeld.length ? 0 : latest ? Number(latest.twValue || 0) : 0;
   const currentUsValue = usHoldings.length > 0 && !usHoldings.some((h) => h.shares > 0) ? 0 : usAssetLive.totalNtd ?? (latest ? Number(latest.usValue || 0) : 0);
   const totalToday = currentTwValue + currentUsValue;
-  const totalPrev = prev ? Number(prev.twValue || 0) + Number(prev.usValue || 0) : null;
+  const totalPrev = yesterdayRecord ? Number(yesterdayRecord.twValue || 0) + Number(yesterdayRecord.usValue || 0) : null;
   const dailyChange = totalPrev != null ? totalToday - totalPrev : 0;
   const dailyChangePct = totalPrev ? (dailyChange / totalPrev) * 100 : 0;
 
@@ -2898,9 +2902,8 @@ function AssetTracker() {
   // 昨日台股市值：抓最近一筆日期在「今天」之前的每日紀錄的 twValue。
   // 用來在「即時股價」面板算「今/昨日盈虧」——比較的是你自己台股持股的市值，
   // 不是單一股票的漲跌幅。
-  const yesterdayTwRecord = [...sortedDaily].reverse().find((r) => r.date < todayStr());
-  const yesterdayTwValue = yesterdayTwRecord ? Number(yesterdayTwRecord.twValue || 0) : null;
-  const yesterdayUsValue = yesterdayTwRecord ? Number(yesterdayTwRecord.usValue || 0) : null;
+  const yesterdayTwValue = yesterdayRecord ? Number(yesterdayRecord.twValue || 0) : null;
+  const yesterdayUsValue = yesterdayRecord ? Number(yesterdayRecord.usValue || 0) : null;
 
   // "今年資產變化(YTD)" — market-value change since the start of the current
   // calendar year. Like the other stat cards, this is value-based, not a
