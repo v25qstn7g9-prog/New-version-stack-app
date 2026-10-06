@@ -25,7 +25,7 @@ test('daily record: today card auto-fills TW value from quotes, TW cost from hol
   // 報價不完整就不自動帶入市值
   assert.match(daily, /if \(missing\.length\) \{ setAutoTw\(\{ status: "partial"/);
   assert.match(daily, /\|\| quotes\?\.\[h\.symbol\]\?\.isStale\)/, 'stale quotes never become today\'s value');
-  assert.match(daily, /isToday && isTwseTradingHours\(\)/, 'intraday note');
+  assert.doesNotMatch(daily, /isToday && isTwseTradingHours\(\)/, 'Daily card no longer inserts an intraday note that shifts the fixed value/cost grid');
   assert.match(daily, /label="補記其他日期"/);
 });
 
