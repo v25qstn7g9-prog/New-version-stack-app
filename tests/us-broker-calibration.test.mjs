@@ -16,11 +16,11 @@ test('US broker calibration stores a factor tied to the current symbol/share com
 });
 
 test('calibrated US market value feeds the asset live object used by dashboard and Daily record', () => {
-  assert.match(html, /const calibratedUsTotalNtd = applyUsBrokerCalibration\(rawUsLive\.totalNtd, usBrokerCalibration, usCalibrationKey\)/);
-  assert.match(html, /const usLive = \{[\s\S]*totalNtd: calibratedUsTotalNtd/);
-  assert.match(html, /rawTotalNtd: rawUsLive\.totalNtd/);
+  assert.match(html, /const calibratedUsTotalNtd = applyUsBrokerCalibration\(usLive\.totalNtd, usBrokerCalibration, usCalibrationKey\)/);
+  assert.match(html, /const usAssetLive = \{[\s\S]*totalNtd: calibratedUsTotalNtd/);
+  assert.match(html, /rawTotalNtd: usLive\.totalNtd/);
   assert.match(html, /brokerCalibrationActive: usCalibrationActive/);
-  assert.match(html, /const currentUsValue = [\s\S]*usLive\.totalNtd/);
+  assert.match(html, /const currentUsValue = [\s\S]*usAssetLive\.totalNtd/);
   const dailyStart = html.indexOf('function DailyPanel');
   const dailyEnd = html.indexOf('\nfunction ', dailyStart + 20);
   const daily = html.slice(dailyStart, dailyEnd);
