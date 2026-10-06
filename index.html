@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="存股資產追蹤" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <script src="/bg-core.js?v=3"></script>
-  <script src="/forecast-core.js?v=2.47.6"></script>
+  <script src="/forecast-core.js?v=2.47.7"></script>
   <title>存股資產追蹤</title>
 
   <style>
@@ -93,7 +93,7 @@
     button:active{transform:scale(.985)}
 
     /* Overview */
-    .premium-dashboard{gap:.46rem;--label-muted:#8390a6}
+    .premium-dashboard{gap:.46rem;--label-muted:#8390a6;overflow-anchor:none}
     .premium-dashboard>div{scroll-margin-top:10px}
     .premium-dashboard>.premium-asset-hero{
       position:relative;overflow:hidden;border-radius:18px!important;
@@ -436,6 +436,20 @@
       .holding-cost-summary{font-size:11px!important}
       .holding-trade-average{font-size:10.5px}
     }
+
+    /* v2.47.7 — dashboard refresh stability + fixed Daily value/cost grid */
+    .premium-dashboard .live-status-line{
+      min-height:24px;
+      max-height:24px;
+      overflow:hidden;
+      white-space:nowrap;
+      text-overflow:ellipsis;
+    }
+    .premium-dashboard .live-quote-row{contain:layout paint}
+    .daily-fixed-values{align-items:stretch}
+    .daily-fixed-cell{min-height:82px}
+    .daily-fixed-cell .premium-field{height:100%}
+    .daily-fixed-cell .input{margin-top:auto}
 </style>
 
   <script>
@@ -529,7 +543,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.47.6-holdings-cost-safe-top";
+const APP_VERSION = "4.7-personal-advisor-v2.47.7-dashboard-stable-daily-fixed";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -3796,7 +3810,8 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
             {liveAt && <span>・{liveAt.toLocaleTimeString("zh-TW", { hour12: false })}</span>}
           </>}
           {liveStatus === "error" && <span>・{UI_SHOW_ENGLISH ? "TW quote unavailable" : "台股報價暫時失敗"}</span>}
-          {usLive?.state?.failed?.length > 0 && <span>・{UI_SHOW_ENGLISH ? "Some US quotes use previous prices" : "部分美股暫沿用上次報價"}</span>}
+          {liveStatus === "done" && failedSymbols.length > 0 && <span>・{UI_SHOW_ENGLISH ? "TW: previous price used" : "台股部分沿用上次報價"}</span>}
+          {usLive?.state?.failed?.length > 0 && <span>・{UI_SHOW_ENGLISH ? "US: previous price used" : "美股部分沿用上次報價"}</span>}
         </div>
         <button
           onClick={() => { fetchAllLive(true); usLive?.refresh?.(); }}
@@ -3883,9 +3898,6 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
                 {r.isUS && r.asOfDate && <div className="text-[9px] text-right mt-0.5" style={{ color: COLORS.sub }}>
                   {UI_SHOW_ENGLISH ? "US quote " : "美股報價 "}{new Date(r.asOfDate).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}
                 </div>}
-                {r.isFromCache && r.fetchedAt && <div className="text-[9px] text-right mt-0.5" style={{ color: COLORS.sub }}>
-                  {UI_SHOW_ENGLISH ? "Last successful quote: " : "顯示上次成功報價："}{new Date(r.fetchedAt).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}
-                </div>}
               </div>
             ))}
           </div>
@@ -3915,13 +3927,6 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
           </div>
 
 
-        </div>
-      )}
-      {liveStatus === "done" && failedSymbols.length > 0 && (
-        <div className="text-[11px] mt-2" style={{ color: COLORS.loss }}>
-          {UI_SHOW_ENGLISH
-            ? `Fetch failed: ${failedSymbols.join(", ")} (source may be busy, retry once more)`
-            : `抓取失敗：${failedSymbols.join("、")}（來源暫時壅塞，可再按一次重試）`}
         </div>
       )}
       {!activeHoldings.length && <Empty text="請先到「持股進度」新增持股並填入股數，才能抓取即時股價" />}
@@ -6545,40 +6550,13 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
             <UiLabel zh={sameDayRecord ? (sameDayRecord.source === "auto" ? "🤖 自動記錄" : "✅ 已記錄") : "⏳ 還沒記錄"} inline />
           </span>
         </div>
-        {isToday && isTwseTradingHours() && (
-          <div className="text-[11px] mb-2 rounded-lg px-2.5 py-1.5" style={{ color: COLORS.gold, background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
-            <UiLabel zh="現在是盤中，市值還會變動；收盤（13:30）後再記最準，先記也可以，之後再按更新。" />
-          </div>
-        )}
-        {isToday && autoTw.status === "partial" && (
-          <div className="text-[11px] mb-2" style={{ color: COLORS.sub }}>
-            {UI_SHOW_ENGLISH ? "Some quotes are missing, TW value not auto-filled: " : "部分持股抓不到報價，台股市值先不自動帶入："}{autoTw.missing.join("、")}
-          </div>
-        )}
-        {isToday && autoTw.status === "error" && (
-          <div className="text-[11px] mb-2" style={{ color: COLORS.sub }}><UiLabel zh="報價暫時抓不到，台股市值請手動輸入或稍後按「重新抓報價」。" /></div>
-        )}
-        {isToday && showUsFields && autoUs.status === "partial" && (
-          <div className="text-[11px] mb-2" style={{ color: COLORS.sub }}>美股報價尚未完整：{autoUs.missing.join("、")}</div>
-        )}
-        {isToday && showUsFields && autoUs.status === "error" && (
-          <div className="text-[11px] mb-2" style={{ color: COLORS.sub }}><UiLabel zh="美股報價暫時抓不到，先沿用上一筆或稍後重試。" /></div>
-        )}
-        {sameDayRecord && (
-          <div className="text-[11px] mb-2" style={{ color: COLORS.sub }}>
-            <UiLabel zh={sameDayRecord.source === "auto"
-              ? "這筆是收盤後自動記的（美股以最近報價換算）；有不同就直接改，按「更新」後會變成你的手動紀錄。"
-              : "這天已經存過，下面是已儲存的數字；要修改就直接改，再按「更新」。"} />
-          </div>
-        )}
-        <div className="grid grid-cols-2 gap-2">
+        <div className="daily-fixed-values grid grid-cols-2 gap-2">
           {(showUsFields ? [["twValue", "台股市值"], ["usValue", "美股市值"], ["twCost", "台股成本"], ["usCost", "美股成本"]] : [["twValue", "台股市值"], ["twCost", "台股成本"]]).map(([key, label]) => (
-            <Field key={key} label={label}>
+            <div key={key} className="daily-fixed-cell"><Field label={label}>
               <input type="number" inputMode="decimal" value={form[key]}
                 onChange={(e) => editField(key, e.target.value)}
                 placeholder={key.startsWith("us") ? (UI_SHOW_ENGLISH ? "0 if none" : "沒有就填 0") : ""} className="input" />
-              {sourceNote(key) && <div className="text-[10px] mt-1 leading-snug" style={{ color: COLORS.sub }}><UiLabel zh={sourceNote(key)} inline /></div>}
-            </Field>
+            </Field></div>
           ))}
         </div>
         <MissingHint missing={dailyMissing} />
@@ -6592,7 +6570,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
             <button onClick={() => { setForm((f) => ({ ...f, twValue: "" })); setAutoFrom((a) => ({ ...a, twValue: "wantQuote", usValue: "wantQuote" })); setForm((f) => ({ ...f, usValue: "" })); loadAutoTw(true); loadAutoUs(true); }}
               className="text-[11px] font-bold rounded-lg px-3 py-2 whitespace-nowrap"
               style={{ border: `1px solid ${COLORS.gold}`, color: COLORS.gold }}>
-              <UiLabel zh={autoTw.status === "loading" ? "抓取中…" : "重新抓報價"} inline />
+              <UiLabel zh="重新抓報價" inline />
             </button>
           )}
         </div>
