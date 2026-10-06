@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="存股資產追蹤" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <script src="/bg-core.js?v=3"></script>
-  <script src="/forecast-core.js?v=2.47.1"></script>
+  <script src="/forecast-core.js?v=2.47.2"></script>
   <title>存股資產追蹤 V4.6 Personal v2</title>
 
   <style>
@@ -373,7 +373,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.47.1-holding-cost-units";
+const APP_VERSION = "4.7-personal-advisor-v2.47.2-shared-holding-layout";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -6940,16 +6940,15 @@ function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldi
                     <div className="flex flex-wrap items-baseline gap-2 min-w-0">
                       <span className="font-bold mono">{h.symbol}</span>
                       <span className="text-[11px]" style={{ color: COLORS.sub }}>{h.name}</span>
-                      {h.avgTradePrice != null && (
-                        <span className="text-[11px] mono" style={{ color: COLORS.gold }}>
-                          <UiLabel zh="成交均價（不含手續費）" inline /> NT$ {h.avgTradePrice.toFixed(2)}／股
-                        </span>
-                      )}
                     </div>
                     <div className="flex items-center gap-3">
                       <button onClick={() => startEdit(h)} style={{ color: COLORS.sub }}><PencilIcon size={15} /></button>
                       <button onClick={() => remove(h.id)} style={{ color: COLORS.sub }}><TrashIcon size={15} /></button>
                     </div>
+                  </div>
+                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[11px] mono mt-2" style={{ color: COLORS.gold }}>
+                    <UiLabel zh="成交均價（不含手續費）" inline />
+                    <span>{h.avgTradePrice != null ? `NT$ ${h.avgTradePrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}／股` : M("— (no trade records)", "—（尚無交易紀錄）")}</span>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs mono mt-2">
                     <div>
@@ -7016,7 +7015,7 @@ function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldi
                     <div className="h-full rounded-full" style={{ width: `${h.pct}%`, background: COLORS.gold }} />
                   </div>
                   <div className="flex justify-between items-baseline mt-1">
-                    <span className="text-[11px] mono" style={{ color: COLORS.sub }}>{h.projectedLabel}</span>
+                    <span className="text-[11px] mono" style={{ color: COLORS.sub }}>{h.projectedLabel || M("Est. —", "預定 —")}</span>
                     <span className="text-[11px] mono" style={{ color: COLORS.gold }}>
                       <UiLabel zh="達成率" inline /> {h.pct.toFixed(1)}%
                     </span>
