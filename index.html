@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="存股資產追蹤" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <script src="/bg-core.js?v=3"></script>
-  <script src="/forecast-core.js?v=2.47.4"></script>
+  <script src="/forecast-core.js?v=2.47.5"></script>
   <title>存股資產追蹤</title>
 
   <style>
@@ -363,6 +363,52 @@
     .premium-tab .premium-add-button{margin-top:10px!important}
     .premium-tab .live-quote-list>*+*{margin-top:0}
     @media(max-width:640px){.premium-panel{padding:12px!important}.premium-tab-holdings .space-y-3>div.rounded-xl{padding:12px!important}}
+
+    /* v2.47.5 — full-page compact rhythm normalization.
+       Keep iOS inputs readable while reducing visual drift between sections. */
+    .premium-main{padding-top:8px!important;padding-bottom:calc(124px + env(safe-area-inset-bottom,0px))!important}
+    .premium-tab{line-height:1.48}
+    .premium-tab .space-y-2>:not([hidden])~:not([hidden]){margin-top:6px!important}
+    .premium-tab .space-y-3>:not([hidden])~:not([hidden]){margin-top:8px!important}
+    .premium-tab .space-y-4>:not([hidden])~:not([hidden]){margin-top:10px!important}
+    .premium-tab .gap-2{gap:6px!important}
+    .premium-tab .gap-3{gap:8px!important}
+    .premium-tab .gap-4{gap:10px!important}
+    .premium-tab .mt-3{margin-top:8px!important}
+    .premium-tab .mt-4{margin-top:10px!important}
+    .premium-tab .mb-3{margin-bottom:8px!important}
+    .premium-tab .mb-4{margin-bottom:10px!important}
+    .premium-panel{padding:12px!important;border-radius:15px!important}
+    .premium-panel>.premium-panel-title{margin-bottom:8px!important}
+    .premium-dashboard{gap:6px!important}
+    .premium-dashboard>.rounded-xl,.premium-dashboard>.premium-asset-hero{padding:10px!important}
+    .premium-tab>.space-y-2>div.rounded-2xl,.premium-tab>.space-y-3>div.rounded-2xl{padding:11px!important}
+    .premium-tab .grid:has(>.premium-field){column-gap:8px!important;row-gap:8px!important}
+    .premium-field-label{margin-bottom:3px!important}
+    .premium-tab .input{min-height:44px!important;padding:8px 10px!important;border-radius:10px!important}
+    .premium-row{padding:8px!important;border-radius:11px!important}
+    .premium-empty{padding:10px!important;line-height:1.5}
+    .premium-tab .premium-add-button{min-height:44px;margin-top:8px!important;border-radius:10px!important}
+    .holding-header{gap:8px!important}
+    .holding-cost-summary{padding:7px 0!important;margin-top:7px!important;row-gap:7px!important}
+    .premium-tab-holdings .space-y-3>div.rounded-xl{padding:10px!important}
+    .premium-tab-progress .grid.grid-cols-2.gap-3{gap:7px!important}
+    .premium-tab-progress .grid.grid-cols-2.gap-3>div{padding:10px!important}
+    .premium-tab-plan .grid.grid-cols-3.gap-2{gap:6px!important}
+    .premium-tab-trades .max-h-96,.premium-tab-dividends .max-h-96{max-height:360px!important}
+    .premium-tabbar button{min-height:50px!important;padding-top:4px!important;padding-bottom:3px!important}
+    .premium-tabbar button>span:first-child{width:36px!important;height:22px!important}
+    .premium-ai-launcher{bottom:calc(70px + env(safe-area-inset-bottom,4px))!important}
+    .live-quote-heading{padding:6px 0!important}
+    .live-quote-row{padding:6px 0!important}
+    @media(max-width:640px){
+      .premium-panel{padding:10px!important}
+      .premium-dashboard>.premium-asset-hero{padding:11px!important}
+      .premium-tab>.space-y-2>div.rounded-2xl,.premium-tab>.space-y-3>div.rounded-2xl{padding:10px!important}
+      .premium-tab-holdings .space-y-3>div.rounded-xl{padding:10px!important}
+      .premium-tab .input{font-size:16px!important}
+      .premium-header{padding-top:8px!important;padding-bottom:8px!important}
+    }
 </style>
 
   <script>
@@ -456,7 +502,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.47.4-compact-live-quotes";
+const APP_VERSION = "4.7-personal-advisor-v2.47.5-compact-all-pages";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
