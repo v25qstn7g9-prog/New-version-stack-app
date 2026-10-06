@@ -193,100 +193,6 @@
       padding:9px 10px;border:1px solid #202b3e;border-radius:12px;background:var(--premium-panel-soft);
     }
 
-    /* Compact consistency pass: Daily / Trades / Dividends
-       Keep these three high-frequency entry pages visually aligned and denser on mobile. */
-    .premium-tab-daily>.space-y-2,
-    .premium-tab-trades>.space-y-2,
-    .premium-tab-dividends>.space-y-2{
-      row-gap:.42rem!important;
-    }
-    .premium-tab-daily .premium-panel,
-    .premium-tab-trades .premium-panel,
-    .premium-tab-dividends .premium-panel{
-      padding:12px!important;
-      border-radius:15px!important;
-    }
-    .premium-tab-daily .premium-panel-title,
-    .premium-tab-trades .premium-panel-title,
-    .premium-tab-dividends .premium-panel-title{
-      margin-bottom:8px!important;
-      font-size:11px!important;
-      line-height:1.35!important;
-    }
-    .premium-tab-daily .premium-field-label,
-    .premium-tab-trades .premium-field-label,
-    .premium-tab-dividends .premium-field-label{
-      margin-bottom:3px!important;
-      font-size:10px!important;
-      line-height:1.28!important;
-    }
-    .premium-tab-daily .input,
-    .premium-tab-trades .input,
-    .premium-tab-dividends .input{
-      min-height:38px!important;
-      padding:7px 9px!important;
-      font-size:12px!important;
-      line-height:1.25!important;
-      border-radius:10px!important;
-    }
-    .premium-tab-daily .grid.gap-2,
-    .premium-tab-trades .grid.gap-2,
-    .premium-tab-dividends .grid.gap-2{
-      gap:6px!important;
-    }
-    .premium-tab-daily .premium-add-button,
-    .premium-tab-trades .premium-add-button,
-    .premium-tab-dividends .premium-add-button{
-      min-height:40px!important;
-      margin-top:9px!important;
-      padding:8px 10px!important;
-      border-radius:11px!important;
-      font-size:12px!important;
-    }
-    .premium-tab-daily .premium-row,
-    .premium-tab-trades .premium-row,
-    .premium-tab-dividends .premium-row{
-      padding:8px!important;
-      gap:7px!important;
-      border-radius:11px!important;
-    }
-    .premium-tab-daily .premium-row .text-sm,
-    .premium-tab-trades .premium-row .text-sm,
-    .premium-tab-dividends .premium-row .text-sm{
-      font-size:12px!important;
-      line-height:1.35!important;
-    }
-    .premium-tab-daily .premium-row .text-\[11px\],
-    .premium-tab-trades .premium-row .text-\[11px\],
-    .premium-tab-dividends .premium-row .text-\[11px\]{
-      font-size:10px!important;
-      line-height:1.3!important;
-    }
-    .premium-tab-daily .premium-row-delete,
-    .premium-tab-trades .premium-row-delete,
-    .premium-tab-dividends .premium-row-delete{
-      width:30px!important;
-      height:30px!important;
-      border-radius:9px!important;
-    }
-    .premium-tab-daily .premium-panel .mt-3,
-    .premium-tab-trades .premium-panel .mt-3,
-    .premium-tab-dividends .premium-panel .mt-3{
-      margin-top:8px!important;
-    }
-    .premium-tab-daily .premium-panel .pt-3,
-    .premium-tab-trades .premium-panel .pt-3,
-    .premium-tab-dividends .premium-panel .pt-3{
-      padding-top:8px!important;
-    }
-    .premium-tab-daily .premium-panel .mb-3,
-    .premium-tab-trades .premium-panel .mb-3,
-    .premium-tab-dividends .premium-panel .mb-3{
-      margin-bottom:8px!important;
-    }
-    .premium-tab-dividends [style*="height: 210"]{height:178px!important}
-    .premium-tab-dividends [style*="height: 180"]{height:160px!important}
-
     /* Live quote status */
     .live-status-line{
       display:inline-flex;align-items:center;min-height:24px;line-height:1.35;
@@ -640,7 +546,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.48.8-split-market-display-only";
+const APP_VERSION = "4.7-personal-advisor-v2.47.9-runtime-hotfix";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -3962,18 +3868,11 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
         <button
           onClick={() => { fetchAllLive(true); usLive?.refresh?.(); }}
           disabled={liveStatus === "loading" || usLive?.state?.status === "loading" || !activeHoldings.length}
-          className="live-refresh-btn relative text-xs font-bold px-3 py-1.5 rounded-lg flex items-center justify-center flex-shrink-0"
-          style={{ background: COLORS.gold, color: COLORS.bg, opacity: (!activeHoldings.length) ? 0.5 : 1 }}
-          aria-label={uiText("抓取即時股價")}
+          className="live-refresh-btn text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 flex-shrink-0"
+          style={{ background: COLORS.gold, color: COLORS.bg, opacity: (liveStatus === "loading" || !activeHoldings.length) ? 0.5 : 1 }}
         >
-          <span style={{ visibility: (liveStatus === "loading" || usLive?.state?.status === "loading") ? "hidden" : "visible" }}>
-            <UiLabel zh="抓取即時股價" />
-          </span>
-          {(liveStatus === "loading" || usLive?.state?.status === "loading") && (
-            <span className="absolute inset-0 flex items-center justify-center">
-              <Loader2 size={15} className="animate-spin" />
-            </span>
-          )}
+          {liveStatus === "loading" ? <Loader2 size={13} className="animate-spin" /> : null}
+          <UiLabel zh="抓取即時股價" />
         </button>
       </div>
 
@@ -4057,21 +3956,9 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
           {/* One flat summary instead of a boxed 今日摘要 plus two repeated
               blocks: portfolio value vs yesterday, then TAIEX vs portfolio. */}
           <div className="pt-2 mt-2" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
-            <div className="space-y-1 mono">
-              <div className="flex justify-between items-baseline gap-2 text-xs font-bold">
-                <span style={{ color: COLORS.sub }}><UiLabel zh="台股持股市值" /></span>
-                <span style={{ color: COLORS.gold }}>NT$ {formatNtdPrice(rows.filter((r) => !r.isUS).reduce((sum, r) => sum + Number(r.value || 0), 0), 1)}</span>
-              </div>
-              {rows.some((r) => r.isUS) && (
-                <div className="flex justify-between items-baseline gap-2 text-xs font-bold">
-                  <span style={{ color: COLORS.sub }}><UiLabel zh="美股持股市值" /></span>
-                  <span style={{ color: COLORS.gold }}>NT$ {formatNtdPrice(rows.filter((r) => r.isUS).reduce((sum, r) => sum + Number(r.value || 0), 0), 1)}</span>
-                </div>
-              )}
-              <div className="flex justify-between items-baseline gap-2 text-[11px]">
-                <span style={{ color: COLORS.sub }}><UiLabel zh={quoteComplete ? "合計市值" : "目前可得市值（部分）"} /></span>
-                <span style={{ color: COLORS.text }}>NT$ {formatNtdPrice(totalValue, 1)}</span>
-              </div>
+            <div className="flex justify-between items-baseline gap-2 text-xs mono font-bold">
+              <span style={{ color: COLORS.sub }}><UiLabel zh={quoteComplete ? "持股總市值（台幣）" : "目前可得市值（部分）"} /></span>
+              <span style={{ color: COLORS.gold }}>NT$ {formatNtdPrice(totalValue, 1)}</span>
             </div>
             {(yesterdayTwValue != null || yesterdayUsValue != null) && (() => {
               const diff = totalValue - (Number(yesterdayTwValue || 0) + Number(yesterdayUsValue || 0));
@@ -4176,11 +4063,7 @@ function useUsLivePrices(usHoldings, enabled) {
       if (dead || busy || (!force && document.visibilityState !== "visible")) return;
       busy = true;
       lastAttempt = Date.now();
-      setState((x) => {
-        const cur = x.activeKey === activeKey ? x : empty;
-        const hasSnapshot = Object.keys(cur.quotes || {}).length > 0 || Number(cur.fx) > 0;
-        return hasSnapshot ? cur : { ...cur, status: "loading" };
-      });
+      setState((x) => ({ ...(x.activeKey === activeKey ? x : empty), status: "loading" }));
       try {
         const result = await fetchQuotesWithFallback([...symbols, "USDTWD"], force);
         if (dead) return;
@@ -4285,12 +4168,10 @@ function TrendRadar({ holdings, embedded = false }) {
   const [marketRow, setMarketRow] = useState(null);
   const [tomorrowMap, setTomorrowMap] = useState({});
   const [globalRow, setGlobalRow] = useState(null);
+
   useEffect(() => {
     let cancelled = false;
     let recalcRunning = false;
-    // Signature belongs to this effect lifecycle (not React state). It gates
-    // redundant paints while keeping the forecast core testable outside React.
-    let committedViewSig = "";
     let recalcQueued = false;
     // Fast tape lives only in memory: fresh 15-second observations drive the
     // intraday reaction layer without bloating persistent storage.
@@ -4641,10 +4522,10 @@ function TrendRadar({ holdings, embedded = false }) {
         if(cache?.key===todayKey+"|"+slowPhase+"|"+symbolKey&&Date.now()-Date.parse(cache.at)<30*60000)return cache.days;
         const days=await fetchInstitutional(active.map(h=>String(h.symbol)));if(!days.length)throw Error("institutions unavailable");
         await saveKey("institutionalFlow",{key:todayKey+"|"+slowPhase+"|"+symbolKey,at:new Date().toISOString(),days});return days;
-      },days=>{memoInstDays=days;});
+      },days=>{memoInstDays=days;setInstStatus("ok");});
       launchSlow("margin",todayKey+"|"+slowPhase+"|"+symbolKey,30*60000,async()=>{
         const days=await fetchMargin(active.map(h=>String(h.symbol)));if(!days.length)throw Error("margin unavailable");return days;
-      },days=>{memoMarginDays=days;});
+      },days=>{memoMarginDays=days;setMarginStatus("ok");});
       const instDays=memoInstDays||[],marginDays=memoMarginDays||[];
       const signScore=(v)=>v>0?1:v<0?-1:0;
       const marketSum=(key,n)=>instDays.slice(0,n).reduce((a,d)=>a+(Number(d?.marketTotal?.[key])||0),0);
@@ -4818,6 +4699,7 @@ function TrendRadar({ holdings, embedded = false }) {
         const pct=(Number(bars[i].close)/Number(bars[i-1].close)-1)*100;
         return {pct,up:Math.abs(pct)<1e-8?null:pct>0,sourceAt:day+"T13:30:00+08:00",source:"completed-daily-bar"};
       };
+      setMarketRow(computedMarketRow);
       // Save one evaluation snapshot per symbol/day. This creates the training/
       // calibration history needed to replace hand-tuned weights with measured ones.
       try{
@@ -4868,26 +4750,11 @@ function TrendRadar({ holdings, embedded = false }) {
       }catch(e){}
       // Overnight global signal (S&P500 / SOX / USD-TWD) — the one genuinely
       // forward-looking input available before TWSE opens the next session.
-      // Keep the last successful snapshot visible while a refresh is running.
-      // Hydrate it from persistent cache on cold start so the card never
-      // collapses to zero height between "old data" and "new data".
-      if (!memoGlobal) {
-        try {
-          const cachedGlobal = await loadKey("trendRadarGlobalSignal", null);
-          if (cachedGlobal?.value) {
-            memoGlobal = cachedGlobal.value;
-            memoGlobalAt = Number(cachedGlobal.at) || Date.now();
-          }
-        } catch(e) {}
-      }
       launchSlow("global",todayKey,60000,async()=>{
         const value=await fetchGlobalSignal();if(!value)throw Error("global unavailable");
         await saveKey("trendRadarGlobalSignal",{at:Date.now(),value});return value;
-      },value=>{memoGlobal=value;memoGlobalAt=Date.now();});
-      // Freshness controls when we request a replacement, not whether the
-      // existing card disappears. A stale successful snapshot stays rendered
-      // until a newer successful snapshot atomically replaces it.
-      const global=memoGlobal||null;
+      },value=>{memoGlobal=value;memoGlobalAt=Date.now();setGlobalStatus("ok");setGlobalRow(value);});
+      const global=memoGlobal&&Date.now()-memoGlobalAt<5*60000?memoGlobal:null;
       // Next-session model v2.45.
       // Preview starts at 10:30 and updates with every live quote. The final
       // next-day call is frozen at 13:25, so backtests compare a fixed forecast
@@ -5096,30 +4963,8 @@ function TrendRadar({ holdings, embedded = false }) {
           statuses:{institutional:instDays.length?"ok":"unavailable",global:global?"ok":"unavailable"},
         });
       } catch(e) {}
-      // Commit the complete visible analysis in one batch only after every
-      // displayed value for this cycle is ready. If the displayed snapshot is
-      // identical, keep the previous React state references and do not repaint.
-      const nextInstStatus = instDays.length ? "ok" : (slots.get("institutions")?.busy ? "loading" : "unavailable");
-      const nextMarginStatus = marginDays.length ? "ok" : (slots.get("margin")?.busy ? "loading" : "unavailable");
-      const nextGlobalStatus = global ? "ok" : (slots.get("global")?.busy ? "loading" : "unavailable");
-      const viewSig = JSON.stringify({
-        market: computedMarketRow,
-        rows: next,
-        tomorrow,
-        global,
-        statuses: [nextInstStatus, nextMarginStatus, nextGlobalStatus],
-      });
-      if (viewSig !== committedViewSig) {
-        committedViewSig = viewSig;
-        setMarketRow(computedMarketRow);
-        setRows(next);
-        setTomorrowMap(tomorrow);
-        setGlobalRow(global);
-        setInstStatus(nextInstStatus);
-        setMarginStatus(nextMarginStatus);
-        setGlobalStatus(nextGlobalStatus);
-        setAsOf(new Date());
-      }
+      setTomorrowMap(tomorrow);
+      setRows(next); setAsOf(new Date());
       } finally {
         recalcRunning = false;
         if (recalcQueued && !cancelled) {
@@ -5146,9 +4991,6 @@ function TrendRadar({ holdings, embedded = false }) {
         const cutoff=ts-15*60*1000;
         fastTape=fastTape.filter(p=>p.ts>=cutoff).slice(-80);
       }
-      // Recalculate from the fresh 15-second quote batch. The visible UI is
-      // committed atomically at the end of recalc(), so only changed values are
-      // patched and the card structure itself never enters a half-updated state.
       clearTimeout(liveSyncTimer);
       liveSyncTimer=setTimeout(()=>{ if(!cancelled) recalc(); },80);
     };
@@ -6393,7 +6235,6 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
                     formatter={(v) => [`NT$ ${nf(v)}`, uiText("總資產")]} />
                   <ReferenceLine y={goal.targetAmount} stroke={COLORS.gold} strokeDasharray="4 4" />
                   <Area type="monotone" dataKey="total" stroke="#6FAFC2" strokeWidth={2} fill="url(#assetCurveFill)"
-                    isAnimationActive={false}
                     dot={false} activeDot={{ r: 4, fill: "#6FAFC2", stroke: COLORS.panel, strokeWidth: 2 }} />
                 </AreaChart>
               </ResponsiveContainer>
@@ -7197,29 +7038,18 @@ function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldi
   // 持股進度頁不另外打報價 API；直接沿用「總覽 → 即時股價」寫入的 livePrices 快取。
   // 這樣首頁是唯一報價來源，避免兩個頁面各自抓一次造成重複請求。
   const [holdingQuotes, setHoldingQuotes] = useState({});
-  const holdingQuoteSigRef = useRef("");
 
   useEffect(() => {
     let cancelled = false;
-    const commitHoldingQuotes = (map) => {
-      if (cancelled || !map) return;
-      const sig = JSON.stringify(Object.fromEntries(Object.entries(map).map(([sym, q]) => [
-        sym,
-        [Number(q?.price)||0, Number(q?.prevClose)||0, Number(q?.high)||0, Number(q?.low)||0, q?.asOfDate||""]
-      ])));
-      if (sig === holdingQuoteSigRef.current) return;
-      holdingQuoteSigRef.current = sig;
-      setHoldingQuotes(map);
-    };
     const onLivePricesUpdated = (e) => {
-      commitHoldingQuotes(e?.detail?.map);
+      if (!cancelled && e?.detail?.map) setHoldingQuotes(e.detail.map);
     };
     window.addEventListener("livePricesUpdated", onLivePricesUpdated);
 
     (async () => {
       const cached = await loadKey("livePrices", null);
       if (cancelled) return;
-      commitHoldingQuotes(cached?.map || {});
+      setHoldingQuotes(cached?.map || {});
     })();
 
     return () => {
@@ -7312,7 +7142,6 @@ function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldi
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie data={allocationData} dataKey="value" nameKey="symbol"
-                    isAnimationActive={false}
                     innerRadius={40} outerRadius={70} paddingAngle={2}>
                     {allocationData.map((_, i) => (
                       <Cell key={i} fill={ALLOC_COLORS[i % ALLOC_COLORS.length]} stroke={COLORS.bg} />
@@ -7701,24 +7530,14 @@ function UpcomingDividendReminder({ holdings }) {
   const symbols = [...new Set(
     holdings.filter((h) => isTaiwanSymbol(h.symbol) && Number(h.current || 0) > 0 && h.symbol).map((h) => h.symbol)
   )];
-  const symbolsKey = symbols.slice().sort().join(",");
   const [items, setItems] = useState([]);
   const [status, setStatus] = useState(symbols.length ? "loading" : "idle");
 
   useEffect(() => {
     if (!symbols.length) { setStatus("idle"); setItems([]); return; }
     let cancelled = false;
+    setStatus("loading");
     (async () => {
-      const cacheKey = "upcomingDividendReminder";
-      const cached = await loadKey(cacheKey, null);
-      if (cancelled) return;
-      if (cached?.symbolsKey === symbolsKey && Array.isArray(cached.items)) {
-        setItems(cached.items);
-        setStatus("done");
-      } else {
-        setStatus("loading");
-      }
-      try {
       try {
         const res = await fetchWithTimeout(
           `/dividend-schedule?symbols=${encodeURIComponent(symbols.join(","))}`, { cache: "no-store" }, 8000
@@ -7732,16 +7551,21 @@ function UpcomingDividendReminder({ holdings }) {
           .sort((a, b) => a.date.localeCompare(b.date));
         setItems(upcoming);
         setStatus("done");
-        saveKey(cacheKey, { symbolsKey, items: upcoming, at: new Date().toISOString() }).catch(() => {});
       } catch (e) {
-        if (!cancelled && !(cached?.items?.length)) setStatus("error");
+        if (!cancelled) setStatus("error");
       }
     })();
     return () => { cancelled = true; };
-  }, [symbolsKey]);
+  }, [symbols.join(",")]);
 
   if (status === "idle" || status === "error") return null;
-  if (status === "loading" && !items.length) return null;
+  if (status === "loading") {
+    return (
+      <Panel title="近期除息">
+        <div className="text-xs" style={{ color: COLORS.sub }}><UiLabel zh="查詢中…" /></div>
+      </Panel>
+    );
+  }
   if (!items.length) return null; // 沒有即將除息的持股，安靜不顯示這個區塊
 
   const daysUntil = (dateStr) => {
@@ -7845,7 +7669,6 @@ function DividendHistoryChart({ dividends }) {
             {seriesKeys.map((key, i) => (
               <Bar key={key} dataKey={key} stackId={isAll ? "a" : undefined}
                 fill={colorForSymbol(isAll ? key : filter, symbols)}
-                isAnimationActive={false}
                 activeBar={false}
                 radius={i === seriesKeys.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
             ))}
