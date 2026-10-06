@@ -7,8 +7,8 @@ import fs from 'node:fs';
 const html = fs.readFileSync('index.html', 'utf8');
 
 test('each holding card shows previous close and the converted TWD price difference', () => {
-  assert.match(html, /NT\$ \{r\.prevCloseOk \? formatNtdPrice\(quoteNtd\(r, r\.prevClose\)\) : "—"\}/);
-  assert.match(html, /NT\$ \{formatNtdPrice\(quoteNtd\(r, r\.chg\)\)\}/);
+  assert.match(html, /NT\$ \{r\.prevCloseOk \? formatNtdPrice\(quoteNtd\(r, r\.prevClose\), 1\) : "—"\}/);
+  assert.match(html, /NT\$ \{formatNtdPrice\(quoteNtd\(r, r\.chg\), 1\)\}/);
   assert.match(html, /SessionSparkline points=\{withLive\(sparkFor\(r\.symbol\)/);
 });
 
@@ -27,9 +27,11 @@ test('new labels have English translations', () => {
   for (const zh of ['昨收', '漲跌', '點']) assert.match(html, new RegExp(`"${zh}": "`));
 });
 
-test('quote statistics keep a consistent font while the main price is emphasized', () => {
-  const start = html.indexOf('text-[11px] mono mt-3 live-quote-stats');
-  const block = html.slice(start, html.indexOf('</div>\n                {!r.quoteIsStale', start));
-  assert.ok(start > 0 && block.length > 0);
-  assert.doesNotMatch(block.slice(block.indexOf('>')), /text-\[(10|11)px\]/);
+test('compact quotes expand naturally without a nested scroll area', () => {
+  const start = html.indexOf('<div className="live-quote-list">');
+  const block = html.slice(start, html.indexOf('{/* One flat summary', start));
+  assert.ok(start > 0);
+  assert.doesNotMatch(block, /max-h-|overflow-y-auto|live-quote-card/);
+  assert.match(block, /live-quote-grid/);
+  assert.match(block, /formatNtdPrice\(r.value, 1\)/);
 });

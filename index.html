@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="存股資產追蹤" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <script src="/bg-core.js?v=3"></script>
-  <script src="/forecast-core.js?v=2.47.3"></script>
+  <script src="/forecast-core.js?v=2.47.4"></script>
   <title>存股資產追蹤</title>
 
   <style>
@@ -338,7 +338,32 @@
       .premium-tab .holding-header{flex-wrap:wrap}
       .premium-tab-plan .grid.grid-cols-3.gap-2{grid-template-columns:1fr}
     }
-  </style>
+  
+    .live-quote-list{max-height:none;overflow:visible}
+    .live-quote-grid{display:grid;grid-template-columns:minmax(32px,.5fr) minmax(0,1.2fr) minmax(0,1.1fr) minmax(0,1.25fr);gap:6px;font-size:12px;line-height:1.6}
+    .live-quote-grid>div{min-width:0;overflow-wrap:normal}
+    .live-quote-heading{padding:8px 0;border-bottom:1px solid var(--premium-line);font-size:11px}
+    .live-quote-row{padding:8px 0}
+    .live-quote-row+.live-quote-row{border-top:1px solid var(--premium-line)}
+    .premium-tab .live-quote-list>*+*{margin-top:0}
+    @media(max-width:400px){.live-quote-grid{gap:4px;font-size:10px}.live-quote-heading{font-size:10px}}
+
+    /* Compact shared spacing; retain readable inputs and touch targets. */
+    .premium-main{padding-top:10px!important}
+    .premium-tab .space-y-2>:not([hidden])~:not([hidden]),.premium-tab .space-y-3>:not([hidden])~:not([hidden]){margin-top:8px}
+    .premium-panel{padding:14px!important}
+    .premium-panel>.premium-panel-title{margin-bottom:10px}
+    .premium-dashboard{gap:8px!important}
+    .premium-dashboard>.rounded-xl,.premium-dashboard>.premium-asset-hero{padding:12px!important}
+    .premium-tab .grid:has(>.premium-field){column-gap:10px!important;row-gap:10px!important}
+    .premium-field-label{margin-bottom:4px}
+    .holding-cost-summary{padding:8px 0;margin-top:8px!important;row-gap:8px!important}
+    .premium-row{padding:10px!important}
+    .premium-empty{padding:14px 12px!important}
+    .premium-tab .premium-add-button{margin-top:10px!important}
+    .premium-tab .live-quote-list>*+*{margin-top:0}
+    @media(max-width:640px){.premium-panel{padding:12px!important}.premium-tab-holdings .space-y-3>div.rounded-xl{padding:12px!important}}
+</style>
 
   <script>
     window.addEventListener("error", function(e) {
@@ -431,7 +456,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.47.3-final-ui-ntd";
+const APP_VERSION = "4.7-personal-advisor-v2.47.4-compact-live-quotes";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -943,9 +968,9 @@ function recordValueNtd(record, value) {
   return rate > 0 ? amount * rate : null;
 }
 // 持股頁與成本查詢共用：總成本為新台幣，平均成本由總成本／目前股數倒算。
-function formatNtdPrice(value) {
+function formatNtdPrice(value, digits = 2) {
   if (value == null || value === "" || !Number.isFinite(Number(value))) return "—";
-  return Number(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return Number(value).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 function holdingCostAt(holding, trades, asOfDate = "9999-12-31") {
   const rows = (trades || []).filter((t) => normalizeStockSymbol(t.symbol) === normalizeStockSymbol(holding.symbol) && t.date <= asOfDate)
@@ -3749,41 +3774,45 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
               </div>
             </div>
           )}
-          <div className="space-y-2 max-h-96 overflow-y-auto live-quote-list">
+          <div className="live-quote-list">
+            <div className="live-quote-grid live-quote-heading" style={{ color: COLORS.sub }}>
+              <span>{UI_SHOW_ENGLISH ? "Code / Weight" : "代號／佔比"}</span>
+              <span>{UI_SHOW_ENGLISH ? "High / Low / Prev" : "高／低・昨收"}</span>
+              <span className="text-right">{UI_SHOW_ENGLISH ? "Price / Change" : "股價／漲跌幅"}</span>
+              <span className="text-right">{UI_SHOW_ENGLISH ? "Value / P&L" : "市值／今日損益"}</span>
+            </div>
             {[...rows].sort((x, y) => y.value - x.value).map((r) => (
-              <div key={r.id} className="live-quote-card rounded-xl p-3" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
-                <div className="flex justify-between items-start gap-2">
-                  <div className="min-w-0">
-                    <div className="font-bold mono">{r.symbol}</div>
-                    <div className="text-[10px] mt-1" style={{ color: COLORS.sub }}><UiLabel zh="佔比" inline /> {totalValue > 0 ? `${Math.round((r.value / totalValue) * 100)}%` : "—"}</div>
+              <div key={r.id} className="live-quote-row">
+                <div className="live-quote-grid mono">
+                  <div style={{ color: COLORS.sub }}>
+                    <div style={{ color: COLORS.text }}>{r.symbol}</div>
+                    <div>{totalValue > 0 ? `${Math.round((r.value / totalValue) * 100)}%` : "—"}</div>
                   </div>
-                  <div className="text-right min-w-0">
-                    <div className="font-bold text-sm mono">NT$ {formatNtdPrice(quoteNtd(r, r.price))}／股</div>
-                    <div className="text-[11px] mt-1 mono" style={{ color: r.quoteIsStale ? COLORS.sub : (r.chg >= 0 ? COLORS.gain : COLORS.loss) }}>
-                      {r.quoteIsStale && isTwseTradingHours() && !isMarketClosedToday() ? <UiLabel zh="待更新" /> : r.prevCloseOk ? <>{r.chg >= 0 ? "▲ +" : "▼ "}NT$ {formatNtdPrice(quoteNtd(r, r.chg))}（{r.chgPct >= 0 ? "+" : ""}{r.chgPct.toFixed(2)}%）</> : "—"}
+                  <div className="live-quote-stats" style={{ color: COLORS.sub }}>
+                    <div><UiLabel zh="高" inline /> NT$ {formatNtdPrice(quoteNtd(r, r.high), 1)}</div>
+                    <div><UiLabel zh="低" inline /> NT$ {formatNtdPrice(quoteNtd(r, r.low), 1)}</div>
+                    <div><UiLabel zh="昨收" inline /> NT$ {r.prevCloseOk ? formatNtdPrice(quoteNtd(r, r.prevClose), 1) : "—"}</div>
+                  </div>
+                  <div className="text-right">
+                    <div>NT$ {formatNtdPrice(quoteNtd(r, r.price), 1)}</div>
+                    <div style={{ color: r.quoteIsStale ? COLORS.sub : (r.chg >= 0 ? COLORS.gain : COLORS.loss) }}>
+                      {r.quoteIsStale && isTwseTradingHours() && !isMarketClosedToday() ? <UiLabel zh="待更新" /> : r.prevCloseOk ? <>{r.chg >= 0 ? "▲ +" : "▼ "}NT$ {formatNtdPrice(quoteNtd(r, r.chg), 1)}<br />{r.chgPct >= 0 ? "+" : ""}{r.chgPct.toFixed(2)}%</> : "—"}
                     </div>
                   </div>
+                  <div className="text-right">
+                    <div className="font-bold">NT$ {formatNtdPrice(r.value, 1)}</div>
+                    {!r.quoteIsStale && <div style={{ color: r.chg >= 0 ? COLORS.gain : COLORS.loss }}>{r.chg >= 0 ? "+" : ""}NT$ {formatNtdPrice(r.chg * r.current * (r.isUS ? Number(usLive?.state?.fx || 0) : 1), 1)}</div>}
+                  </div>
                 </div>
-                <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-[11px] mono mt-3 live-quote-stats" style={{ color: COLORS.sub }}>
-                  <div><UiLabel zh="高" inline /><div style={{ color: COLORS.text }}>NT$ {formatNtdPrice(quoteNtd(r, r.high))}</div></div>
-                  <div className="text-right"><UiLabel zh="低" inline /><div style={{ color: COLORS.text }}>NT$ {formatNtdPrice(quoteNtd(r, r.low))}</div></div>
-                  <div><UiLabel zh="昨收" inline /><div style={{ color: COLORS.text }}>NT$ {r.prevCloseOk ? formatNtdPrice(quoteNtd(r, r.prevClose)) : "—"}</div></div>
-                  <div className="text-right"><UiLabel zh="市值" inline /><div style={{ color: COLORS.text }}>NT$ {r.value != null ? nf(r.value) : "—"}</div></div>
-                </div>
-                {!r.quoteIsStale && <div className="flex flex-wrap justify-between gap-2 text-[11px] mono mt-2" style={{ color: r.chg >= 0 ? COLORS.gain : COLORS.loss }}><UiLabel zh="今日損益" inline /><span>{r.chg >= 0 ? "+" : ""}NT$ {nf(Math.round(r.chg * r.current * (r.isUS ? Number(usLive?.state?.fx || 0) : 1)))}</span></div>}
-                <div className="h-[20px] mt-2 opacity-80">
+                <div className="h-[20px] mt-1 opacity-80">
                   <SessionSparkline points={withLive(sparkFor(r.symbol), r.quoteIsStale || r.isFromCache ? null : r.price)} baseline={r.prevClose} width={240} height={20} tone={r.chg>=0?COLORS.gain:COLORS.loss} />
                 </div>
                 {r.isUS && r.asOfDate && <div className="text-[9px] text-right mt-0.5" style={{ color: COLORS.sub }}>
                   {UI_SHOW_ENGLISH ? "US quote " : "美股報價 "}{new Date(r.asOfDate).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}
                 </div>}
-                {r.isFromCache && r.fetchedAt && (
-                  <div className="text-[9px] text-right mt-0.5" style={{ color: COLORS.sub }}>
-                    {UI_SHOW_ENGLISH ? "Fetch failed this time, showing last successful price (" : "這次抓取失敗，顯示上次成功價格（"}{new Date(r.fetchedAt).toLocaleString("zh-TW", {
-                      month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false,
-                    })}{UI_SHOW_ENGLISH ? ")" : "）"}
-                  </div>
-                )}
+                {r.isFromCache && r.fetchedAt && <div className="text-[9px] text-right mt-0.5" style={{ color: COLORS.sub }}>
+                  {UI_SHOW_ENGLISH ? "Last successful quote: " : "顯示上次成功報價："}{new Date(r.fetchedAt).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}
+                </div>}
               </div>
             ))}
           </div>
@@ -3792,7 +3821,7 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
           <div className="pt-2 mt-2" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
             <div className="flex justify-between items-baseline gap-2 text-xs mono font-bold">
               <span style={{ color: COLORS.sub }}><UiLabel zh={quoteComplete ? "持股總市值（台幣）" : "目前可得市值（部分）"} /></span>
-              <span style={{ color: COLORS.gold }}>NT$ {nf(totalValue)}</span>
+              <span style={{ color: COLORS.gold }}>NT$ {formatNtdPrice(totalValue, 1)}</span>
             </div>
             {(yesterdayTwValue != null || yesterdayUsValue != null) && (() => {
               const diff = totalValue - (Number(yesterdayTwValue || 0) + Number(yesterdayUsValue || 0));
@@ -3801,9 +3830,9 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
               return (
                 <div className="flex justify-between items-baseline gap-2 text-[11px] mono mt-0.5">
                   <span style={{ color: dUp ? COLORS.gain : COLORS.loss }}>
-                    {UI_SHOW_ENGLISH ? "vs yesterday " : "較昨日 "}{dUp ? "+" : ""}{nf(diff)}（{dUp ? "+" : ""}{diffPct.toFixed(2)}%）
+                    {UI_SHOW_ENGLISH ? "vs yesterday " : "較昨日 "}{dUp ? "+" : ""}NT$ {formatNtdPrice(diff, 1)}（{dUp ? "+" : ""}{diffPct.toFixed(2)}%）
                   </span>
-                  <span style={{ color: COLORS.sub }}>{UI_SHOW_ENGLISH ? "Yesterday " : "昨日 "}{nf((Number(yesterdayTwValue || 0) + Number(yesterdayUsValue || 0)))}</span>
+                  <span style={{ color: COLORS.sub }}>{UI_SHOW_ENGLISH ? "Yesterday " : "昨日 "}NT$ {formatNtdPrice((Number(yesterdayTwValue || 0) + Number(yesterdayUsValue || 0)), 1)}</span>
                 </div>
               );
             })()}

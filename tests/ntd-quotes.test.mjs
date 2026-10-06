@@ -25,3 +25,7 @@ test('market index points remain points and FX keeps its exchange-rate unit',asy
  const r=await h.c.executeLiveQuoteTool({arguments:{symbols:['TAIEX','USDTWD']}},[]);
  assert.match(r,/TAIEX：50,000.00 點/);assert.match(r,/美元／台幣：NT\$ 32.00／美元/);
 });
+
+test('compact quote prices round to one decimal with thousands separators',()=>{
+ const {c}=harness({});assert.equal(c.formatNtdPrice(22590.99,1),'22,591.0');assert.equal(c.formatNtdPrice(57.83,1),'57.8');assert.equal(c.formatNtdPrice(null,1),'—');
+});
