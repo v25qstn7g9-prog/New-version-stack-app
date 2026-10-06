@@ -640,7 +640,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.48.4-unified-update-flow";
+const APP_VERSION = "4.7-personal-advisor-v2.48.5-stable-global-signal";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -4856,11 +4856,26 @@ function TrendRadar({ holdings, embedded = false }) {
       }catch(e){}
       // Overnight global signal (S&P500 / SOX / USD-TWD) — the one genuinely
       // forward-looking input available before TWSE opens the next session.
+      // Keep the last successful snapshot visible while a refresh is running.
+      // Hydrate it from persistent cache on cold start so the card never
+      // collapses to zero height between "old data" and "new data".
+      if (!memoGlobal) {
+        try {
+          const cachedGlobal = await loadKey("trendRadarGlobalSignal", null);
+          if (cachedGlobal?.value) {
+            memoGlobal = cachedGlobal.value;
+            memoGlobalAt = Number(cachedGlobal.at) || Date.now();
+          }
+        } catch(e) {}
+      }
       launchSlow("global",todayKey,60000,async()=>{
         const value=await fetchGlobalSignal();if(!value)throw Error("global unavailable");
         await saveKey("trendRadarGlobalSignal",{at:Date.now(),value});return value;
       },value=>{memoGlobal=value;memoGlobalAt=Date.now();});
-      const global=memoGlobal&&Date.now()-memoGlobalAt<5*60000?memoGlobal:null;
+      // Freshness controls when we request a replacement, not whether the
+      // existing card disappears. A stale successful snapshot stays rendered
+      // until a newer successful snapshot atomically replaces it.
+      const global=memoGlobal||null;
       // Next-session model v2.45.
       // Preview starts at 10:30 and updates with every live quote. The final
       // next-day call is frozen at 13:25, so backtests compare a fixed forecast
