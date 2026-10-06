@@ -640,7 +640,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.48.2-atomic-radar-render";
+const APP_VERSION = "4.7-personal-advisor-v2.48.3-unified-update-flow";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -4164,7 +4164,11 @@ function useUsLivePrices(usHoldings, enabled) {
       if (dead || busy || (!force && document.visibilityState !== "visible")) return;
       busy = true;
       lastAttempt = Date.now();
-      setState((x) => ({ ...(x.activeKey === activeKey ? x : empty), status: "loading" }));
+      setState((x) => {
+        const cur = x.activeKey === activeKey ? x : empty;
+        const hasSnapshot = Object.keys(cur.quotes || {}).length > 0 || Number(cur.fx) > 0;
+        return hasSnapshot ? cur : { ...cur, status: "loading" };
+      });
       try {
         const result = await fetchQuotesWithFallback([...symbols, "USDTWD"], force);
         if (dead) return;
@@ -6363,6 +6367,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
                     formatter={(v) => [`NT$ ${nf(v)}`, uiText("總資產")]} />
                   <ReferenceLine y={goal.targetAmount} stroke={COLORS.gold} strokeDasharray="4 4" />
                   <Area type="monotone" dataKey="total" stroke="#6FAFC2" strokeWidth={2} fill="url(#assetCurveFill)"
+                    isAnimationActive={false}
                     dot={false} activeDot={{ r: 4, fill: "#6FAFC2", stroke: COLORS.panel, strokeWidth: 2 }} />
                 </AreaChart>
               </ResponsiveContainer>
@@ -7166,18 +7171,29 @@ function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldi
   // 持股進度頁不另外打報價 API；直接沿用「總覽 → 即時股價」寫入的 livePrices 快取。
   // 這樣首頁是唯一報價來源，避免兩個頁面各自抓一次造成重複請求。
   const [holdingQuotes, setHoldingQuotes] = useState({});
+  const holdingQuoteSigRef = useRef("");
 
   useEffect(() => {
     let cancelled = false;
+    const commitHoldingQuotes = (map) => {
+      if (cancelled || !map) return;
+      const sig = JSON.stringify(Object.fromEntries(Object.entries(map).map(([sym, q]) => [
+        sym,
+        [Number(q?.price)||0, Number(q?.prevClose)||0, Number(q?.high)||0, Number(q?.low)||0, q?.asOfDate||""]
+      ])));
+      if (sig === holdingQuoteSigRef.current) return;
+      holdingQuoteSigRef.current = sig;
+      setHoldingQuotes(map);
+    };
     const onLivePricesUpdated = (e) => {
-      if (!cancelled && e?.detail?.map) setHoldingQuotes(e.detail.map);
+      commitHoldingQuotes(e?.detail?.map);
     };
     window.addEventListener("livePricesUpdated", onLivePricesUpdated);
 
     (async () => {
       const cached = await loadKey("livePrices", null);
       if (cancelled) return;
-      setHoldingQuotes(cached?.map || {});
+      commitHoldingQuotes(cached?.map || {});
     })();
 
     return () => {
@@ -7270,6 +7286,7 @@ function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldi
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie data={allocationData} dataKey="value" nameKey="symbol"
+                    isAnimationActive={false}
                     innerRadius={40} outerRadius={70} paddingAngle={2}>
                     {allocationData.map((_, i) => (
                       <Cell key={i} fill={ALLOC_COLORS[i % ALLOC_COLORS.length]} stroke={COLORS.bg} />
@@ -7658,14 +7675,24 @@ function UpcomingDividendReminder({ holdings }) {
   const symbols = [...new Set(
     holdings.filter((h) => isTaiwanSymbol(h.symbol) && Number(h.current || 0) > 0 && h.symbol).map((h) => h.symbol)
   )];
+  const symbolsKey = symbols.slice().sort().join(",");
   const [items, setItems] = useState([]);
   const [status, setStatus] = useState(symbols.length ? "loading" : "idle");
 
   useEffect(() => {
     if (!symbols.length) { setStatus("idle"); setItems([]); return; }
     let cancelled = false;
-    setStatus("loading");
     (async () => {
+      const cacheKey = "upcomingDividendReminder";
+      const cached = await loadKey(cacheKey, null);
+      if (cancelled) return;
+      if (cached?.symbolsKey === symbolsKey && Array.isArray(cached.items)) {
+        setItems(cached.items);
+        setStatus("done");
+      } else {
+        setStatus("loading");
+      }
+      try {
       try {
         const res = await fetchWithTimeout(
           `/dividend-schedule?symbols=${encodeURIComponent(symbols.join(","))}`, { cache: "no-store" }, 8000
@@ -7679,21 +7706,16 @@ function UpcomingDividendReminder({ holdings }) {
           .sort((a, b) => a.date.localeCompare(b.date));
         setItems(upcoming);
         setStatus("done");
+        saveKey(cacheKey, { symbolsKey, items: upcoming, at: new Date().toISOString() }).catch(() => {});
       } catch (e) {
-        if (!cancelled) setStatus("error");
+        if (!cancelled && !items.length) setStatus("error");
       }
     })();
     return () => { cancelled = true; };
-  }, [symbols.join(",")]);
+  }, [symbolsKey]);
 
   if (status === "idle" || status === "error") return null;
-  if (status === "loading") {
-    return (
-      <Panel title="近期除息">
-        <div className="text-xs" style={{ color: COLORS.sub }}><UiLabel zh="查詢中…" /></div>
-      </Panel>
-    );
-  }
+  if (status === "loading" && !items.length) return null;
   if (!items.length) return null; // 沒有即將除息的持股，安靜不顯示這個區塊
 
   const daysUntil = (dateStr) => {
@@ -7797,6 +7819,7 @@ function DividendHistoryChart({ dividends }) {
             {seriesKeys.map((key, i) => (
               <Bar key={key} dataKey={key} stackId={isAll ? "a" : undefined}
                 fill={colorForSymbol(isAll ? key : filter, symbols)}
+                isAnimationActive={false}
                 activeBar={false}
                 radius={i === seriesKeys.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
             ))}
