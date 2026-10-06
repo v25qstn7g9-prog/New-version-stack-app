@@ -54,7 +54,7 @@ test('live quotes: market index first, holdings sorted by value with weight', ()
   const pStart = html.indexOf('function LivePricePanel(');
   const panel = html.slice(pStart, html.indexOf('\nfunction ', pStart + 10));
   const live = panel.indexOf('{hasLive && (');
-  assert.ok(panel.indexOf('{hasMarketIndex && (', live) < panel.indexOf('<UiLabel zh="佔比" />', live), 'index strip sits above the holdings list');
+  assert.ok(panel.indexOf('{hasMarketIndex && (', live) < panel.indexOf('<UiLabel zh="佔比" inline />', live), 'index strip sits above the holdings list');
   assert.match(panel, /\[\.\.\.rows\]\.sort\(\(x, y\) => y\.value - x\.value\)\.map/);
   assert.match(panel, /Math\.round\(\(r\.value \/ totalValue\) \* 100\)/);
 });

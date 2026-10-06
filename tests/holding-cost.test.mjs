@@ -14,7 +14,7 @@ test('total holding cost and per-share TWD average use the same source in the ca
  const result=ctx.holdingCostAt(holding,[]);
  assert.equal(result.estCostBasis,84941);assert.equal(result.avgCost,84941/3.81853);
  const answer=ctx.executeReadTool({name:'query_app_data',arguments:{source:'holding_cost',symbol:'voo',asOfDate:'2026-10-06'}},{holdings:[holding],trades:[]});
- assert.match(answer,/每股平均成本NT\$22244.42\/股/);assert.match(answer,/總持有成本NT\$84,941/);assert.doesNotMatch(answer,/沒有記錄/);
+ assert.match(answer,/每股平均成本NT\$ 22,244.42\/股/);assert.match(answer,/總持有成本NT\$ 84,941/);assert.doesNotMatch(answer,/沒有記錄/);
 });
 test('editing share count repairs old snapshot denominators and subsequent sales remove proportional cost',()=>{
  const edited={...holding,initialShares:4};
@@ -37,5 +37,5 @@ test('a future snapshot is not used for historical costs and a valid snapshot ov
 });
 test('card labels distinguish a total amount from a per-share amount',()=>{
  assert.match(html,/<UiLabel zh="每股平均成本" inline/);assert.match(html,/<UiLabel zh="總持有成本" inline/);
- assert.match(html,/h\.avgCost\.toLocaleString[\s\S]{0,150}／股/);
+ assert.match(html,/formatNtdPrice\(h\.avgCost\)[\s\S]{0,30}／股/);
 });

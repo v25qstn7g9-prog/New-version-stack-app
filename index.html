@@ -9,8 +9,8 @@
   <meta name="apple-mobile-web-app-title" content="存股資產追蹤" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <script src="/bg-core.js?v=3"></script>
-  <script src="/forecast-core.js?v=2.47.2"></script>
-  <title>存股資產追蹤 V4.6 Personal v2</title>
+  <script src="/forecast-core.js?v=2.47.3"></script>
+  <title>存股資產追蹤</title>
 
   <style>
     /* Connection workspace polish: retain existing finance palette and density. */
@@ -280,6 +280,64 @@
     @media(prefers-reduced-motion:reduce){
       *{scroll-behavior:auto!important;transition:none!important}
     }
+
+    /* Shared final acceptance polish: keep one visual rhythm across all seven pages. */
+    :root{color-scheme:dark}
+    .premium-main{padding-top:14px!important;padding-bottom:calc(156px + env(safe-area-inset-bottom,0px))!important}
+    .premium-tab{font-size:14px;line-height:1.55}
+    .premium-tab .space-y-2>:not([hidden])~:not([hidden]){margin-top:12px}
+    .premium-tab .space-y-3>:not([hidden])~:not([hidden]){margin-top:12px}
+    .premium-panel{padding:18px!important;border-radius:18px!important;box-shadow:0 4px 16px rgba(0,0,0,.14)!important}
+    .premium-panel>.premium-panel-title{font-size:13px!important;line-height:1.5;letter-spacing:.01em;color:#aab5c6!important;margin-bottom:14px}
+    .premium-field{min-width:0}
+    .premium-field-label{font-size:12px!important;line-height:1.5;margin-bottom:6px;overflow-wrap:anywhere}
+    .premium-tab .grid:has(>.premium-field){align-items:end;column-gap:12px!important;row-gap:14px!important}
+    .premium-tab .input{min-width:0;max-width:100%;min-height:46px!important;padding:10px 12px!important;font-size:14px!important;line-height:1.45;border-radius:12px!important}
+    .premium-tab .input::placeholder{color:#7f8da3;opacity:1}
+    .premium-tab input[type="checkbox"]{accent-color:var(--premium-gold);width:18px;height:18px;flex-shrink:0}
+    .premium-tab [class~="text-[10px]"],.premium-tab [class~="text-[11px]"]{font-size:12px;line-height:1.55}
+    .premium-tab [class~="text-[9px]"]{font-size:11px;line-height:1.55}
+    .premium-tab [class~="text-[8px]"]{font-size:10px;line-height:1.5}
+    .premium-dashboard{gap:12px!important}
+    .premium-dashboard>.rounded-xl{padding:16px!important}
+    .premium-tab .premium-add-button{min-height:46px;font-size:14px!important;margin-top:14px!important;border-radius:12px!important}
+    .premium-tab button:disabled{cursor:not-allowed}
+    .premium-empty{line-height:1.65;color:#a3afc1!important;padding:20px 14px!important}
+    .premium-row{padding:12px!important}
+    .premium-row-delete,.holding-action{width:40px;min-width:40px;height:40px;display:inline-flex;align-items:center;justify-content:center;border-radius:10px;flex-shrink:0}
+    .holding-action:hover{background:rgba(137,150,170,.08)}
+    .holding-header{gap:10px}
+    .holding-header .holding-name{overflow-wrap:anywhere;line-height:1.5}
+    .holding-cost-summary{padding:12px 0;margin-top:10px!important;border-top:1px solid var(--premium-line);border-bottom:1px solid var(--premium-line);row-gap:12px!important}
+    .premium-tabbar button{min-height:56px;padding:6px 2px!important;gap:4px!important}
+    .premium-tabbar button>span:first-child{width:38px!important;height:24px!important}
+    .premium-tabbar svg{width:18px!important;height:18px!important}
+    .premium-tabbar button>span:last-child{font-size:10px!important;line-height:1.2!important}
+    .premium-tabbar button[data-active="false"]{opacity:.9}
+    .premium-ai-launcher{bottom:calc(78px + env(safe-area-inset-bottom,4px))!important}
+    .ai-panel-h textarea{font-size:16px!important;line-height:1.55}
+    .premium-header h1{line-height:1.35}
+    .premium-header button{min-height:32px;min-width:58px;font-size:11px}
+    .premium-header [class~="text-[10px]"]{font-size:11px;line-height:1.6}
+    @media(max-width:640px){
+      .premium-panel{padding:14px!important}
+      .premium-tab .input{font-size:16px!important;min-height:46px!important;padding:10px!important}
+      .premium-dashboard>.premium-asset-hero{padding:16px!important}
+      .premium-tab-holdings .space-y-3>div.rounded-xl{padding:14px!important}
+      .premium-tab-progress .grid.grid-cols-2.gap-3{gap:10px!important}
+      .premium-tab-progress .grid.grid-cols-2.gap-3>div{padding:12px!important}
+      .premium-tabbar svg{width:18px!important;height:18px!important}
+      .premium-tab-plan .grid.grid-cols-3.gap-2{gap:8px!important}
+      .premium-tab-plan .grid.grid-cols-3.gap-2 button,.premium-tab-plan .grid.grid-cols-3.gap-2 label{min-height:44px;line-height:1.4}
+      .holding-action{width:36px;min-width:36px;height:40px}
+      .premium-header h1{font-size:17px}
+      .premium-header h1>span{white-space:normal}
+    }
+    @media(max-width:380px){
+      .premium-tabbar button>span:last-child{font-size:9px!important}
+      .premium-tab .holding-header{flex-wrap:wrap}
+      .premium-tab-plan .grid.grid-cols-3.gap-2{grid-template-columns:1fr}
+    }
   </style>
 
   <script>
@@ -373,7 +431,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.47.2-shared-holding-layout";
+const APP_VERSION = "4.7-personal-advisor-v2.47.3-final-ui-ntd";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -885,6 +943,10 @@ function recordValueNtd(record, value) {
   return rate > 0 ? amount * rate : null;
 }
 // 持股頁與成本查詢共用：總成本為新台幣，平均成本由總成本／目前股數倒算。
+function formatNtdPrice(value) {
+  if (value == null || value === "" || !Number.isFinite(Number(value))) return "—";
+  return Number(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
 function holdingCostAt(holding, trades, asOfDate = "9999-12-31") {
   const rows = (trades || []).filter((t) => normalizeStockSymbol(t.symbol) === normalizeStockSymbol(holding.symbol) && t.date <= asOfDate)
     .slice().sort((a, b) => a.date.localeCompare(b.date));
@@ -1402,19 +1464,19 @@ function buildPortfolioContext(holdings, goal, totalToday, totalInvested, trades
   const lines = [];
   const overallPct = goal?.targetAmount ? Math.min(100, (totalToday / goal.targetAmount) * 100) : 0;
   const remain = goal?.targetAmount ? Math.max(0, goal.targetAmount - totalToday) : 0;
-  lines.push(`總目標：${goal?.targetYear || "-"} 年 NT$${nf(goal?.targetAmount || 0)}`);
-  lines.push(`目前總資產：NT$${nf(totalToday || 0)}（已達成整體目標${overallPct.toFixed(1)}%，距目標還差NT$${nf(remain)}）`);
+  lines.push(`總目標：${goal?.targetYear || "-"} 年 NT$ ${nf(goal?.targetAmount || 0)}`);
+  lines.push(`目前總資產：NT$ ${nf(totalToday || 0)}（已達成整體目標${overallPct.toFixed(1)}%，距目標還差NT$ ${nf(remain)}）`);
   lines.push(`整體目標預計達成時間：${goalDate ? goalDate : "以目前的計畫假設無法在投影期間內達成，或尚未設定"}`);
-  if (totalInvested != null) lines.push(`累計投入本金：NT$${nf(totalInvested)}`);
+  if (totalInvested != null) lines.push(`累計投入本金：NT$ ${nf(totalInvested)}`);
 
   // 總覽頁的績效數字（持倉損益、累積股息、粗估總報酬/報酬率、資產新高/拉回、今年以來報酬）。
   if (perf) {
-    lines.push(`持倉損益(估)：NT$${nf(perf.capitalGain)}`);
-    lines.push(`累積股息：NT$${nf(perf.totalDividends)}`);
-    lines.push(`粗估總報酬：NT$${nf(perf.totalReturn)}，粗估報酬率：${perf.totalReturnPct.toFixed(2)}%`);
-    if (perf.highPoint?.date) lines.push(`資產歷史新高：NT$${nf(perf.highPoint.value)}（${perf.highPoint.date}），目前從新高拉回：${perf.drawdown.toFixed(2)}%`);
-    lines.push(`今年資產變化(YTD)：NT$${nf(perf.ytdGain)}，YTD報酬率：${perf.ytdPct.toFixed(2)}%`);
-    if (perf.startingCost) lines.push(`起始成本(計畫外的期初投入)：NT$${nf(perf.startingCost)}`);
+    lines.push(`持倉損益(估)：NT$ ${nf(perf.capitalGain)}`);
+    lines.push(`累積股息：NT$ ${nf(perf.totalDividends)}`);
+    lines.push(`粗估總報酬：NT$ ${nf(perf.totalReturn)}，粗估報酬率：${perf.totalReturnPct.toFixed(2)}%`);
+    if (perf.highPoint?.date) lines.push(`資產歷史新高：NT$ ${nf(perf.highPoint.value)}（${perf.highPoint.date}），目前從新高拉回：${perf.drawdown.toFixed(2)}%`);
+    lines.push(`今年資產變化(YTD)：NT$ ${nf(perf.ytdGain)}，YTD報酬率：${perf.ytdPct.toFixed(2)}%`);
+    if (perf.startingCost) lines.push(`起始成本(計畫外的期初投入)：NT$ ${nf(perf.startingCost)}`);
   }
 
   // 計畫進度頁：成本進度／資產進度各自跟「已執行月數」比較，是否超前或落後排程。
@@ -1430,9 +1492,9 @@ function buildPortfolioContext(holdings, goal, totalToday, totalInvested, trades
       `${h.symbol}(${h.name || ""})`,
       `目前${nf(h.current || 0)}股`,
       h.target2035 ? `目標${nf(h.target2035)}股(達成率${(h.pct || 0).toFixed(1)}%)` : null,
-      h.avgCost != null ? `平均成本NT$${h.avgCost.toFixed(2)}` : null,
-      h.avgTradePrice != null ? `成交均價(不含手續費)NT$${h.avgTradePrice.toFixed(2)}` : null,
-      h.estCostBasis != null ? `持有成本NT$${nf(h.estCostBasis)}` : null,
+      h.avgCost != null ? `平均成本NT$ ${formatNtdPrice(h.avgCost)}` : null,
+      h.avgTradePrice != null ? `成交均價(不含手續費)NT$ ${formatNtdPrice(h.avgTradePrice)}` : null,
+      h.estCostBasis != null ? `持有成本NT$ ${nf(h.estCostBasis)}` : null,
       h.quarterSharesAdded != null ? `第${h.quarterNum}季增加${h.quarterSharesAdded}股` : null,
       h.yearSharesAdded != null ? `今年累計增加${h.yearSharesAdded}股` : null,
       h.projectedLabel ? h.projectedLabel : null,
@@ -1456,7 +1518,7 @@ function buildPortfolioContext(holdings, goal, totalToday, totalInvested, trades
     lines.push(`\n${h.symbol} 交易紀錄${omitted > 0 ? `（共${symbolTrades.length}筆，以下為最近20筆）` : `（共${symbolTrades.length}筆）`}：`);
     for (const t of recent) {
       const fee = t.fee ? `，手續費${recordValueNtd(t, t.fee) ?? "--"}` : "";
-      lines.push(`${t.date} ${t.action === "buy" ? "買進" : "賣出"} ${t.shares}股 @NT$${recordValueNtd(t, t.price) ?? "--"}${fee}`);
+      lines.push(`${t.date} ${t.action === "buy" ? "買進" : "賣出"} ${t.shares}股 @NT$ ${formatNtdPrice(recordValueNtd(t, t.price))}${fee}`);
     }
   }
 
@@ -1470,7 +1532,7 @@ function buildPortfolioContext(holdings, goal, totalToday, totalInvested, trades
     lines.push(`\n每日紀錄${omitted > 0 ? `（共${sortedDaily.length}筆，以下為最近20筆）` : `（共${sortedDaily.length}筆）`}：`);
     for (const r of recentDaily) {
       const total = (r.twValue || 0) + (r.usValue || 0);
-      lines.push(`${r.date} 資產NT$${nf(total)}（台股${nf(r.twValue || 0)}+美股${nf(r.usValue || 0)}）`);
+      lines.push(`${r.date} 資產NT$ ${nf(total)}（台股${nf(r.twValue || 0)}+美股${nf(r.usValue || 0)}）`);
     }
   }
 
@@ -1483,7 +1545,7 @@ function buildPortfolioContext(holdings, goal, totalToday, totalInvested, trades
     const omitted = sortedDividends.length - recentDiv.length;
     lines.push(`\n配息紀錄${omitted > 0 ? `（共${sortedDividends.length}筆，以下為最近20筆）` : `（共${sortedDividends.length}筆）`}：`);
     for (const d of recentDiv) {
-      lines.push(`${d.date} ${d.symbol} ${nf(d.shares)}股 @NT$${recordValueNtd(d, d.perShare) ?? "--"}/股 = NT$${nf(d.amount)}`);
+      lines.push(`${d.date} ${d.symbol} ${nf(d.shares)}股 @NT$ ${formatNtdPrice(recordValueNtd(d, d.perShare))}/股 = NT$ ${nf(d.amount)}`);
     }
   }
 
@@ -1491,12 +1553,12 @@ function buildPortfolioContext(holdings, goal, totalToday, totalInvested, trades
   if (Array.isArray(planItems) && planItems.length > 0) {
     lines.push(`\n定期定額配置：`);
     for (const p of planItems) {
-      lines.push(`${p.symbol} 每期NT$${nf(p.amount)}${p.note ? `（${p.note}）` : ""}`);
+      lines.push(`${p.symbol} 每期NT$ ${nf(p.amount)}${p.note ? `（${p.note}）` : ""}`);
     }
   }
   if (planSchedule) {
-    lines.push(`\n資產成長計畫假設：起始日${planSchedule.startDate}，起始本金NT$${nf(planSchedule.initialPrincipal ?? planSchedule.initialCapital)}，` +
-      `起始資產NT$${nf(planSchedule.initialAssets ?? planSchedule.initialCapital)}，每月投入NT$${nf(planSchedule.monthlyAmount)}，年化報酬率${planSchedule.annualReturn}%，` +
+    lines.push(`\n資產成長計畫假設：起始日${planSchedule.startDate}，起始本金NT$ ${nf(planSchedule.initialPrincipal ?? planSchedule.initialCapital)}，` +
+      `起始資產NT$ ${nf(planSchedule.initialAssets ?? planSchedule.initialCapital)}，每月投入NT$ ${nf(planSchedule.monthlyAmount)}，年化報酬率${planSchedule.annualReturn}%，` +
       `投影期間${planSchedule.horizonMonths}個月`);
   }
 
@@ -2912,7 +2974,7 @@ function AssetTracker() {
 
       <main
         ref={setMainEl}
-        className="relative px-0 pt-4 pb-24 max-w-none mx-auto overflow-x-hidden"
+        className="premium-main relative px-0 pt-4 pb-24 max-w-none mx-auto overflow-x-hidden"
         style={{ touchAction: "pan-y", ...(mainMinHeight != null ? { minHeight: `${mainMinHeight}px` } : {}) }}
       >
         {(() => {
@@ -3085,10 +3147,10 @@ function PendingTradesBanner({ trades, onApply, onDismiss, showEnglish }) {
           return (
             <div key={t.id} className="rounded-lg p-2 text-[11px]" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
               <div className="mono font-bold" style={{ color: COLORS.text }}>
-                {t.date} · {t.symbol} · {t.action === "buy" ? M("Buy", "買進") : M("Sell", "賣出")} {nf(t.shares)} {M("shares", "股")} @ {nf(t.price)}
+                {t.date} · {t.symbol} · {t.action === "buy" ? M("Buy", "買進") : M("Sell", "賣出")} {nf(t.shares)} {M("shares", "股")} @ NT$ {formatNtdPrice(t.price)}
               </div>
               <div className="mt-0.5" style={{ color: COLORS.sub }}>
-                {M("Fee", "手續費")} {nf(t.fee)}{t.tax ? ` · ${M("Tax", "交易稅")} ${nf(t.tax)}` : ""} · {M("Amount", "金額")} NT$ {nf(Math.round(amount))}
+                {M("Fee", "手續費")} NT$ {nf(t.fee)}{t.tax ? ` · ${M("Tax", "交易稅")} NT$ ${nf(t.tax)}` : ""} · {M("Amount", "金額")} NT$ {nf(Math.round(amount))}
                 {t.note ? ` · ${t.note}` : ""}
               </div>
               <div className="mt-2 grid grid-cols-2 gap-2">
@@ -3113,7 +3175,7 @@ function PendingTradesBanner({ trades, onApply, onDismiss, showEnglish }) {
 function Header({ goal, totalToday, goalDate, backupOverdue, backupAgeDays, showEnglish, onToggleBilingual }) {
   return (
     <div
-      className="px-4 pb-3"
+      className="premium-header px-4 pb-3"
       style={{
         borderBottom: `1px solid ${COLORS.panelBorder}`,
         // Start the header fully below the status bar. With viewport-fit=cover
@@ -3562,7 +3624,7 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
     return { ...h, price: l.price, prevClose: l.prevClose, prevCloseOk, high: l.high, low: l.low, chg, chgPct, value, isUS, asOfDate: l.asOfDate, fetchedAt: l.fetchedAt, isFromCache, quoteIsStale };
   }).filter(Boolean);
 
-  const quoteNtd = (row, value) => recordValueNtd({ currency: row.isUS ? "USD" : "TWD", fxRate: usLive?.state?.fx }, value);
+  const quoteNtd = (row, value) => value == null ? null : recordValueNtd({ currency: row.isUS ? "USD" : "TWD", fxRate: usLive?.state?.fx }, value);
   const totalValue = rows.reduce((s, r) => s + r.value, 0);
   const hasLive = rows.length > 0;
   const quoteComplete = activeHoldings.length > 0
@@ -3687,46 +3749,30 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
               </div>
             </div>
           )}
-          <div className="grid grid-cols-[30px_94px_108px_minmax(0,1fr)] gap-1 text-[10px] pb-1.5 mb-1.5 items-center" style={{ color: COLORS.sub, borderBottom: `1px solid ${COLORS.panelBorder}` }}>
-            <span className="leading-tight"><UiLabel zh="代號" /><br /><UiLabel zh="佔比" /></span><span><UiLabel zh="高／低・昨收" /></span><span className="text-right"><UiLabel zh="股價／漲跌幅" /></span><span className="text-right"><UiLabel zh="市值／今日損益" /></span>
-          </div>
-          <div className="space-y-1 max-h-64 overflow-y-auto">
+          <div className="space-y-2 max-h-96 overflow-y-auto live-quote-list">
             {[...rows].sort((x, y) => y.value - x.value).map((r) => (
-              <div key={r.id}>
-                <div className="py-0.5">
-                  <div className="grid grid-cols-[30px_94px_108px_minmax(0,1fr)] grid-rows-[18px_18px_18px] gap-x-1 text-xs mono items-center">
-                    <span className="row-start-1 col-start-1" style={{ color: COLORS.sub }}>{r.symbol}</span>
-                    {/* 佔比：這檔市值佔目前台股市值的比例 */}
-                    <span className="row-start-2 col-start-1 whitespace-nowrap leading-none" style={{ color: COLORS.sub }}>{totalValue > 0 ? `${Math.round((r.value / totalValue) * 100)}%` : ""}</span>
-
-                    {/* 第一行：高／低同一行；第二行：昨收，和右邊的漲跌價差／幅度對齊。 */}
-                    <span className="row-start-1 col-start-2 whitespace-nowrap leading-none" style={{color:COLORS.sub}}>
-                      {Number.isFinite(Number(r.high)) ? quoteNtd(r, r.high)?.toFixed(2) ?? "--" : "--"}/{Number.isFinite(Number(r.low)) ? quoteNtd(r, r.low)?.toFixed(2) ?? "--" : "--"}
-                    </span>
-                    <span className="row-start-2 col-start-2 whitespace-nowrap leading-none" style={{color:COLORS.sub}}>
-                      <UiLabel zh="昨收" /> {r.prevCloseOk ? quoteNtd(r, r.prevClose)?.toFixed(2) ?? "--" : "--"}
-                    </span>
-
-                    <span className="row-start-1 col-start-3 text-right whitespace-nowrap leading-none">
-                      NT$ {quoteNtd(r, r.price)?.toFixed(2) ?? "--"}
-                      {marketClosedNow && !r.isUS && (
-                        <span className="ml-1 text-[7px] font-normal tracking-normal" style={{ color: COLORS.sub }}>
-                          （<UiLabel zh="前一日收盤價" inline />）
-                        </span>
-                      )}
-                    </span>
-                    <span className="row-start-2 col-start-3 text-right whitespace-nowrap leading-none" style={{ color: r.quoteIsStale ? COLORS.sub : (r.chg >= 0 ? COLORS.gain : COLORS.loss) }}>
-                      {r.quoteIsStale && isTwseTradingHours() && !isMarketClosedToday() ? <UiLabel zh="待更新" /> : <>{r.chg >= 0 ? "▲" : "▼"}{r.prevCloseOk ? <>{r.chg >= 0 ? "+" : ""}{quoteNtd(r, r.chg)?.toFixed(2) ?? "--"}{" "}</> : null}{r.prevCloseOk ? <>{r.chgPct >= 0 ? "+" : ""}{r.chgPct.toFixed(2)}%</> : "--"}</>}
-                    </span>
-
-                    <span className="row-start-1 col-start-4 text-right font-bold whitespace-nowrap leading-none min-w-0">{r.value != null ? nf(r.value) : "--"}</span>
-                    <span className="row-start-2 col-start-4 text-right whitespace-nowrap leading-none min-w-0" style={{ color: r.quoteIsStale ? COLORS.sub : (r.chg >= 0 ? COLORS.gain : COLORS.loss) }}>
-                      {!r.quoteIsStale ? <><UiLabel zh="今日損益" /> {r.chg >= 0 ? "+" : ""}{nf(Math.round(r.chg * r.current * (r.isUS ? Number(usLive?.state?.fx || 0) : 1)))}</> : ""}
-                    </span>
-                    <div className="row-start-3 col-start-2 col-span-3 h-[18px] opacity-80">
-                      <SessionSparkline points={withLive(sparkFor(r.symbol), r.quoteIsStale || r.isFromCache ? null : r.price)} baseline={r.prevClose} width={240} height={18} tone={r.chg>=0?COLORS.gain:COLORS.loss} />
+              <div key={r.id} className="live-quote-card rounded-xl p-3" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
+                <div className="flex justify-between items-start gap-2">
+                  <div className="min-w-0">
+                    <div className="font-bold mono">{r.symbol}</div>
+                    <div className="text-[10px] mt-1" style={{ color: COLORS.sub }}><UiLabel zh="佔比" inline /> {totalValue > 0 ? `${Math.round((r.value / totalValue) * 100)}%` : "—"}</div>
+                  </div>
+                  <div className="text-right min-w-0">
+                    <div className="font-bold text-sm mono">NT$ {formatNtdPrice(quoteNtd(r, r.price))}／股</div>
+                    <div className="text-[11px] mt-1 mono" style={{ color: r.quoteIsStale ? COLORS.sub : (r.chg >= 0 ? COLORS.gain : COLORS.loss) }}>
+                      {r.quoteIsStale && isTwseTradingHours() && !isMarketClosedToday() ? <UiLabel zh="待更新" /> : r.prevCloseOk ? <>{r.chg >= 0 ? "▲ +" : "▼ "}NT$ {formatNtdPrice(quoteNtd(r, r.chg))}（{r.chgPct >= 0 ? "+" : ""}{r.chgPct.toFixed(2)}%）</> : "—"}
                     </div>
                   </div>
+                </div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-[11px] mono mt-3 live-quote-stats" style={{ color: COLORS.sub }}>
+                  <div><UiLabel zh="高" inline /><div style={{ color: COLORS.text }}>NT$ {formatNtdPrice(quoteNtd(r, r.high))}</div></div>
+                  <div className="text-right"><UiLabel zh="低" inline /><div style={{ color: COLORS.text }}>NT$ {formatNtdPrice(quoteNtd(r, r.low))}</div></div>
+                  <div><UiLabel zh="昨收" inline /><div style={{ color: COLORS.text }}>NT$ {r.prevCloseOk ? formatNtdPrice(quoteNtd(r, r.prevClose)) : "—"}</div></div>
+                  <div className="text-right"><UiLabel zh="市值" inline /><div style={{ color: COLORS.text }}>NT$ {r.value != null ? nf(r.value) : "—"}</div></div>
+                </div>
+                {!r.quoteIsStale && <div className="flex flex-wrap justify-between gap-2 text-[11px] mono mt-2" style={{ color: r.chg >= 0 ? COLORS.gain : COLORS.loss }}><UiLabel zh="今日損益" inline /><span>{r.chg >= 0 ? "+" : ""}NT$ {nf(Math.round(r.chg * r.current * (r.isUS ? Number(usLive?.state?.fx || 0) : 1)))}</span></div>}
+                <div className="h-[20px] mt-2 opacity-80">
+                  <SessionSparkline points={withLive(sparkFor(r.symbol), r.quoteIsStale || r.isFromCache ? null : r.price)} baseline={r.prevClose} width={240} height={20} tone={r.chg>=0?COLORS.gain:COLORS.loss} />
                 </div>
                 {r.isUS && r.asOfDate && <div className="text-[9px] text-right mt-0.5" style={{ color: COLORS.sub }}>
                   {UI_SHOW_ENGLISH ? "US quote " : "美股報價 "}{new Date(r.asOfDate).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}
@@ -4803,7 +4849,7 @@ function TrendRadar({ holdings, embedded = false }) {
     return()=>{dead=true;};
   },[asOf]);
 
-  const bandText=(band)=>band?`${band.lower.toFixed(2)}–${band.upper.toFixed(2)}`:null;
+  const bandText=(band)=>band?`${formatNtdPrice(band.lower)}–${formatNtdPrice(band.upper)}`:null;
   const targetLabel=(pred)=>pred?.targetDay===taipeiDateKey()? (UI_SHOW_ENGLISH?"Today premarket outlook":"今日盤前展望"):(UI_SHOW_ENGLISH?"Next session":"下一交易日");
   const flowText=(v)=>{const n=Number(v)||0; if(!n)return "0"; const abs=Math.abs(n); const x=abs>=1000000?(abs/1000000).toFixed(1)+"M":abs>=1000?(abs/1000).toFixed(0)+"K":abs.toFixed(0); return (n>0?"+":"-")+x;};
   const kdCell=(kd)=>kd?`${kd.K.toFixed(0)}/${kd.D.toFixed(0)} ${uiText(kd.state)}`:(UI_SHOW_ENGLISH?"Accumulating":"累積中");
@@ -4852,7 +4898,7 @@ function TrendRadar({ holdings, embedded = false }) {
     const hi=Number(r?.dayHigh), lo=Number(r?.dayLow);
     const fmt=(v)=>{
       if(!Number.isFinite(v)) return "—";
-      return v>=1000?v.toFixed(1):v.toFixed(2);
+      return formatNtdPrice(v);
     };
     if(!(hi>0)||!(lo>0)) return null;
     // The old condition here also matched "price < session high", which is
@@ -4980,7 +5026,7 @@ function TrendRadar({ holdings, embedded = false }) {
               <div className="flex justify-between"><span><UiLabel zh="KD 月線" /></span><span>{kdCell(r.kdMonthly)}</span></div>
               <div className="flex justify-between"><span><UiLabel zh="隔夜曝險係數（對TAIEX的beta）" /></span><span>{tomorrowMap[r.symbol]?.factors?.beta!=null?tomorrowMap[r.symbol].factors.beta.toFixed(2):"—"}</span></div>
               <div className="flex justify-between"><span>RVOL</span><span>{r.volumePrice?.rvol!=null?r.volumePrice.rvol.toFixed(2)+"x":"累積中"}</span></div>
-              <div className="flex justify-between"><span>VWAP</span><span>{r.volumePrice?.vwap!=null?Number(r.volumePrice.vwap).toFixed(2)+" ("+(r.volumePrice.distPct>=0?"+":"")+r.volumePrice.distPct.toFixed(2)+"%)":"累積中"}</span></div>
+              <div className="flex justify-between"><span>VWAP</span><span>{r.volumePrice?.vwap!=null?"NT$ "+formatNtdPrice(r.volumePrice.vwap)+" ("+(r.volumePrice.distPct>=0?"+":"")+r.volumePrice.distPct.toFixed(2)+"%)":"累積中"}</span></div>
               <div className="flex justify-between"><span><UiLabel zh={r.breadthSource==="market"?"全市場上漲廣度":"持股上漲廣度"} /></span><span>{(r.breadth*100).toFixed(0)}%</span></div>
             </div>
             {r.flows.length>0&&<div className="mt-1.5 pt-1.5 text-[9px] mono" style={{color:COLORS.sub,borderTop:"1px solid "+COLORS.panelBorder}}>
@@ -5925,12 +5971,12 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
           style={{ color: up ? COLORS.gain : COLORS.loss, background: up ? "rgba(239,68,68,0.12)" : "rgba(34,197,94,0.12)" }}>
           {up ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
           {UI_SHOW_ENGLISH
-            ? <>{pf(dailyChangePct)} {nf(dailyChange)} {changeDateLabel ? `(${changeDateLabel} record)` : "Today"}</>
-            : <>{nf(dailyChange)}（{pf(dailyChangePct)}）{changeDateLabel ? `${changeDateLabel} 紀錄` : "今日"}</>}
+            ? <>{pf(dailyChangePct)} NT$ {nf(dailyChange)} {changeDateLabel ? `(${changeDateLabel} record)` : "Today"}</>
+            : <>NT$ {nf(dailyChange)}（{pf(dailyChangePct)}）{changeDateLabel ? `${changeDateLabel} 紀錄` : "今日"}</>}
         </div>
         {Number.isFinite(Number(totalReturn)) && (
           <div className="mt-1.5 text-[11px] mono" style={{ color: COLORS.sub }}>
-            <UiLabel zh="累積報酬" inline /> <span style={{ color: totalReturn >= 0 ? COLORS.gain : COLORS.loss }}>{totalReturn >= 0 ? "+" : ""}{nf(totalReturn)}（{pf(totalReturnPct)}）</span>
+            <UiLabel zh="累積報酬" inline /> <span style={{ color: totalReturn >= 0 ? COLORS.gain : COLORS.loss }}>{totalReturn >= 0 ? "+" : ""}NT$ {nf(totalReturn)}（{pf(totalReturnPct)}）</span>
           </div>
         )}
 
@@ -6452,7 +6498,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
 
       <Panel title="區間查詢（精算，非AI）">
         <div className="text-[11px] mb-2" style={{ color: COLORS.sub }}>
-          {M("Pick two dates and this computes the asset/principal/P&L change directly from your raw records — guaranteed accurate.", "選兩個日期，直接用你的原始紀錄計算資產/本金/損益變化，數字保證準確")}
+          {M("Pick two dates and this computes the asset/principal/P&L change directly from your raw records — guaranteed accurate.", "選兩個日期，依已儲存紀錄比較資產、本金與損益變化")}
         </div>
         <div className="grid grid-cols-2 gap-2">
           <Field label="起始日期"><input type="date" value={rangeFrom}
@@ -6537,7 +6583,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
                     <span style={{ color: COLORS.sub }}>{weekLabel(wk)}{stat?.approximate ? " *" : ""}</span>
                     {stat ? (
                       <span className="font-bold" style={{ color: stat.marketReturn >= 0 ? COLORS.gain : COLORS.loss }}>
-                        {M("Market", "市場")} {stat.marketReturn >= 0 ? "+" : ""}{nf(stat.marketReturn)}（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）
+                        {M("Market", "市場")} {stat.marketReturn >= 0 ? "+" : ""}NT$ {nf(stat.marketReturn)}（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）
                       </span>
                     ) : (
                       <span style={{ color: COLORS.sub }}>{M("Earliest record, no prior week to compare", "最早紀錄，無前週可比較")}</span>
@@ -6545,7 +6591,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
                   </div>
                   {stat && stat.contribution != null && stat.contribution !== 0 && (
                     <div className="text-right mt-0.5" style={{ color: COLORS.gold }}>
-                      {M("New contribution", "新增投入")} {stat.contribution >= 0 ? "+" : ""}{nf(stat.contribution)}
+                      {M("New contribution", "新增投入")} {stat.contribution >= 0 ? "+" : ""}NT$ {nf(stat.contribution)}
                     </div>
                   )}
                 </div>
@@ -6572,7 +6618,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
                     <span style={{ color: COLORS.sub }}>{mk}{stat?.approximate ? " *" : ""}</span>
                     {stat ? (
                       <span className="font-bold" style={{ color: stat.marketReturn >= 0 ? COLORS.gain : COLORS.loss }}>
-                        {M("Market", "市場")} {stat.marketReturn >= 0 ? "+" : ""}{nf(stat.marketReturn)}（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）
+                        {M("Market", "市場")} {stat.marketReturn >= 0 ? "+" : ""}NT$ {nf(stat.marketReturn)}（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）
                       </span>
                     ) : (
                       <span style={{ color: COLORS.sub }}>{M("Earliest record, no prior month to compare", "最早紀錄，無前月可比較")}</span>
@@ -6580,7 +6626,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
                   </div>
                   {stat && stat.contribution != null && stat.contribution !== 0 && (
                     <div className="text-right mt-0.5" style={{ color: COLORS.gold }}>
-                      {M("New contribution", "新增投入")} {stat.contribution >= 0 ? "+" : ""}{nf(stat.contribution)}
+                      {M("New contribution", "新增投入")} {stat.contribution >= 0 ? "+" : ""}NT$ {nf(stat.contribution)}
                     </div>
                   )}
                 </div>
@@ -6607,7 +6653,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
                     <span style={{ color: COLORS.sub }}>{yk}{stat?.approximate ? " *" : ""}</span>
                     {stat ? (
                       <span className="font-bold" style={{ color: stat.marketReturn >= 0 ? COLORS.gain : COLORS.loss }}>
-                        {M("Market", "市場")} {stat.marketReturn >= 0 ? "+" : ""}{nf(stat.marketReturn)}（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）
+                        {M("Market", "市場")} {stat.marketReturn >= 0 ? "+" : ""}NT$ {nf(stat.marketReturn)}（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）
                       </span>
                     ) : (
                       <span style={{ color: COLORS.sub }}>{M("Earliest record, no prior year to compare", "最早紀錄，無前年可比較")}</span>
@@ -6615,7 +6661,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
                   </div>
                   {stat && stat.contribution != null && stat.contribution !== 0 && (
                     <div className="text-right mt-0.5" style={{ color: COLORS.gold }}>
-                      {M("New contribution", "新增投入")} {stat.contribution >= 0 ? "+" : ""}{nf(stat.contribution)}
+                      {M("New contribution", "新增投入")} {stat.contribution >= 0 ? "+" : ""}NT$ {nf(stat.contribution)}
                     </div>
                   )}
                 </div>
@@ -6648,7 +6694,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
                         <span style={{ color: COLORS.gold }}>{mk}{stat?.approximate ? " *" : ""}</span>
                         {stat ? (
                           <span style={{ color: stat.marketReturn >= 0 ? COLORS.gain : COLORS.loss }}>
-                            {M("Market", "市場")} {stat.marketReturn >= 0 ? "+" : ""}{nf(stat.marketReturn)}（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）
+                            {M("Market", "市場")} {stat.marketReturn >= 0 ? "+" : ""}NT$ {nf(stat.marketReturn)}（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）
                           </span>
                         ) : (
                           <span style={{ color: COLORS.sub, fontWeight: "normal" }}>{M("Earliest record, no prior month to compare", "最早紀錄，無前月可比較")}</span>
@@ -6656,7 +6702,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
                       </div>
                       {stat && stat.contribution != null && stat.contribution !== 0 && (
                         <div className="text-right font-normal" style={{ color: COLORS.gold }}>
-                          {M("New contribution", "新增投入")} {stat.contribution >= 0 ? "+" : ""}{nf(stat.contribution)}
+                          {M("New contribution", "新增投入")} {stat.contribution >= 0 ? "+" : ""}NT$ {nf(stat.contribution)}
                         </div>
                       )}
                     </div>
@@ -6936,28 +6982,28 @@ function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldi
                 </div>
               ) : (
                 <>
-                  <div className="flex justify-between items-start">
+                  <div className="holding-header flex justify-between items-start">
                     <div className="flex flex-wrap items-baseline gap-2 min-w-0">
                       <span className="font-bold mono">{h.symbol}</span>
-                      <span className="text-[11px]" style={{ color: COLORS.sub }}>{h.name}</span>
+                      <span className="holding-name text-[11px]" style={{ color: COLORS.sub }}>{h.name}</span>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <button onClick={() => startEdit(h)} style={{ color: COLORS.sub }}><PencilIcon size={15} /></button>
-                      <button onClick={() => remove(h.id)} style={{ color: COLORS.sub }}><TrashIcon size={15} /></button>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button className="holding-action" aria-label={M(`Edit ${h.symbol}`, `編輯 ${h.symbol}`)} onClick={() => startEdit(h)} style={{ color: COLORS.sub }}><PencilIcon size={15} /></button>
+                      <button className="holding-action" aria-label={M(`Delete ${h.symbol}`, `刪除 ${h.symbol}`)} onClick={() => remove(h.id)} style={{ color: COLORS.sub }}><TrashIcon size={15} /></button>
                     </div>
                   </div>
                   <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[11px] mono mt-2" style={{ color: COLORS.gold }}>
                     <UiLabel zh="成交均價（不含手續費）" inline />
-                    <span>{h.avgTradePrice != null ? `NT$ ${h.avgTradePrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}／股` : M("— (no trade records)", "—（尚無交易紀錄）")}</span>
+                    <span>{h.avgTradePrice != null ? `NT$ ${formatNtdPrice(h.avgTradePrice)}／股` : M("— (no trade records)", "—（尚無交易紀錄）")}</span>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs mono mt-2">
+                  <div className="holding-cost-summary grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs mono mt-2">
                     <div>
                       <div style={{ color: COLORS.sub }}><UiLabel zh="總持有成本" inline /></div>
                       <div className="font-bold mt-1" style={{ color: COLORS.gold }}>{h.estCostBasis != null ? `NT$ ${nf(h.estCostBasis)}` : "-"}</div>
                     </div>
                     <div>
                       <div style={{ color: COLORS.sub }}><UiLabel zh="每股平均成本" inline /></div>
-                      <div className="mt-1" style={{ color: COLORS.text }}>{h.avgCost != null ? `NT$ ${h.avgCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}／股` : "-"}
+                      <div className="mt-1" style={{ color: COLORS.text }}>{h.avgCost != null ? `NT$ ${formatNtdPrice(h.avgCost)}／股` : "-"}
                         {h.isManualAvgCost && <span style={{ color: COLORS.gold }}> <UiLabel zh="(手動)" inline /></span>}
                       </div>
                     </div>
@@ -6987,7 +7033,7 @@ function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldi
                         <span style={{ color: COLORS.sub }}>
                           <UiLabel zh="預估損益" inline />{" "}
                           <span style={{ color: estimatedPnl == null ? COLORS.sub : (estimatedPnl >= 0 ? COLORS.gain : COLORS.loss) }}>
-                            {estimatedPnl == null ? "--" : `${estimatedPnl >= 0 ? "+" : ""}${nf(estimatedPnl)}`}
+                            {estimatedPnl == null ? "--" : `${estimatedPnl >= 0 ? "+" : ""}NT$ ${nf(estimatedPnl)}`}
                           </span>
                         </span>
                         <span style={{ color: COLORS.sub }}>
@@ -7217,7 +7263,7 @@ function TradesPanel({ trades, setTrades, holdings, setHoldings, usLive, costBas
                   </span> {t.symbol}
                 </div>
                 <div className="text-[11px]" style={{ color: COLORS.sub }}>
-                  {Number(t.shares).toLocaleString("en-US", { maximumFractionDigits: 6 })}{M("sh", "股")} @ NT$ {recordValueNtd(t, t.price)?.toFixed(2) ?? "--"}
+                  {Number(t.shares).toLocaleString("en-US", { maximumFractionDigits: 6 })}{M("sh", "股")} @ NT$ {formatNtdPrice(recordValueNtd(t, t.price))}
                 </div>
               </div>
               <div className="text-right mono text-sm font-bold">
@@ -7533,7 +7579,7 @@ function DividendsPanel({ dividends, setDividends, holdings, usLive }) {
               <div className="flex-1">
                 <div className="text-sm mono">{d.date} · {d.symbol}</div>
                 <div className="text-[11px]" style={{ color: COLORS.sub }}>
-                  {Number(d.shares).toLocaleString("en-US", { maximumFractionDigits: 6 })}{M("sh", "股")} × NT$ {recordValueNtd(d, d.perShare)?.toFixed(2) ?? "--"}
+                  {Number(d.shares).toLocaleString("en-US", { maximumFractionDigits: 6 })}{M("sh", "股")} × NT$ {formatNtdPrice(recordValueNtd(d, d.perShare))}
                 </div>
               </div>
               <div className="text-right mono text-sm font-bold" style={{ color: COLORS.gold }}>
@@ -7945,15 +7991,15 @@ function Panel({ title, children }) {
       background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`,
       boxShadow: "0 4px 16px rgba(0,0,0,0.28)",
     }}>
-      <div className="text-xs font-bold mb-3" style={{ color: COLORS.sub }}><UiLabel zh={title} /></div>
+      <div className="premium-panel-title text-xs font-bold mb-3" style={{ color: COLORS.sub }}><UiLabel zh={title} /></div>
       {children}
     </div>
   );
 }
 function Field({ label, children }) {
   return (
-    <label className="block">
-      <div className="text-[10px] mb-1" style={{ color: COLORS.sub }}><UiLabel zh={label} /></div>
+    <label className="premium-field block">
+      <div className="premium-field-label text-[10px] mb-1" style={{ color: COLORS.sub }}><UiLabel zh={label} /></div>
       {children}
       <style>{`
         .input {
@@ -8069,17 +8115,17 @@ function describeToolCall(tc, holdings) {
         const actionLabel = a.action === "sell" ? "Sell" : "Buy";
         const feeStr = a.fee ? `, fee ${a.fee}` : "";
         const taxStr = a.tax ? `, tax ${a.tax}` : "";
-        return `Add trade: ${a.date || "Today"} ${actionLabel} ${a.symbol} ${a.shares} shares @NT$${a.price}${feeStr}${taxStr}`;
+        return `Add trade: ${a.date || "Today"} ${actionLabel} ${a.symbol} ${a.shares} shares @NT$ ${formatNtdPrice(a.price)}${feeStr}${taxStr}`;
       }
       case "update_holding_target":
         return `Change ${a.symbol}'s target shares to ${nf(a.target)}`;
       case "update_manual_avg_cost":
         return a.clear
           ? `Clear ${a.symbol}'s manually-set average cost, revert to auto-calculated`
-          : `Manually set ${a.symbol}'s average cost to NT$${a.avgCost}`;
+          : `Manually set ${a.symbol}'s average cost to NT$ ${formatNtdPrice(a.avgCost)}`;
       case "update_goal": {
         const parts = [];
-        if (a.targetAmount != null) parts.push(`Change target amount to NT$${nf(a.targetAmount)}`);
+        if (a.targetAmount != null) parts.push(`Change target amount to NT$ ${nf(a.targetAmount)}`);
         if (a.targetYear != null) parts.push(`Change target year to ${a.targetYear}`);
         return parts.length ? parts.join(", ") : "Update goal (but no fields were provided)";
       }
@@ -8092,17 +8138,17 @@ function describeToolCall(tc, holdings) {
       const actionLabel = a.action === "sell" ? "賣出" : "買進";
       const feeStr = a.fee ? `，手續費 ${a.fee}` : "";
       const taxStr = a.tax ? `，證交稅 ${a.tax}` : "";
-      return `新增交易：${a.date || "今天"} ${actionLabel} ${a.symbol} ${a.shares} 股 @NT$${a.price}${feeStr}${taxStr}`;
+      return `新增交易：${a.date || "今天"} ${actionLabel} ${a.symbol} ${a.shares} 股 @NT$ ${formatNtdPrice(a.price)}${feeStr}${taxStr}`;
     }
     case "update_holding_target":
       return `把 ${a.symbol} 的目標股數改成 ${nf(a.target)} 股`;
     case "update_manual_avg_cost":
       return a.clear
         ? `清除 ${a.symbol} 手動設定的平均成本，改回自動計算`
-        : `把 ${a.symbol} 的平均成本手動設定為 NT$${a.avgCost}`;
+        : `把 ${a.symbol} 的平均成本手動設定為 NT$ ${formatNtdPrice(a.avgCost)}`;
     case "update_goal": {
       const parts = [];
-      if (a.targetAmount != null) parts.push(`目標金額改成 NT$${nf(a.targetAmount)}`);
+      if (a.targetAmount != null) parts.push(`目標金額改成 NT$ ${nf(a.targetAmount)}`);
       if (a.targetYear != null) parts.push(`目標年份改成 ${a.targetYear}`);
       return parts.length ? parts.join("，") : "修改總目標（但沒有帶任何要改的欄位）";
     }
@@ -8285,14 +8331,14 @@ function executeReadTool(tc, { trades, dailyRecords, dividends, holdings }) {
       const sellShares = sells.reduce((s, t) => s + t.shares, 0);
       const buyAmount = buys.reduce((s, t) => s + t.amount, 0);
       const sellAmount = sells.reduce((s, t) => s + t.amount, 0);
-      return `共${list.length}筆交易：買進${buys.length}筆共${nf(buyShares)}股（金額NT$${nf(buyAmount)}），` +
-        `賣出${sells.length}筆共${nf(sellShares)}股（金額NT$${nf(sellAmount)}）`;
+      return `共${list.length}筆交易：買進${buys.length}筆共${nf(buyShares)}股（金額NT$ ${nf(buyAmount)}），` +
+        `賣出${sells.length}筆共${nf(sellShares)}股（金額NT$ ${nf(sellAmount)}）`;
     }
     const limit = Math.min(200, Number(a.limit) || 120);
     return list.slice(-limit).map((t) => {
       const fee = t.fee ? `，手續費${recordValueNtd(t, t.fee) ?? "--"}` : "";
       const tax = t.tax ? `，證交稅${recordValueNtd(t, t.tax) ?? "--"}` : "";
-      return `${t.date} ${t.symbol} ${t.action === "buy" ? "買進" : "賣出"} ${t.shares}股 @NT$${recordValueNtd(t, t.price) ?? "--"}${fee}${tax}`;
+      return `${t.date} ${t.symbol} ${t.action === "buy" ? "買進" : "賣出"} ${t.shares}股 @NT$ ${formatNtdPrice(recordValueNtd(t, t.price))}${fee}${tax}`;
     }).join("\n");
   }
 
@@ -8306,10 +8352,10 @@ function executeReadTool(tc, { trades, dailyRecords, dividends, holdings }) {
 
     if (a.aggregation === "summary") {
       const total = list.reduce((s, d) => s + d.amount, 0);
-      return `共${list.length}筆配息，總金額NT$${nf(total)}`;
+      return `共${list.length}筆配息，總金額NT$ ${nf(total)}`;
     }
     const limit = Math.min(200, Number(a.limit) || 120);
-    return list.slice(-limit).map((d) => `${d.date} ${d.symbol} ${nf(d.shares)}股 @NT$${recordValueNtd(d, d.perShare) ?? "--"}/股 = NT$${nf(d.amount)}`).join("\n");
+    return list.slice(-limit).map((d) => `${d.date} ${d.symbol} ${nf(d.shares)}股 @NT$ ${formatNtdPrice(recordValueNtd(d, d.perShare))}/股 = NT$ ${nf(d.amount)}`).join("\n");
   }
 
   if (a.source === "holding_cost") {
@@ -8318,7 +8364,7 @@ function executeReadTool(tc, { trades, dailyRecords, dividends, holdings }) {
     const { current: shares, estCostBasis: cost, avgCost, missingInitialCost } = holdingCostAt(h, trades, date);
     const caveat = missingInitialCost ? "（期初股數的成本沒有記錄，成本可能不完整）" : "";
     if (shares <= 0) return `截至${date}：${a.symbol} 股數為0或查無資料${caveat}`;
-    return `截至${date}：${a.symbol} 股數${nf(shares)}股，每股平均成本NT$${avgCost.toFixed(2)}/股，總持有成本NT$${nf(cost)}${caveat}`;
+    return `截至${date}：${a.symbol} 股數${nf(shares)}股，每股平均成本NT$ ${formatNtdPrice(avgCost)}/股，總持有成本NT$ ${nf(cost)}${caveat}`;
   }
 
   return `不支援的 source：${a.source}`;
@@ -8333,11 +8379,18 @@ async function executeLiveQuoteTool(tc, holdings) {
   symbols = [...new Set(symbols)];
   if (!symbols.length) return "沒有指定股票代號，也沒有查到任何持股";
   try {
-    const { quotes, missing } = await fetchQuotesWithFallback(symbols);
+    const quoteSymbols = symbols.some((sym) => isStockSymbol(sym) && !isTaiwanSymbol(sym)) ? [...new Set([...symbols, "USDTWD"])] : symbols;
+    const { quotes, missing } = await fetchQuotesWithFallback(quoteSymbols);
+    const fx = Number(quotes.USDTWD?.price);
     const lines = symbols.map((sym) => {
       const q = quotes[sym];
       if (!q || q.price == null) return `${sym}：查不到即時股價`;
-      return `${sym}：NT$${q.price}${q.asOfDate ? `（${q.asOfDate}）` : ""}`;
+      const stamp = q.asOfDate ? `（${q.asOfDate}）` : "";
+      if (sym === "USDTWD") return `美元／台幣：NT$ ${formatNtdPrice(q.price)}／美元${stamp}`;
+      if (!isStockSymbol(sym)) return `${sym}：${formatNtdPrice(q.price)} 點${stamp}`;
+      const price = recordValueNtd({ currency: isTaiwanSymbol(sym) ? "TWD" : "USD", fxRate: fx }, q.price);
+      if (price == null) return `${sym}：新台幣匯率暫時不可用，無法換算報價`;
+      return `${sym}：NT$ ${formatNtdPrice(price)}／股${stamp}`;
     });
     if (missing && missing.length) lines.push(`（查不到報價的代號：${missing.join("、")}）`);
     return lines.join("\n");
@@ -8365,7 +8418,7 @@ async function executeAppSnapshotTool(tc, baseContext) {
       const items=Object.entries(q).map(([sym,v])=>{
         const p=Number(v?.price), prev=Number(v?.prevClose);
         const pct=(Number.isFinite(p)&&Number.isFinite(prev)&&prev)?((p-prev)/prev*100):null;
-        return `${sym} ${Number.isFinite(p)?p:"—"}${pct!=null?` (${pct>=0?"+":""}${pct.toFixed(2)}%)`:""}`;
+        return `${sym} ${isTaiwanSymbol(sym)?"NT$ "+formatNtdPrice(p):formatNtdPrice(p)+" 點"}${pct!=null?` (${pct>=0?"+":""}${pct.toFixed(2)}%)`:""}`;
       });
       add("即時行情", items.join("\n"));
       if(live.marketIndex) add("加權指數", live.marketIndex);
@@ -8733,7 +8786,8 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
   return (
     <>
       <button onClick={() => setOpen(true)}
-        className="fixed z-40 rounded-full flex items-center justify-center"
+        aria-label={UI_SHOW_ENGLISH ? "Open investment assistant" : "開啟投資助手"}
+        className="premium-ai-launcher fixed z-40 rounded-full flex items-center justify-center"
         style={{
           right: 14, bottom: "calc(64px + env(safe-area-inset-bottom, 4px))",
           width: 46, height: 46, background: "rgba(17,24,39,0.48)", color: COLORS.gold,
