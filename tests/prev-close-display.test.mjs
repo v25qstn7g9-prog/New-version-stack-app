@@ -35,3 +35,18 @@ test('compact quotes expand naturally without a nested scroll area', () => {
   assert.match(block, /live-quote-grid/);
   assert.match(block, /formatNtdPrice\(r.value, 1\)/);
 });
+
+
+test('v2.47.5 keeps all premium pages on the same compact rhythm', () => {
+  for (const marker of [
+    'v2.47.5 — full-page compact rhythm normalization',
+    '.premium-main{padding-top:8px!important',
+    '.premium-panel{padding:12px!important',
+    '.premium-dashboard{gap:6px!important',
+    '.premium-tab .space-y-2>:not([hidden])~:not([hidden]){margin-top:6px!important',
+    '.premium-tab-holdings .space-y-3>div.rounded-xl{padding:10px!important',
+    '.premium-tab-progress .grid.grid-cols-2.gap-3{gap:7px!important',
+    '.premium-tab-plan .grid.grid-cols-3.gap-2{gap:6px!important'
+  ]) assert.ok(html.includes(marker), marker);
+  assert.match(html, /.premium-tab .input{min-height:44px!important/);
+});
