@@ -640,7 +640,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.48.6-split-market-values";
+const APP_VERSION = "4.7-personal-advisor-v2.48.7-emergency-rollback";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -3883,9 +3883,7 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
   }).filter(Boolean);
 
   const quoteNtd = (row, value) => value == null ? null : recordValueNtd({ currency: row.isUS ? "USD" : "TWD", fxRate: usLive?.state?.fx }, value);
-  const twMarketValue = rows.filter((r) => !r.isUS).reduce((s, r) => s + r.value, 0);
-  const usMarketValue = rows.filter((r) => r.isUS).reduce((s, r) => s + r.value, 0);
-  const totalValue = twMarketValue + usMarketValue;
+  const totalValue = rows.reduce((s, r) => s + r.value, 0);
   const hasLive = rows.length > 0;
   const quoteComplete = activeHoldings.length > 0
     && rows.length === activeHoldings.length
@@ -4059,29 +4057,16 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
           {/* One flat summary instead of a boxed 今日摘要 plus two repeated
               blocks: portfolio value vs yesterday, then TAIEX vs portfolio. */}
           <div className="pt-2 mt-2" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
-            <div className="space-y-1 mono">
-              <div className="flex justify-between items-baseline gap-2 text-xs">
-                <span style={{ color: COLORS.sub }}><UiLabel zh="台股持股市值" /></span>
-                <span className="font-bold" style={{ color: COLORS.gold }}>NT$ {formatNtdPrice(twMarketValue, 1)}</span>
-              </div>
-              {activeHoldings.some((h) => !isTaiwanSymbol(h.symbol)) && (
-                <div className="flex justify-between items-baseline gap-2 text-xs">
-                  <span style={{ color: COLORS.sub }}><UiLabel zh="美股持股市值" /></span>
-                  <span className="font-bold" style={{ color: COLORS.gold }}>NT$ {formatNtdPrice(usMarketValue, 1)}</span>
-                </div>
-              )}
-              <div className="flex justify-between items-baseline gap-2 text-[11px] pt-1"
-                style={{ borderTop: `1px dashed ${COLORS.panelBorder}` }}>
-                <span style={{ color: COLORS.sub }}><UiLabel zh={quoteComplete ? "合計市值" : "目前可得市值（部分）"} /></span>
-                <span style={{ color: COLORS.text }}>NT$ {formatNtdPrice(totalValue, 1)}</span>
-              </div>
+            <div className="flex justify-between items-baseline gap-2 text-xs mono font-bold">
+              <span style={{ color: COLORS.sub }}><UiLabel zh={quoteComplete ? "持股總市值（台幣）" : "目前可得市值（部分）"} /></span>
+              <span style={{ color: COLORS.gold }}>NT$ {formatNtdPrice(totalValue, 1)}</span>
             </div>
             {(yesterdayTwValue != null || yesterdayUsValue != null) && (() => {
               const diff = totalValue - (Number(yesterdayTwValue || 0) + Number(yesterdayUsValue || 0));
               const diffPct = (Number(yesterdayTwValue || 0) + Number(yesterdayUsValue || 0)) ? (diff / (Number(yesterdayTwValue || 0) + Number(yesterdayUsValue || 0))) * 100 : 0;
               const dUp = diff >= 0;
               return (
-                <div className="flex justify-between items-baseline gap-2 text-[11px] mono mt-1">
+                <div className="flex justify-between items-baseline gap-2 text-[11px] mono mt-0.5">
                   <span style={{ color: dUp ? COLORS.gain : COLORS.loss }}>
                     {UI_SHOW_ENGLISH ? "vs yesterday " : "較昨日 "}{dUp ? "+" : ""}NT$ {formatNtdPrice(diff, 1)}（{dUp ? "+" : ""}{diffPct.toFixed(2)}%）
                   </span>
