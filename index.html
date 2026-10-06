@@ -640,7 +640,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.48.0-compact-entry-layout";
+const APP_VERSION = "4.7-personal-advisor-v2.48.1-stable-live-refresh";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -3962,11 +3962,18 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
         <button
           onClick={() => { fetchAllLive(true); usLive?.refresh?.(); }}
           disabled={liveStatus === "loading" || usLive?.state?.status === "loading" || !activeHoldings.length}
-          className="live-refresh-btn text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 flex-shrink-0"
-          style={{ background: COLORS.gold, color: COLORS.bg, opacity: (liveStatus === "loading" || !activeHoldings.length) ? 0.5 : 1 }}
+          className="live-refresh-btn relative text-xs font-bold px-3 py-1.5 rounded-lg flex items-center justify-center flex-shrink-0"
+          style={{ background: COLORS.gold, color: COLORS.bg, opacity: (!activeHoldings.length) ? 0.5 : 1 }}
+          aria-label={uiText("抓取即時股價")}
         >
-          {liveStatus === "loading" ? <Loader2 size={13} className="animate-spin" /> : null}
-          <UiLabel zh="抓取即時股價" />
+          <span style={{ visibility: (liveStatus === "loading" || usLive?.state?.status === "loading") ? "hidden" : "visible" }}>
+            <UiLabel zh="抓取即時股價" />
+          </span>
+          {(liveStatus === "loading" || usLive?.state?.status === "loading") && (
+            <span className="absolute inset-0 flex items-center justify-center">
+              <Loader2 size={15} className="animate-spin" />
+            </span>
+          )}
         </button>
       </div>
 
@@ -5085,8 +5092,10 @@ function TrendRadar({ holdings, embedded = false }) {
         const cutoff=ts-15*60*1000;
         fastTape=fastTape.filter(p=>p.ts>=cutoff).slice(-80);
       }
-      clearTimeout(liveSyncTimer);
-      liveSyncTimer=setTimeout(()=>{ if(!cancelled) recalc(); },80);
+      // Keep collecting fresh quote ticks for the model, but do not repaint
+      // the analysis card on every 15-second quote batch. The visible radar is
+      // committed on the 60-second cadence below, which prevents flicker/jump
+      // while the live-quote table above continues updating normally.
     };
     window.addEventListener("livePricesUpdated",onLivePricesUpdated);
     const onVisible=()=>{if(document.visibilityState==="visible")recalc();};
