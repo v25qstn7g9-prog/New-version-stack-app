@@ -833,7 +833,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.47.16-step4-stable-radar-redesign";
+const APP_VERSION = "4.7-personal-advisor-v2.47.17-step4-stable-radar-redesign";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -5280,9 +5280,9 @@ function TrendRadar({ holdings, embedded = false }) {
           statuses:{institutional:instDays.length?"ok":"unavailable",global:global?"ok":"unavailable"},
         });
       } catch(e) {}
-      const nextInstStatus = instDays.length ? "ok" : instStatus;
-      const nextMarginStatus = marginDays.length ? "ok" : marginStatus;
-      const nextGlobalStatus = global ? "ok" : globalStatus;
+      const nextInstStatus = instDays.length ? "ok" : "loading";
+      const nextMarginStatus = marginDays.length ? "ok" : "loading";
+      const nextGlobalStatus = global ? "ok" : "loading";
       const viewSig = JSON.stringify({
         market: computedMarketRow,
         rows: next,
