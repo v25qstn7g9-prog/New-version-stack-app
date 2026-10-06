@@ -769,7 +769,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.47.13-step2-fixed-refresh-button";
+const APP_VERSION = "4.7-personal-advisor-v2.47.14-step2-static-status-line";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -4079,11 +4079,9 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
     <Panel title="即時股價">
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="live-status-line text-[11px]" style={{ color: COLORS.sub }}>
-          {liveStatus === "loading" || usLive?.state?.status === "loading" ? <UiLabel zh="更新中…" /> : <>
-            {UI_SHOW_ENGLISH ? "TW: 15s when open" : "台股開盤每 15 秒"}
-            {activeHoldings.some((h) => !isTaiwanSymbol(h.symbol)) && (UI_SHOW_ENGLISH ? " · US: 30s when open" : "・美股開盤每 30 秒")}
-            {liveAt && <span>・{liveAt.toLocaleTimeString("zh-TW", { hour12: false })}</span>}
-          </>}
+          <span>{UI_SHOW_ENGLISH ? "TW: 15s when open" : "台股開盤每 15 秒"}</span>
+          {activeHoldings.some((h) => !isTaiwanSymbol(h.symbol)) && <span>{UI_SHOW_ENGLISH ? " · US: 30s when open" : "・美股開盤每 30 秒"}</span>}
+          {liveAt && <span>・{liveAt.toLocaleTimeString("zh-TW", { hour12: false })}</span>}
           {liveStatus === "error" && <span>・{UI_SHOW_ENGLISH ? "TW quote unavailable" : "台股報價暫時失敗"}</span>}
           {liveStatus === "done" && failedSymbols.length > 0 && <span>・{UI_SHOW_ENGLISH ? "TW: previous price used" : "台股部分沿用上次報價"}</span>}
           {usLive?.state?.failed?.length > 0 && <span>・{UI_SHOW_ENGLISH ? "US: previous price used" : "美股部分沿用上次報價"}</span>}
