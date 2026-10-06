@@ -193,6 +193,100 @@
       padding:9px 10px;border:1px solid #202b3e;border-radius:12px;background:var(--premium-panel-soft);
     }
 
+    /* Compact consistency pass: Daily / Trades / Dividends
+       Keep these three high-frequency entry pages visually aligned and denser on mobile. */
+    .premium-tab-daily>.space-y-2,
+    .premium-tab-trades>.space-y-2,
+    .premium-tab-dividends>.space-y-2{
+      row-gap:.42rem!important;
+    }
+    .premium-tab-daily .premium-panel,
+    .premium-tab-trades .premium-panel,
+    .premium-tab-dividends .premium-panel{
+      padding:12px!important;
+      border-radius:15px!important;
+    }
+    .premium-tab-daily .premium-panel-title,
+    .premium-tab-trades .premium-panel-title,
+    .premium-tab-dividends .premium-panel-title{
+      margin-bottom:8px!important;
+      font-size:11px!important;
+      line-height:1.35!important;
+    }
+    .premium-tab-daily .premium-field-label,
+    .premium-tab-trades .premium-field-label,
+    .premium-tab-dividends .premium-field-label{
+      margin-bottom:3px!important;
+      font-size:10px!important;
+      line-height:1.28!important;
+    }
+    .premium-tab-daily .input,
+    .premium-tab-trades .input,
+    .premium-tab-dividends .input{
+      min-height:38px!important;
+      padding:7px 9px!important;
+      font-size:12px!important;
+      line-height:1.25!important;
+      border-radius:10px!important;
+    }
+    .premium-tab-daily .grid.gap-2,
+    .premium-tab-trades .grid.gap-2,
+    .premium-tab-dividends .grid.gap-2{
+      gap:6px!important;
+    }
+    .premium-tab-daily .premium-add-button,
+    .premium-tab-trades .premium-add-button,
+    .premium-tab-dividends .premium-add-button{
+      min-height:40px!important;
+      margin-top:9px!important;
+      padding:8px 10px!important;
+      border-radius:11px!important;
+      font-size:12px!important;
+    }
+    .premium-tab-daily .premium-row,
+    .premium-tab-trades .premium-row,
+    .premium-tab-dividends .premium-row{
+      padding:8px!important;
+      gap:7px!important;
+      border-radius:11px!important;
+    }
+    .premium-tab-daily .premium-row .text-sm,
+    .premium-tab-trades .premium-row .text-sm,
+    .premium-tab-dividends .premium-row .text-sm{
+      font-size:12px!important;
+      line-height:1.35!important;
+    }
+    .premium-tab-daily .premium-row .text-\[11px\],
+    .premium-tab-trades .premium-row .text-\[11px\],
+    .premium-tab-dividends .premium-row .text-\[11px\]{
+      font-size:10px!important;
+      line-height:1.3!important;
+    }
+    .premium-tab-daily .premium-row-delete,
+    .premium-tab-trades .premium-row-delete,
+    .premium-tab-dividends .premium-row-delete{
+      width:30px!important;
+      height:30px!important;
+      border-radius:9px!important;
+    }
+    .premium-tab-daily .premium-panel .mt-3,
+    .premium-tab-trades .premium-panel .mt-3,
+    .premium-tab-dividends .premium-panel .mt-3{
+      margin-top:8px!important;
+    }
+    .premium-tab-daily .premium-panel .pt-3,
+    .premium-tab-trades .premium-panel .pt-3,
+    .premium-tab-dividends .premium-panel .pt-3{
+      padding-top:8px!important;
+    }
+    .premium-tab-daily .premium-panel .mb-3,
+    .premium-tab-trades .premium-panel .mb-3,
+    .premium-tab-dividends .premium-panel .mb-3{
+      margin-bottom:8px!important;
+    }
+    .premium-tab-dividends [style*="height: 210"]{height:178px!important}
+    .premium-tab-dividends [style*="height: 180"]{height:160px!important}
+
     /* Live quote status */
     .live-status-line{
       display:inline-flex;align-items:center;min-height:24px;line-height:1.35;
@@ -546,7 +640,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.47.9-runtime-hotfix";
+const APP_VERSION = "4.7-personal-advisor-v2.48.0-compact-entry-layout";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
