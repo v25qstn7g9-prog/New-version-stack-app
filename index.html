@@ -676,6 +676,70 @@
       min-height:26px!important;
       line-height:26px!important;
     }
+    /* Step 4 — stable Trend Radar + compact redesign */
+    .trend-radar-shell{
+      padding:12px!important;
+      border-radius:16px!important;
+      contain:layout paint;
+    }
+    .trend-radar-head{
+      min-height:34px;
+      margin-bottom:8px!important;
+      padding:0 2px;
+    }
+    .trend-radar-shell>.space-y-2{
+      display:grid!important;
+      gap:8px!important;
+    }
+    .trend-radar-shell>.space-y-2>*{
+      margin-top:0!important;
+    }
+    .trend-radar-card{
+      box-sizing:border-box;
+      overflow:hidden;
+      transition:none!important;
+      animation:none!important;
+      contain:layout paint;
+    }
+    .trend-radar-global{
+      min-height:76px;
+      padding:9px 11px!important;
+    }
+    .trend-radar-global-row{
+      min-height:18px;
+      align-items:center;
+      gap:8px;
+      white-space:nowrap;
+    }
+    .trend-radar-summary{
+      min-height:68px;
+      padding:9px 11px!important;
+    }
+    .trend-radar-market{
+      min-height:84px;
+      padding:10px 11px!important;
+    }
+    .trend-radar-stock{
+      min-height:118px;
+      padding:10px 11px!important;
+    }
+    .trend-radar-shell .text-\[9px\]{
+      line-height:1.45!important;
+    }
+    .trend-radar-shell .text-\[12px\]{
+      line-height:1.35!important;
+    }
+    .trend-radar-shell button{
+      min-height:36px;
+    }
+    @media(max-width:640px){
+      .trend-radar-shell{padding:10px!important}
+      .trend-radar-global{min-height:74px}
+      .trend-radar-summary{min-height:66px}
+      .trend-radar-market{min-height:82px}
+      .trend-radar-stock{min-height:116px}
+      .trend-radar-global-row{gap:5px;font-size:9px}
+    }
 </style>
 
   <script>
@@ -769,7 +833,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.47.15-step3-split-market-values";
+const APP_VERSION = "4.7-personal-advisor-v2.47.16-step4-stable-radar-redesign";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -4417,6 +4481,7 @@ function TrendRadar({ holdings, embedded = false }) {
     let cancelled = false;
     let recalcRunning = false;
     let recalcQueued = false;
+    let committedViewSig = "";
     // Fast tape lives only in memory: fresh 15-second observations drive the
     // intraday reaction layer without bloating persistent storage.
     let fastTape = [];
@@ -4445,9 +4510,8 @@ function TrendRadar({ holdings, embedded = false }) {
         slowTimer=setTimeout(()=>{if(!cancelled)recalc();},80);
       }).catch(()=>{
         if(cancelled)return;
-        if(name==="institutions")setInstStatus("unavailable");
-        if(name==="margin")setMarginStatus("unavailable");
-        if(name==="global")setGlobalStatus("unavailable");
+        // Keep the last committed view on transient source failure.
+        // The next successful snapshot replaces it atomically.
       }).finally(()=>{slot.busy=false;slot.at=Date.now();});
     };
     const fmtDate = (d) => {
@@ -4766,10 +4830,10 @@ function TrendRadar({ holdings, embedded = false }) {
         if(cache?.key===todayKey+"|"+slowPhase+"|"+symbolKey&&Date.now()-Date.parse(cache.at)<30*60000)return cache.days;
         const days=await fetchInstitutional(active.map(h=>String(h.symbol)));if(!days.length)throw Error("institutions unavailable");
         await saveKey("institutionalFlow",{key:todayKey+"|"+slowPhase+"|"+symbolKey,at:new Date().toISOString(),days});return days;
-      },days=>{memoInstDays=days;setInstStatus("ok");});
+      },days=>{memoInstDays=days;});
       launchSlow("margin",todayKey+"|"+slowPhase+"|"+symbolKey,30*60000,async()=>{
         const days=await fetchMargin(active.map(h=>String(h.symbol)));if(!days.length)throw Error("margin unavailable");return days;
-      },days=>{memoMarginDays=days;setMarginStatus("ok");});
+      },days=>{memoMarginDays=days;});
       const instDays=memoInstDays||[],marginDays=memoMarginDays||[];
       const signScore=(v)=>v>0?1:v<0?-1:0;
       const marketSum=(key,n)=>instDays.slice(0,n).reduce((a,d)=>a+(Number(d?.marketTotal?.[key])||0),0);
@@ -4943,7 +5007,6 @@ function TrendRadar({ holdings, embedded = false }) {
         const pct=(Number(bars[i].close)/Number(bars[i-1].close)-1)*100;
         return {pct,up:Math.abs(pct)<1e-8?null:pct>0,sourceAt:day+"T13:30:00+08:00",source:"completed-daily-bar"};
       };
-      setMarketRow(computedMarketRow);
       // Save one evaluation snapshot per symbol/day. This creates the training/
       // calibration history needed to replace hand-tuned weights with measured ones.
       try{
@@ -4992,13 +5055,23 @@ function TrendRadar({ holdings, embedded = false }) {
         records=records.slice(-1500);
         await saveKey("trendRadarHistory",{records,at:stamp.toISOString()});
       }catch(e){}
-      // Overnight global signal (S&P500 / SOX / USD-TWD) — the one genuinely
-      // forward-looking input available before TWSE opens the next session.
+      // Overnight global signal (S&P500 / SOX / USD-TWD).
+      // Hydrate the last successful snapshot first so refreshes never collapse
+      // this card and push the entire radar up/down.
+      if (!memoGlobal) {
+        try {
+          const cachedGlobal = await loadKey("trendRadarGlobalSignal", null);
+          if (cachedGlobal?.value) {
+            memoGlobal = cachedGlobal.value;
+            memoGlobalAt = Number(cachedGlobal.at) || Date.now();
+          }
+        } catch(e) {}
+      }
       launchSlow("global",todayKey,60000,async()=>{
         const value=await fetchGlobalSignal();if(!value)throw Error("global unavailable");
         await saveKey("trendRadarGlobalSignal",{at:Date.now(),value});return value;
-      },value=>{memoGlobal=value;memoGlobalAt=Date.now();setGlobalStatus("ok");setGlobalRow(value);});
-      const global=memoGlobal&&Date.now()-memoGlobalAt<5*60000?memoGlobal:null;
+      },value=>{memoGlobal=value;memoGlobalAt=Date.now();});
+      const global=memoGlobal||null;
       // Next-session model v2.45.
       // Preview starts at 10:30 and updates with every live quote. The final
       // next-day call is frozen at 13:25, so backtests compare a fixed forecast
@@ -5207,8 +5280,27 @@ function TrendRadar({ holdings, embedded = false }) {
           statuses:{institutional:instDays.length?"ok":"unavailable",global:global?"ok":"unavailable"},
         });
       } catch(e) {}
-      setTomorrowMap(tomorrow);
-      setRows(next); setAsOf(new Date());
+      const nextInstStatus = instDays.length ? "ok" : instStatus;
+      const nextMarginStatus = marginDays.length ? "ok" : marginStatus;
+      const nextGlobalStatus = global ? "ok" : globalStatus;
+      const viewSig = JSON.stringify({
+        market: computedMarketRow,
+        rows: next,
+        tomorrow,
+        global,
+        statuses: [nextInstStatus, nextMarginStatus, nextGlobalStatus],
+      });
+      if (viewSig !== committedViewSig) {
+        committedViewSig = viewSig;
+        setMarketRow(computedMarketRow);
+        setRows(next);
+        setTomorrowMap(tomorrow);
+        if (global) setGlobalRow(global);
+        setInstStatus(nextInstStatus);
+        setMarginStatus(nextMarginStatus);
+        setGlobalStatus(nextGlobalStatus);
+        setAsOf(new Date());
+      }
       } finally {
         recalcRunning = false;
         if (recalcQueued && !cancelled) {
@@ -5379,37 +5471,34 @@ function TrendRadar({ holdings, embedded = false }) {
   };
   if(!rows.length)return null;
   return (
-    <div className="rounded-2xl p-4" style={{background:COLORS.panel,border:"1px solid "+COLORS.panelBorder,boxShadow:"0 4px 16px rgba(0,0,0,0.28)"}}>
-      <div className="flex items-center justify-between mb-2">
+    <div className="trend-radar-shell rounded-2xl p-4" style={{background:COLORS.panel,border:"1px solid "+COLORS.panelBorder,boxShadow:"0 4px 16px rgba(0,0,0,0.28)"}}>
+      <div className="trend-radar-head flex items-center justify-between mb-2">
         <div className="min-w-0">{!embedded&&<div className="text-xs font-bold" style={{color:COLORS.gold}}><UiLabel zh="AI 今日／明日趨勢雷達" /></div>}<div className={"text-[9px] "+(embedded?"truncate":"mt-0.5")} style={{color:COLORS.sub}}>{UI_SHOW_ENGLISH ? `Learning v${TREND_RADAR_VERSION} · Time-Adaptive Weights · OHLC+KD+Institutional+TX Front Month+Overnight+Auto-Validated` : `學習版 v${TREND_RADAR_VERSION} · 時間自適應權重 · OHLC＋KD＋法人＋台指近月＋隔夜訊號＋自動驗證`}</div></div>
         {asOf&&<div className="text-[9px] mono" style={{color:COLORS.sub}}>{asOf.toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit",hour12:false})}</div>}
       </div>
       <div className="space-y-2">
-        {globalRow&&<div className="rounded-xl px-3 py-2 text-[9px] mono" style={{background:COLORS.bg,border:"1px solid "+COLORS.panelBorder,color:COLORS.sub}}>
-          <div className="flex justify-between"><span><UiLabel zh="隔夜訊號" /></span><span><UiLabel zh={globalStatus==="ok"?"已取得":"暫不可用，明日預測退回原模型"} /></span></div>
-          {globalStatus==="ok"&&<>
-            <div className="flex justify-between mt-0.5">
-              <span><UiLabel zh="台指近月" inline /> {globalRow.txfPct!=null?(globalRow.txfPct>=0?"+":"")+globalRow.txfPct.toFixed(2)+"%":"—"}</span>
-              <span>{globalRow.txfPrice!=null?globalRow.txfPrice.toLocaleString("zh-TW"):"—"}{globalRow.txfExpiry?" · "+globalRow.txfExpiry:""}</span>
-              <span><UiLabel zh={globalRow.txfSession==="after_hours"?"夜盤":"日盤"} /></span>
-            </div>
-            <div className="flex justify-between mt-0.5">
-              <span><UiLabel zh="S&P500" inline /> {globalRow.spxPct!=null?(globalRow.spxPct>=0?"+":"")+globalRow.spxPct.toFixed(2)+"%":"—"}</span>
-              <span><UiLabel zh="費半SOX" inline /> {globalRow.soxPct!=null?(globalRow.soxPct>=0?"+":"")+globalRow.soxPct.toFixed(2)+"%":"—"}</span>
-              {globalRow.txfPrice>0&&!globalRow.txfTimestampKnown&&<span>{UI_SHOW_ENGLISH?"TX: official session report, delayed":"台指：官方時段報表，可能延遲"}</span>}
-              <span><UiLabel zh="美元/台幣" inline /> {globalRow.usdtwdPct!=null?(globalRow.usdtwdPct>=0?"+":"")+globalRow.usdtwdPct.toFixed(2)+"%":"—"}</span>
-            </div>
-          </>}
-        </div>}
+        <div className="trend-radar-card trend-radar-global rounded-xl px-3 py-2 text-[9px] mono" style={{background:COLORS.bg,border:"1px solid "+COLORS.panelBorder,color:COLORS.sub}}>
+          <div className="flex justify-between"><span><UiLabel zh="隔夜訊號" /></span><span><UiLabel zh={globalRow?"已取得":"資料累積中"} /></span></div>
+          <div className="trend-radar-global-row flex justify-between mt-0.5">
+            <span><UiLabel zh="台指近月" inline /> {globalRow?.txfPct!=null?(globalRow.txfPct>=0?"+":"")+globalRow.txfPct.toFixed(2)+"%":"—"}</span>
+            <span>{globalRow?.txfPrice!=null?globalRow.txfPrice.toLocaleString("zh-TW"):"—"}{globalRow?.txfExpiry?" · "+globalRow.txfExpiry:""}</span>
+            <span><UiLabel zh={globalRow?.txfSession==="after_hours"?"夜盤":"日盤"} /></span>
+          </div>
+          <div className="trend-radar-global-row flex justify-between mt-0.5">
+            <span><UiLabel zh="S&P500" inline /> {globalRow?.spxPct!=null?(globalRow.spxPct>=0?"+":"")+globalRow.spxPct.toFixed(2)+"%":"—"}</span>
+            <span><UiLabel zh="費半SOX" inline /> {globalRow?.soxPct!=null?(globalRow.soxPct>=0?"+":"")+globalRow.soxPct.toFixed(2)+"%":"—"}</span>
+            <span><UiLabel zh="美元/台幣" inline /> {globalRow?.usdtwdPct!=null?(globalRow.usdtwdPct>=0?"+":"")+globalRow.usdtwdPct.toFixed(2)+"%":"—"}</span>
+          </div>
+        </div>
         {marketRow&&(()=>{
           const ms=easyMarketSummary(marketRow);
-          return <div className="rounded-xl px-3 py-2" style={{background:"rgba(201,162,75,0.07)",border:"1px solid rgba(201,162,75,0.45)"}}>
+          return <div className="trend-radar-card trend-radar-summary rounded-xl px-3 py-2" style={{background:"rgba(201,162,75,0.07)",border:"1px solid rgba(201,162,75,0.45)"}}>
             <div className="text-[9px] font-bold" style={{color:COLORS.gold}}><UiLabel zh="盤勢總結" /></div>
             <div className="mt-0.5 text-[12px] font-black" style={{color:ms.tone}}>{ms.arrow} {ms.text}</div>
             <div className="mt-0.5 text-[9px]" style={{color:COLORS.sub}}>TAIEX {marketRow.indexPct>=0?"+":""}{marketRow.indexPct.toFixed(2)}% ｜ {uiText(ms.watch)}</div>
           </div>;
         })()}
-        {marketRow&&<div className="rounded-xl px-3 py-2" style={{background:COLORS.bg,border:"1px solid "+COLORS.gold}}>
+        {marketRow&&<div className="trend-radar-card trend-radar-market rounded-xl px-3 py-2" style={{background:COLORS.bg,border:"1px solid "+COLORS.gold}}>
           <div className="flex items-center justify-between"><div className="text-xs font-bold"><UiLabel zh="加權指數" inline /> <span className="font-normal" style={{color:COLORS.sub}}>TAIEX</span></div><div className="text-[10px] font-black mono text-right" style={{color:marketRow.direction.includes("漲")?COLORS.gain:marketRow.direction.includes("跌")?COLORS.loss:COLORS.sub}}><span><UiLabel zh="今日收盤預測" inline /> <UiLabel zh={marketRow.direction} inline /> {marketRow.probability.toFixed(0)}%</span><span className="ml-2" style={{color:tomorrowMap.TAIEX?.direction?.includes("漲")?COLORS.gain:tomorrowMap.TAIEX?.direction?.includes("跌")?COLORS.loss:COLORS.sub}}>{UI_SHOW_ENGLISH?"Next session":targetLabel(tomorrowMap.TAIEX)} {tomorrowMap.TAIEX?<><UiLabel zh={tomorrowMap.TAIEX.direction} inline />{" "+tomorrowMap.TAIEX.probability.toFixed(0)+"%"}</>:<UiLabel zh="資料累積中" inline />}</span></div></div>
           <div className="flex justify-between mt-1 text-[9px]" style={{color:COLORS.sub}}><span><UiLabel zh="目前" inline /> {marketRow.indexPct>=0?"+":""}{marketRow.indexPct.toFixed(2)}%</span><span><UiLabel zh={marketRow.breadthSource==="market"?"全市場上漲廣度":"持股上漲廣度"} inline /> {(marketRow.breadth*100).toFixed(0)}%</span><span><UiLabel zh="盤中趨勢" inline /> <UiLabel zh={intradayTrend(marketRow.kd5,marketRow.kd15,marketRow.kd60)} inline /></span></div>
           {(marketRow.priceBand||tomorrowMap.TAIEX?.priceBand)&&<div className="mt-1 text-[9px] mono" style={{color:COLORS.gold}}>{UI_SHOW_ENGLISH?"Volatility reference: ":"波動參考區間："}{marketRow.priceBand?`今日 ${bandText(marketRow.priceBand)} ｜ `:""}{tomorrowMap.TAIEX?.priceBand?`${targetLabel(tomorrowMap.TAIEX)} ${bandText(tomorrowMap.TAIEX.priceBand)}`:""}</div>}
@@ -5426,7 +5515,7 @@ function TrendRadar({ holdings, embedded = false }) {
           const tone=r.direction.includes("漲")?COLORS.gain:r.direction.includes("跌")?COLORS.loss:COLORS.sub;
           const easy=easyState(r.stockPct,r.kd5,r.kd15,r.kd60,r.micro);
           const keyText=keyLevelText(r,easy);
-          return <div key={r.symbol} className="rounded-xl px-3 py-2" style={{background:COLORS.bg,border:"1px solid "+COLORS.panelBorder}}>
+          return <div key={r.symbol} className="trend-radar-card trend-radar-stock rounded-xl px-3 py-2" style={{background:COLORS.bg,border:"1px solid "+COLORS.panelBorder}}>
             <div className="flex items-center justify-between">
               <div className="text-xs font-bold mono">{r.symbol}<span className="ml-1 font-normal" style={{color:COLORS.sub}}>{r.name}</span></div>
               <div className="text-right">
