@@ -650,6 +650,32 @@
         font-size:13px!important;
       }
     }
+
+    /* Step 1c — iOS date controls use their own internal alignment.
+       Pin the date text to the same baseline/left edge as normal inputs so
+       switching among Daily / Trades / Dividends cannot make the date jump. */
+    .premium-tab-daily input[type="date"].input,
+    .premium-tab-trades input[type="date"].input,
+    .premium-tab-dividends input[type="date"].input{
+      display:block!important;
+      width:100%!important;
+      box-sizing:border-box!important;
+      text-align:left!important;
+      line-height:26px!important;
+      padding-top:7px!important;
+      padding-bottom:7px!important;
+      -webkit-appearance:none;
+      appearance:none;
+    }
+    .premium-tab-daily input[type="date"].input::-webkit-date-and-time-value,
+    .premium-tab-trades input[type="date"].input::-webkit-date-and-time-value,
+    .premium-tab-dividends input[type="date"].input::-webkit-date-and-time-value{
+      text-align:left!important;
+      margin:0!important;
+      padding:0!important;
+      min-height:26px!important;
+      line-height:26px!important;
+    }
 </style>
 
   <script>
@@ -743,7 +769,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.47.11-step1-final-unified-layout";
+const APP_VERSION = "4.7-personal-advisor-v2.47.12-step1-date-alignment";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
