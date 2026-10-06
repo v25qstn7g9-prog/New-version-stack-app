@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="存股資產追蹤" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <script src="/bg-core.js?v=3"></script>
-  <script src="/forecast-core.js?v=2.47.7"></script>
+  <script src="/forecast-core.js?v=2.47.8"></script>
   <title>存股資產追蹤</title>
 
   <style>
@@ -450,6 +450,9 @@
     .daily-fixed-cell{min-height:82px}
     .daily-fixed-cell .premium-field{height:100%}
     .daily-fixed-cell .input{margin-top:auto}
+
+    /* v2.47.8 — US broker market-value auto calibration */
+    .premium-tab-holdings .premium-panel + .premium-panel{margin-top:6px}
 </style>
 
   <script>
@@ -543,7 +546,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.47.7-dashboard-stable-daily-fixed";
+const APP_VERSION = "4.7-personal-advisor-v2.47.8-us-broker-auto-calibration";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -623,6 +626,14 @@ const UI_EN = {
   "美股市值": "US Market Value",
   "台股成本": "TW Cost",
   "美股成本": "US Cost",
+  "美股市值自動校準": "US Broker Value Calibration",
+  "券商目前美股總市值": "Current Broker US Market Value",
+  "公開行情估值": "Market Quote Estimate",
+  "校準後市值": "Calibrated Market Value",
+  "套用校準": "Apply Calibration",
+  "取消校準": "Clear Calibration",
+  "已自動校準": "Auto-calibrated",
+  "持股或股數已變動，請重新校準": "Holdings changed — recalibrate",
   "起始日期": "Start Date",
   "結束日期": "End Date",
   "代號": "Symbol",
@@ -1869,6 +1880,11 @@ function AssetTracker() {
   // 每日紀錄的市場顯示偏好：台股固定啟用，美股由使用者自行勾選。
   // 只有明確勾選才顯示美股版面；歷史持股不決定顯示偏好。
   const [showUsFields, setShowUsFields] = useState(false);
+  // 美股券商市值校準：使用者只需輸入一次券商當下總市值，
+  // 之後公開行情估值會自動乘上同一倍率；持股或股數變動時舊倍率自動失效。
+  const [usBrokerCalibration, setUsBrokerCalibration] = useState({
+    enabled: false, factor: 1, brokerValue: null, rawValue: null, calibratedAt: null, activeKey: "",
+  });
 
   // 左右滑動切換分頁（仿 iOS 分頁）：頁面會跟著手指走、下一頁從旁邊露出來；
   // 放開時依「滑動距離」或「甩動速度」決定換頁或彈回。只有明確的水平手勢
@@ -2087,6 +2103,7 @@ function AssetTracker() {
   const [holdingsMarket, setHoldingsMarket] = useState("tw");
   useEffect(() => { if (!showUsFields) setHoldingsMarket("tw"); }, [showUsFields]);
   const usHoldings = holdings.filter((h) => !isTaiwanSymbol(h.symbol)).map((h) => ({ ...h, shares: holdingShareCount(h, trades) }));
+  // 保留原始行情 hook 的形狀不變；券商校準只套在「資產市值層」，不改原始報價。
   const usLive = useUsLivePrices(usHoldings, ready);
   const [portfolioQuotes, setPortfolioQuotes] = useState({});
   useEffect(() => {
@@ -2116,11 +2133,22 @@ function AssetTracker() {
   // 只是顯示用的暫存狀態，不寫進 localStorage/JSON 備份——它本來就是伺服器端的資料。
   const [healthCards, setHealthCards] = useState([]);
   const [healthCardBusyId, setHealthCardBusyId] = useState("");
+  const usCalibrationKey = usHoldingsCalibrationKey(usHoldings);
+  const usCalibrationActive = validUsBrokerCalibration(usBrokerCalibration, usCalibrationKey);
+  const calibratedUsTotalNtd = applyUsBrokerCalibration(usLive.totalNtd, usBrokerCalibration, usCalibrationKey);
+  const usAssetLive = {
+    ...usLive,
+    totalNtd: calibratedUsTotalNtd,
+    rawTotalNtd: usLive.totalNtd,
+    calibrationFactor: usCalibrationActive ? Number(usBrokerCalibration.factor) : 1,
+    brokerCalibrationActive: usCalibrationActive,
+    brokerCalibrationStale: usBrokerCalibration.enabled === true && !usCalibrationActive,
+  };
 
   // ---- initial load ----
   useEffect(() => {
     (async () => {
-      const [dr, h, uh, t, dv, p, g, ps, cb, lba, afc, lst, suf] = await Promise.all([
+      const [dr, h, uh, t, dv, p, g, ps, cb, lba, afc, lst, suf, ubc] = await Promise.all([
         loadKey("dailyRecords", defaultDailyRecords()),
         loadKey("holdings", defaultHoldings()),
         loadKey("usHoldings", []),
@@ -2134,6 +2162,7 @@ function AssetTracker() {
         loadKey("aiFallbackConfig", { url: "", token: "", allowPrivate: false }),
         loadKey("zinfSyncToken", "").then(async (v) => v || await loadKey(String.fromCharCode(108,105,110,101,83,121,110,99,84,111,107,101,110), "")),
         loadKey("showUsFields", null),
+        loadKey("usBrokerCalibration", null),
       ]);
       setDailyRecords(dr);
       setHoldings(mergeLegacyUsHoldings(h, Array.isArray(uh) ? uh : [], t));
@@ -2157,6 +2186,16 @@ function AssetTracker() {
       } : { url: "", token: "", allowPrivate: false });
       setZinfSyncToken(typeof lst === "string" ? lst : "");
       setShowUsFields(suf === true);
+      if (isObject(ubc)) {
+        setUsBrokerCalibration({
+          enabled: ubc.enabled === true,
+          factor: Number(ubc.factor || 1),
+          brokerValue: Number.isFinite(Number(ubc.brokerValue)) ? Number(ubc.brokerValue) : null,
+          rawValue: Number.isFinite(Number(ubc.rawValue)) ? Number(ubc.rawValue) : null,
+          calibratedAt: typeof ubc.calibratedAt === "string" ? ubc.calibratedAt : null,
+          activeKey: typeof ubc.activeKey === "string" ? ubc.activeKey : "",
+        });
+      }
       setReady(true);
     })();
   }, []);
@@ -2204,6 +2243,7 @@ function AssetTracker() {
   useEffect(() => { if (ready) saveKey("aiFallbackConfig", aiFallbackConfig); }, [aiFallbackConfig, ready]);
   useEffect(() => { if (ready) saveKey("zinfSyncToken", zinfSyncToken); }, [zinfSyncToken, ready]);
   useEffect(() => { if (ready) saveKey("showUsFields", showUsFields); }, [showUsFields, ready]);
+  useEffect(() => { if (ready) saveKey("usBrokerCalibration", usBrokerCalibration); }, [usBrokerCalibration, ready]);
 
   // Owner UI 判定只送現有同步 token 給 Worker 比對；伺服器只回 true/false。
   // 一般使用者即使檢視前端原始碼，也拿不到 Owner Secret。
@@ -2253,7 +2293,7 @@ function AssetTracker() {
       appVersion: APP_VERSION,
       schemaVersion: BACKUP_SCHEMA_VERSION,
       exportedAt,
-      data: { dailyRecords, holdings, trades, dividends, planItems, goal, planSchedule, costBasis },
+      data: { dailyRecords, holdings, trades, dividends, planItems, goal, planSchedule, costBasis, usBrokerCalibration },
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -2413,6 +2453,16 @@ function AssetTracker() {
       });
       // schema 1 沒有 costBasis；保留目前值，不用 0 覆蓋。schema 2 才完整還原。
       if (check.schemaVersion >= 2 && isObject(data.costBasis)) setCostBasis(data.costBasis);
+      if (isObject(data.usBrokerCalibration)) {
+        setUsBrokerCalibration({
+          enabled: data.usBrokerCalibration.enabled === true,
+          factor: Number(data.usBrokerCalibration.factor || 1),
+          brokerValue: Number.isFinite(Number(data.usBrokerCalibration.brokerValue)) ? Number(data.usBrokerCalibration.brokerValue) : null,
+          rawValue: Number.isFinite(Number(data.usBrokerCalibration.rawValue)) ? Number(data.usBrokerCalibration.rawValue) : null,
+          calibratedAt: typeof data.usBrokerCalibration.calibratedAt === "string" ? data.usBrokerCalibration.calibratedAt : null,
+          activeKey: typeof data.usBrokerCalibration.activeKey === "string" ? data.usBrokerCalibration.activeKey : "",
+        });
+      }
       if (typeof payload.exportedAt === "string" && Number.isFinite(Date.parse(payload.exportedAt))) {
         setLastBackupAt(payload.exportedAt);
         saveKey("lastBackupAt", payload.exportedAt);
@@ -2435,7 +2485,7 @@ function AssetTracker() {
   const twHeld = holdings.filter((h) => isTaiwanSymbol(h.symbol) && holdingShareCount(h, trades) > 0);
   const twQuotesComplete = twHeld.length > 0 && twHeld.every((h) => Number(portfolioQuotes[h.symbol]?.price) > 0);
   const currentTwValue = twQuotesComplete ? Math.round(twHeld.reduce((sum,h) => sum + Number(portfolioQuotes[h.symbol].price) * holdingShareCount(h,trades),0)) : holdings.some((h) => isTaiwanSymbol(h.symbol)) && !twHeld.length ? 0 : latest ? Number(latest.twValue || 0) : 0;
-  const currentUsValue = usHoldings.length > 0 && !usHoldings.some((h) => h.shares > 0) ? 0 : usLive.totalNtd ?? (latest ? Number(latest.usValue || 0) : 0);
+  const currentUsValue = usHoldings.length > 0 && !usHoldings.some((h) => h.shares > 0) ? 0 : usAssetLive.totalNtd ?? (latest ? Number(latest.usValue || 0) : 0);
   const totalToday = currentTwValue + currentUsValue;
   const totalPrev = prev ? Number(prev.twValue || 0) + Number(prev.usValue || 0) : null;
   const dailyChange = totalPrev != null ? totalToday - totalPrev : 0;
@@ -3106,7 +3156,7 @@ function AssetTracker() {
                     chartData={chartData} goal={goal} goalDate={goalDate} totalInvested={totalInvested}
                     holdings={showUsFields ? holdingsWithShares : holdingsWithShares.filter((h) => isTaiwanSymbol(h.symbol))} dailyRecords={sortedDaily} dividends={dividends}
                     yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue}
-                    usHoldings={usHoldings} usLive={usLive}
+                    usHoldings={usHoldings} usLive={usAssetLive}
                     onGoUsSettings={() => { setHoldingsMarket("us"); goToTab("holdings"); }}
                     onFillDailyTw={(value) => { setDailyPrefill({ twValue: value, ...(usLive.totalNtd != null ? { usValue: usLive.totalNtd } : {}) }); goToTab("daily"); }}
                     onFillDailyUs={(value) => { setDailyPrefill({ usValue: value }); goToTab("daily"); }}
@@ -3117,23 +3167,24 @@ function AssetTracker() {
                 return (
                   <DailyPanel records={sortedDaily} setRecords={setDailyRecords} prefill={dailyPrefill}
                     form={dailyForm} setForm={setDailyForm} holdings={holdingsWithShares}
-                    usHoldings={usHoldings} usLive={usLive}
+                    usHoldings={usHoldings} usLive={usAssetLive}
                     showUsFields={showUsFields} setShowUsFields={setShowUsFields} />
                 );
               case "holdings":
                 return (
-                  <HoldingsWorkspace trades={trades} holdings={holdingsWithShares} setHoldings={setHoldings} usLive={usLive}
-                    showUsFields={showUsFields} market={holdingsMarket} setMarket={setHoldingsMarket} />
+                  <HoldingsWorkspace trades={trades} holdings={holdingsWithShares} setHoldings={setHoldings} usLive={usAssetLive}
+                    showUsFields={showUsFields} market={holdingsMarket} setMarket={setHoldingsMarket}
+                    usBrokerCalibration={usBrokerCalibration} setUsBrokerCalibration={setUsBrokerCalibration} />
                 );
               case "trades":
                 return (
-                  <TradesPanel trades={trades} setTrades={setTrades} holdings={showUsFields ? holdings : holdings.filter((h) => isTaiwanSymbol(h.symbol))} setHoldings={setHoldings} usLive={usLive}
+                  <TradesPanel trades={trades} setTrades={setTrades} holdings={showUsFields ? holdings : holdings.filter((h) => isTaiwanSymbol(h.symbol))} setHoldings={setHoldings} usLive={usAssetLive}
                     costBasis={costBasis} setCostBasis={setCostBasis} accumulatedCost={accumulatedCost}
                   />
                 );
               case "dividends":
                 return (
-                  <DividendsPanel dividends={dividends} setDividends={setDividends} holdings={showUsFields ? holdingsWithShares : holdingsWithShares.filter((h) => isTaiwanSymbol(h.symbol))} usLive={usLive} />
+                  <DividendsPanel dividends={dividends} setDividends={setDividends} holdings={showUsFields ? holdingsWithShares : holdingsWithShares.filter((h) => isTaiwanSymbol(h.symbol))} usLive={usAssetLive} />
                 );
               case "plan":
                 return (
@@ -3728,7 +3779,8 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
     const chg = l.price - l.prevClose;
     const chgPct = l.prevClose ? (chg / l.prevClose) * 100 : 0;
     const rate = isUS ? Number(usLive?.state?.fx) : 1;
-    const value = rate > 0 ? l.price * h.current * rate : null;
+    const calibrationFactor = isUS && usLive?.brokerCalibrationActive ? Number(usLive.calibrationFactor || 1) : 1;
+    const value = rate > 0 ? l.price * h.current * rate * calibrationFactor : null;
     const isFromCache = isUS ? usLive?.state?.failed?.includes(h.symbol) : failedSymbols.includes(h.symbol);
     const quoteIsStale = Boolean(l.isStale);
     // quote.js 抓不到真正的前收時會把 prevClose 設成現價並加 warning，那不是昨收，不能顯示成昨收。
@@ -3889,7 +3941,7 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
                   </div>
                   <div className="text-right">
                     <div className="font-bold">NT$ {formatNtdPrice(r.value, 1)}</div>
-                    {!r.quoteIsStale && <div style={{ color: r.chg >= 0 ? COLORS.gain : COLORS.loss }}>{r.chg >= 0 ? "+" : ""}NT$ {formatNtdPrice(r.chg * r.current * (r.isUS ? Number(usLive?.state?.fx || 0) : 1), 1)}</div>}
+                    {!r.quoteIsStale && <div style={{ color: r.chg >= 0 ? COLORS.gain : COLORS.loss }}>{r.chg >= 0 ? "+" : ""}NT$ {formatNtdPrice(r.chg * r.current * (r.isUS ? Number(usLive?.state?.fx || 0) * Number(usLive?.calibrationFactor || 1) : 1), 1)}</div>}
                   </div>
                 </div>
                 <div className="h-[20px] mt-1 opacity-80">
@@ -3971,6 +4023,30 @@ function usQuotePortfolioValue(holdings, snapshot) {
     usd += price * Number(holding.shares);
   }
   return Math.round(usd * fx);
+}
+
+function usHoldingsCalibrationKey(holdings) {
+  return (holdings || [])
+    .filter((h) => Number(h.shares) > 0 && h.symbol)
+    .map((h) => `${String(h.symbol).trim().toUpperCase()}:${Number(h.shares)}`)
+    .sort()
+    .join(",");
+}
+
+function validUsBrokerCalibration(calibration, activeKey) {
+  const factor = Number(calibration?.factor);
+  return calibration?.enabled === true
+    && calibration?.activeKey === activeKey
+    && Number.isFinite(factor) && factor >= 0.9 && factor <= 1.1;
+}
+
+function applyUsBrokerCalibration(rawValue, calibration, activeKey) {
+  if (rawValue == null) return null;
+  const raw = Number(rawValue);
+  if (!Number.isFinite(raw)) return null;
+  return validUsBrokerCalibration(calibration, activeKey)
+    ? Math.round(raw * Number(calibration.factor))
+    : Math.round(raw);
 }
 
 function useUsLivePrices(usHoldings, enabled) {
@@ -6072,7 +6148,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
         <div className="text-3xl font-black mono mt-1"><AnimatedNumber value={totalToday} prefix="NT$ " /></div>
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] mono" style={{ color: COLORS.sub }}>
           <span><UiLabel zh="台股資產" inline /> <span style={{ color: COLORS.text }}>NT$ {nf(currentTwValue)}</span></span>
-          {showUsFields && <span><UiLabel zh="美股資產" inline /> <span style={{ color: COLORS.text }}>NT$ {nf(currentUsValue)}</span></span>}
+          {showUsFields && <span><UiLabel zh="美股資產" inline /> <span style={{ color: COLORS.text }}>NT$ {nf(currentUsValue)}</span>{usLive?.brokerCalibrationActive && <span className="ml-1" style={{ color: COLORS.gold }}>· <UiLabel zh="已自動校準" inline /></span>}</span>}
         </div>
         <div className="inline-flex items-center gap-1 mt-1.5 text-xs mono rounded-full px-2 py-0.5"
           style={{ color: up ? COLORS.gain : COLORS.loss, background: up ? "rgba(239,68,68,0.12)" : "rgba(34,197,94,0.12)" }}>
@@ -6193,7 +6269,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
         </button>
       )}
 
-      <LivePricePanel holdings={holdings} usLive={usLive} onFillDailyTw={onFillDailyTw} yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue} hasUsAssets={showUsFields && hasUsAssets} />
+      <LivePricePanel holdings={holdings} usLive={usAssetLive} onFillDailyTw={onFillDailyTw} yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue} hasUsAssets={showUsFields && hasUsAssets} />
 
 
       <DashboardCollapsibleSection
@@ -6825,7 +6901,75 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
 }
 
 // ---------------- Holdings Panel ----------------
-function HoldingsWorkspace({ trades = [], holdings, setHoldings, usLive, market, setMarket, showUsFields = false }) {
+function UsBrokerCalibrationCard({ usLive, calibration, setCalibration }) {
+  const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
+  const [draft, setDraft] = useState("");
+  const rawValue = Number(usLive?.rawTotalNtd);
+  const activeKey = String(usLive?.state?.activeKey || "");
+  const active = validUsBrokerCalibration(calibration, activeKey);
+  const stale = calibration?.enabled === true && !active;
+  const calibratedValue = active && Number.isFinite(rawValue) ? Math.round(rawValue * Number(calibration.factor)) : rawValue;
+  const apply = () => {
+    const brokerValue = Number(draft);
+    if (!(brokerValue > 0) || !(rawValue > 0) || !activeKey) return;
+    const factor = brokerValue / rawValue;
+    if (!(factor >= 0.9 && factor <= 1.1)) {
+      window.alert(M("The broker value differs by more than 10% from the live estimate. Check the number before calibrating.", "券商市值與即時估值差超過 10%，請先確認輸入數字是否正確。"));
+      return;
+    }
+    setCalibration({
+      enabled: true,
+      factor,
+      brokerValue: Math.round(brokerValue),
+      rawValue: Math.round(rawValue),
+      calibratedAt: new Date().toISOString(),
+      activeKey,
+    });
+    setDraft("");
+  };
+  const clear = () => setCalibration({ enabled: false, factor: 1, brokerValue: null, rawValue: null, calibratedAt: null, activeKey: "" });
+  return (
+    <Panel title="美股市值自動校準">
+      <div className="grid grid-cols-2 gap-2 text-[11px] mono mb-2">
+        <div>
+          <div style={{ color: COLORS.sub }}><UiLabel zh="公開行情估值" /></div>
+          <div className="font-bold mt-0.5" style={{ color: COLORS.text }}>{rawValue > 0 ? `NT$ ${nf(Math.round(rawValue))}` : "—"}</div>
+        </div>
+        <div className="text-right">
+          <div style={{ color: COLORS.sub }}><UiLabel zh="校準後市值" /></div>
+          <div className="font-bold mt-0.5" style={{ color: active ? COLORS.gold : COLORS.text }}>{calibratedValue > 0 ? `NT$ ${nf(Math.round(calibratedValue))}` : "—"}</div>
+        </div>
+      </div>
+      <div className="grid grid-cols-[1fr_auto] gap-2 items-end">
+        <Field label="券商目前美股總市值">
+          <input type="number" inputMode="decimal" value={draft} onChange={(e) => setDraft(e.target.value)}
+            placeholder={rawValue > 0 ? String(Math.round(rawValue)) : "0"} className="input" />
+        </Field>
+        <button onClick={apply} disabled={!(Number(draft) > 0) || !(rawValue > 0)}
+          className="rounded-lg px-3 py-2 text-[11px] font-bold whitespace-nowrap"
+          style={{ minHeight: 44, background: COLORS.gold, color: COLORS.bg, opacity: (Number(draft) > 0 && rawValue > 0) ? 1 : .5 }}>
+          <UiLabel zh="套用校準" />
+        </button>
+      </div>
+      {active && (
+        <div className="mt-2 flex items-center justify-between gap-2 text-[10px] mono" style={{ color: COLORS.sub }}>
+          <span style={{ color: COLORS.gold }}><UiLabel zh="已自動校準" inline /> × {Number(calibration.factor).toFixed(5)}</span>
+          <button onClick={clear} className="font-bold" style={{ color: COLORS.sub }}><UiLabel zh="取消校準" /></button>
+        </div>
+      )}
+      {stale && (
+        <div className="mt-2 text-[10px]" style={{ color: COLORS.gold }}>
+          <UiLabel zh="持股或股數已變動，請重新校準" />
+        </div>
+      )}
+      <div className="mt-1 text-[10px] leading-snug" style={{ color: COLORS.sub }}>
+        {M("Enter the broker's total US market value once. Future quote updates keep following automatically. If symbols or shares change, the old calibration is disabled.", "輸入一次券商當下美股總市值；之後行情更新會自動跟著變動。若持股或股數改變，舊校準會自動停用。")}
+      </div>
+    </Panel>
+  );
+}
+
+function HoldingsWorkspace({ trades = [], holdings, setHoldings, usLive, market, setMarket, showUsFields = false, usBrokerCalibration, setUsBrokerCalibration }) {
   const activeMarket = showUsFields && market === "us" ? "us" : "tw";
   const visibleHoldings = holdings.filter((h) => activeMarket === "tw" ? isTaiwanSymbol(h.symbol) : !isTaiwanSymbol(h.symbol));
   return (
@@ -6839,8 +6983,11 @@ function HoldingsWorkspace({ trades = [], holdings, setHoldings, usLive, market,
           </button>
         ))}
       </div>}
+      {activeMarket === "us" && (
+        <UsBrokerCalibrationCard usLive={usAssetLive} calibration={usBrokerCalibration} setCalibration={setUsBrokerCalibration} />
+      )}
       <HoldingsPanel trades={trades} key={activeMarket} market={activeMarket} holdings={visibleHoldings}
-        allHoldings={holdings} setHoldings={setHoldings} usLive={usLive} />
+        allHoldings={holdings} setHoldings={setHoldings} usLive={usAssetLive} />
     </div>
   );
 }
@@ -6968,7 +7115,8 @@ function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldi
       const price = Number(q?.price);
       const hasPrice = Number.isFinite(price) && price > 0 && Number(h.current || 0) > 0;
       const rate = isTaiwanSymbol(h.symbol) ? 1 : Number(usLive?.state?.fx);
-      const marketValue = hasPrice && rate > 0 ? price * Number(h.current) * rate : null;
+      const calibrationFactor = !isTaiwanSymbol(h.symbol) && usLive?.brokerCalibrationActive ? Number(usLive.calibrationFactor || 1) : 1;
+      const marketValue = hasPrice && rate > 0 ? price * Number(h.current) * rate * calibrationFactor : null;
       const value = marketValue != null ? marketValue : Number(h.estCostBasis || 0);
       return { symbol: h.symbol, name: h.name, value, usedCostFallback: marketValue == null };
     }).filter((x) => x.value > 0);
@@ -7101,8 +7249,9 @@ function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldi
                     const hasPrice = Number.isFinite(price) && price > 0;
                     const hasPrevClose = Number.isFinite(prevClose) && prevClose > 0;
                     const rate = isTaiwanSymbol(h.symbol) ? 1 : Number(usLive?.state?.fx);
+                    const calibrationFactor = !isTaiwanSymbol(h.symbol) && usLive?.brokerCalibrationActive ? Number(usLive.calibrationFactor || 1) : 1;
                     const marketValue = hasPrice && rate > 0
-                      ? price * Number(h.current || 0) * rate
+                      ? price * Number(h.current || 0) * rate * calibrationFactor
                       : null;
                     const estimatedPnl = marketValue != null && Number(h.estCostBasis || 0) > 0
                       ? Math.round(marketValue - Number(h.estCostBasis))
