@@ -1,9 +1,9 @@
 {
-  "app": "2.46.24",
-  "lastUpdated": "2026-10-05",
+  "app": "2.47.0",
+  "lastUpdated": "2026-10-06",
   "status": "personal-investment-advisor-mobile-overlay-stable",
   "cloudflare": {
-    "index.html": "4.7-personal-advisor-v2.46.24-twd-subbrokerage",
+    "index.html": "4.7-personal-advisor-v2.47.0-forecast-freshness",
     "quote.js": "4.7-quote-schedule-6-us-live",
     "ask.js": "4.7-personal-advisor-v3.2-bounded-learning",
     "news.js": "4.6-news-stable-6",
@@ -25,8 +25,8 @@
     "news": "台股市場新聞",
     "health": "自動健康檢查卡片",
     "backup": "JSON 備份／匯入",
-    "trendRadar": "AI 今日／明日趨勢雷達：時間自適應權重＋13:25收盤前鎖定＋真實日/月KD（歷史K線）＋盤中5/15/60分KD＋全市場三大法人＋新聞情緒（含否定語氣判斷）＋S&P500/費半SOX/美元台幣隔夜訊號（依各持股對TAIEX的實測beta縮放曝險）；上午／收盤前鎖定／明日 三種預測分開驗證命中率，並排除方向不明的預測",
+    "trendRadar": "非阻塞即時計算；資料來源時間檢查、盤後日線重新更新、夜盤／盤前延續；真正收盤才驗證；同版本及時段校準、基準命中／覆蓋／Brier；歷史波動價格參考區間（非保證目標價）",
     "factorBacktest": "研究用因子回測（總覽頁，雷達卡片下方）：把雷達用到的每個原始因子跟實際漲跌幅算皮爾森相關係數，樣本數不足時不顯示係數，用來判斷哪些因子真的有解釋力"
   },
-  "package": "2.46.24"
+  "package": "2.47.0"
 }

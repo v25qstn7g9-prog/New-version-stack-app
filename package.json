@@ -1,6 +1,6 @@
 {
   "name": "stock-app",
-  "version": "2.46.24",
+  "version": "2.47.0",
   "description": "個人存股資產追蹤 App - 專用投資顧問助手（Cloudflare Workers + Gemini Backup）",
   "private": true,
   "type": "module",

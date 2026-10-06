@@ -10,7 +10,7 @@
  * 邊緣快取以「當天」為 key，一天只會真的打一次 Yahoo，其餘都吃快取。
  */
 
-const HISTORY_VERSION = "1.1-daily-history-volume";
+const HISTORY_VERSION = "1.2-session-cache-adjusted";
 const SYMBOL_PATTERN = /^[0-9]{4,6}[A-Z]?$/;
 
 function isAllowedSymbol(s) {
@@ -64,6 +64,7 @@ async function fetchDailyBars(symbol) {
   const r = json?.chart?.result?.[0];
   const timestamps = Array.isArray(r?.timestamp) ? r.timestamp : [];
   const q = r?.indicators?.quote?.[0] || {};
+  const adjusted = r?.indicators?.adjclose?.[0]?.adjclose || [];
   const bars = [];
   for (let i = 0; i < timestamps.length; i++) {
     const o = Number(q.open?.[i]);
@@ -71,16 +72,21 @@ async function fetchDailyBars(symbol) {
     const l = Number(q.low?.[i]);
     const c = Number(q.close?.[i]);
     const volume = Number(q.volume?.[i]);
-    if ([o, h, l, c].every((v) => Number.isFinite(v) && v > 0)) {
-      bars.push({ day: taipeiDateStr(Number(timestamps[i])), open: o, high: h, low: l, close: c, volume: Number.isFinite(volume) && volume >= 0 ? volume : null });
+    if ([o, h, l, c].every((v) => Number.isFinite(v) && v > 0) && !(symbol!=="TAIEX" && q.volume?.[i]!=null && volume===0)) {
+      bars.push({ day: taipeiDateStr(Number(timestamps[i])), open: o, high: h, low: l, close: c, adjustedClose: Number(adjusted[i])>0?Number(adjusted[i]):null, volume: Number.isFinite(volume) && volume >= 0 ? volume : null });
     }
   }
   return bars;
 }
 
-async function readCache(symbol, day) {
+function historyCacheSlot(now=new Date()) {
+  const tw=new Date(now.getTime()+8*3600000),minute=tw.getUTCHours()*60+tw.getUTCMinutes();
+  // A premarket/intraday snapshot cannot survive into the completed-session cache.
+  return minute<540?"premarket":minute<820?"session":"closed";
+}
+async function readCache(symbol, day, slot) {
   try {
-    const key = new Request(`https://daily-history-cache.local/${day}/${symbol}`);
+    const key = new Request(`https://daily-history-cache.local/${day}/${slot}/${symbol}`);
     const hit = await caches.default.match(key);
     if (!hit) return null;
     return await hit.json();
@@ -89,15 +95,15 @@ async function readCache(symbol, day) {
   }
 }
 
-async function writeCache(symbol, day, bars) {
+async function writeCache(symbol, day, slot, bars) {
   try {
-    const key = new Request(`https://daily-history-cache.local/${day}/${symbol}`);
+    const key = new Request(`https://daily-history-cache.local/${day}/${slot}/${symbol}`);
     await caches.default.put(
       key,
       new Response(JSON.stringify(bars), {
         headers: {
           "content-type": "application/json",
-          "cache-control": "public, max-age=43200, s-maxage=43200",
+          "cache-control": "public, max-age=180, s-maxage=180",
         },
       })
     );
@@ -120,13 +126,14 @@ export async function onRequestGet(context) {
     }
 
     const day = taiwanDateStr();
+    const slot=historyCacheSlot();
     const bars = {};
     const errors = [];
 
     await Promise.all(
       symbols.map(async (sym) => {
         try {
-          const cached = await readCache(sym, day);
+          const cached = await readCache(sym, day, slot);
           if (cached && Array.isArray(cached) && cached.length) {
             bars[sym] = cached;
             return;
@@ -134,7 +141,7 @@ export async function onRequestGet(context) {
           const fresh = await fetchDailyBars(sym);
           if (fresh.length) {
             bars[sym] = fresh;
-            await writeCache(sym, day, fresh);
+            await writeCache(sym, day, slot, fresh);
           } else {
             errors.push(`${sym}: 無資料`);
           }
@@ -148,6 +155,8 @@ export async function onRequestGet(context) {
       ok: true,
       version: HISTORY_VERSION,
       day,
+      cachePhase:slot,
+      fetchedAt:new Date().toISOString(),
       bars,
       errors,
       count: Object.keys(bars).length,

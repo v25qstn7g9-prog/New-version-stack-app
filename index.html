@@ -9,6 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="存股資產追蹤" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <script src="/bg-core.js?v=3"></script>
+  <script src="/forecast-core.js?v=2.47.0"></script>
   <title>存股資產追蹤 V4.6 Personal v2</title>
 
   <style>
@@ -372,7 +373,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.46.24-twd-subbrokerage";
+const APP_VERSION = "4.7-personal-advisor-v2.47.0-forecast-freshness";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -3508,18 +3509,20 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
       try {
         const tapeCache = await loadKey("trendRadarTape", { points: [] });
         let points = Array.isArray(tapeCache?.points) ? tapeCache.points : [];
-        const day = now.toLocaleDateString("sv-SE");
+        const day = taipeiDateKey(now);
         const last = points[points.length - 1];
         if (!last || now.getTime() - Number(last.ts || 0) >= 55 * 1000) {
-          const point = { day, ts: now.getTime(), quotes: {}, volumes: {} };
-          if (freshIndex && Number(freshIndex.price)>0) {
+          const point = { day, ts: now.getTime(), quotes: {}, volumes: {}, sourceTimes: {} };
+          if (freshIndex && globalThis.ZinfForecast.quoteFresh(freshIndex,now)) {
             point.quotes.TAIEX=Number(freshIndex.price);
+            point.sourceTimes.TAIEX=Date.parse(freshIndex.asOfDate);
             if (Number.isFinite(Number(freshIndex.volume))) point.volumes.TAIEX=Number(freshIndex.volume);
           }
           Object.entries(mergedMap).forEach(([sym,q]) => {
             const px = Number(q?.price);
-            if (px > 0 && !failed.includes(sym)) {
+            if (px > 0 && !failed.includes(sym) && globalThis.ZinfForecast.quoteFresh(q,now)) {
               point.quotes[sym] = px;
+              point.sourceTimes[sym]=Date.parse(q.asOfDate);
               if (Number.isFinite(Number(q?.volume))) point.volumes[sym]=Number(q.volume);
             }
           });
@@ -3532,7 +3535,7 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
           }
         }
       } catch(e) {}
-      window.dispatchEvent(new CustomEvent("livePricesUpdated", { detail: { map: mergedMap, marketIndex: freshIndex || marketIndex || null, at: now.getTime() } }));
+      window.dispatchEvent(new CustomEvent("livePricesUpdated", { detail: { map: mergedMap, marketIndex: indexForCache || null, at: now.getTime() } }));
     }
     isFetchingRef.current = false;
   };
@@ -3924,6 +3927,9 @@ function marginForRecord(m) {
 }
 // </margin-helpers>
 
+const TREND_RADAR_VERSION = "2.47";
+const TREND_MODEL_VERSION = "2.47-fresh-source-audit";
+
 function trendRadarMethodNote(showEnglish = false) {
   return showEnglish
     ? "Uses institutional flow, price and volume, trends, and overseas signals. Missing inputs are downweighted. Checked after the close; for trend reference only."
@@ -3939,6 +3945,8 @@ function TrendRadar({ holdings, embedded = false }) {
   const [accuracy, setAccuracy] = useState(null);
   const [closeLockAccuracy, setCloseLockAccuracy] = useState(null);
   const [tomorrowAccuracy, setTomorrowAccuracy] = useState(null);
+  const [postCloseAccuracy, setPostCloseAccuracy] = useState(null);
+  const [premarketAccuracy, setPremarketAccuracy] = useState(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [marketRow, setMarketRow] = useState(null);
   const [tomorrowMap, setTomorrowMap] = useState({});
@@ -3952,12 +3960,35 @@ function TrendRadar({ holdings, embedded = false }) {
     // intraday reaction layer without bloating persistent storage.
     let fastTape = [];
     // Slow inputs do not need to be re-read/re-built on every quote tick.
-    let memoDailyDay = null, memoDailyBars = null;
-    let memoInstDays = null, memoInstAt = 0;
-    let memoMarginDays = null, memoMarginAt = 0, memoMarginSyms = [];
+    let memoDailyBars = null;
+    let memoInstDays = null;
+    let memoMarginDays = null;
     let memoGlobal = null, memoGlobalAt = 0;
-    let memoIntradayMetrics = null, memoIntradayMetricsAt = 0;
-    let memoMarketBreadth = null, memoMarketBreadthAt = 0;
+    let memoIntradayMetrics = null;
+    let memoMarketBreadth = null;
+    let historyRecords = [], tomorrowRecords = [];
+    let latestLive = null, slowTimer = null;
+    const F = globalThis.ZinfForecast;
+    const pool = F.resourcePool();
+    const slots = new Map();
+    // Slow inputs never block the 15-second reaction path. Each source refreshes
+    // independently, with one in-flight request and failure backoff per source.
+    const launchSlow = (name, key, ttl, loader, apply) => {
+      const old = slots.get(name);
+      if (old?.busy || (old?.key === key && Date.now()-old.at < (old.ttl??ttl))) return;
+      const slot = {key,busy:true,at:Date.now(),ttl:60000}; slots.set(name,slot);
+      pool.run(name,key,ttl,loader).then(value => {
+        if(cancelled) return;
+        apply(value);slot.ttl=ttl;
+        clearTimeout(slowTimer);
+        slowTimer=setTimeout(()=>{if(!cancelled)recalc();},80);
+      }).catch(()=>{
+        if(cancelled)return;
+        if(name==="institutions")setInstStatus("unavailable");
+        if(name==="margin")setMarginStatus("unavailable");
+        if(name==="global")setGlobalStatus("unavailable");
+      }).finally(()=>{slot.busy=false;slot.at=Date.now();});
+    };
     const fmtDate = (d) => {
       const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,"0"), day=String(d.getDate()).padStart(2,"0");
       return `${y}${m}${day}`;
@@ -3967,13 +3998,13 @@ function TrendRadar({ holdings, embedded = false }) {
     // the market total used to be left on the table even though the same T86
     // response already contains every listed stock's row.
     const fetchInstitutional = async (symbols) => {
-      const days=[]; const d=new Date();
+      const days=[]; const d=new Date(new Date().toLocaleString("en-US",{timeZone:"Asia/Taipei"}));
       for(let tries=0; tries<14 && days.length<5; tries++){
         const x=new Date(d); x.setDate(d.getDate()-tries);
         if(x.getDay()===0 || x.getDay()===6) continue;
         try{
           const url=`https://www.twse.com.tw/rwd/zh/fund/T86?date=${fmtDate(x)}&selectType=ALLBUT0999&response=json`;
-          const res=await fetch(url,{cache:"no-store"});
+          const res=await fetchWithTimeout(url,{cache:"no-store"},5000);
           if(!res.ok) continue;
           const json=await res.json();
           const fields=json?.fields||[]; const data=json?.data||[];
@@ -4000,13 +4031,13 @@ function TrendRadar({ holdings, embedded = false }) {
     // Today's file is not published until the evening, so a trading day that has
     // no data yet is simply skipped (parseMarginRows → null), like T86 above.
     const fetchMargin = async (symbols) => {
-      const days=[]; const d=new Date();
+      const days=[]; const d=new Date(new Date().toLocaleString("en-US",{timeZone:"Asia/Taipei"}));
       for(let tries=0; tries<12 && days.length<3; tries++){
         const x=new Date(d); x.setDate(d.getDate()-tries);
         if(x.getDay()===0 || x.getDay()===6) continue;
         try{
           const url=`https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN?date=${fmtDate(x)}&selectType=ALL&response=json`;
-          const res=await fetch(url,{cache:"no-store"});
+          const res=await fetchWithTimeout(url,{cache:"no-store"},5000);
           if(!res.ok) continue;
           const map=parseMarginRows(await res.json(), symbols);
           if(map) days.push({date:fmtDate(x),map});
@@ -4032,31 +4063,32 @@ function TrendRadar({ holdings, embedded = false }) {
         ]);
         const quotes = globalRes.status==="fulfilled" ? (globalRes.value?.quotes||{}) : {};
         const pct=(q)=>{
-          const price=Number(q?.price), prev=Number(q?.prevClose);
+          const price=Number(q?.price), prev=Number(q?.prevClose),asOf=Date.parse(q?.asOfDate||"");
+          if(q?.isStale||!Number.isFinite(asOf)||Date.now()<asOf||Date.now()-asOf>4*86400000)return null;
           return Number.isFinite(price)&&price>0&&Number.isFinite(prev)&&prev>0 ? ((price-prev)/prev)*100 : null;
         };
         const spxPct=pct(quotes.SPX), soxPct=pct(quotes.SOX), usdtwdPct=pct(quotes.USDTWD);
         const txJson = txRes.status==="fulfilled" ? txRes.value : null;
-        const txfPct = Number.isFinite(Number(txJson?.quote?.changePct)) ? Number(txJson.quote.changePct) : null;
-        const txfPrice = Number.isFinite(Number(txJson?.quote?.price)) ? Number(txJson.quote.price) : null;
+        const txfPct = txJson?.ok && !txJson?.isDelayedReport && F.valid(txJson?.quote?.changePct) ? Number(txJson.quote.changePct) : null;
+        const txfPrice = txJson?.ok && Number(txJson?.quote?.price)>0 ? Number(txJson.quote.price) : null;
         const txfExpiry = txJson?.quote?.expiry || null;
         const txfSession = txJson?.session || null;
 
         if (spxPct==null && soxPct==null && txfPct==null) return null;
 
-        // When TX is available it becomes the strongest Taiwan-specific leading
-        // signal. Otherwise preserve the original US/FX blend exactly.
+        // TX uses an official session report rather than an authenticated tick feed;
+        // keep its weight bounded and retain source provenance.
         const combined = txfPct!=null
-          ? txfPct*0.45 + (soxPct??0)*0.30 + (spxPct??0)*0.20 + (usdtwdPct??0)*0.05
-          : (soxPct??0)*0.50 + (spxPct??0)*0.35 + (usdtwdPct??0)*0.15;
-        return { spxPct, soxPct, usdtwdPct, txfPct, txfPrice, txfExpiry, txfSession, combined };
+          ? txfPct*0.30 + (soxPct??0)*0.30 + (spxPct??0)*0.20 - (usdtwdPct??0)*0.05
+          : (soxPct??0)*0.50 + (spxPct??0)*0.35 - (usdtwdPct??0)*0.15;
+        return { spxPct, soxPct, usdtwdPct, txfPct, txfPrice, txfExpiry, txfSession, combined, fetchedAt:new Date().toISOString(), sourceDates:Object.fromEntries(Object.entries(quotes).map(([sym,q])=>[sym,q.asOfDate||null])), txfQueryDate:txJson?.queryDate||null,txfTimestampKnown:txJson?.timestampKnown===true };
       } catch(e) { return null; }
     };
     const recalc = async () => {
       if (recalcRunning) { recalcQueued = true; return; }
       recalcRunning = true;
       try {
-      const cached = await loadKey("livePrices", null);
+      const cached = latestLive || await loadKey("livePrices", null);
       const newsCache = await loadKey("stockNews", null);
       if (cancelled) return;
       const quoteMap = cached?.map || {};
@@ -4064,14 +4096,14 @@ function TrendRadar({ holdings, embedded = false }) {
       const tapeCache = await loadKey("trendRadarTape", { points: [] });
       const tape = Array.isArray(tapeCache?.points) ? tapeCache.points : [];
       const now = new Date();
-      const sessionClock = now.getHours()*60 + now.getMinutes();
+      const sessionClock = F.clock(now).minute;
       // Model correction #1: time-decay / close-proximity weighting.
       // After 10:30, today's own price action and short intraday KD gradually
       // gain importance; stale/slow factors (market beta, news, institutions,
       // daily KD) fade as the close approaches.
       const lateProgress = Math.max(0, Math.min(1, (sessionClock - 630) / 180)); // 10:30 -> 13:30
       const closeProgress = Math.max(0, Math.min(1, (sessionClock - 750) / 60)); // 12:30 -> 13:30
-      const todayKey = now.toLocaleDateString("sv-SE");
+      const todayKey = F.clock(now).day;
       // Weekends and detected market holidays have no session: never record,
       // lock or validate forecasts from last session's stale prices.
       const nonTradingToday = isNonTradingDay(now);
@@ -4091,43 +4123,23 @@ function TrendRadar({ holdings, embedded = false }) {
         const buckets=new Map();
         tape.forEach(p=>{
           const px=Number(p.quotes?.[sym]); if(!px)return;
-          const d=new Date(Number(p.ts)); const minute=d.getHours()*60+d.getMinutes();
-          if(d.getDay()===0||d.getDay()===6||minute<540||minute>825) return;
+          const sourceTs=Number(p.sourceTimes?.[sym]??p.ts);
+          if(sourceTs>Number(p.ts)||sourceTs>now.getTime())return;
+          const d=new Date(sourceTs),tc=F.clock(d),minute=tc.minute;
+          if([0,6].includes(tc.weekday)||minute<540||minute>810) return;
           const sessionMinute=minute-540;
           const slot=Math.floor(sessionMinute/mins);
-          const key=p.day+"|"+slot;
+          const key=tc.day+"|"+slot;
           const b=buckets.get(key);
-          if(!b) buckets.set(key,{key,ts:Number(p.ts),open:px,high:px,low:px,close:px});
-          else {b.high=Math.max(b.high,px);b.low=Math.min(b.low,px);b.close=px;b.ts=Number(p.ts);}
+          if(!b) buckets.set(key,{key,ts:sourceTs,open:px,high:px,low:px,close:px});
+          else {b.high=Math.max(b.high,px);b.low=Math.min(b.low,px);b.close=px;b.ts=sourceTs;}
         });
         return [...buckets.values()].sort((a,b)=>a.ts-b.ts);
       };
       const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
       // 15-second micro momentum. Uses fastTape first, then the persisted
       // minute tape as a cold-start fallback. Three horizons reduce whipsaw.
-      const microMomentum=(sym,currentPx)=>{
-        const base=(fastTape.length?fastTape:tape)
-          .filter(p=>p.day===todayKey && Number(p?.quotes?.[sym])>0)
-          .map(p=>({ts:Number(p.ts),px:Number(p.quotes[sym])}))
-          .sort((a,b)=>a.ts-b.ts);
-        const px=Number(currentPx);
-        if(!(px>0)) return {available:false,m1:0,m3:0,m8:0,score:0,agreement:0};
-        const endTs=now.getTime();
-        if(!base.length || endTs-base[base.length-1].ts>5000) base.push({ts:endTs,px});
-        if(base.length<2) return {available:false,m1:0,m3:0,m8:0,score:0,agreement:0};
-        const ref=(mins)=>{
-          const target=endTs-mins*60000;
-          let chosen=base[0];
-          for(const p of base){ if(p.ts<=target) chosen=p; else break; }
-          return chosen?.px>0?chosen.px:null;
-        };
-        const ret=(mins)=>{const r=ref(mins);return r?((px-r)/r)*100:0;};
-        const m1=ret(1),m3=ret(3),m8=ret(8);
-        const signs=[m1,m3,m8].filter(v=>Math.abs(v)>=0.02).map(v=>Math.sign(v));
-        const agreement=signs.length>=2 && signs.every(x=>x===signs[0]) ? signs[0] : 0;
-        const score=clamp(m1*12,-2.5,2.5)+clamp(m3*8,-3,3)+clamp(m8*5,-3.5,3.5)+(agreement*0.8);
-        return {available:true,m1,m3,m8,score:clamp(score,-8,8),agreement};
-      };
+      const microMomentum=(sym,currentPx)=>F.micro([...tape,...fastTape],sym,currentPx,now);
       const rangePressure=(q,currentPx)=>{
         const hi=Number(q?.high),lo=Number(q?.low),px=Number(currentPx);
         if(!(hi>lo) || !(px>0)) return {available:false,pos:0.5,score:0};
@@ -4138,30 +4150,22 @@ function TrendRadar({ holdings, embedded = false }) {
       // /daily-history, itself Yahoo daily bars — same trusted source quote.js
       // already falls back to). Cached once per calendar day client-side since
       // daily bars only change after close.
-      const active = holdings.filter((h) => Number(h.current || 0) > 0 && h.symbol);
-      let dailyBarsMap = {};
-      try {
-        if (memoDailyDay === todayKey && memoDailyBars) {
-          dailyBarsMap = memoDailyBars;
-        } else {
-          const dhCache = await loadKey("trendRadarDailyHistory", { day: null, bars: {} });
-          if (dhCache?.day === todayKey && dhCache.bars && Object.keys(dhCache.bars).length) {
-            dailyBarsMap = dhCache.bars;
-          } else {
-            const wanted = [...new Set(["TAIEX", ...active.map(h => String(h.symbol))])];
-            const res = await fetchWithTimeout(`/daily-history?symbols=${encodeURIComponent(wanted.join(","))}&_ts=${Date.now()}`, { cache: "no-store" }, 12000);
-            const json = await res.json();
-            if (json?.ok && json.bars) {
-              dailyBarsMap = json.bars;
-              await saveKey("trendRadarDailyHistory", { day: todayKey, bars: dailyBarsMap, at: now.toISOString() });
-            }
-          }
-          if (Object.keys(dailyBarsMap).length) {
-            memoDailyDay = todayKey;
-            memoDailyBars = dailyBarsMap;
-          }
-        }
-      } catch (e) {}
+      const active = holdings.filter((h) => Number(h.current || 0) > 0 && isTaiwanSymbol(h.symbol));
+      const wanted = [...new Set(["TAIEX", ...active.map(h=>String(h.symbol))])];
+      const symbolKey=wanted.slice().sort().join(",");
+      const historyPhase=sessionClock>=820?"closed":sessionClock<540?"premarket":"session";
+      const dailyKey=todayKey+"|"+historyPhase+"|"+symbolKey;
+      launchSlow("daily",dailyKey,sessionClock>=820?3*60000:30*60000,async()=>{
+        const cache=await loadKey("trendRadarDailyHistory",null);
+        if(cache?.key===dailyKey && Date.now()-Date.parse(cache.at)<3*60000) return cache.bars;
+        const res=await fetchWithTimeout(`/daily-history?symbols=${encodeURIComponent(wanted.join(","))}`,{cache:"no-store"},12000);
+        const j=await res.json();if(!res.ok||!j.ok||!Object.keys(j.bars||{}).length)throw Error("daily unavailable");
+        await saveKey("trendRadarDailyHistory",{key:dailyKey,day:todayKey,bars:j.bars,at:new Date().toISOString()});
+        return j.bars;
+      },bars=>{memoDailyBars=bars;});
+      // Partial current-session daily bars must not leak into daily indicators.
+      const dailyBarsMap=Object.fromEntries(Object.entries(memoDailyBars||{}).map(([sym,bars])=>[sym,bars.filter(b=>b.day<todayKey || (historyPhase==="closed"&&b.day===todayKey))]));
+      launchSlow("audit",todayKey,60000,async()=>Promise.all([loadKey("trendRadarHistory",{records:[]}),loadKey("trendRadarTomorrowHistory",{records:[]})]),([h,t])=>{historyRecords=h?.records||[];tomorrowRecords=t?.records||[];});
       const monthlyFromDaily = (bars) => {
         if (!bars || !bars.length) return [];
         const map = new Map();
@@ -4182,42 +4186,22 @@ function TrendRadar({ holdings, embedded = false }) {
       // 3) Full-market breadth: official TWSE up/down/flat counts when the same-day
       //    MI_INDEX table is available. If unavailable intraday, no fake market-wide
       //    value is invented; the old holding breadth remains only a low-weight fallback.
-      let intradayMetrics={};
-      try{
-        if(memoIntradayMetrics && Date.now()-memoIntradayMetricsAt<55*1000){
-          intradayMetrics=memoIntradayMetrics;
-        }else{
-          const wanted=[...new Set(["TAIEX",...active.map(h=>String(h.symbol))])];
-          const res=await fetchWithTimeout(`/intraday-metrics?symbols=${encodeURIComponent(wanted.join(","))}&_ts=${Date.now()}`,{cache:"no-store"},10000);
-          const json=await res.json();
-          if(json?.ok && json.metrics){
-            intradayMetrics=json.metrics;
-            memoIntradayMetrics=intradayMetrics;
-            memoIntradayMetricsAt=Date.now();
-          }
-        }
-      }catch(e){}
-
-      let fullBreadth=null;
-      try{
-        if(memoMarketBreadth && Date.now()-memoMarketBreadthAt<60*1000){
-          fullBreadth=memoMarketBreadth;
-        }else{
-          const res=await fetchWithTimeout(`/market-breadth?_ts=${Date.now()}`,{cache:"no-store"},8000);
-          const json=await res.json();
-          if(json?.ok){
-            fullBreadth=json;
-            memoMarketBreadth=fullBreadth;
-            memoMarketBreadthAt=Date.now();
-          }
-        }
-      }catch(e){}
+      launchSlow("metrics",todayKey+"|"+symbolKey,60000,async()=>{
+        const res=await fetchWithTimeout(`/intraday-metrics?symbols=${encodeURIComponent(wanted.join(","))}`,{cache:"no-store"},10000);
+        const j=await res.json();if(!res.ok||!j.ok)throw Error("metrics unavailable");return j.metrics||{};
+      },metrics=>{memoIntradayMetrics=metrics;});
+      const intradayMetrics=Object.fromEntries(Object.entries(memoIntradayMetrics||{}).filter(([,m])=>F.metricsFresh(m,now)));
+      launchSlow("breadth",todayKey,60000,async()=>{
+        const res=await fetchWithTimeout('/market-breadth',{cache:"no-store"},8000);
+        const j=await res.json();if(!res.ok||!j.ok)throw Error("breadth unavailable");return j;
+      },value=>{memoMarketBreadth=value;});
+      const fullBreadth=memoMarketBreadth?.day===todayKey?memoMarketBreadth:null;
 
       const volumePriceSignal=(sym,q,stockPct=0)=>{
         const m=intradayMetrics?.[sym]||null;
         const px=Number(q?.price),vwap=Number(m?.vwap),rvol=Number(m?.rvol);
         const comparisonDays=Number(m?.comparisonDays)||0;
-        const vwapSlopePct=Number(m?.vwapSlopePct);
+        const vwapSlopePct=F.valid(m?.vwapSlopePct)?Number(m.vwapSlopePct):NaN;
         const vwapAvailable=px>0&&vwap>0;
         const distPct=vwapAvailable?((px-vwap)/vwap)*100:0;
         const vwapScore=vwapAvailable
@@ -4315,34 +4299,17 @@ function TrendRadar({ holdings, embedded = false }) {
       const officialBreadth=(fullBreadth?.available && Number.isFinite(Number(fullBreadth?.breadth)))?Number(fullBreadth.breadth):null;
       const breadth=officialBreadth!=null?officialBreadth:holdingBreadth;
       const breadthSource=officialBreadth!=null?"market":"holdings";
-      let instDays=[];
-      try{
-        if(memoInstDays && Date.now()-memoInstAt<6*3600*1000){
-          instDays=memoInstDays;
-        }else{
-          const instCache=await loadKey("institutionalFlow",null);
-          const fresh=instCache && (Date.now()-new Date(instCache.at).getTime())<6*3600*1000;
-          instDays=fresh?instCache.days:await fetchInstitutional(active.map(h=>String(h.symbol)));
-          if(!fresh && instDays.length) await saveKey("institutionalFlow",{at:new Date().toISOString(),days:instDays});
-          if(instDays.length){ memoInstDays=instDays; memoInstAt=Date.now(); }
-        }
-        setInstStatus(instDays.length?"ok":"unavailable");
-      }catch(e){setInstStatus("unavailable");}
-      let marginDays=[];
-      try{
-        const marginSyms=active.map(h=>String(h.symbol));
-        const covers=(syms)=>Array.isArray(syms)&&marginSyms.every(s=>syms.includes(s));
-        if(memoMarginDays && Date.now()-memoMarginAt<6*3600*1000 && covers(memoMarginSyms)){
-          marginDays=memoMarginDays;
-        }else{
-          const mCache=await loadKey("marginFlow",null);
-          const mFresh=mCache && covers(mCache.symbols) && (Date.now()-new Date(mCache.at).getTime())<6*3600*1000;
-          marginDays=mFresh?mCache.days:await fetchMargin(marginSyms);
-          if(!mFresh && marginDays.length) await saveKey("marginFlow",{at:new Date().toISOString(),symbols:marginSyms,days:marginDays});
-          if(marginDays.length){ memoMarginDays=marginDays; memoMarginAt=Date.now(); memoMarginSyms=marginSyms; }
-        }
-        setMarginStatus(marginDays.length?"ok":"unavailable");
-      }catch(e){setMarginStatus("unavailable");}
+      const slowPhase=sessionClock<900?"day":sessionClock<1080?"afternoon":"evening";
+      launchSlow("institutions",todayKey+"|"+slowPhase+"|"+symbolKey,30*60000,async()=>{
+        const cache=await loadKey("institutionalFlow",null);
+        if(cache?.key===todayKey+"|"+slowPhase+"|"+symbolKey&&Date.now()-Date.parse(cache.at)<30*60000)return cache.days;
+        const days=await fetchInstitutional(active.map(h=>String(h.symbol)));if(!days.length)throw Error("institutions unavailable");
+        await saveKey("institutionalFlow",{key:todayKey+"|"+slowPhase+"|"+symbolKey,at:new Date().toISOString(),days});return days;
+      },days=>{memoInstDays=days;setInstStatus("ok");});
+      launchSlow("margin",todayKey+"|"+slowPhase+"|"+symbolKey,30*60000,async()=>{
+        const days=await fetchMargin(active.map(h=>String(h.symbol)));if(!days.length)throw Error("margin unavailable");return days;
+      },days=>{memoMarginDays=days;setMarginStatus("ok");});
+      const instDays=memoInstDays||[],marginDays=memoMarginDays||[];
       const signScore=(v)=>v>0?1:v<0?-1:0;
       const marketSum=(key,n)=>instDays.slice(0,n).reduce((a,d)=>a+(Number(d?.marketTotal?.[key])||0),0);
       const mf1=marketSum("foreign",1), mf3=marketSum("foreign",3), mf5=marketSum("foreign",5);
@@ -4389,10 +4356,13 @@ function TrendRadar({ holdings, embedded = false }) {
       // Same whole-percent rounding as the per-stock probability below, so
       // the displayed "%" and the direction label can never disagree.
       let marketProbability=Math.round(Math.max(25,Math.min(75,50 + 25*Math.tanh(marketScore/22))));
-      const marketFresh=!(sessionClock>=540&&sessionClock<=825) || !idx?.isStale;
+      const marketFresh=F.quoteFresh(idx,now);
       if(!marketFresh) marketProbability=50;
+      const marketRawProbability=marketProbability;
+      const marketCalibration=F.calibrate(marketProbability,historyRecords,{symbol:"TAIEX",phase:sessionClock<630?"morning":"closeLock",modelVersion:TREND_MODEL_VERSION,beforeDay:todayKey});
+      if(marketFresh)marketProbability=marketCalibration.probability;
       const marketDirection=marketProbability>=64?"明顯偏漲":marketProbability>=55?"稍偏漲":marketProbability<=36?"明顯偏跌":marketProbability<=45?"稍偏跌":"方向不明";
-      let computedMarketRow={probability:marketProbability,direction:marketDirection,indexPct,breadth,breadthSource,breadthCounts:breadthSource==="market"?{up:fullBreadth?.up,down:fullBreadth?.down,flat:fullBreadth?.flat}:null,kd5:marketKd5,kd15:marketKd15,kd60:marketKd60,kdDaily:marketKdDaily,kdMonthly:marketKdMonthly,micro:marketMicro,range:marketRange,volumePrice:marketVolumePrice,evidence:marketEvidence,marketCloseBoost,modelVersion:TREND_MODEL_VERSION};
+      let computedMarketRow={rawProbability:marketRawProbability,calibration:marketCalibration,quoteFresh:marketFresh,currentPrice:Number(idx?.price)||null,priceBand:marketFresh?F.priceBand(dailyBarsMap.TAIEX,Number(idx?.price),{beforeDay:todayKey,remainingMinutes:810-sessionClock}):null,probability:marketProbability,direction:marketDirection,indexPct,breadth,breadthSource,breadthCounts:breadthSource==="market"?{up:fullBreadth?.up,down:fullBreadth?.down,flat:fullBreadth?.flat}:null,kd5:marketKd5,kd15:marketKd15,kd60:marketKd60,kdDaily:marketKdDaily,kdMonthly:marketKdMonthly,micro:marketMicro,range:marketRange,volumePrice:marketVolumePrice,evidence:marketEvidence,marketCloseBoost,modelVersion:TREND_MODEL_VERSION};
       if(cancelled) return;
       let next = active.map((h) => {
         const q = quoteMap[h.symbol] || {};
@@ -4400,7 +4370,7 @@ function TrendRadar({ holdings, embedded = false }) {
         // value the card displays, so the late-session contradiction guard
         // below can't be skipped by an unrounded value the user never sees.
         const stockPct = Number(q.prevClose) ? Math.round(((Number(q.price)-Number(q.prevClose))/Number(q.prevClose))*10000)/100 : 0;
-        const news = (newsCache?.news?.[h.symbol] || []).slice(0,5);
+        const news = (newsCache?.news?.[h.symbol] || []).filter(n=>{const ts=Date.parse(n.pubDate||n.publishedAt||n.date||"");return Number.isFinite(ts)&&now.getTime()-ts>=0&&now.getTime()-ts<72*3600000;}).slice(0,5);
         let newsScore = 0;
         news.forEach((n) => { newsScore += scoreHeadline(String(n.title||"")); });
         const flows=instDays.map(d=>d.map?.[h.symbol]).filter(Boolean);
@@ -4466,14 +4436,17 @@ function TrendRadar({ holdings, embedded = false }) {
         // the label is decided on 54.6 (<55), showing "55% 方向不明" which
         // reads as a contradiction even though it isn't one internally.
         let probability = Math.round(Math.max(25,Math.min(75,50 + 25*Math.tanh(score/22))));
-        const quoteFresh=!(sessionClock>=540&&sessionClock<=825) || (!q?.isStale && (!q?.fetchedAt || Date.now()-new Date(q.fetchedAt).getTime()<45000));
+        const quoteFresh=F.quoteFresh(q,now);
         if(!quoteFresh) probability=50;
+        const rawProbability=probability;
+        const calibration=F.calibrate(probability,historyRecords,{symbol:h.symbol,phase:sessionClock<630?"morning":"closeLock",modelVersion:TREND_MODEL_VERSION,beforeDay:todayKey});
+        if(quoteFresh)probability=calibration.probability;
         const direction = probability>=64 ? "明顯偏漲" : probability>=55 ? "稍偏漲" : probability<=36 ? "明顯偏跌" : probability<=45 ? "稍偏跌" : "方向不明";
         // Confidence now requires actual evidence breadth, not probability alone.
         const conviction = Math.abs(probability-50);
-        const confidence = (evidence>=3.5 && flows.length>=3 && conviction>=14 && kdSignals.length>=3) ? "高"
+        const confidence = (calibration.calibrated && evidence>=3.5 && flows.length>=3 && conviction>=14 && kdSignals.length>=3) ? "高"
           : (evidence>=2.5 && conviction>=7) ? "中" : "低";
-        return {symbol:h.symbol,name:h.name||"",probability,direction,confidence,indexPct,stockPct,currentPrice:Number(q.price)||null,dayHigh:Number(q.high)||null,dayLow:Number(q.low)||null,newsScore,flows,f1,f3,f5,t1,t3,t5,d1,d3,d5,kd5,kd15,kd60,kdDaily,kdMonthly,micro,range,volumePrice,margin,breadth,breadthSource,breadthTerm,evidence,quoteFresh,modelVersion:TREND_MODEL_VERSION,lateProgress,closeProgress,closeDirectionBoost,weights:{indexW,stockW,newsW,instTimeW},timedKdScore};
+        return {symbol:h.symbol,name:h.name||"",rawProbability,calibration,probability,direction,confidence,indexPct,stockPct,priceBand:quoteFresh?F.priceBand(dailyBarsMap[h.symbol],Number(q.price),{beforeDay:todayKey,remainingMinutes:810-sessionClock}):null,currentPrice:Number(q.price)||null,dayHigh:Number(q.high)||null,dayLow:Number(q.low)||null,newsScore,flows,f1,f3,f5,t1,t3,t5,d1,d3,d5,kd5,kd15,kd60,kdDaily,kdMonthly,micro,range,volumePrice,margin,breadth,breadthSource,breadthTerm,evidence,quoteFresh,modelVersion:TREND_MODEL_VERSION,lateProgress,closeProgress,closeDirectionBoost,weights:{indexW,stockW,newsW,instTimeW},timedKdScore};
       });
 
       // Model correction #2: freeze today's forecast at/after 13:25.
@@ -4483,15 +4456,15 @@ function TrendRadar({ holdings, embedded = false }) {
       try {
         if (sessionClock >= 805 && !nonTradingToday) {
           const lock = await loadKey("trendRadarCloseLock", null);
-          if (lock?.day === todayKey && lock.market && Array.isArray(lock.rows)) {
+          if (lock?.day === todayKey && lock.modelVersion===TREND_MODEL_VERSION && lock.market && Array.isArray(lock.rows)) {
             computedMarketRow = {...computedMarketRow, probability:lock.market.probability, direction:lock.market.direction, lockedAt:lock.at};
             const bySym = Object.fromEntries(lock.rows.map(x=>[x.symbol,x]));
             next = next.map(r => bySym[r.symbol]
               ? {...r, probability:bySym[r.symbol].probability, direction:bySym[r.symbol].direction, confidence:bySym[r.symbol].confidence, lockedAt:lock.at}
               : r);
-          } else {
+          } else if(sessionClock<810 && marketFresh && next.every(r=>r.quoteFresh)) {
             await saveKey("trendRadarCloseLock", {
-              day: todayKey,
+              day: todayKey,modelVersion:TREND_MODEL_VERSION,
               at: now.toISOString(),
               market: {probability:computedMarketRow.probability,direction:computedMarketRow.direction},
               rows: next.map(r=>({symbol:r.symbol,probability:r.probability,direction:r.direction,confidence:r.confidence}))
@@ -4500,6 +4473,15 @@ function TrendRadar({ holdings, embedded = false }) {
         }
       } catch(e) {}
 
+      const closeFor=(sym,day)=>{
+        const q=sym==="TAIEX"?idx:quoteMap[sym];
+        const tick=F.outcome(q,day,now);if(tick)return tick;
+        if(day===todayKey&&sessionClock<840)return null;
+        const bars=dailyBarsMap[sym]||[],i=bars.findIndex(b=>b.day===day);
+        if(i<1||!(Number(bars[i-1].close)>0))return null;
+        const pct=(Number(bars[i].close)/Number(bars[i-1].close)-1)*100;
+        return {pct,up:Math.abs(pct)<1e-8?null:pct>0,sourceAt:day+"T13:30:00+08:00",source:"completed-daily-bar"};
+      };
       setMarketRow(computedMarketRow);
       // Save one evaluation snapshot per symbol/day. This creates the training/
       // calibration history needed to replace hand-tuned weights with measured ones.
@@ -4507,40 +4489,43 @@ function TrendRadar({ holdings, embedded = false }) {
         const historyCache=await loadKey("trendRadarHistory",{records:[]});
         let records=Array.isArray(historyCache?.records)?historyCache.records:[];
         const stamp=new Date();
-        const day=stamp.toLocaleDateString("sv-SE");
-        const mins=stamp.getHours()*60+stamp.getMinutes();
+        const {day,minute:mins}=F.clock(stamp);
         // A morning snapshot can be taken before the holiday is detected
         // (09:00-09:15); once the day is known to be closed, drop it.
         if(nonTradingToday) records=records.filter(rec=>rec.day!==day);
         // Keep a representative morning forecast (first one from 09:00-10:00).
         if(mins>=540 && mins<=600 && !nonTradingToday){
-          next.forEach(r=>{
+          next.filter(r=>r.quoteFresh).forEach(r=>{
             const key=day+"|"+r.symbol+"|morning";
             if(!records.some(x=>x.key===key)){
-              records.push({key,day,symbol:r.symbol,phase:"morning",ts:stamp.toISOString(),probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,modelVersion:r.modelVersion,lateProgress:r.lateProgress,closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,weights:r.weights,timedKdScore:r.timedKdScore,volumePrice:r.volumePrice,breadth:r.breadth,breadthSource:r.breadthSource,margin:marginForRecord(r.margin),inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
+              records.push({key,day,symbol:r.symbol,phase:"morning",ts:stamp.toISOString(),rawProbability:r.rawProbability,probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,modelVersion:r.modelVersion,lateProgress:r.lateProgress,closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,weights:r.weights,timedKdScore:r.timedKdScore,volumePrice:r.volumePrice,breadth:r.breadth,breadthSource:r.breadthSource,margin:marginForRecord(r.margin),inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
             }
           });
         }
         // Keep a dedicated close-lock snapshot (13:25+) so backtests can
         // compare the morning model with the final pre-close model fairly.
-        if(mins>=805 && !nonTradingToday){
-          next.forEach(r=>{
+        if(mins>=805 && mins<810 && !nonTradingToday){
+          next.filter(r=>r.quoteFresh).forEach(r=>{
             const key=day+"|"+r.symbol+"|closeLock";
             if(!records.some(x=>x.key===key)){
-              records.push({key,day,symbol:r.symbol,phase:"closeLock",ts:stamp.toISOString(),probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,modelVersion:r.modelVersion,lateProgress:r.lateProgress,closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,weights:r.weights,timedKdScore:r.timedKdScore,volumePrice:r.volumePrice,breadth:r.breadth,breadthSource:r.breadthSource,margin:marginForRecord(r.margin),inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
+              records.push({key,day,symbol:r.symbol,phase:"closeLock",ts:stamp.toISOString(),rawProbability:r.rawProbability,probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,modelVersion:r.modelVersion,lateProgress:r.lateProgress,closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,weights:r.weights,timedKdScore:r.timedKdScore,volumePrice:r.volumePrice,breadth:r.breadth,breadthSource:r.breadthSource,margin:marginForRecord(r.margin),inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
             }
           });
+        }
+        const marketPhase=mins>=540&&mins<=600?"morning":mins>=805&&mins<810?"closeLock":null;
+        if(marketPhase&&!nonTradingToday&&marketFresh){
+          const key=day+"|TAIEX|"+marketPhase;
+          if(!records.some(x=>x.key===key))records.push({key,day,symbol:"TAIEX",phase:marketPhase,ts:stamp.toISOString(),modelVersion:TREND_MODEL_VERSION,rawProbability:computedMarketRow.rawProbability,probability:computedMarketRow.probability,direction:computedMarketRow.direction,indexPct,priceBand:computedMarketRow.priceBand});
         }
         // At/after close, attach the actual close-vs-prev-close outcome when quote data is available.
         if(mins>=810 && !nonTradingToday){
           records=records.map(rec=>{
-            if(rec.day!==day || rec.actual) return rec;
-            const q=quoteMap[rec.symbol]||{};
-            if(!Number(q.prevClose)||!Number(q.price)) return rec;
-            const actualPct=((Number(q.price)-Number(q.prevClose))/Number(q.prevClose))*100;
-            const actualUp=actualPct>0;
+            if(rec.day>day || rec.actual) return rec;
+            const close=closeFor(rec.symbol,rec.day);if(!close)return rec;
+            const actualPct=close.pct;
+            const actualUp=close.up;
             const predictedUp=rec.probability>=50;
-            return {...rec,actual:{pct:actualPct,up:actualUp,hit:predictedUp===actualUp,closedAt:stamp.toISOString()}};
+            return {...rec,actual:{pct:actualPct,up:actualUp,hit:actualUp===null?null:predictedUp===actualUp,sourceAt:close.sourceAt,source:close.source||"quote",closedAt:stamp.toISOString()}};
           });
         }
         records=records.slice(-1500);
@@ -4548,20 +4533,11 @@ function TrendRadar({ holdings, embedded = false }) {
       }catch(e){}
       // Overnight global signal (S&P500 / SOX / USD-TWD) — the one genuinely
       // forward-looking input available before TWSE opens the next session.
-      let global=null;
-      try{
-        if(memoGlobal && Date.now()-memoGlobalAt<2*60*1000){
-          global=memoGlobal;
-        }else{
-          const gCache=await loadKey("trendRadarGlobalSignal",null);
-          const gFresh=gCache && (Date.now()-Number(gCache.at||0))<2*60*1000;
-          global=gFresh ? gCache.value : await fetchGlobalSignal();
-          if(!gFresh && global) await saveKey("trendRadarGlobalSignal",{at:Date.now(),value:global});
-          if(global){memoGlobal=global;memoGlobalAt=Date.now();}
-        }
-        setGlobalStatus(global?"ok":"unavailable");
-        setGlobalRow(global);
-      }catch(e){ setGlobalStatus("unavailable"); }
+      launchSlow("global",todayKey,60000,async()=>{
+        const value=await fetchGlobalSignal();if(!value)throw Error("global unavailable");
+        await saveKey("trendRadarGlobalSignal",{at:Date.now(),value});return value;
+      },value=>{memoGlobal=value;memoGlobalAt=Date.now();setGlobalStatus("ok");setGlobalRow(value);});
+      const global=memoGlobal&&Date.now()-memoGlobalAt<5*60000?memoGlobal:null;
       // Next-session model v2.45.
       // Preview starts at 10:30 and updates with every live quote. The final
       // next-day call is frozen at 13:25, so backtests compare a fixed forecast
@@ -4576,9 +4552,7 @@ function TrendRadar({ holdings, embedded = false }) {
           const tCache=await loadKey("trendRadarTomorrowHistory",{records:[]});
           let tRecords=Array.isArray(tCache?.records)?tCache.records:[];
           if(tRecords.some(rec=>!rec.actual&&rec.targetDay===todayKey)){
-            const nextSession=new Date(now);
-            do{ nextSession.setDate(nextSession.getDate()+1); }while(nextSession.getDay()===0||nextSession.getDay()===6);
-            const nextDay=nextSession.toLocaleDateString("sv-SE");
+            const nextDay=F.nextSession(todayKey,readTwseHolidayCache()?.days||{});
             const taken=new Set(tRecords.map(rec=>rec.key));
             tRecords=tRecords.map(rec=>{
               if(rec.actual||rec.targetDay!==todayKey) return rec;
@@ -4591,17 +4565,13 @@ function TrendRadar({ holdings, embedded = false }) {
           }
         }catch(e){}
       }
-      if(clock>=630){
+      if(clock>=630 || clock<540){
         // v2.46 adaptive calibration: validated next-day history only scales
         // weights conservatively. Small samples can reduce a bad factor, but
         // cannot flip its sign or aggressively self-fit.
-        let calibrationRecords=[];
-        try{
-          const c=await loadKey("trendRadarTomorrowHistory",{records:[]});
-          calibrationRecords=(Array.isArray(c?.records)?c.records:[]).filter(r=>r?.actual&&Number.isFinite(Number(r.actual.pct)));
-        }catch(e){}
+        const calibrationRecords=tomorrowRecords.filter(r=>r?.actual&&F.valid(r.actual.pct)&&Math.abs(Number(r.actual.pct))>1e-8&&r.modelVersion===TREND_MODEL_VERSION&&r.targetDay<todayKey&&r.phase==="final");
         const factorCorr=(symbol,key)=>{
-          const rows=calibrationRecords.filter(r=>r.symbol===symbol && Number.isFinite(Number(r?.factors?.[key]))).slice(-120);
+          const rows=calibrationRecords.filter(r=>r.symbol===symbol && F.valid(r?.factors?.[key])).slice(-120);
           if(rows.length<12) return {n:rows.length,corr:0};
           const xs=rows.map(r=>Number(r.factors[key])), ys=rows.map(r=>Number(r.actual.pct));
           const mx=xs.reduce((a,b)=>a+b,0)/xs.length, my=ys.reduce((a,b)=>a+b,0)/ys.length;
@@ -4650,7 +4620,9 @@ function TrendRadar({ holdings, embedded = false }) {
           const sampleN=Math.max(overnightCal.n,pctCal.n);
           const conviction=Math.abs(p-50);
           const confidence=(sampleN>=80&&evidence>=4&&conviction>=10)?"高":(sampleN>=40&&evidence>=3&&conviction>=7)?"中":"低";
-          return {probability:p,direction:toLabel(p),confidence,phase:clock>=805?"final":clock>=750?"refining":"preview",factors:{overnight,overnightBase,overnightDecay,pct,momentum,overheat,ks,news,inst,beta,micro:microTerm,relative,range:rangeTerm,vwap:vwapTerm,rvol:rvolTerm,breadth:breadthTerm,evidence},calibration:{sampleN,overnight:overnightCal,pct:pctCal}};
+          const calibration=F.calibrate(p,tomorrowRecords,{symbol,phase:"final",modelVersion:TREND_MODEL_VERSION,beforeDay:todayKey});
+          const rawProbability=p;p=calibration.probability;
+          return {rawProbability,probability:p,direction:toLabel(p),confidence,phase:clock>=805?"final":clock>=750?"refining":"preview",factors:{overnight,overnightBase,overnightDecay,pct,momentum,overheat,ks,news,inst,beta,micro:microTerm,relative,range:rangeTerm,vwap:vwapTerm,rvol:rvolTerm,breadth:breadthTerm,evidence},calibration:{sampleN,probability:calibration,overnight:overnightCal,pct:pctCal}};
         };
         tomorrow.TAIEX=calcTomorrow({
           symbol:"TAIEX",pct:indexPct,kds:[marketKd15,marketKd60,marketKdDaily],
@@ -4667,35 +4639,32 @@ function TrendRadar({ holdings, embedded = false }) {
         });
 
         try{
-          const target=new Date(now);
-          target.setDate(target.getDate()+1);
-          while(target.getDay()===0||target.getDay()===6) target.setDate(target.getDate()+1);
-          const targetDay=target.toLocaleDateString("sv-SE");
+          const targetDay=clock<540&&!nonTradingToday?todayKey:F.nextSession(todayKey,readTwseHolidayCache()?.days||{});
 
           if(nonTradingToday){
             // No new "tomorrow" forecast is locked from a non-trading day's stale data.
-          }else if(clock>=805){
+          }else if(clock>=805 || clock<540){
             // Freeze the final next-day forecast at/after 13:25.
             const existingLock=await loadKey("trendRadarTomorrowLock",null);
             let auditPredictions=null;
-            if(existingLock?.targetDay===targetDay && existingLock?.predictions){
+            if(existingLock?.targetDay===targetDay && existingLock?.modelVersion===TREND_MODEL_VERSION && existingLock?.predictions){
               auditPredictions=existingLock.predictions;
               Object.entries(existingLock.predictions).forEach(([sym,pred])=>{tomorrow[sym]={...pred};});
-            }else{
+            }else if(clock>=805 && memoDailyBars && (clock>=815 || (marketFresh&&next.every(r=>r.quoteFresh)))){
               auditPredictions=Object.fromEntries(Object.entries(tomorrow).map(([sym,pred])=>[sym,{...pred}]));
               await saveKey("trendRadarTomorrowLock",{
-                targetDay,predictedOn:todayKey,at:now.toISOString(),
+                targetDay,predictedOn:todayKey,at:now.toISOString(),phase:clock<810?"final":"postClose",
                 modelVersion:TREND_MODEL_VERSION,globalAtLock:global||null,predictions:auditPredictions
               });
             }
 
             // Keep the 13:25 call frozen for backtesting. After 15:00 show a
             // live night-session overlay without rewriting the audit history.
-            if(clock>=900 && global){
-              const g=(x,k)=>Number.isFinite(Number(x?.[k]))?Number(x[k]):0;
+            if((clock>=900 || clock<540) && global && existingLock?.targetDay===targetDay){
+              const g=(x,k)=>F.valid(x?.[k])?Number(x[k]):0;
               const nightSignal=(x)=>0.60*g(x,"txfPct")+0.18*g(x,"spxPct")+0.18*g(x,"soxPct")-0.10*g(x,"usdtwdPct");
               const currentNight=nightSignal(global);
-              const baseNight=existingLock?.globalAtLock ? nightSignal(existingLock.globalAtLock) : 0;
+              const baseNight=existingLock?.globalAtLock ? nightSignal(existingLock.globalAtLock) : currentNight;
               const deltaNight=currentNight-baseNight;
               Object.entries(tomorrow).forEach(([sym,pred])=>{
                 const b=sym==="TAIEX"?1:betaFor(sym);
@@ -4707,22 +4676,29 @@ function TrendRadar({ holdings, embedded = false }) {
 
             const tCache=await loadKey("trendRadarTomorrowHistory",{records:[]});
             let tRecords=Array.isArray(tCache?.records)?tCache.records:[];
-            const entries=[["TAIEX",auditPredictions?.TAIEX||tomorrow.TAIEX], ...next.map(r=>[r.symbol,auditPredictions?.[r.symbol]||tomorrow[r.symbol]])];
+            const entries=auditPredictions?Object.entries(auditPredictions):[];
             entries.forEach(([sym,pred])=>{
               if(!pred) return;
               const key=targetDay+"|"+sym;
-              const rec={key,targetDay,symbol:sym,predictedOn:todayKey,phase:"final",lockedAt:now.toISOString(),modelVersion:TREND_MODEL_VERSION,probability:pred.probability,direction:pred.direction,factors:pred.factors,global:global?{spxPct:global.spxPct,soxPct:global.soxPct,usdtwdPct:global.usdtwdPct,txfPct:global.txfPct,txfPrice:global.txfPrice,txfExpiry:global.txfExpiry,txfSession:global.txfSession,combined:global.combined}:null};
+              const rec={key,targetDay,symbol:sym,predictedOn:todayKey,phase:(existingLock?.targetDay===targetDay?existingLock.phase:null)|| (clock<810?"final":"postClose"),lockedAt:(existingLock?.targetDay===targetDay?existingLock.at:null)||now.toISOString(),modelVersion:TREND_MODEL_VERSION,rawProbability:pred.rawProbability,probability:pred.probability,direction:pred.direction,factors:pred.factors,global:global?{spxPct:global.spxPct,soxPct:global.soxPct,usdtwdPct:global.usdtwdPct,txfPct:global.txfPct,txfPrice:global.txfPrice,txfExpiry:global.txfExpiry,txfSession:global.txfSession,combined:global.combined}:null};
               const i=tRecords.findIndex(x=>x.key===key && !x.actual);
-              if(i>=0) tRecords[i]=rec; else if(!tRecords.some(x=>x.key===key)) tRecords.push(rec);
+              if(i<0 && !tRecords.some(x=>x.key===key)) tRecords.push(rec);
             });
+            // An 08:45–09:00 night-adjusted forecast has a different horizon
+            // from yesterday's 13:25 call. Save and validate it separately.
+            if(clock>=525 && clock<540 && global && existingLock?.targetDay===todayKey){
+              Object.entries(tomorrow).forEach(([sym,pred])=>{
+                const key=todayKey+"|"+sym+"|premarket";
+                if(!tRecords.some(r=>r.key===key))tRecords.push({key,targetDay:todayKey,symbol:sym,predictedOn:todayKey,phase:"premarket",lockedAt:now.toISOString(),modelVersion:TREND_MODEL_VERSION,rawProbability:pred.probability,probability:pred.probability,direction:pred.direction,factors:pred.factors,nightAdjustment:pred.nightAdjustment});
+              });
+            }
             tRecords=tRecords.map(rec=>{
-              if(rec.actual || rec.targetDay!==todayKey) return rec;
-              const q=rec.symbol==="TAIEX"?idx:quoteMap[rec.symbol];
-              if(!q || !Number(q.prevClose) || !Number(q.price) || clock<810) return rec;
-              const actualPct=((Number(q.price)-Number(q.prevClose))/Number(q.prevClose))*100;
-              const actualUp=actualPct>0;
+              if(rec.actual || rec.targetDay>todayKey) return rec;
+              const close=closeFor(rec.symbol,rec.targetDay);if(!close)return rec;
+              const actualPct=close.pct;
+              const actualUp=close.up;
               const predictedUp=rec.probability>=50;
-              return {...rec,actual:{pct:actualPct,up:actualUp,hit:predictedUp===actualUp,checkedAt:now.toISOString()}};
+              return {...rec,actual:{pct:actualPct,up:actualUp,hit:actualUp===null?null:predictedUp===actualUp,sourceAt:close.sourceAt,source:close.source||"quote",checkedAt:now.toISOString()}};
             });
             tRecords=tRecords.slice(-1500);
             await saveKey("trendRadarTomorrowHistory",{records:tRecords,at:now.toISOString()});
@@ -4735,17 +4711,23 @@ function TrendRadar({ holdings, embedded = false }) {
               tRecords=tRecords.map(rec=>{
                 if(rec.actual || rec.targetDay!==todayKey) return rec;
                 const q=rec.symbol==="TAIEX"?idx:quoteMap[rec.symbol];
-                if(!q || !Number(q.prevClose) || !Number(q.price)) return rec;
-                const actualPct=((Number(q.price)-Number(q.prevClose))/Number(q.prevClose))*100;
-                const actualUp=actualPct>0;
+                const close=F.outcome(q,todayKey,now);if(!close)return rec;
+                const actualPct=close.pct;
+                const actualUp=close.up;
                 const predictedUp=rec.probability>=50;
-                return {...rec,actual:{pct:actualPct,up:actualUp,hit:predictedUp===actualUp,checkedAt:now.toISOString()}};
+                return {...rec,actual:{pct:actualPct,up:actualUp,hit:actualUp===null?null:predictedUp===actualUp,sourceAt:close.sourceAt,checkedAt:now.toISOString()}};
               });
               await saveKey("trendRadarTomorrowHistory",{records:tRecords.slice(-1500),at:now.toISOString()});
             }
           }
         }catch(e){}
       }
+      Object.entries(tomorrow).forEach(([sym,pred])=>{
+        const bars=dailyBarsMap[sym]||[],last=bars.at(-1);
+        const anchor=sessionClock>=810&&last?.day===todayKey?Number(last.close):Number(sym==="TAIEX"?idx?.price:quoteMap[sym]?.price);
+        pred.priceBand=F.priceBand(bars,anchor,{beforeDay:todayKey,remainingMinutes:270});
+        pred.targetDay=sessionClock<540&&!nonTradingToday?todayKey:F.nextSession(todayKey,readTwseHolidayCache()?.days||{});
+      });
       try {
         await saveKey("trendRadarCurrentSnapshot", {
           at: new Date().toISOString(),
@@ -4753,7 +4735,7 @@ function TrendRadar({ holdings, embedded = false }) {
           market: computedMarketRow,
           rows: next.map(r => ({
             symbol:r.symbol,name:r.name,probability:r.probability,direction:r.direction,confidence:r.confidence,
-            indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,
+            indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,priceBand:r.priceBand,
             kd5:r.kd5,kd15:r.kd15,kd60:r.kd60,kdDaily:r.kdDaily,kdMonthly:r.kdMonthly,
             micro:r.micro,range:r.range,volumePrice:r.volumePrice,margin:marginForRecord(r.margin),breadth:r.breadth,breadthSource:r.breadthSource,evidence:r.evidence,quoteFresh:r.quoteFresh,
             f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5,
@@ -4761,7 +4743,7 @@ function TrendRadar({ holdings, embedded = false }) {
           })),
           tomorrow,
           global,
-          statuses:{institutional:instStatus,global:global?"ok":"unavailable"},
+          statuses:{institutional:instDays.length?"ok":"unavailable",global:global?"ok":"unavailable"},
         });
       } catch(e) {}
       setTomorrowMap(tomorrow);
@@ -4775,19 +4757,20 @@ function TrendRadar({ holdings, embedded = false }) {
       }
     };
     recalc();
-    // Keep the full 5-minute safety recalculation, but also react immediately
+    // Recalculate every minute while visible, and react immediately
     // whenever LivePricePanel publishes a fresh 15-second quote batch.
     // recalc() reads the already-cached livePrices, so this does NOT add
     // another quote API request.
     let liveSyncTimer=null;
     const onLivePricesUpdated=(ev)=>{
       const d=ev?.detail||{};
-      const quotes={};
-      Object.entries(d.map||{}).forEach(([sym,q])=>{const px=Number(q?.price);if(px>0&&!q?.isStale)quotes[sym]=px;});
-      const ip=Number(d.marketIndex?.price); if(ip>0) quotes.TAIEX=ip;
+      latestLive={...d,at:new Date(Number(d.at)||Date.now()).toISOString()};
+      const quotes={},sourceTimes={};
+      Object.entries(d.map||{}).forEach(([sym,q])=>{const px=Number(q?.price);if(px>0&&F.quoteFresh(q,new Date())){quotes[sym]=px;sourceTimes[sym]=Date.parse(q.asOfDate);}});
+      const ip=Number(d.marketIndex?.price); if(ip>0&&F.quoteFresh(d.marketIndex,new Date())){quotes.TAIEX=ip;sourceTimes.TAIEX=Date.parse(d.marketIndex.asOfDate);}
       if(Object.keys(quotes).length){
         const ts=Number(d.at)||Date.now();
-        fastTape.push({day:new Date(ts).toLocaleDateString("sv-SE"),ts,quotes});
+        fastTape.push({day:F.clock(new Date(ts)).day,ts,quotes,sourceTimes});
         const cutoff=ts-15*60*1000;
         fastTape=fastTape.filter(p=>p.ts>=cutoff).slice(-80);
       }
@@ -4795,8 +4778,10 @@ function TrendRadar({ holdings, embedded = false }) {
       liveSyncTimer=setTimeout(()=>{ if(!cancelled) recalc(); },80);
     };
     window.addEventListener("livePricesUpdated",onLivePricesUpdated);
-    const timer=setInterval(recalc,5*60*1000);
-    return()=>{cancelled=true;clearTimeout(liveSyncTimer);window.removeEventListener("livePricesUpdated",onLivePricesUpdated);clearInterval(timer);};
+    const onVisible=()=>{if(document.visibilityState==="visible")recalc();};
+    document.addEventListener("visibilitychange",onVisible);
+    const timer=setInterval(()=>{if(document.visibilityState==="visible")recalc();},60000);
+    return()=>{cancelled=true;clearTimeout(liveSyncTimer);clearTimeout(slowTimer);document.removeEventListener("visibilitychange",onVisible);window.removeEventListener("livePricesUpdated",onLivePricesUpdated);clearInterval(timer);};
   },[holdings]);
 
   useEffect(()=>{
@@ -4807,7 +4792,7 @@ function TrendRadar({ holdings, embedded = false }) {
         // 排除「方向不明」（機率貼近50%，形同亂猜）的預測，避免拉低/虛增準確率的意義。
         // 「上午」(09:00 剛開盤猜) 跟「收盤前鎖定」(13:25，市場已經走完大半天) 難度天差地遠，
         // 混在一起算命中率毫無意義——之前這裡沒分開統計，數字看起來會失真。
-        const validRecords=(h?.records||[]).filter(r=>r.actual && typeof r.actual.hit==="boolean" && r.direction!=="方向不明");
+        const validRecords=(h?.records||[]).filter(r=>r.modelVersion===TREND_MODEL_VERSION && r.actual && typeof r.actual.hit==="boolean" && r.direction!=="方向不明");
         const morningDone=validRecords.filter(r=>r.phase==="morning");
         const closeLockDone=validRecords.filter(r=>r.phase==="closeLock");
         const recent=morningDone.slice(-60);
@@ -4817,14 +4802,21 @@ function TrendRadar({ holdings, embedded = false }) {
       }catch(e){}
       try{
         const th=await loadKey("trendRadarTomorrowHistory",{records:[]});
-        const doneT=(th?.records||[]).filter(r=>r.actual && typeof r.actual.hit==="boolean" && r.direction!=="方向不明" && r.phase!=="preview");
+        const doneT=(th?.records||[]).filter(r=>r.modelVersion===TREND_MODEL_VERSION && r.actual && typeof r.actual.hit==="boolean" && r.direction!=="方向不明" && r.phase!=="preview");
         const recentT=doneT.slice(-60);
-        if(!dead) setTomorrowAccuracy(recentT.length?{n:recentT.length,hits:recentT.filter(r=>r.actual.hit).length}:null);
+        const stats=globalThis.ZinfForecast.auditStats(th?.records||[],{modelVersion:TREND_MODEL_VERSION,phase:"final",beforeDay:taipeiDateKey()});
+        if(!dead) {
+          setTomorrowAccuracy(stats?.n?stats:null);
+          setPostCloseAccuracy(globalThis.ZinfForecast.auditStats(th?.records||[],{modelVersion:TREND_MODEL_VERSION,phase:"postClose",beforeDay:taipeiDateKey()}));
+          setPremarketAccuracy(globalThis.ZinfForecast.auditStats(th?.records||[],{modelVersion:TREND_MODEL_VERSION,phase:"premarket",beforeDay:taipeiDateKey()}));
+        }
       }catch(e){}
     })();
     return()=>{dead=true;};
   },[asOf]);
 
+  const bandText=(band)=>band?`${band.lower.toFixed(2)}–${band.upper.toFixed(2)}`:null;
+  const targetLabel=(pred)=>pred?.targetDay===taipeiDateKey()? (UI_SHOW_ENGLISH?"Today premarket outlook":"今日盤前展望"):(UI_SHOW_ENGLISH?"Next session":"下一交易日");
   const flowText=(v)=>{const n=Number(v)||0; if(!n)return "0"; const abs=Math.abs(n); const x=abs>=1000000?(abs/1000000).toFixed(1)+"M":abs>=1000?(abs/1000).toFixed(0)+"K":abs.toFixed(0); return (n>0?"+":"-")+x;};
   const kdCell=(kd)=>kd?`${kd.K.toFixed(0)}/${kd.D.toFixed(0)} ${uiText(kd.state)}`:(UI_SHOW_ENGLISH?"Accumulating":"累積中");
   // Plain-language rollup of the three short-timeframe KD signals (5/15/60分)
@@ -4943,6 +4935,7 @@ function TrendRadar({ holdings, embedded = false }) {
             <div className="flex justify-between mt-0.5">
               <span><UiLabel zh="S&P500" inline /> {globalRow.spxPct!=null?(globalRow.spxPct>=0?"+":"")+globalRow.spxPct.toFixed(2)+"%":"—"}</span>
               <span><UiLabel zh="費半SOX" inline /> {globalRow.soxPct!=null?(globalRow.soxPct>=0?"+":"")+globalRow.soxPct.toFixed(2)+"%":"—"}</span>
+              {globalRow.txfPrice>0&&!globalRow.txfTimestampKnown&&<span>{UI_SHOW_ENGLISH?"TX: official session report, delayed":"台指：官方時段報表，可能延遲"}</span>}
               <span><UiLabel zh="美元/台幣" inline /> {globalRow.usdtwdPct!=null?(globalRow.usdtwdPct>=0?"+":"")+globalRow.usdtwdPct.toFixed(2)+"%":"—"}</span>
             </div>
           </>}
@@ -4956,8 +4949,9 @@ function TrendRadar({ holdings, embedded = false }) {
           </div>;
         })()}
         {marketRow&&<div className="rounded-xl px-3 py-2" style={{background:COLORS.bg,border:"1px solid "+COLORS.gold}}>
-          <div className="flex items-center justify-between"><div className="text-xs font-bold"><UiLabel zh="加權指數" inline /> <span className="font-normal" style={{color:COLORS.sub}}>TAIEX</span></div><div className="text-[10px] font-black mono text-right" style={{color:marketRow.direction.includes("漲")?COLORS.gain:marketRow.direction.includes("跌")?COLORS.loss:COLORS.sub}}><span><UiLabel zh="今日收盤預測" inline /> <UiLabel zh={marketRow.direction} inline /> {marketRow.probability.toFixed(0)}%</span><span className="ml-2" style={{color:tomorrowMap.TAIEX?.direction?.includes("漲")?COLORS.gain:tomorrowMap.TAIEX?.direction?.includes("跌")?COLORS.loss:COLORS.sub}}><UiLabel zh="明日預測" inline /> {tomorrowMap.TAIEX?<><UiLabel zh={tomorrowMap.TAIEX.direction} inline />{" "+tomorrowMap.TAIEX.probability.toFixed(0)+"%"}</>:<UiLabel zh="資料累積中" inline />}</span></div></div>
+          <div className="flex items-center justify-between"><div className="text-xs font-bold"><UiLabel zh="加權指數" inline /> <span className="font-normal" style={{color:COLORS.sub}}>TAIEX</span></div><div className="text-[10px] font-black mono text-right" style={{color:marketRow.direction.includes("漲")?COLORS.gain:marketRow.direction.includes("跌")?COLORS.loss:COLORS.sub}}><span><UiLabel zh="今日收盤預測" inline /> <UiLabel zh={marketRow.direction} inline /> {marketRow.probability.toFixed(0)}%</span><span className="ml-2" style={{color:tomorrowMap.TAIEX?.direction?.includes("漲")?COLORS.gain:tomorrowMap.TAIEX?.direction?.includes("跌")?COLORS.loss:COLORS.sub}}>{UI_SHOW_ENGLISH?"Next session":targetLabel(tomorrowMap.TAIEX)} {tomorrowMap.TAIEX?<><UiLabel zh={tomorrowMap.TAIEX.direction} inline />{" "+tomorrowMap.TAIEX.probability.toFixed(0)+"%"}</>:<UiLabel zh="資料累積中" inline />}</span></div></div>
           <div className="flex justify-between mt-1 text-[9px]" style={{color:COLORS.sub}}><span><UiLabel zh="目前" inline /> {marketRow.indexPct>=0?"+":""}{marketRow.indexPct.toFixed(2)}%</span><span><UiLabel zh={marketRow.breadthSource==="market"?"全市場上漲廣度":"持股上漲廣度"} inline /> {(marketRow.breadth*100).toFixed(0)}%</span><span><UiLabel zh="盤中趨勢" inline /> <UiLabel zh={intradayTrend(marketRow.kd5,marketRow.kd15,marketRow.kd60)} inline /></span></div>
+          {(marketRow.priceBand||tomorrowMap.TAIEX?.priceBand)&&<div className="mt-1 text-[9px] mono" style={{color:COLORS.gold}}>{UI_SHOW_ENGLISH?"Volatility reference: ":"波動參考區間："}{marketRow.priceBand?`今日 ${bandText(marketRow.priceBand)} ｜ `:""}{tomorrowMap.TAIEX?.priceBand?`${targetLabel(tomorrowMap.TAIEX)} ${bandText(tomorrowMap.TAIEX.priceBand)}`:""}</div>}
           {detailsOpen&&<div className="mt-1.5 pt-1.5 text-[9px] mono" style={{color:COLORS.sub,borderTop:"1px solid "+COLORS.panelBorder}}>
             <div className="flex justify-between"><span><UiLabel zh="大盤 KD 5分" /></span><span>{kdCell(marketRow.kd5)}</span></div>
             <div className="flex justify-between"><span><UiLabel zh="大盤 KD 15分" /></span><span>{kdCell(marketRow.kd15)}</span></div>
@@ -4986,8 +4980,9 @@ function TrendRadar({ holdings, embedded = false }) {
             {keyText&&<div className="mt-1 text-[9px] font-bold" style={{color:COLORS.gold}}><UiLabel zh="關鍵價位" inline />{UI_SHOW_ENGLISH?": ":"："}{keyText}</div>}
             <div className="flex justify-between gap-2 mt-1 text-[9px] mono" style={{color:COLORS.sub}}>
               <span><UiLabel zh="今日收盤預測" inline /> <span style={{color:tone}}><UiLabel zh={r.direction} inline /> {r.probability.toFixed(0)}%</span></span>
-              <span><UiLabel zh="明日預測" inline /> {tomorrowMap[r.symbol]?<span style={{color:tomorrowMap[r.symbol]?.direction?.includes("漲")?COLORS.gain:tomorrowMap[r.symbol]?.direction?.includes("跌")?COLORS.loss:COLORS.sub}}><UiLabel zh={tomorrowMap[r.symbol].direction} inline />{" "+tomorrowMap[r.symbol].probability.toFixed(0)+"%"}</span>:<UiLabel zh="資料累積中" inline />}</span>
+              <span>{targetLabel(tomorrowMap[r.symbol])} {tomorrowMap[r.symbol]?<span style={{color:tomorrowMap[r.symbol]?.direction?.includes("漲")?COLORS.gain:tomorrowMap[r.symbol]?.direction?.includes("跌")?COLORS.loss:COLORS.sub}}><UiLabel zh={tomorrowMap[r.symbol].direction} inline />{" "+tomorrowMap[r.symbol].probability.toFixed(0)+"%"}</span>:<UiLabel zh="資料累積中" inline />}</span>
             </div>
+            {(r.priceBand||tomorrowMap[r.symbol]?.priceBand)&&<div className="mt-1 text-[9px] mono" style={{color:COLORS.gold}}>{UI_SHOW_ENGLISH?"NT$ volatility reference: ":"NT$ 波動參考："}{r.priceBand?`今日 ${bandText(r.priceBand)} ｜ `:""}{tomorrowMap[r.symbol]?.priceBand?`${targetLabel(tomorrowMap[r.symbol])} ${bandText(tomorrowMap[r.symbol].priceBand)}`:""}</div>}
             {detailsOpen&&<div className="mt-1 text-[9px] leading-snug" style={{color:COLORS.sub}}>{explainRow(r)}</div>}
             {detailsOpen&&<><div className="mt-1.5 pt-1.5 text-[9px] mono" style={{color:COLORS.sub,borderTop:"1px solid "+COLORS.panelBorder}}>
               <div className="flex justify-between"><span><UiLabel zh="KD 5分" /></span><span>{kdCell(r.kd5)}</span></div>
@@ -5022,9 +5017,12 @@ function TrendRadar({ holdings, embedded = false }) {
       <button onClick={()=>setDetailsOpen(v=>!v)} className="w-full mt-2 rounded-lg py-1.5 text-[10px] font-bold" style={{background:COLORS.bg,color:COLORS.gold,border:"1px solid "+COLORS.panelBorder}}>
         <UiLabel zh={detailsOpen?"收起判斷明細 ▲":"展開判斷明細 ▼"} />
       </button>
+      <div className="text-[9px] mt-2" style={{color:COLORS.sub}}>{UI_SHOW_ENGLISH?"Percentages are trend scores until calibrated; ranges are historical volatility references.":"百分比為趨勢分數，樣本足夠才校準；價格區間為歷史波動參考。"}</div>
       {accuracy&&<div className="text-[9px] mt-2 mono" style={{color:COLORS.gold}}>{UI_SHOW_ENGLISH ? `Last ${accuracy.n} validated "morning" forecasts: ${((accuracy.hits/accuracy.n)*100).toFixed(1)}% hit rate (excludes unclear direction; stats only, not a guarantee)` : `近 ${accuracy.n} 次已驗證「上午」預測：方向命中 ${((accuracy.hits/accuracy.n)*100).toFixed(1)}%（已排除方向不明，僅統計，不代表未來）`}</div>}
       {closeLockAccuracy&&<div className="text-[9px] mt-1 mono" style={{color:COLORS.gold}}>{UI_SHOW_ENGLISH ? `Last ${closeLockAccuracy.n} validated "pre-close lock" forecasts: ${((closeLockAccuracy.hits/closeLockAccuracy.n)*100).toFixed(1)}% hit rate (locked at 13:25, far easier than morning — kept separate above)` : `近 ${closeLockAccuracy.n} 次已驗證「收盤前鎖定」預測：方向命中 ${((closeLockAccuracy.hits/closeLockAccuracy.n)*100).toFixed(1)}%（13:25 才鎖定，難度遠低於上午，跟上面分開看）`}</div>}
       {tomorrowAccuracy&&<div className="text-[9px] mt-1 mono" style={{color:COLORS.gold}}>{UI_SHOW_ENGLISH ? `Last ${tomorrowAccuracy.n} validated "tomorrow" forecasts: ${((tomorrowAccuracy.hits/tomorrowAccuracy.n)*100).toFixed(1)}% hit rate (excludes unclear direction; stats only, not a guarantee)` : `近 ${tomorrowAccuracy.n} 次已驗證「明日」預測：方向命中 ${((tomorrowAccuracy.hits/tomorrowAccuracy.n)*100).toFixed(1)}%（已排除方向不明，僅統計，不代表未來）`}</div>}
+      {[ ["盤後建立",postCloseAccuracy], ["盤前修正",premarketAccuracy] ].map(([label,stats])=>stats?.n>0?<div key={label} className="text-[9px] mt-1 mono" style={{color:COLORS.gold}}>{label} {stats.n} 筆：方向命中 {(stats.hits/stats.n*100).toFixed(1)}%（獨立統計）</div>:null)}
+      {tomorrowAccuracy&&<div className="text-[9px] mt-1" style={{color:COLORS.sub}}>{UI_SHOW_ENGLISH?`Coverage ${(tomorrowAccuracy.coverage*100).toFixed(0)}% · Always-up baseline ${(tomorrowAccuracy.baselineHits/tomorrowAccuracy.n*100).toFixed(1)}% · Brier ${tomorrowAccuracy.brier.toFixed(3)}`:`出手覆蓋 ${(tomorrowAccuracy.coverage*100).toFixed(0)}% ｜ 同批全猜漲 ${(tomorrowAccuracy.baselineHits/tomorrowAccuracy.n*100).toFixed(1)}% ｜ 機率誤差 ${tomorrowAccuracy.brier.toFixed(3)}`}</div>}
       <div className="text-[9px] mt-1.5 leading-snug" style={{color:COLORS.sub}}>{trendRadarMethodNote(UI_SHOW_ENGLISH)}</div>
     </div>
   );
@@ -5096,17 +5094,17 @@ function FactorBacktest() {
   ]), []);
 
   const morningFactors = useMemo(() => {
-    const recs = (today?.records || []).filter((r) => r.actual && r.phase === "morning");
+    const recs = (today?.records || []).filter((r) => r.modelVersion===TREND_MODEL_VERSION && r.actual && r.phase === "morning");
     return buildFactors(recs, todayFactorDefs);
   }, [today, todayFactorDefs]);
 
   const closeLockFactors = useMemo(() => {
-    const recs = (today?.records || []).filter((r) => r.actual && r.phase === "closeLock");
+    const recs = (today?.records || []).filter((r) => r.modelVersion===TREND_MODEL_VERSION && r.actual && r.phase === "closeLock");
     return buildFactors(recs, todayFactorDefs);
   }, [today, todayFactorDefs]);
 
   const tomorrowFactors = useMemo(() => {
-    const recs = (tomorrow?.records || []).filter((r) => r.actual);
+    const recs = (tomorrow?.records || []).filter((r) => r.modelVersion===TREND_MODEL_VERSION && r.actual && r.phase === "final");
     return buildFactors(recs, [
       ["隔夜綜合訊號", (r) => r.factors?.overnight],
       ["台指近月 %", (r) => r.global?.txfPct],
@@ -5600,17 +5598,17 @@ function DailyClosingAiReport({ holdings, dailyRecords }) {
       const marketLine = [
         Number.isFinite(Number(market.indexPct)) ? `大盤 ${Number(market.indexPct)>=0?"+":""}${Number(market.indexPct).toFixed(2)}%` : "大盤漲跌未知",
         market.direction ? `雷達方向 ${market.direction}` : null,
-        Number.isFinite(Number(market.probability)) ? `機率 ${Number(market.probability).toFixed(0)}%` : null,
+        Number.isFinite(Number(market.probability)) ? `趨勢分數 ${Number(market.probability).toFixed(0)}%` : null,
         market.confidence ? `信心 ${market.confidence}` : null,
       ].filter(Boolean).join("；");
 
       const radarRows = Array.isArray(r.rows) ? r.rows.slice(0,12).map(x => {
         const instNet = [x.f1,x.t1,x.d1].reduce((s,v)=>s+(Number(v)||0),0);
-        return `${x.symbol}：今日 ${Number(x.stockPct||0)>=0?"+":""}${Number(x.stockPct||0).toFixed(2)}%；方向 ${x.direction||"—"}；機率 ${Number(x.probability||0).toFixed(0)}%；法人淨訊號 ${instNet>=0?"+":""}${Math.round(instNet)}；KD 5/15/60 ${x.kd5?.state||"—"}/${x.kd15?.state||"—"}/${x.kd60?.state||"—"}`;
+        return `${x.symbol}：今日 ${Number(x.stockPct||0)>=0?"+":""}${Number(x.stockPct||0).toFixed(2)}%；方向 ${x.direction||"—"}；趨勢分數 ${Number(x.probability||0).toFixed(0)}%；法人淨訊號 ${instNet>=0?"+":""}${Math.round(instNet)}；KD 5/15/60 ${x.kd5?.state||"—"}/${x.kd15?.state||"—"}/${x.kd60?.state||"—"}`;
       }) : [];
 
       const tomorrowLines = r.tomorrow && typeof r.tomorrow === "object"
-        ? Object.entries(r.tomorrow).slice(0,12).map(([sym,x]) => `${sym}：${x?.direction||"—"}，機率 ${Number(x?.probability||0).toFixed(0)}%，信心 ${x?.confidence||"—"}`)
+        ? Object.entries(r.tomorrow).slice(0,12).map(([sym,x]) => `${sym}：${x?.direction||"—"}，趨勢分數 ${Number(x?.probability||0).toFixed(0)}%，信心 ${x?.confidence||"—"}`)
         : [];
 
       const global = r.global || {};
@@ -5622,7 +5620,7 @@ function DailyClosingAiReport({ holdings, dailyRecords }) {
       ].filter(Boolean).join("；") : "";
 
       const recentAccuracy = (arr, phase) => {
-        const rows=(arr?.records||[]).filter(x=>x.actual&&typeof x.actual.hit==="boolean"&&(!phase||x.phase===phase)&&x.direction!=="方向不明").slice(-30);
+        const rows=(arr?.records||[]).filter(x=>x.modelVersion===TREND_MODEL_VERSION&&x.actual&&typeof x.actual.hit==="boolean"&&(!phase||x.phase===phase)&&x.direction!=="方向不明").slice(-30);
         return rows.length ? `${rows.filter(x=>x.actual.hit).length}/${rows.length}（${(rows.filter(x=>x.actual.hit).length/rows.length*100).toFixed(0)}%）` : "資料不足";
       };
 
@@ -5633,7 +5631,7 @@ function DailyClosingAiReport({ holdings, dailyRecords }) {
         `我的台股持股：\n${holdingLines.join("\n") || "無台股持股資料"}`,
         `Trend Radar 個股：\n${radarRows.join("\n") || "尚無雷達資料"}`,
         `明日模型預測：\n${tomorrowLines.join("\n") || "尚無明日預測資料"}`,
-        `最近準確度：上午 ${recentAccuracy(instHist,"morning")}；收盤前 ${recentAccuracy(instHist,"closeLock")}；明日預測 ${recentAccuracy(tomorrowHist,null)}`,
+        `最近準確度：上午 ${recentAccuracy(instHist,"morning")}；收盤前 ${recentAccuracy(instHist,"closeLock")}；明日預測 ${recentAccuracy(tomorrowHist,"final")}`,
         `最近每日資產紀錄：${JSON.stringify(latestDaily)}`,
       ].filter(Boolean).join("\n\n");
 
@@ -5694,7 +5692,7 @@ function DailyClosingAiReport({ holdings, dailyRecords }) {
         `二、持股表現\n${holdingText || "持股收盤資料尚不足。"}${known.some(x=>Number.isFinite(x.pnl))?`\n依收盤/即時價與昨收估算，今日台股持股價格變動約 NT$ ${nf(Math.round(totalPnl))}。`:""}${sorted.length?`\n相對強勢：${sorted[0].symbol} ${numPct(sorted[0].changePct)}；相對弱勢：${sorted[sorted.length-1].symbol} ${numPct(sorted[sorted.length-1].changePct)}。`:""}`,
         `三、相對大盤\n${relativeText}`,
         `四、訊號交叉判讀\n${crossText || "目前有效訊號不足。"}\n\n判讀原則：價格相對大盤、Trend Radar、KD 與法人訊號同向越多，確認度越高；互相背離則視為震盪或尚待確認。`,
-        `五、明日觀察\n${tomorrowText}\n最近準確度：上午 ${recentAccuracy(instHist,"morning")}；收盤前 ${recentAccuracy(instHist,"closeLock")}；明日模型 ${recentAccuracy(tomorrowHist,null)}。`,
+        `五、明日觀察\n${tomorrowText}\n最近準確度：上午 ${recentAccuracy(instHist,"morning")}；收盤前 ${recentAccuracy(instHist,"closeLock")}；明日模型 ${recentAccuracy(tomorrowHist,"final")}。`,
         `六、系統結論\n今日市場狀態為「${marketState}」。明日優先觀察大盤是否延續今日方向，以及相對大盤較強的持股能否維持；若價格、KD、法人與 Radar 同向增加，確認度提高，若背離則維持保守判讀。\n\n※ 本報告由 App 收盤資料與固定規則自動產生，不使用生成式 AI，也不構成買賣建議。`
       ].join("\n\n");
 
@@ -8420,14 +8418,16 @@ async function executeAppSnapshotTool(tc, baseContext) {
     const h=await loadKey("trendRadarHistory",{records:[]});
     const t=await loadKey("trendRadarTomorrowHistory",{records:[]});
     const summarize=(records,phase=null)=>{
-      const done=(records||[]).filter(r=>r.actual&&typeof r.actual.hit==="boolean"&&(!phase||r.phase===phase)&&r.direction!=="方向不明");
+      const done=(records||[]).filter(r=>r.modelVersion===TREND_MODEL_VERSION&&r.actual&&typeof r.actual.hit==="boolean"&&(!phase||r.phase===phase)&&r.direction!=="方向不明");
       const recent=done.slice(-60);
       return {n:recent.length,hits:recent.filter(r=>r.actual.hit).length,accuracy:recent.length?Number((recent.filter(r=>r.actual.hit).length/recent.length*100).toFixed(1)):null};
     };
     add("模型驗證",{
       morning:summarize(h.records,"morning"),
       closeLock:summarize(h.records,"closeLock"),
-      tomorrow:summarize(t.records),
+      tomorrow:summarize(t.records,"final"),
+      postClose:summarize(t.records,"postClose"),
+      premarket:summarize(t.records,"premarket"),
     });
   }
   const out=lines.join("\n").trim();

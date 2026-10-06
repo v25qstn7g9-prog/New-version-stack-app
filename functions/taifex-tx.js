@@ -8,7 +8,7 @@
  * vendor-specific continuous-contract symbol.
  */
 
-const VERSION = "1.0-taifex-tx-near";
+const VERSION = "1.1-premarket-session";
 
 function jsonResponse(data,status=200){
   return new Response(JSON.stringify(data),{
@@ -49,6 +49,7 @@ function cleanText(html){
     .trim();
 }
 function num(s){
+  if(s==null || !String(s).trim() || /^(?:-|--|—|N\/A)$/.test(String(s).trim()))return null;
   const n=Number(String(s??"").replace(/[,▲▼%+]/g,"").trim());
   return Number.isFinite(n)?n:null;
 }
@@ -112,7 +113,7 @@ export async function onRequestGet(){
 
     if(minutes>=15*60){
       marketCode=1; session="after_hours"; queryYmd=nextWeekday(base);
-    }else if(minutes<5*60){
+    }else if(minutes<8*60+45){
       marketCode=1; session="after_hours"; queryYmd=base;
     }else if(minutes>=13*60+45){
       marketCode=0; session="regular_closed"; queryYmd=base;
@@ -122,12 +123,13 @@ export async function onRequestGet(){
     // weekdays and use the first valid TX table.
     const candidates=[queryYmd];
     let x=queryYmd;
-    for(let i=0;i<4;i++){ x= marketCode===1 ? nextWeekday(x) : addDaysYmd(x,-1); candidates.push(x); }
+    for(let i=0;i<4;i++){ x=addDaysYmd(x,-1);while([0,6].includes(weekday(x)))x=addDaysYmd(x,-1); candidates.push(x); }
 
     let rows=[], used=null;
     for(const c of candidates){
       try{
         rows=await fetchReport(fmt(c),marketCode);
+        rows=rows.filter(row=>row.price>0);
         if(rows.length){ used=c; break; }
       }catch(e){}
     }
@@ -135,6 +137,7 @@ export async function onRequestGet(){
 
     rows.sort((a,b)=>a.expiry.localeCompare(b.expiry));
     const near=rows[0];
+    const reportIsExpected=fmt(used)===fmt(queryYmd);
     return jsonResponse({
       ok:true,
       version:VERSION,
@@ -142,6 +145,9 @@ export async function onRequestGet(){
       proxyFor:"*TXFF",
       note:"官方 TX 最近月合約，作為台指近全代理；非資料商連續合約代號",
       session,
+      reportIsExpected,
+      isDelayedReport:!reportIsExpected,
+      timestampKnown:false,
       queryDate:fmt(used||queryYmd),
       fetchedAt:new Date().toISOString(),
       quote:near,
