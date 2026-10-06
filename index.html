@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="存股資產追蹤" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <script src="/bg-core.js?v=3"></script>
-  <script src="/forecast-core.js?v=2.47.8"></script>
+  <script src="/forecast-core.js?v=2.47.9"></script>
   <title>存股資產追蹤</title>
 
   <style>
@@ -546,7 +546,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.47.8-us-broker-auto-calibration";
+const APP_VERSION = "4.7-personal-advisor-v2.47.9-runtime-hotfix";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -3158,7 +3158,7 @@ function AssetTracker() {
                     yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue}
                     usHoldings={usHoldings} usLive={usAssetLive}
                     onGoUsSettings={() => { setHoldingsMarket("us"); goToTab("holdings"); }}
-                    onFillDailyTw={(value) => { setDailyPrefill({ twValue: value, ...(usLive.totalNtd != null ? { usValue: usLive.totalNtd } : {}) }); goToTab("daily"); }}
+                    onFillDailyTw={(value) => { setDailyPrefill({ twValue: value, ...(usAssetLive.totalNtd != null ? { usValue: usAssetLive.totalNtd } : {}) }); goToTab("daily"); }}
                     onFillDailyUs={(value) => { setDailyPrefill({ usValue: value }); goToTab("daily"); }}
                     onGoDaily={() => goToTab("daily")}
                   />
@@ -6269,7 +6269,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
         </button>
       )}
 
-      <LivePricePanel holdings={holdings} usLive={usAssetLive} onFillDailyTw={onFillDailyTw} yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue} hasUsAssets={showUsFields && hasUsAssets} />
+      <LivePricePanel holdings={holdings} usLive={usLive} onFillDailyTw={onFillDailyTw} yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue} hasUsAssets={showUsFields && hasUsAssets} />
 
 
       <DashboardCollapsibleSection
@@ -6984,10 +6984,10 @@ function HoldingsWorkspace({ trades = [], holdings, setHoldings, usLive, market,
         ))}
       </div>}
       {activeMarket === "us" && (
-        <UsBrokerCalibrationCard usLive={usAssetLive} calibration={usBrokerCalibration} setCalibration={setUsBrokerCalibration} />
+        <UsBrokerCalibrationCard usLive={usLive} calibration={usBrokerCalibration} setCalibration={setUsBrokerCalibration} />
       )}
       <HoldingsPanel trades={trades} key={activeMarket} market={activeMarket} holdings={visibleHoldings}
-        allHoldings={holdings} setHoldings={setHoldings} usLive={usAssetLive} />
+        allHoldings={holdings} setHoldings={setHoldings} usLive={usLive} />
     </div>
   );
 }
