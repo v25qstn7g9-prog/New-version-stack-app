@@ -640,7 +640,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.48.3-unified-update-flow";
+const APP_VERSION = "4.7-personal-advisor-v2.48.4-unified-update-flow";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -4273,13 +4273,12 @@ function TrendRadar({ holdings, embedded = false }) {
   const [marketRow, setMarketRow] = useState(null);
   const [tomorrowMap, setTomorrowMap] = useState({});
   const [globalRow, setGlobalRow] = useState(null);
-  // Visible radar state is committed as one atomic snapshot. React can then
-  // patch only changed text/value nodes instead of showing half-updated cards.
-  const committedViewSigRef = useRef("");
-
   useEffect(() => {
     let cancelled = false;
     let recalcRunning = false;
+    // Signature belongs to this effect lifecycle (not React state). It gates
+    // redundant paints while keeping the forecast core testable outside React.
+    let committedViewSig = "";
     let recalcQueued = false;
     // Fast tape lives only in memory: fresh 15-second observations drive the
     // intraday reaction layer without bloating persistent storage.
@@ -5083,8 +5082,8 @@ function TrendRadar({ holdings, embedded = false }) {
         global,
         statuses: [nextInstStatus, nextMarginStatus, nextGlobalStatus],
       });
-      if (viewSig !== committedViewSigRef.current) {
-        committedViewSigRef.current = viewSig;
+      if (viewSig !== committedViewSig) {
+        committedViewSig = viewSig;
         setMarketRow(computedMarketRow);
         setRows(next);
         setTomorrowMap(tomorrow);
