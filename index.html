@@ -967,7 +967,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.47.24-unified-ntd-symbol";
+const APP_VERSION = "4.7-personal-advisor-v2.47.24-money-symbol-consistency";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -4368,12 +4368,12 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
                   <div className="text-right">
                     <div>NT$ {formatNtdPrice(quoteNtd(r, r.price), 1)}</div>
                     <div style={{ color: r.quoteIsStale ? COLORS.sub : (r.chg >= 0 ? COLORS.gain : COLORS.loss) }}>
-                      {r.quoteIsStale && isTwseTradingHours() && !isMarketClosedToday() ? <UiLabel zh="待更新" /> : r.prevCloseOk ? <>{r.chg >= 0 ? "▲ " : "▼ "}NT$ {r.chg >= 0 ? "+" : ""}{formatNtdPrice(quoteNtd(r, Math.abs(r.chg)), 1)}<br />{r.chgPct >= 0 ? "+" : ""}{r.chgPct.toFixed(2)}%</> : "—"}
+                      {r.quoteIsStale && isTwseTradingHours() && !isMarketClosedToday() ? <UiLabel zh="待更新" /> : r.prevCloseOk ? <>{r.chg >= 0 ? "▲ +" : "▼ -"}NT$ {formatNtdPrice(quoteNtd(r, Math.abs(r.chg)), 1)}<br />{r.chgPct >= 0 ? "+" : ""}{r.chgPct.toFixed(2)}%</> : "—"}
                     </div>
                   </div>
                   <div className="text-right">
                     <div className="font-bold">NT$ {formatNtdPrice(r.value, 1)}</div>
-                    {!r.quoteIsStale && <div style={{ color: r.chg >= 0 ? COLORS.gain : COLORS.loss }}>NT$ {r.chg >= 0 ? "+" : ""}{formatNtdPrice(Math.abs(r.chg * r.current * (r.isUS ? Number(usLive?.state?.fx || 0) * Number(usLive?.calibrationFactor || 1) : 1)), 1)}</div>}
+                    {!r.quoteIsStale && <div style={{ color: r.chg >= 0 ? COLORS.gain : COLORS.loss }}>{r.chg >= 0 ? "+" : "-"}NT$ {formatNtdPrice(Math.abs(r.chg * r.current * (r.isUS ? Number(usLive?.state?.fx || 0) * Number(usLive?.calibrationFactor || 1) : 1)), 1)}</div>}
                   </div>
                 </div>
                 <div className="h-[20px] mt-1 opacity-80">
