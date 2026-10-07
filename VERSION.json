@@ -1,9 +1,9 @@
 {
-  "app": "2.47.24",
+  "app": "2.47.25",
   "lastUpdated": "2026-10-06",
-  "status": "unified-ntd-symbol",
+  "status": "money-sign-order",
   "cloudflare": {
-    "index.html": "4.7-personal-advisor-v2.47.24-unified-ntd-symbol",
+    "index.html": "4.7-personal-advisor-v2.47.25-money-sign-order",
     "quote.js": "4.7-quote-schedule-6-us-live",
     "ask.js": "4.7-personal-advisor-v3.2-bounded-learning",
     "news.js": "4.6-news-stable-6",
@@ -28,5 +28,5 @@
     "trendRadar": "非阻塞即時計算；資料來源時間檢查、盤後日線重新更新、夜盤／盤前延續；真正收盤才驗證；同版本及時段校準、基準命中／覆蓋／Brier；歷史波動價格參考區間（非保證目標價）",
     "factorBacktest": "研究用因子回測（總覽頁，雷達卡片下方）：把雷達用到的每個原始因子跟實際漲跌幅算皮爾森相關係數，樣本數不足時不顯示係數，用來判斷哪些因子真的有解釋力"
   },
-  "package": "2.47.24"
+  "package": "2.47.25"
 }
