@@ -8619,16 +8619,30 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
       </Panel>}
 
       <Panel title="資料備份與還原">
-        <div className="rounded-xl p-3 flex gap-2 items-start"
-          style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
-          <ShieldCheck size={18} style={{ color: COLORS.gold, flex: "0 0 auto", marginTop: 1 }} />
-          <div className="text-[11px] leading-5" style={{ color: COLORS.sub }}>
-            <UiLabel zh="JSON 用來完整備份／還原 App；Excel 用來保存、檢視與分析投資歷史。重要修改後建議兩種都留一份。" />
+        <div className="rounded-xl p-3" data-backup-card
+          style={{ background: COLORS.bg, border: `1px solid ${backupOverdue ? "rgba(201,162,75,0.55)" : COLORS.panelBorder}` }}>
+          <div className="flex items-center" style={{ gap: 10 }}>
+            <span className="flex items-center justify-center rounded-full flex-shrink-0"
+              style={{ width: 34, height: 34, background: "rgba(201,162,75,0.12)", border: "1px solid rgba(201,162,75,0.35)" }}>
+              <ShieldCheck size={17} style={{ color: COLORS.gold }} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="text-[10px] leading-4" style={{ color: COLORS.sub }}>{UI_SHOW_ENGLISH ? "Last JSON Backup" : "上次 JSON 備份"}</div>
+              <div className="text-[13px] font-bold mono leading-5 whitespace-nowrap" style={{ color: lastBackupAt ? COLORS.text : COLORS.sub }}>
+                {lastBackupAt
+                  ? <>{new Date(lastBackupAt).toLocaleDateString("zh-TW")}<span className="text-[10px] font-normal" style={{ marginLeft: 8, color: backupOverdue ? COLORS.gold : COLORS.sub }}>{M(`${backupAgeDays}d ago`, `${backupAgeDays} 天前`)}</span></>
+                  : <UiLabel zh="尚未記錄" />}
+              </div>
+            </div>
+            <span className="rounded-full text-[10px] font-bold leading-none whitespace-nowrap flex-shrink-0"
+              style={{ padding: "6px 10px", ...(backupOverdue
+                ? { color: COLORS.bg, background: COLORS.gold }
+                : { color: COLORS.sub, background: "transparent", border: `1px solid ${COLORS.panelBorder}` }) }}>
+              {backupOverdue ? M("Backup due", "建議備份") : M("Up to date", "已備份")}
+            </span>
           </div>
-          <div className="ml-auto text-right text-[10px] leading-4" style={{ color: backupOverdue ? COLORS.gold : COLORS.sub }}>
-            {lastBackupAt
-              ? <>{UI_SHOW_ENGLISH ? "Last JSON Backup" : "上次 JSON 備份"}<br />{new Date(lastBackupAt).toLocaleDateString("zh-TW")}{M(` (${backupAgeDays}d ago)`, `（${backupAgeDays} 天前）`)}</>
-              : <>{UI_SHOW_ENGLISH ? "Last JSON Backup" : "上次 JSON 備份"}<br /><UiLabel zh="尚未記錄" /></>}
+          <div className="text-[11px] leading-5" style={{ marginTop: 10, paddingTop: 10, color: COLORS.sub, borderTop: `1px solid ${COLORS.panelBorder}` }}>
+            <UiLabel zh="JSON 用來完整備份／還原 App；Excel 用來保存、檢視與分析投資歷史。重要修改後建議兩種都留一份。" />
           </div>
         </div>
         <div className="grid grid-cols-3 gap-2 mt-3">
