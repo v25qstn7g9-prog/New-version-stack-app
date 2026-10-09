@@ -3649,6 +3649,7 @@ function AssetTracker() {
 
       <div ref={headerRef}>
         <Header goal={goal} totalToday={totalToday} goalDate={goalDate} backupOverdue={backupOverdue} backupAgeDays={backupAgeDays} showEnglish={showEnglish} onToggleBilingual={toggleBilingual} />
+        <ClosingReminderBanner />
         {pendingTrades.length > 0 && (
           <PendingTradesBanner trades={pendingTrades} onApply={applyPendingTrade} onDismiss={dismissPendingTrade} showEnglish={showEnglish} />
         )}
@@ -8964,10 +8965,31 @@ function MissingHint({ missing }) {
     </div>
   );
 }
-// 收盤推播（13:45 提醒、14:00 自動記錄）的開關。自成一個元件，狀態不依賴 App 本體。
-function PushReminderPanel() {
+// <closing-reminder>
+// 收盤提醒與自動記錄：預設「想要開」(wanted)。但瀏覽器規定通知權限一定要使用者自己按同意，
+// 程式不能偷偷開，所以「勾選」代表想開，真正開了才會顯示「已開啟」；還沒開就在 App 上方請她按一下允許。
+const CLOSING_REMINDER_WANTED_KEY = "closingReminderWanted";
+function closingReminderWanted(storage) {
+  try { return storage?.getItem(CLOSING_REMINDER_WANTED_KEY) !== "0"; } catch { return true; }
+}
+// state: unknown | unsupported | off | on。回傳畫面要用的狀態。
+function closingReminderStatus({ wanted, pushState, permission, ios, standalone }) {
+  if (pushState === "on") return "on";
+  if (pushState === "unknown") return "loading";
+  if (!wanted) return "declined";
+  if (pushState === "unsupported") return ios && !standalone ? "needs_install" : "unsupported";
+  if (permission === "denied") return "blocked";
+  return "needs_allow";
+}
+// </closing-reminder>
+function useClosingReminder() {
   const [pushState, setPushState] = useState("unknown");
   const [pushMsg, setPushMsg] = useState("");
+  const [wanted, setWantedState] = useState(() => closingReminderWanted(window.localStorage));
+  const setWanted = (v) => {
+    setWantedState(v);
+    try { window.localStorage.setItem(CLOSING_REMINDER_WANTED_KEY, v ? "1" : "0"); } catch {}
+  };
   useEffect(() => {
     (async () => {
       try {
@@ -8978,13 +9000,13 @@ function PushReminderPanel() {
       } catch { setPushState("unsupported"); }
     })();
   }, []);
-  const enablePush = async () => {
+  const enable = async () => {
     setPushMsg("");
     try {
       const standalone = window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone === true;
-      if (/iPad|iPhone|iPod/.test(navigator.userAgent) && !standalone) { setPushMsg("iPhone 要先用 Safari「分享 → 加入主畫面」，從主畫面打開 App 再開啟提醒。"); return; }
+      if (/iPad|iPhone|iPod/.test(navigator.userAgent) && !standalone) { setPushMsg("iPhone 要先用 Safari「分享 → 加入主畫面」，從主畫面打開 App 再開啟提醒。"); return false; }
       const perm = await Notification.requestPermission();
-      if (perm !== "granted") { setPushMsg("通知權限沒有開啟，請到手機設定允許通知。"); return; }
+      if (perm !== "granted") { setPushMsg("通知權限沒有開啟，請到手機設定允許通知。"); return false; }
       const reg = await navigator.serviceWorker.register("/sw.js");
       await navigator.serviceWorker.ready;
       const keyRes = await fetchWithTimeout("/api/push/key", { cache: "no-store" }, 8000);
@@ -8994,11 +9016,13 @@ function PushReminderPanel() {
       if (!res.ok) throw new Error("訂閱失敗");
       setPushState("on");
       setPushMsg("已開啟。開盤日 13:45 提醒、14:00 自動記錄。");
+      return true;
     } catch (e) {
       setPushMsg("開啟失敗：" + (e?.message || "請稍後再試"));
+      return false;
     }
   };
-  const disablePush = async () => {
+  const disable = async () => {
     try {
       const reg = await navigator.serviceWorker.getRegistration();
       const sub = await reg?.pushManager.getSubscription();
@@ -9012,19 +9036,63 @@ function PushReminderPanel() {
       setPushMsg("關閉失敗：" + (e?.message || ""));
     }
   };
+  const ios = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const standalone = Boolean(window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone === true);
+  const status = closingReminderStatus({ wanted, pushState, permission: typeof Notification !== "undefined" ? Notification.permission : "default", ios, standalone });
+  return { status, wanted, setWanted, enable, disable, pushMsg };
+}
+// 收盤推播（13:45 提醒、14:00 自動記錄）的開關：預設勾選。
+function PushReminderPanel() {
+  const r = useClosingReminder();
+  const onToggle = async (checked) => {
+    r.setWanted(checked);
+    if (checked) await r.enable(); else await r.disable();
+  };
   return (
     <Panel title="收盤提醒與自動記錄">
       <div className="text-[11px] leading-5" style={{ color: COLORS.sub }}>
         開盤日 13:45 提醒你記帳；14:00 還沒記錄的話，手機會在背景用收盤價幫你記好（美股沿用上一筆），你之後手動改就以手動為準。伺服器只記得「要通知哪支手機」，不會收到你的持股或金額。
       </div>
-      {pushState === "unsupported" && <div className="mt-2 text-[11px]" style={{ color: "#b45309" }}>這個瀏覽器不支援背景通知。iPhone 請用 Safari「加入主畫面」後從主畫面打開（iOS 16.4 以上）。</div>}
-      {pushMsg && <div className="mt-2 text-[11px]" style={{ color: COLORS.sub }}>{pushMsg}</div>}
-      <div className="mt-3">
-        {pushState === "on"
-          ? <button onClick={disablePush} className="w-full rounded-lg py-2 text-[11px] font-bold" style={{ background: COLORS.bg, color: COLORS.sub, border: `1px solid ${COLORS.panelBorder}` }}>已開啟 ✓　點一下關閉</button>
-          : <button onClick={enablePush} disabled={pushState === "unsupported"} className="w-full rounded-lg py-2 text-[11px] font-bold" style={{ background: COLORS.bg, color: COLORS.gold, border: `1px solid ${COLORS.gold}`, opacity: pushState === "unsupported" ? 0.5 : 1 }}>開啟收盤提醒與自動記錄</button>}
-      </div>
+      <label className="mt-3 flex items-center gap-2 text-[12px] cursor-pointer" style={{ color: COLORS.text }}>
+        <input type="checkbox" checked={r.wanted} onChange={(e) => onToggle(e.target.checked)} />
+        <span className="font-bold"><UiLabel zh="開啟收盤提醒與自動記錄" inline /></span>
+      </label>
+      {r.status === "on" && <div className="mt-2 text-[11px]" style={{ color: COLORS.gold }}>已開啟 ✓</div>}
+      {r.status === "needs_allow" && (
+        <div className="mt-2">
+          <div className="text-[11px] leading-5" style={{ color: COLORS.sub }}>瀏覽器規定要你自己按同意才能開通知，按下面的按鈕就完成了。</div>
+          <button onClick={() => r.enable()} className="mt-2 w-full rounded-lg py-2 text-[11px] font-bold" style={{ background: COLORS.gold, color: COLORS.bg }}>允許通知</button>
+        </div>
+      )}
+      {r.status === "blocked" && <div className="mt-2 text-[11px] leading-5" style={{ color: "#b45309" }}>通知被手機擋住了，請到手機「設定」裡允許這個 App 的通知，再回來勾選。</div>}
+      {r.status === "needs_install" && <div className="mt-2 text-[11px] leading-5" style={{ color: "#b45309" }}>iPhone 要先用 Safari「分享 → 加入主畫面」，從主畫面打開 App 才能開通知（iOS 16.4 以上）。</div>}
+      {r.status === "unsupported" && <div className="mt-2 text-[11px] leading-5" style={{ color: "#b45309" }}>這個瀏覽器不支援背景通知。iPhone 請用 Safari「加入主畫面」後從主畫面打開（iOS 16.4 以上）。</div>}
+      {r.pushMsg && <div className="mt-2 text-[11px]" style={{ color: COLORS.sub }}>{r.pushMsg}</div>}
     </Panel>
+  );
+}
+// 還沒開通知時，App 上方請她按一下允許（一天提醒一次，按「不用了」就取消勾選）。
+function ClosingReminderBanner() {
+  const r = useClosingReminder();
+  const [hiddenDay, setHiddenDay] = useState(() => { try { return localStorage.getItem("closingReminderBannerHidden") || ""; } catch { return ""; } });
+  const today = taipeiDateKey(new Date());
+  if (r.status !== "needs_allow" || hiddenDay === today) return null;
+  const later = () => { try { localStorage.setItem("closingReminderBannerHidden", today); } catch {} setHiddenDay(today); };
+  return (
+    <div className="mx-4 mb-3 rounded-xl p-3" data-closing-reminder-banner style={{ background: COLORS.panel, border: `1px solid ${COLORS.gold}` }}>
+      <div className="text-[11px] font-bold" style={{ color: COLORS.gold }}>
+        {UI_SHOW_ENGLISH ? "🔔 Turn on the 13:45 reminder and 14:00 auto-record" : "🔔 開啟收盤提醒與自動記錄"}
+      </div>
+      <div className="mt-1 text-[11px] leading-5" style={{ color: COLORS.sub }}>
+        {UI_SHOW_ENGLISH ? "Your browser needs you to tap Allow once." : "13:45 提醒你記帳，14:00 沒記的話手機會自動幫你記。瀏覽器規定要你按一下「允許」。"}
+      </div>
+      <div className="mt-2 grid grid-cols-3 gap-2">
+        <button onClick={() => r.enable()} className="col-span-2 rounded-lg py-1.5 text-[11px] font-bold" style={{ background: COLORS.gold, color: COLORS.bg }}>{UI_SHOW_ENGLISH ? "Allow notifications" : "允許通知"}</button>
+        <button onClick={later} className="rounded-lg py-1.5 text-[11px] font-bold" style={{ background: COLORS.bg, color: COLORS.sub, border: `1px solid ${COLORS.panelBorder}` }}>{UI_SHOW_ENGLISH ? "Later" : "稍後"}</button>
+      </div>
+      <button onClick={() => r.setWanted(false)} className="mt-2 text-[10px] underline" style={{ color: COLORS.sub }}>{UI_SHOW_ENGLISH ? "Don't ask again" : "不用了，不要再提醒"}</button>
+      {r.pushMsg && <div className="mt-1 text-[10px]" style={{ color: COLORS.sub }}>{r.pushMsg}</div>}
+    </div>
   );
 }
 

@@ -67,8 +67,11 @@ test('index.html, sw.js and worker wiring are all in place', () => {
   assert.match(html, /\/api\/closes\?days=45/);
   assert.match(html, /function PushReminderPanel\(\)/);
   assert.match(html, /<PushReminderPanel \/>/);
-  const app = html.slice(html.indexOf('function PushReminderPanel'), html.indexOf('function AddButton'));
-  assert.match(app, /useState\("unknown"\)/, 'push state lives inside its own component, not the App body');
+  const app = html.slice(html.indexOf('function useClosingReminder'), html.indexOf('function AddButton'));
+  assert.match(app, /useState\("unknown"\)/, 'push state lives inside its own hook/components, not the App body');
+  const appBody = html.slice(html.indexOf('function AssetTracker('), html.indexOf('function Header('));
+  assert.ok(!/useClosingReminder\(\)/.test(appBody), 'the App body itself must not hold push state');
+  assert.match(html, /<ClosingReminderBanner \/>/);
   assert.match(sw, /importScripts\("\/bg-core\.js\?v=3"\)/);
   assert.equal((sw.match(/showNotification/g) || []).length >= 2, true);
   assert.match(sw, /addEventListener\("push"/);
