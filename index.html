@@ -982,6 +982,29 @@ const TABS = [
   { id: "plan", label: "計畫設定", en: "Settings", icon: Settings2 },
 ];
 
+// <advanced-mode>
+// 進階使用：目標／定期定額／本金計畫相關功能只給有在用的人。預設關閉。
+const DEFAULT_GOAL = { targetAmount: 10000000, targetYear: 2035 };
+// 一次性自動判斷：目標跟預設不同、有定期定額、或本金／資產／每月投入有填，都視為進階。
+function detectAdvancedUse({ goal, planItems, planSchedule } = {}) {
+  const g = goal || {};
+  if (g.targetAmount != null && Number(g.targetAmount) !== DEFAULT_GOAL.targetAmount) return true;
+  if (g.targetYear != null && Number(g.targetYear) !== DEFAULT_GOAL.targetYear) return true;
+  if (Array.isArray(planItems) && planItems.length > 0) return true;
+  const ps = planSchedule || {};
+  return [ps.initialPrincipal, ps.initialAssets, ps.initialCapital, ps.monthlyAmount].some((v) => Number(v) > 0);
+}
+// 第一次載入（還沒存過進階旗標）才用：已經存過目標的舊使用者一律視為進階，
+// 全新安裝則看有沒有實際填過計畫。之後以使用者勾選為準。
+function initialAdvancedMode({ saved, hadStoredGoal, goal, planItems, planSchedule }) {
+  if (typeof saved === "boolean") return saved;
+  return Boolean(hadStoredGoal) || detectAdvancedUse({ goal, planItems, planSchedule });
+}
+function visibleTabsFor(allTabs, advanced) {
+  return advanced ? allTabs : allTabs.filter((t) => t.id !== "progress");
+}
+// </advanced-mode>
+
 const COLORS = {
   bg: "#0A0F1C",
   panel: "#111A2E",
@@ -1036,6 +1059,9 @@ const UI_EN = {
   "配息歷史": "Dividend History",
   "新增配息": "Add Dividend",
   "退休目標設定": "Retirement Goal",
+  "進階使用": "Advanced",
+  "啟用進階功能（目標與投資計畫）": "Enable advanced features (goal & investment plan)",
+  "開啟後會顯示退休目標、每月定期定額和「計畫進度」頁。關閉只是隱藏，已設定的資料都會保留。": "Shows the retirement goal, monthly recurring plan and the Progress tab. Turning it off only hides them; your saved data is kept.",
   "新增定期定額項目": "Add Recurring Investment",
   "系統健康": "System Health",
   "AI 雙層備援（自動）": "AI Dual Fallback",
@@ -2056,13 +2082,17 @@ function relativeTimeLabel(iso) {
 }
 
 // ---------- AI 問答用：把目前持股狀況整理成一段純文字，讓 Claude 直接讀 ----------
-function buildPortfolioContext(holdings, goal, totalToday, totalInvested, trades, dailyRecords, dividends, planItems, planSchedule, goalDate, perf) {
+function buildPortfolioContext(holdings, goal, totalToday, totalInvested, trades, dailyRecords, dividends, planItems, planSchedule, goalDate, perf, includeGoal = true) {
   const lines = [];
   const overallPct = goal?.targetAmount ? Math.min(100, (totalToday / goal.targetAmount) * 100) : 0;
   const remain = goal?.targetAmount ? Math.max(0, goal.targetAmount - totalToday) : 0;
-  lines.push(`總目標：${goal?.targetYear || "-"} 年 NT$ ${nf(goal?.targetAmount || 0)}`);
-  lines.push(`目前總資產：NT$ ${nf(totalToday || 0)}（已達成整體目標${overallPct.toFixed(1)}%，距目標還差NT$ ${nf(remain)}）`);
-  lines.push(`整體目標預計達成時間：${goalDate ? goalDate : "以目前的計畫假設無法在投影期間內達成，或尚未設定"}`);
+  if (includeGoal) {
+    lines.push(`總目標：${goal?.targetYear || "-"} 年 NT$ ${nf(goal?.targetAmount || 0)}`);
+    lines.push(`目前總資產：NT$ ${nf(totalToday || 0)}（已達成整體目標${overallPct.toFixed(1)}%，距目標還差NT$ ${nf(remain)}）`);
+    lines.push(`整體目標預計達成時間：${goalDate ? goalDate : "以目前的計畫假設無法在投影期間內達成，或尚未設定"}`);
+  } else {
+    lines.push(`目前總資產：NT$ ${nf(totalToday || 0)}（使用者未啟用「進階功能」，沒有設定目標與投資計畫，不要主動談目標進度）`);
+  }
   if (totalInvested != null) lines.push(`累計投入本金：NT$ ${nf(totalInvested)}`);
 
   // 總覽頁的績效數字（持倉損益、累積股息、粗估總報酬/報酬率、資產新高/拉回、今年以來報酬）。
@@ -2076,7 +2106,7 @@ function buildPortfolioContext(holdings, goal, totalToday, totalInvested, trades
   }
 
   // 計畫進度頁：成本進度／資產進度各自跟「已執行月數」比較，是否超前或落後排程。
-  if (perf && perf.elapsedMonths != null) {
+  if (includeGoal && perf && perf.elapsedMonths != null) {
     const leadText = (label, v) => v == null ? "" : `，${label}${v >= 0 ? "領先" : "落後"}計畫排程約${Math.abs(v).toFixed(1)}個月`;
     lines.push(`計畫進度：已執行${perf.elapsedMonths}個月` +
       leadText("成本進度", perf.costLeadMonths) + leadText("資產進度", perf.assetLeadMonths));
@@ -2146,13 +2176,13 @@ function buildPortfolioContext(holdings, goal, totalToday, totalInvested, trades
   }
 
   // 計畫設定：定期定額配置 + 資產成長曲線假設（計畫進度頁面用來投影「預計達成日」的依據）。
-  if (Array.isArray(planItems) && planItems.length > 0) {
+  if (includeGoal && Array.isArray(planItems) && planItems.length > 0) {
     lines.push(`\n定期定額配置：`);
     for (const p of planItems) {
       lines.push(`${p.symbol} 每期NT$ ${nf(p.amount)}${p.note ? `（${p.note}）` : ""}`);
     }
   }
-  if (planSchedule) {
+  if (includeGoal && planSchedule) {
     lines.push(`\n資產成長計畫假設：起始日${planSchedule.startDate}，起始本金NT$ ${nf(planSchedule.initialPrincipal ?? planSchedule.initialCapital)}，` +
       `起始資產NT$ ${nf(planSchedule.initialAssets ?? planSchedule.initialCapital)}，每月投入NT$ ${nf(planSchedule.monthlyAmount)}，年化報酬率${planSchedule.annualReturn}%，` +
       `投影期間${planSchedule.horizonMonths}個月`);
@@ -2353,6 +2383,9 @@ function AssetTracker() {
   // 每日紀錄的市場顯示偏好：台股固定啟用，美股由使用者自行勾選。
   // 只有明確勾選才顯示美股版面；歷史持股不決定顯示偏好。
   const [showUsFields, setShowUsFields] = useState(false);
+  const [advancedMode, setAdvancedMode] = useState(false);
+  const advanced = advancedMode === true;
+  const visibleTabs = visibleTabsFor(TABS, advanced);
   // 美股券商市值校準：使用者只需輸入一次券商當下總市值，
   // 之後公開行情估值會自動乘上同一倍率；持股或股數變動時舊倍率自動失效。
   const [usBrokerCalibration, setUsBrokerCalibration] = useState({
@@ -2401,6 +2434,10 @@ function AssetTracker() {
   const tabTransitionRaf2Ref = useRef(null);
   const tabRef = useRef(tab);
   tabRef.current = tab;
+  const visibleTabsRef = useRef(visibleTabs);
+  visibleTabsRef.current = visibleTabs;
+  // 關掉進階使用時人還停在「計畫進度」，直接回總覽。
+  useEffect(() => { if (ready && !advanced && tab === "progress") setTab("dashboard"); }, [ready, advanced, tab]);
   const transitionRef = useRef(transitionState);
   transitionRef.current = transitionState;
 
@@ -2415,8 +2452,8 @@ function AssetTracker() {
   // 統一的換頁入口：點下面的分頁按鈕、或程式內部跳頁，都走這裡。
   const goToTab = (nextId) => {
     if (nextId === tab || transitionState) return;
-    const fromIndex = TABS.findIndex((x) => x.id === tab);
-    const toIndex = TABS.findIndex((x) => x.id === nextId);
+    const fromIndex = visibleTabs.findIndex((x) => x.id === tab);
+    const toIndex = visibleTabs.findIndex((x) => x.id === nextId);
     if (toIndex < 0) return;
     beginTransition(tab, nextId, toIndex > fromIndex ? "left" : "right", { mode: "tap" });
     setSettled(false);
@@ -2494,10 +2531,11 @@ function AssetTracker() {
         if (Math.abs(dx) <= Math.abs(dy)) { g = null; return; } // mostly vertical: let the page scroll
         g.axis = "x";
         g.dir = dx < 0 ? "left" : "right";
-        const idx = TABS.findIndex((x) => x.id === tabRef.current);
+        const tabsNow = visibleTabsRef.current;
+        const idx = tabsNow.findIndex((x) => x.id === tabRef.current);
         const nIdx = g.dir === "left" ? idx + 1 : idx - 1;
-        if (idx >= 0 && nIdx >= 0 && nIdx < TABS.length) {
-          g.neighbor = TABS[nIdx].id;
+        if (idx >= 0 && nIdx >= 0 && nIdx < tabsNow.length) {
+          g.neighbor = tabsNow[nIdx].id;
           dragDxRef.current = 0;
           beginTransition(tabRef.current, g.neighbor, g.dir, { mode: "drag", phase: "dragging" });
           setSettled(true);
@@ -2621,7 +2659,7 @@ function AssetTracker() {
   // ---- initial load ----
   useEffect(() => {
     (async () => {
-      const [dr, h, uh, t, dv, p, g, ps, cb, lba, afc, lst, suf, ubc] = await Promise.all([
+      const [dr, h, uh, t, dv, p, g, ps, cb, lba, afc, lst, suf, ubc, advSaved, goalStored] = await Promise.all([
         loadKey("dailyRecords", defaultDailyRecords()),
         loadKey("holdings", defaultHoldings()),
         loadKey("usHoldings", []),
@@ -2636,6 +2674,8 @@ function AssetTracker() {
         loadKey("zinfSyncToken", "").then(async (v) => v || await loadKey(String.fromCharCode(108,105,110,101,83,121,110,99,84,111,107,101,110), "")),
         loadKey("showUsFields", null),
         loadKey("usBrokerCalibration", null),
+        loadKey("advancedMode", null),
+        loadKey("goal", null),
       ]);
       setDailyRecords(dr);
       setHoldings(mergeLegacyUsHoldings(h, Array.isArray(uh) ? uh : [], t));
@@ -2659,6 +2699,7 @@ function AssetTracker() {
       } : { url: "", token: "", allowPrivate: false });
       setZinfSyncToken(typeof lst === "string" ? lst : "");
       setShowUsFields(suf === true);
+      setAdvancedMode(initialAdvancedMode({ saved: advSaved, hadStoredGoal: goalStored != null, goal: g, planItems: p, planSchedule: ps }));
       if (isObject(ubc)) {
         setUsBrokerCalibration({
           enabled: ubc.enabled === true,
@@ -2716,6 +2757,7 @@ function AssetTracker() {
   useEffect(() => { if (ready) saveKey("aiFallbackConfig", aiFallbackConfig); }, [aiFallbackConfig, ready]);
   useEffect(() => { if (ready) saveKey("zinfSyncToken", zinfSyncToken); }, [zinfSyncToken, ready]);
   useEffect(() => { if (ready) saveKey("showUsFields", showUsFields); }, [showUsFields, ready]);
+  useEffect(() => { if (ready) saveKey("advancedMode", advancedMode); }, [advancedMode, ready]);
   useEffect(() => { if (ready) saveKey("usBrokerCalibration", usBrokerCalibration); }, [usBrokerCalibration, ready]);
 
   // Owner UI 判定只送現有同步 token 給 Worker 比對；伺服器只回 true/false。
@@ -2766,7 +2808,7 @@ function AssetTracker() {
       appVersion: APP_VERSION,
       schemaVersion: BACKUP_SCHEMA_VERSION,
       exportedAt,
-      data: { dailyRecords, holdings, trades, dividends, planItems, goal, planSchedule, costBasis, usBrokerCalibration },
+      data: { dailyRecords, holdings, trades, dividends, planItems, goal, planSchedule, costBasis, usBrokerCalibration, advancedMode },
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -2918,6 +2960,8 @@ function AssetTracker() {
       setGoal(data.goal);
       const defaultPs = defaultPlanSchedule();
       const importedPs = data.planSchedule || {};
+      // 還原不會把人降級：備份標示進階、或內容有目標／定期定額／本金計畫，就自動打開。
+      setAdvancedMode((cur) => cur || data.advancedMode === true || detectAdvancedUse({ goal: data.goal, planItems: data.planItems, planSchedule: importedPs }));
       setPlanSchedule({
         ...defaultPs,
         ...importedPs,
@@ -3170,7 +3214,7 @@ function AssetTracker() {
     })();
   }, []);
   useEffect(() => {
-    if (!ready || celebratedMilestones === null || !goal.targetAmount) return;
+    if (!ready || !advanced || celebratedMilestones === null || !goal.targetAmount) return;
     const pct = (totalToday / goal.targetAmount) * 100;
     const milestones = [50, 80, 100];
     const next = milestones.find((m) => pct >= m && !celebratedMilestones.includes(m));
@@ -3181,7 +3225,7 @@ function AssetTracker() {
       setCelebration(next);
       setTimeout(() => setCelebration(null), 3200);
     }
-  }, [totalToday, goal.targetAmount, ready, celebratedMilestones]);
+  }, [totalToday, goal.targetAmount, ready, advanced, celebratedMilestones]);
 
   const backupAgeDays = lastBackupAt && Number.isFinite(Date.parse(lastBackupAt))
     ? Math.max(0, Math.floor((Date.now() - Date.parse(lastBackupAt)) / 86400000))
@@ -3626,7 +3670,7 @@ function AssetTracker() {
                     capitalGain={capitalGain} totalDividends={totalDividends} totalReturn={totalReturn}
                     totalReturnPct={totalReturnPct}
                     twTotalReturn={twTotalReturn} twTotalReturnPct={twTotalReturnPct}
-                    usTotalReturn={usTotalReturn} usTotalReturnPct={usTotalReturnPct} hasUsAssets={hasUsAssets} showUsFields={showUsFields}
+                    usTotalReturn={usTotalReturn} usTotalReturnPct={usTotalReturnPct} hasUsAssets={hasUsAssets} showUsFields={showUsFields} showGoal={advanced}
                     highPoint={highPoint} drawdown={drawdown}
                     ytdGain={ytdGain} ytdPct={ytdPct}
                     chartData={chartData} goal={goal} goalDate={goalDate} totalInvested={totalInvested}
@@ -3664,7 +3708,7 @@ function AssetTracker() {
                 );
               case "plan":
                 return (
-                  <PlanPanel planItems={planItems} setPlanItems={setPlanItems}
+                  <PlanPanel advanced={advanced} setAdvancedMode={setAdvancedMode} planItems={planItems} setPlanItems={setPlanItems}
                     planTotal={planTotal} goal={goal} setGoal={setGoal}
                     exportBackup={exportBackup} importBackup={importBackup} exportExcel={exportExcel} lastBackupAt={lastBackupAt} backupAgeDays={backupAgeDays} backupOverdue={backupOverdue}
                     aiFallbackConfig={aiFallbackConfig} setAiFallbackConfig={setAiFallbackConfig}
@@ -3756,8 +3800,8 @@ function AssetTracker() {
         })()}
       </main>
 
-      <AiChatWidget holdings={holdingsWithShares} goal={goal} totalToday={totalToday} totalInvested={totalInvested}
-        trades={trades} setTrades={setTrades} setHoldings={setHoldings} setGoal={setGoal}
+      <AiChatWidget advancedUse={advanced} holdings={holdingsWithShares} goal={goal} totalToday={totalToday} totalInvested={totalInvested}
+        trades={trades} setTrades={setTrades} setHoldings={setHoldings} setGoal={(v) => { setGoal(v); setAdvancedMode(true); }}
         dailyRecords={dailyRecords} dividends={dividends} planItems={planItems} planSchedule={planSchedule}
         goalDate={goalDate} aiFallbackConfig={aiFallbackConfig} zinfSyncToken={zinfSyncToken}
         perf={{
@@ -3765,7 +3809,7 @@ function AssetTracker() {
           elapsedMonths, costLeadMonths, assetLeadMonths, startingCost: costBasis?.startingCost,
         }} />
 
-      <TabBar tab={tab} setTab={goToTab} rootRef={tabBarRef} showEnglish={showEnglish} />
+      <TabBar tabs={visibleTabs} tab={tab} setTab={goToTab} rootRef={tabBarRef} showEnglish={showEnglish} />
     </div>
   );
 }
@@ -6688,7 +6732,7 @@ function GoalProgressCard({ goal, totalToday, goalDate }) {
 }
 
 function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, dailyChangePct, capitalGain, totalDividends,
-  totalReturn, totalReturnPct, twTotalReturn, twTotalReturnPct, usTotalReturn, usTotalReturnPct, hasUsAssets, showUsFields = false,
+  totalReturn, totalReturnPct, twTotalReturn, twTotalReturnPct, usTotalReturn, usTotalReturnPct, hasUsAssets, showUsFields = false, showGoal = false,
   highPoint, drawdown, ytdGain, ytdPct, chartData, goal, goalDate, totalInvested, holdings,
   dailyRecords, dividends, yesterdayTwValue, yesterdayUsValue, onFillDailyTw, onFillDailyUs, usHoldings = [], usLive, onGoUsSettings, onGoDaily }) {
   const up = dailyChange >= 0;
@@ -6751,7 +6795,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
         )}
 
         {/* 目標進度併入總資產 Hero：資產數字 → 目標 → 曲線，同一張卡一次看完。 */}
-        {goal?.targetAmount > 0 && (() => {
+        {showGoal && goal?.targetAmount > 0 && (() => {
           const remain = Math.max(0, goal.targetAmount - totalToday);
           const pct = Math.min(100, (totalToday / goal.targetAmount) * 100);
           return (
@@ -6820,7 +6864,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
                     contentStyle={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, fontSize: 12 }}
                     cursor={{ stroke: COLORS.sub, strokeDasharray: "3 3" }}
                     formatter={(v) => [`NT$ ${nf(v)}`, uiText("總資產")]} />
-                  <ReferenceLine y={goal.targetAmount} stroke={COLORS.gold} strokeDasharray="4 4" />
+                  {showGoal && goal?.targetAmount > 0 && <ReferenceLine y={goal.targetAmount} stroke={COLORS.gold} strokeDasharray="4 4" />}
                   <Area type="monotone" dataKey="total" stroke="#6FAFC2" strokeWidth={2} fill="url(#assetCurveFill)"
                     dot={false} activeDot={{ r: 4, fill: "#6FAFC2", stroke: COLORS.panel, strokeWidth: 2 }} />
                 </AreaChart>
@@ -8413,7 +8457,7 @@ function DividendsPanel({ dividends, setDividends, holdings, usLive }) {
 }
 
 // ---------------- Plan Panel ----------------
-function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBackup, importBackup, exportExcel, lastBackupAt, backupAgeDays, backupOverdue, aiFallbackConfig, setAiFallbackConfig, zinfSyncToken, setZinfSyncToken, zinfSyncStatus, isOwner, systemStats, healthCards, healthCardBusyId, respondHealthCard }) {
+function PlanPanel({ advanced = false, setAdvancedMode, planItems, setPlanItems, planTotal, goal, setGoal, exportBackup, importBackup, exportExcel, lastBackupAt, backupAgeDays, backupOverdue, aiFallbackConfig, setAiFallbackConfig, zinfSyncToken, setZinfSyncToken, zinfSyncStatus, isOwner, systemStats, healthCards, healthCardBusyId, respondHealthCard }) {
   const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
   const [form, setForm] = useState({ symbol: "", amount: "", note: "" });
   const [fallbackTest, setFallbackTest] = useState({ status: "idle", message: "" });
@@ -8496,6 +8540,19 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
 
   return (
     <div className="space-y-2">
+      <Panel title="進階使用">
+        <label className="flex items-start gap-2 text-[12px] cursor-pointer" style={{ color: COLORS.text }}>
+          <input type="checkbox" checked={advanced} onChange={(e) => setAdvancedMode?.(e.target.checked)} style={{ marginTop: 2 }} />
+          <span>
+            <span className="font-bold"><UiLabel zh="啟用進階功能（目標與投資計畫）" inline /></span>
+            <span className="block text-[11px] leading-5" style={{ color: COLORS.sub }}>
+              <UiLabel zh="開啟後會顯示退休目標、每月定期定額和「計畫進度」頁。關閉只是隱藏，已設定的資料都會保留。" />
+            </span>
+          </span>
+        </label>
+      </Panel>
+
+      {advanced && (<>
       <Panel title="退休目標設定">
         <div className="grid grid-cols-2 gap-2">
           <Field label="目標金額 (NTD)"><input type="number" value={goal.targetAmount}
@@ -8534,6 +8591,7 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
         <MissingHint missing={[!form.symbol && "代號", !form.amount && "月投入金額"].filter(Boolean)} />
         <AddButton onClick={add} label="新增項目" disabled={!form.symbol || !form.amount} />
       </Panel>
+      </>)}
 
       {healthCards.length > 0 && (
         <Panel title="系統健康">
@@ -9364,7 +9422,7 @@ function cleanAiDisplayText(text) {
   return out;
 }
 
-function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTrades, setHoldings, setGoal, dailyRecords, dividends, planItems, planSchedule, goalDate, perf, aiFallbackConfig, zinfSyncToken }) {
+function AiChatWidget({ advancedUse = true, holdings, goal, totalToday, totalInvested, trades, setTrades, setHoldings, setGoal, dailyRecords, dividends, planItems, planSchedule, goalDate, perf, aiFallbackConfig, zinfSyncToken }) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([]); // {role, content} 一般訊息，或 {role:'assistant', toolCall, status} 確認卡片
   const [input, setInput] = useState("");
@@ -9502,7 +9560,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
     setSending(true);
 
     try {
-      const portfolioContext = buildPortfolioContext(holdings, goal, totalToday, totalInvested, trades, dailyRecords, dividends, planItems, planSchedule, goalDate, perf);
+      const portfolioContext = buildPortfolioContext(holdings, goal, totalToday, totalInvested, trades, dailyRecords, dividends, planItems, planSchedule, goalDate, perf, advancedUse);
       const radarSnapshot = await loadKey("trendRadarCurrentSnapshot", null);
       const liveSnapshot = await loadKey("livePrices", null);
       const compactRuntime = [
@@ -9814,7 +9872,7 @@ function AiChatWidget({ holdings, goal, totalToday, totalInvested, trades, setTr
   );
 }
 
-function TabBar({ tab, setTab, rootRef, showEnglish }) {
+function TabBar({ tabs = TABS, tab, setTab, rootRef, showEnglish }) {
   return (
     <div ref={rootRef} className="fixed bottom-0 left-0 right-0 premium-tabbar"
       style={{
@@ -9822,7 +9880,7 @@ function TabBar({ tab, setTab, rootRef, showEnglish }) {
         paddingBottom: "env(safe-area-inset-bottom, 4px)",
       }}>
       <div className="max-w-none mx-auto flex px-0">
-        {TABS.map(({ id, label, en, icon: Icon }) => {
+        {tabs.map(({ id, label, en, icon: Icon }) => {
           const active = tab === id;
           return (
             <button key={id} onClick={() => setTab(id)} data-active={active ? "true" : "false"}
