@@ -17,8 +17,7 @@
  * 只寫在盤中（台北 09:00–13:45、週一到週五）；休市日抓到的報價不是今天的，會被丟掉、不寫入。
  */
 import { onRequestGet as quoteGet } from "./quote.js";
-import { onRequestGet as holidayGet } from "./holiday-schedule.js";
-import { holidayStatusFromRows } from "./twse-holiday.js";
+import { marketClosed } from "./market-calendar.js";
 
 // 每分鐘一次的盤中 cron（UTC 01:00–05:59 = 台北 09:00–13:59；程式內再收斂到 13:45）。
 // 星期欄一定要用 MON-FRI：Cloudflare 的數字星期 1 = 週日，寫 1-5 會變成週日到週四、週五不跑。
@@ -159,14 +158,7 @@ export function usablePrices(data, today) {
  */
 // 休市判斷：true = 休市、false = 開盤、null = 查不到（查不到時照常記錄，由報價日期把關）。
 async function defaultMarketClosed(ymd) {
-  try {
-    const res = await holidayGet();
-    if (!res.ok) return null;
-    const data = await res.json().catch(() => null);
-    return holidayStatusFromRows(data?.rows, ymd)?.closed ?? null;
-  } catch {
-    return null;
-  }
+  return marketClosed(ymd);
 }
 
 export async function recordIntradayMinute(env, deps = {}) {

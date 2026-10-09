@@ -20,7 +20,7 @@ import { onRequestGet as taifexGet } from "./taifex-tx.js";
 import { onRequestGet as healthGet } from "./health-check.js";
 import { readIntradayBars } from "./intraday.js";
 import { onRequestGet as pendingTradesGet } from "./pending-trades.js";
-import { holidayStatusFromRows } from "./twse-holiday.js";
+import { marketClosedStatus } from "./market-calendar.js";
 import { INDEX_SYMBOL, isIndexAlias, normalizeQuoteSymbol, readMarketIndex } from "./market-index.js";
 
 const SERVER = { name: "z-infinity-assets", version: "1.3.0" };
@@ -264,10 +264,7 @@ function unavailableAdvice(reason) {
 // TWSE 休市判斷：回傳 { closed: true|false|null, reason }；抓不到行事曆 → null（未知）。
 async function marketClosedToday(date) {
   try {
-    const res = await holidayGet();
-    if (!res.ok) return { closed: null, reason: null };
-    const data = await res.json().catch(() => null);
-    return holidayStatusFromRows(data?.rows, date);
+    return await marketClosedStatus(date);
   } catch {
     return { closed: null, reason: null };
   }
