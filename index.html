@@ -8353,6 +8353,36 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
   const [syncTokenCopied, setSyncTokenCopied] = useState(false);
   const [zinfExpanded, setZinfExpanded] = useState(false);
   const [aiFallbackExpanded, setAiFallbackExpanded] = useState(false);
+  // Owner 專用：自選自己詢問時用的 Gemini 模型（存在伺服器 KV，家人不受影響）。
+  const [ownerModel, setOwnerModel] = useState({ saved: "", defaultModel: "", input: "", status: "idle", message: "" });
+  useEffect(() => {
+    if (!isOwner || !zinfSyncToken) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetchWithTimeout("/api/owner-model", { cache: "no-store", headers: { authorization: "Bearer " + zinfSyncToken } }, 6000);
+        const data = res.ok ? await res.json().catch(() => null) : null;
+        if (!cancelled && data?.ok) setOwnerModel((v) => ({ ...v, saved: data.model || "", defaultModel: data.defaultModel || "", input: data.model || "" }));
+      } catch { /* 讀不到就維持空白，不影響其他功能 */ }
+    })();
+    return () => { cancelled = true; };
+  }, [isOwner, zinfSyncToken]);
+  const saveOwnerModel = async (value) => {
+    setOwnerModel((v) => ({ ...v, status: "saving", message: "" }));
+    try {
+      const res = await fetchWithTimeout("/api/owner-model", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: "Bearer " + zinfSyncToken },
+        body: JSON.stringify({ model: value }),
+      }, 8000);
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) throw new Error(data?.error || ("HTTP " + res.status));
+      setOwnerModel((v) => ({ ...v, saved: data.model || "", defaultModel: data.defaultModel || v.defaultModel, input: data.model || "", status: "ok",
+        message: data.model ? "已儲存，下一次詢問起生效" : "已恢復預設模型" }));
+    } catch (e) {
+      setOwnerModel((v) => ({ ...v, status: "error", message: String(e?.message || e).slice(0, 120) }));
+    }
+  };
 
   const generateSyncToken = () => {
     const bytes = new Uint8Array(24);
@@ -8524,6 +8554,29 @@ function PlanPanel({ planItems, setPlanItems, planTotal, goal, setGoal, exportBa
         </div>
         <div className="mt-2 text-[10px]" style={{ color: COLORS.sub }}>
           版本 v{APP_DISPLAY_VERSION} · 統計自此版本啟用後開始累積
+        </div>
+        <div className="mt-4 pt-3" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
+          <div className="text-xs font-bold" style={{ color: COLORS.text }}>我的 Gemini 模型（只有 Owner）</div>
+          <div className="mt-1 text-[11px] leading-5" style={{ color: COLORS.sub }}>
+            只影響你自己詢問時的 Gemini 備援，使用你的付費金鑰；家人仍用預設{ownerModel.defaultModel ? `（${ownerModel.defaultModel}）` : ""}。名稱填錯或已下架時會自動退回預設模型。留空＝用預設。
+          </div>
+          <div className="mt-2 flex gap-2">
+            <input value={ownerModel.input} onChange={(e) => setOwnerModel((v) => ({ ...v, input: e.target.value, status: "idle", message: "" }))}
+              placeholder={ownerModel.defaultModel || "gemini-3.6-flash"} autoCapitalize="none" autoCorrect="off" spellCheck={false}
+              className="flex-1 min-w-0 rounded-xl px-3 py-2 text-sm mono"
+              style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, color: COLORS.text }} />
+            <button type="button" disabled={ownerModel.status === "saving" || ownerModel.input.trim() === ownerModel.saved}
+              onClick={() => saveOwnerModel(ownerModel.input.trim())}
+              className="rounded-xl px-3 py-2 text-xs font-bold"
+              style={{ background: COLORS.gold, color: COLORS.bg, opacity: (ownerModel.status === "saving" || ownerModel.input.trim() === ownerModel.saved) ? 0.5 : 1 }}>
+              {ownerModel.status === "saving" ? "儲存中" : "儲存"}
+            </button>
+            {ownerModel.saved && <button type="button" onClick={() => saveOwnerModel("")} className="rounded-xl px-3 py-2 text-xs"
+              style={{ border: `1px solid ${COLORS.panelBorder}`, color: COLORS.sub }}>預設</button>}
+          </div>
+          <div className="mt-1 text-[11px]" style={{ color: ownerModel.status === "error" ? COLORS.gain : COLORS.sub }}>
+            {ownerModel.message || (ownerModel.saved ? `目前使用：${ownerModel.saved}` : "目前使用預設模型")}
+          </div>
         </div>
       </Panel>}
 
