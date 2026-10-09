@@ -45,6 +45,6 @@ test('US holdings page exposes one-time calibration UI and warns when holdings c
 });
 
 test('backup includes optional US broker calibration', () => {
-  assert.match(html, /data: \{ dailyRecords, holdings, trades, dividends, planItems, goal, planSchedule, costBasis, usBrokerCalibration \}/);
+  assert.match(html, /data: \{ dailyRecords, holdings, trades, dividends, planItems, goal, planSchedule, costBasis, usBrokerCalibration, advancedMode \}/);
   assert.match(html, /isObject\(data\.usBrokerCalibration\)/);
 });
