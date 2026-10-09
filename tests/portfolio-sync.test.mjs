@@ -59,3 +59,44 @@ test('a KV read failure surfaces the real reason too', async () => {
   const body = await response.json();
   assert.match(body.detail, /boom/);
 });
+
+// ── SI Hub 唯讀金鑰 ──
+import { onRequestGet as roGet, onRequestPost as roPost } from '../functions/portfolio-sync.js';
+{
+  const roEnv = (extra = {}) => { const d = new Map(); return { data: d, health_kv: { get: async k => d.get(k) ?? null, put: async (k, v) => { d.set(k, v); } }, ...extra }; };
+  const owner = 'owner-sync-token-abcdefghijkl', ro = 'si-hub-read-token-abcdefghijklmn';
+  const post = (env, token, summary = { holdings: [{ symbol: '0050' }] }) => roPost({ env, request: new Request('https://x/api/portfolio-sync', { method: 'POST', headers: { authorization: 'Bearer ' + token }, body: JSON.stringify({ summary }) }) });
+  const get = (env, token) => roGet({ env, request: new Request('https://x/api/portfolio-sync', { headers: { authorization: 'Bearer ' + token } }) });
+
+  test('SI_HUB_READ_TOKEN reads the latest snapshot even after the sync token changes', async () => {
+    const env = roEnv({ SI_HUB_READ_TOKEN: ro });
+    assert.equal((await (await get(env, ro)).json()).reason, 'awaiting_first_sync');
+    assert.equal((await post(env, owner)).status, 200);
+    let data = await (await get(env, ro)).json();
+    assert.equal(data.found, true);
+    assert.equal(data.summary.holdings[0].symbol, '0050');
+    const newOwner = 'rotated-sync-token-abcdefghijk';
+    assert.equal((await post(env, newOwner, { holdings: [{ symbol: '2330' }] })).status, 200);
+    data = await (await get(env, ro)).json();
+    assert.equal(data.summary.holdings[0].symbol, '2330');
+  });
+
+  test('the read-only key cannot write and cannot read previous versions; without the secret nothing extra is stored', async () => {
+    const env = roEnv({ SI_HUB_READ_TOKEN: ro });
+    assert.equal((await post(env, ro)).status, 403);
+    assert.equal(env.data.has('portfolio-sync:' + ro), false);
+    await post(env, owner);
+    const prev = await roGet({ env, request: new Request('https://x/api/portfolio-sync?prev=1', { headers: { authorization: 'Bearer ' + ro } }) });
+    assert.equal((await prev.json()).found, false);
+    const plain = roEnv();
+    await post(plain, owner);
+    assert.equal(plain.data.has('portfolio-sync-latest'), false);
+    assert.equal((await (await get(plain, ro)).json()).found, false);
+  });
+
+  test('a wrong key does not see the latest snapshot', async () => {
+    const env = roEnv({ SI_HUB_READ_TOKEN: ro });
+    await post(env, owner);
+    assert.equal((await (await get(env, 'wrong-token-abcdefghijklmnop')).json()).found, false);
+  });
+}
