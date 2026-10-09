@@ -17,6 +17,9 @@
  *   expired        上傳過，但快照超過 14 天沒更新、被 KV 自動清掉（lastSyncedAt 是最後一次上傳的大約時間）
  *   token_mismatch 這組 token 沒上傳過，但最近 14 天有「別的 token」在上傳（推測兩邊 token 不一致）
  *
+ * SI Hub 唯讀金鑰：Secret SI_HUB_READ_TOKEN（16–128 字，英數與 _-）。設了之後，每次 POST 成功會多存一份最新快照（portfolio-sync-latest），
+ *   GET 帶這組金鑰就讀得到那一份（不能 POST、不能讀 prev）。同步金鑰換掉也不影響。第一次要等 App 同步一次才有資料（reason: awaiting_first_sync）。
+ *
  * KV：沿用 health_kv（見 wrangler.jsonc），不另外申請新的 namespace。
  *   portfolio-sync:<token>        快照本體（14 天 TTL，跟以前一樣）
  *   portfolio-sync-meta:<token>   { firstSyncedAt, lastSyncedAt }，不過期；最多每 6 小時更新一次，避免多吃 KV 寫入額度
@@ -36,6 +39,9 @@ const KV_PREFIX = "portfolio-sync:";
 const META_PREFIX = "portfolio-sync-meta:";
 const LAST_WRITER_KEY = "portfolio-sync-last-writer";
 const PREV_PREFIX = "portfolio-sync-prev:";
+// SI Hub 專用的唯讀金鑰（Secret SI_HUB_READ_TOKEN）：每次同步成功後多存一份「最新快照」在這個固定 key，
+// SI Hub 用固定金鑰讀它，不受同步金鑰更換影響。只有設了這個 Secret 才會多寫這一次。
+const LATEST_KEY = "portfolio-sync-latest";
 // 上一版備份最多每 6 小時存一次（帳號共用的 KV 每日寫入額度有限）。
 const PREV_REFRESH_MS = 6 * 60 * 60 * 1000;
 // 交易／每日紀錄原本有這麼多筆以上，才會套用「掉到不到一半就拒絕」。
@@ -66,6 +72,18 @@ function isValidToken(token) {
     token.length <= MAX_TOKEN_LEN &&
     /^[A-Za-z0-9_-]+$/.test(token)
   );
+}
+
+function readOnlyToken(env) {
+  const t = String(env?.SI_HUB_READ_TOKEN || "").trim();
+  return isValidToken(t) ? t : "";
+}
+
+function sameSecret(a, b) {
+  const x = new TextEncoder().encode(String(a)), y = new TextEncoder().encode(String(b));
+  let diff = x.length ^ y.length;
+  for (let i = 0; i < Math.max(x.length, y.length); i++) diff |= (x[i] || 0) ^ (y[i] || 0);
+  return diff === 0;
 }
 
 function headerToken(request) {
@@ -148,6 +166,13 @@ export async function onRequestGet({ request, env }) {
   const token = headerToken(request) || (url.searchParams.get("token") || "");
   if (!isValidToken(token)) return jsonResponse({ error: "缺少或格式不對的 token" }, 400);
   try {
+    const ro = readOnlyToken(env);
+    if (ro && sameSecret(token, ro)) {
+      // SI Hub 的唯讀金鑰：只讀「最新快照」，沒有上一版（prev）、也不能寫入。
+      const latest = url.searchParams.get("prev") === "1" ? null : await env.health_kv.get(LATEST_KEY);
+      if (!latest) return jsonResponse({ ok: true, found: false, summary: null, reason: "awaiting_first_sync", lastSyncedAt: null });
+      return jsonResponse({ ok: true, found: true, summary: typeof latest === "string" ? JSON.parse(latest) : latest });
+    }
     if (url.searchParams.get("prev") === "1") {
       const prev = await readJsonKey(env, PREV_PREFIX + token);
       if (!prev?.snapshot) return jsonResponse({ ok: true, found: false, summary: null, reason: "no_previous_version" });
@@ -181,6 +206,8 @@ export async function onRequestPost({ request, env }) {
   // 新版 App 用 Authorization header；舊版（快取在手機上的舊頁面）放在 body.token，兩種都收。
   const token = headerToken(request) || body?.token;
   if (!isValidToken(token)) return jsonResponse({ error: "缺少或格式不對的 token" }, 400);
+  const roToken = readOnlyToken(env);
+  if (roToken && sameSecret(token, roToken)) return jsonResponse({ error: "這組金鑰只能讀取，不能同步" }, 403);
 
   const summary = body?.summary;
   if (!summary || typeof summary !== "object" || Array.isArray(summary)) {
@@ -231,6 +258,8 @@ export async function onRequestPost({ request, env }) {
 
     const stored = { ...summary, syncedAt };
     await env.health_kv.put(KV_PREFIX + token, JSON.stringify(stored), { expirationTtl: TTL_SECONDS });
+    // 只有設了 SI_HUB_READ_TOKEN 才多存一份；失敗不影響同步本身。
+    if (roToken) { try { await env.health_kv.put(LATEST_KEY, JSON.stringify(stored), { expirationTtl: TTL_SECONDS }); } catch { /* 略過 */ } }
     await touchSyncMeta(env, token, syncedAt);
     return jsonResponse({ ok: true, syncedAt });
   } catch (e) {
