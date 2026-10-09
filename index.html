@@ -3335,13 +3335,14 @@ function AssetTracker() {
   }, [ready]);
   // ③ 補齊缺漏的交易日：幾天沒開 App，下次打開就用那幾天的收盤價把記錄補上（不含今天）。
   const backfillDoneRef = useRef("");
+  const [backfillSettled, setBackfillSettled] = useState(false);
   useEffect(() => {
     if (!ready || !window.ZinfBg) return;
     const today = todayStr();
     const last = [...dailyRecords].filter((r) => r.date < today).sort((a, b) => a.date.localeCompare(b.date)).pop();
     if (!last || !window.ZinfBg.hasWeekdayGap(last.date, today)) return;
     const active = holdingsWithShares.filter((h) => Number(h.current || 0) > 0 && h.symbol && isTaiwanSymbol(h.symbol));
-    if (!active.length || active.length !== holdingsWithShares.filter((h) => Number(h.current || 0) > 0).length) return;
+    if (!active.length || active.length !== holdingsWithShares.filter((h) => Number(h.current || 0) > 0).length) { setBackfillSettled(true); return; }
     const key = today + "|" + last.date + "|" + active.length;
     if (backfillDoneRef.current === key) return;
     backfillDoneRef.current = key;
@@ -3355,9 +3356,43 @@ function AssetTracker() {
           holdings: active.map((h) => ({ symbol: h.symbol, shares: Number(h.current) })),
         });
         if (plan.records.length) insertAutoRecords(plan.records);
-      } catch {}
+      } catch {} finally { setBackfillSettled(true); }
     })();
   }, [ready, dailyRecords, holdingsWithShares, trades]);
+
+  // ④ 自動補記做不到的缺漏（期間有買賣、抓不到價…）：請使用者按一下補，不會悄悄少一天。
+  const [missedChecked, setMissedChecked] = useState(() => { try { return JSON.parse(localStorage.getItem("missedDaysChecked") || "[]"); } catch { return []; } });
+  const [missedHiddenDay, setMissedHiddenDay] = useState(() => { try { return localStorage.getItem("missedDaysHidden") || ""; } catch { return ""; } });
+  const [missedBusy, setMissedBusy] = useState(false);
+  const [missedMsg, setMissedMsg] = useState("");
+  const missedDays = (ready && backfillSettled && !usHoldings.some((h) => h.shares > 0))
+    ? missedWeekdays(dailyRecords, todayStr(), (d) => Boolean(marketClosureFromCache(new Date(d + "T12:00:00+08:00")))).filter((d) => !missedChecked.includes(d))
+    : [];
+  const fillMissedDays = async () => {
+    if (missedBusy || !missedDays.length) return;
+    setMissedBusy(true); setMissedMsg("");
+    try {
+      const twHoldings = holdings.filter((h) => isTaiwanSymbol(h.symbol));
+      const symbols = twHoldings.map((h) => h.symbol);
+      const res = await fetchWithTimeout(`/api/closes?days=45&symbols=${encodeURIComponent(symbols.join(","))}`, { cache: "no-store" }, 12000);
+      const data = res.ok ? await res.json().catch(() => null) : null;
+      if (!data?.closes || (data.missing || []).length) { setMissedMsg(UI_SHOW_ENGLISH ? "Could not get closing prices right now. Try again later." : "現在抓不到收盤價，請稍後再試。"); return; }
+      const last = [...dailyRecords].filter((r) => r.date < todayStr()).sort((a, b) => a.date.localeCompare(b.date)).pop();
+      const plan = planMissedDays({ days: missedDays, holdings: twHoldings, trades, closes: data.closes, last, costFn: holdingCostAt });
+      if (plan.records.length) insertAutoRecords(plan.records);
+      // 休市（沒有任何收盤價）的日子記起來，不要再問。
+      const resolved = [...missedChecked, ...plan.closed];
+      setMissedChecked(resolved);
+      try { localStorage.setItem("missedDaysChecked", JSON.stringify(resolved.slice(-60))); } catch {}
+      const n = plan.records.length, p = plan.partial.length;
+      setMissedMsg(UI_SHOW_ENGLISH
+        ? (n ? `Filled ${n} day(s).` : "Nothing to fill.") + (p ? ` ${p} day(s) are missing some closing prices; add them in Daily.` : "")
+        : (n ? `已補記 ${n} 天。` : "沒有需要補的日子。") + (p ? ` 另有 ${p} 天缺部分收盤價，請到「每日紀錄」手動補。` : ""));
+    } catch {
+      setMissedMsg(UI_SHOW_ENGLISH ? "Could not fill right now. Try again later." : "補記失敗，請稍後再試。");
+    } finally { setMissedBusy(false); }
+  };
+  const hideMissedToday = () => { const d = todayStr(); setMissedHiddenDay(d); try { localStorage.setItem("missedDaysHidden", d); } catch {} };
 
   // ---- Z∞ 背景同步（供 Muse Lite / 舊中控讀取）----
   // Assets App 是持股資料的唯一來源。資料變更後推到 Worker；失敗會保留 pending，
@@ -3650,6 +3685,7 @@ function AssetTracker() {
       <div ref={headerRef}>
         <Header goal={goal} totalToday={totalToday} goalDate={goalDate} backupOverdue={backupOverdue} backupAgeDays={backupAgeDays} showEnglish={showEnglish} onToggleBilingual={toggleBilingual} />
         <ClosingReminderBanner />
+        <MissedDaysBanner days={missedHiddenDay === todayStr() ? [] : missedDays} busy={missedBusy} msg={missedMsg} onFill={fillMissedDays} onLater={hideMissedToday} />
         {pendingTrades.length > 0 && (
           <PendingTradesBanner trades={pendingTrades} onApply={applyPendingTrade} onDismiss={dismissPendingTrade} showEnglish={showEnglish} />
         )}
@@ -8965,6 +9001,44 @@ function MissingHint({ missing }) {
     </div>
   );
 }
+// <missed-days>
+// 漏記的交易日補記：自動補記（沒買賣、美股以外）做不到的時候，請使用者按一下，
+// 用「那天的持股（依交易紀錄倒推）× 那天收盤價」補上。costFn 就是 holdingCostAt。
+const missedAddDays = (d, n) => new Date(Date.parse(d + "T00:00:00Z") + n * 86400000).toISOString().slice(0, 10);
+function missedWeekdays(dailyRecords, today, isClosed, limit = 20) {
+  const dates = (dailyRecords || []).filter((r) => r && r.date).map((r) => r.date);
+  const last = dates.filter((d) => d < today).sort().pop();
+  if (!last) return [];
+  const have = new Set(dates);
+  const out = [];
+  for (let d = missedAddDays(last, 1); d < today && out.length < limit; d = missedAddDays(d, 1)) {
+    const wd = new Date(d + "T00:00:00Z").getUTCDay();
+    if (wd === 0 || wd === 6 || have.has(d) || (isClosed && isClosed(d))) continue;
+    out.push(d);
+  }
+  return out;
+}
+// 回傳 { records, closed, partial }：closed＝那天所有持股都沒有收盤價（多半是休市），partial＝只有部分有價，不補。
+function planMissedDays({ days, holdings, trades, closes, last, costFn }) {
+  const records = [], closed = [], partial = [];
+  for (const d of days || []) {
+    let value = 0, cost = 0, held = 0, priced = 0;
+    for (const h of holdings || []) {
+      const info = costFn(h, trades, d) || {};
+      const shares = Number(info.current || 0);
+      if (!(shares > 0)) continue;
+      held++;
+      const close = Number(closes?.[h.symbol]?.[d]);
+      if (close > 0) { priced++; value += close * shares; cost += Number(info.estCostBasis || 0); }
+    }
+    if (!held) { closed.push(d); continue; }
+    if (priced === 0) closed.push(d);
+    else if (priced < held) partial.push(d);
+    else records.push({ date: d, twValue: Math.round(value), twCost: Math.round(cost), usValue: Number(last?.usValue || 0), usCost: Number(last?.usCost || 0), source: "auto" });
+  }
+  return { records, closed, partial };
+}
+// </missed-days>
 // <closing-reminder>
 // 收盤提醒與自動記錄：預設「想要開」(wanted)。但瀏覽器規定通知權限一定要使用者自己按同意，
 // 程式不能偷偷開，所以「勾選」代表想開，真正開了才會顯示「已開啟」；還沒開就在 App 上方請她按一下允許。
@@ -9069,6 +9143,31 @@ function PushReminderPanel() {
       {r.status === "unsupported" && <div className="mt-2 text-[11px] leading-5" style={{ color: "#b45309" }}>這個瀏覽器不支援背景通知。iPhone 請用 Safari「加入主畫面」後從主畫面打開（iOS 16.4 以上）。</div>}
       {r.pushMsg && <div className="mt-2 text-[11px]" style={{ color: COLORS.sub }}>{r.pushMsg}</div>}
     </Panel>
+  );
+}
+// 漏記的交易日：按一下用收盤價補記（一天提醒一次）。
+function MissedDaysBanner({ days, busy, msg, onFill, onLater }) {
+  if (!days.length && !msg) return null;
+  const label = (d) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
+  const shown = days.slice(0, 4).map(label).join("、") + (days.length > 4 ? (UI_SHOW_ENGLISH ? ` +${days.length - 4}` : `…等 ${days.length} 天`) : "");
+  return (
+    <div className="mx-4 mb-3 rounded-xl p-3" data-missed-days-banner style={{ background: COLORS.panel, border: `1px solid ${COLORS.gold}` }}>
+      {days.length > 0 && (<>
+        <div className="text-[11px] font-bold" style={{ color: COLORS.gold }}>
+          {UI_SHOW_ENGLISH ? `📅 No daily record for ${shown}` : `📅 ${shown} 沒有每日紀錄`}
+        </div>
+        <div className="mt-1 text-[11px] leading-5" style={{ color: COLORS.sub }}>
+          {UI_SHOW_ENGLISH ? "Fill them with each day's closing price and the shares you held that day." : "用那天的收盤價和當天的持股股數補記，補完可以在「每日紀錄」查看或修改。"}
+        </div>
+        <div className="mt-2 grid grid-cols-3 gap-2">
+          <button onClick={onFill} disabled={busy} className="col-span-2 rounded-lg py-1.5 text-[11px] font-bold" style={{ background: COLORS.gold, color: COLORS.bg, opacity: busy ? 0.6 : 1 }}>
+            {busy ? (UI_SHOW_ENGLISH ? "Filling…" : "補記中…") : (UI_SHOW_ENGLISH ? "Fill with closing prices" : "用收盤價補記")}
+          </button>
+          <button onClick={onLater} className="rounded-lg py-1.5 text-[11px] font-bold" style={{ background: COLORS.bg, color: COLORS.sub, border: `1px solid ${COLORS.panelBorder}` }}>{UI_SHOW_ENGLISH ? "Later" : "稍後"}</button>
+        </div>
+      </>)}
+      {msg && <div className="mt-1 text-[11px]" style={{ color: COLORS.sub }}>{msg}</div>}
+    </div>
   );
 }
 // 還沒開通知時，App 上方請她按一下允許（一天提醒一次，按「不用了」就取消勾選）。
