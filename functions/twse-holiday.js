@@ -50,9 +50,20 @@ export function holidayReasonOf(row) {
 }
 
 // 回傳 { closed: true|false|null, reason }；rows 不是陣列或是空的 → null（未知）。
+// 休市表有沒有收錄某一年（證交所通常年底才公布隔年；沒收錄的那年不能當成「沒放假」）。
+export function rowsCoverYear(rows, year) {
+  if (!Array.isArray(rows) || !year) return false;
+  const roc = String(Number(year) - 1911);
+  return rows.some((row) => {
+    const d = rowDateDigits(row);
+    return d.length === 7 ? d.startsWith(roc) : d.startsWith(String(year));
+  });
+}
+
 export function holidayStatusFromRows(rows, ymd) {
   if (!Array.isArray(rows) || rows.length === 0) return { closed: null, reason: null };
   const match = rows.find((row) => holidayRowMatchesDate(row, ymd));
+  if (!match && !rowsCoverYear(rows, Number(String(ymd || "").slice(0, 4)))) return { closed: null, reason: null };
   if (!match) return { closed: false, reason: null };
   return { closed: true, reason: holidayReasonOf(match) || "TWSE 休市日" };
 }

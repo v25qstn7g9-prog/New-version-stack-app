@@ -18,8 +18,7 @@
  * 每個同步帳號每個交易日最多寫 1 次。
  */
 import { onRequestGet as quoteGet } from "./quote.js";
-import { onRequestGet as holidayGet } from "./holiday-schedule.js";
-import { holidayStatusFromRows } from "./twse-holiday.js";
+import { marketClosed } from "./market-calendar.js";
 import { usablePrices } from "./intraday.js";
 
 // 台北 14:00（UTC 06:00），週一到週五。wrangler.jsonc 的 crons 必須有完全一樣的字串。
@@ -87,14 +86,7 @@ export function buildAutoRecord(summary, prices, date) {
 }
 
 async function defaultMarketClosed(date) {
-  try {
-    const res = await holidayGet();
-    if (!res.ok) return null;
-    const data = await res.json().catch(() => null);
-    return holidayStatusFromRows(data?.rows, date)?.closed ?? null;
-  } catch {
-    return null;
-  }
+  return marketClosed(date);
 }
 
 async function defaultFetchPrices(env, symbols, date) {

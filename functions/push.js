@@ -9,8 +9,7 @@
  * VAPID 金鑰第一次用到時自動產生並存在 KV（push:vapid），不需要設任何 Secret。
  * KV：push:vapid = { publicKey, privateJwk }；push-sub:<sha256(endpoint)前 32 字> = { endpoint, createdAt }
  */
-import { holidayStatusFromRows } from "./twse-holiday.js";
-import { onRequestGet as holidayGet } from "./holiday-schedule.js";
+import { marketClosed } from "./market-calendar.js";
 
 export const PUSH_MINUTES = [13 * 60 + 45];
 const VAPID_KEY = "push:vapid";
@@ -90,14 +89,7 @@ async function listSubscriptions(env) {
 }
 
 async function defaultMarketClosed(date) {
-  try {
-    const res = await holidayGet();
-    if (!res.ok) return null;
-    const data = await res.json().catch(() => null);
-    return holidayStatusFromRows(data?.rows, date)?.closed ?? null;
-  } catch {
-    return null;
-  }
+  return marketClosed(date);
 }
 
 function taipeiNow(now) {

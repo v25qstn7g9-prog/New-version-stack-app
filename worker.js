@@ -91,6 +91,7 @@ import { onRequestPush as pushHandler, runPushRound } from "./functions/push.js"
 import { adminTokenMatches, bearerToken, writeAllowed } from "./functions/request-guard.js";
 import { isKnownSyncToken } from "./functions/portfolio-sync.js";
 import { handleAssetOAuth, verifyAssetAccessToken, readAssetMcpSyncToken } from "./functions/asset-mcp-oauth.js";
+import { runCalendarCheck } from "./functions/market-calendar.js";
 import {
   onRequestGet as pendingTradesGetHandler,
   onRequestPost as pendingTradesPostHandler,
@@ -330,6 +331,8 @@ export default {
     ctx.waitUntil((async () => {
       await archiveIntradayDay(env);
       await runHealthCheck(env);
+      // 12 月每週檢查一次：證交所公布明年休市表了沒，沒有就 LINE 提醒
+      try { await runCalendarCheck(env); } catch (e) { console.warn("calendar check failed", e?.message || e); }
     })());
   },
 };
