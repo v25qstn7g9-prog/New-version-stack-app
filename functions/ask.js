@@ -435,12 +435,29 @@ export function pickGeminiKey(env, owner) {
   return { key: paid, tier: "paid", name: "GEMINI_API_KEY" };
 }
 
+// Owner 可以在 App 裡自選 Gemini 模型（存在 KV）；只對 Owner 的詢問生效，家人仍用 GEMINI_MODEL。
+// 只接受 gemini- 開頭的簡單名稱，避免把任意字串拼進 API 網址。
+export const OWNER_MODEL_KV_KEY = "ask-owner-model";
+export function normalizeModelName(value) {
+  const name = String(value || "").trim();
+  return /^gemini-[a-z0-9][a-z0-9.\-]{0,62}$/i.test(name) ? name : "";
+}
+export function defaultGeminiModel(env) {
+  const configured = String(env?.GEMINI_MODEL || "").trim();
+  return (!configured || /^gemini-(?:2|3\.5)(?:\.|-|$)/i.test(configured)) ? GEMINI_MODEL_DEFAULT : configured;
+}
+export async function readOwnerModel(env) {
+  if (!env?.health_kv) return "";
+  try { return normalizeModelName(await env.health_kv.get(OWNER_MODEL_KV_KEY)); } catch { return ""; }
+}
+
 async function callGemini(env, contents, systemInstruction, tools = true, options = {}) {
   const picked = pickGeminiKey(env, options.owner);
   const apiKey = picked.key;
   if (!apiKey) throw new Error(`Gemini 備援未設定 ${picked.name}`);
-  const configuredModel = String(env?.GEMINI_MODEL || "").trim();
-  const model = (!configuredModel || /^gemini-(?:2|3\.5)(?:\.|-|$)/i.test(configuredModel)) ? GEMINI_MODEL_DEFAULT : configuredModel;
+  const defaultModel = defaultGeminiModel(env);
+  const ownerModel = options.owner === true && !options.ignoreOwnerModel ? await readOwnerModel(env) : "";
+  const model = ownerModel || defaultModel;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
   const body = {
     systemInstruction: { parts: [{ text: systemInstruction }] },
@@ -468,6 +485,10 @@ async function callGemini(env, contents, systemInstruction, tools = true, option
       // Retry once; the request is idempotent and this avoids turning a transient egress issue into an app failure.
       await new Promise(resolve => setTimeout(resolve, 900));
       return callGemini(env, contents, systemInstruction, tools, { ...options, allowLocationRetry: false });
+    }
+    // Owner 自選的模型名稱不存在或已下架時，退回預設模型再試一次，不讓 Owner 的 AI 因為填錯名稱而整個失效。
+    if (ownerModel && ownerModel !== defaultModel && (res.status === 404 || res.status === 400) && !locationBlocked) {
+      return callGemini(env, contents, systemInstruction, tools, { ...options, ignoreOwnerModel: true });
     }
     throw new Error(`Gemini ${detail}`);
   }

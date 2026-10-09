@@ -67,6 +67,7 @@ async function readSystemStats(env) {
 import { onRequestGet as quoteHandler } from "./functions/quote.js";
 import { onRequestGet as newsHandler } from "./functions/news.js";
 import { onRequestPost as askHandler } from "./functions/ask.js";
+import { onRequestGet as ownerModelGet, onRequestPost as ownerModelPost } from "./functions/owner-model.js";
 import { onRequestGet as dividendScheduleHandler } from "./functions/dividend-schedule.js";
 import { onRequestGet as dailyHistoryHandler } from "./functions/daily-history.js";
 import { onRequestGet as holidayScheduleHandler } from "./functions/holiday-schedule.js";
@@ -128,6 +129,7 @@ const API_METHODS = new Map([
   ["/api/auto-daily", ["GET"]],
   ["/api/owner-status", ["GET"]],
   ["/api/system-stats", ["GET"]],
+  ["/api/owner-model", ["GET", "POST"]],
   ["/api/closes", ["GET"]],
   ["/api/push/key", ["GET"]],
   ["/api/push/subscribe", ["POST"]],
@@ -137,7 +139,7 @@ const API_METHODS = new Map([
 ]);
 
 const PUSH_PATHS = new Set(["/api/push/key", "/api/push/subscribe", "/api/push/unsubscribe"]);
-const WRITE_PATHS = new Set(["/api/push/subscribe", "/api/push/unsubscribe", "/api/portfolio-sync", "/api/pending-trades", "/api/pending-trades/resolve", "/api/health-cards"]);
+const WRITE_PATHS = new Set(["/api/push/subscribe", "/api/push/unsubscribe", "/api/portfolio-sync", "/api/pending-trades", "/api/pending-trades/resolve", "/api/health-cards", "/api/owner-model"]);
 
 export default {
   async fetch(request, env, ctx) {
@@ -185,6 +187,9 @@ export default {
       // 只回傳布林值；Secret 本身永遠不送到瀏覽器。
       return apiJson({ ok: true, owner: Boolean(supplied && owner && supplied === owner) });
     }
+
+    if (url.pathname === "/api/owner-model" && request.method === "GET") return ownerModelGet({ request, env });
+    if (url.pathname === "/api/owner-model" && request.method === "POST") return ownerModelPost({ request, env });
 
     if (url.pathname === "/api/system-stats" && request.method === "GET") {
       const auth = String(request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
