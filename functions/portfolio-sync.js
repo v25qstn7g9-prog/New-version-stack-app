@@ -167,7 +167,8 @@ export async function onRequestGet({ request, env }) {
   if (!isValidToken(token)) return jsonResponse({ error: "缺少或格式不對的 token" }, 400);
   try {
     const ro = readOnlyToken(env);
-    if (ro && sameSecret(token, ro)) {
+    // 唯讀金鑰若剛好跟 App 真正在用的同步金鑰相同（已有同步紀錄），照一般同步金鑰處理，不攔截。
+    if (ro && sameSecret(token, ro) && !(await isKnownSyncToken(env, token))) {
       // SI Hub 的唯讀金鑰：只讀「最新快照」，沒有上一版（prev）、也不能寫入。
       const latest = url.searchParams.get("prev") === "1" ? null : await env.health_kv.get(LATEST_KEY);
       if (!latest) return jsonResponse({ ok: true, found: false, summary: null, reason: "awaiting_first_sync", lastSyncedAt: null });
@@ -207,7 +208,7 @@ export async function onRequestPost({ request, env }) {
   const token = headerToken(request) || body?.token;
   if (!isValidToken(token)) return jsonResponse({ error: "缺少或格式不對的 token" }, 400);
   const roToken = readOnlyToken(env);
-  if (roToken && sameSecret(token, roToken)) return jsonResponse({ error: "這組金鑰只能讀取，不能同步" }, 403);
+  if (roToken && sameSecret(token, roToken) && !(await isKnownSyncToken(env, token))) return jsonResponse({ error: "這組金鑰只能讀取，不能同步" }, 403);
 
   const summary = body?.summary;
   if (!summary || typeof summary !== "object" || Array.isArray(summary)) {
