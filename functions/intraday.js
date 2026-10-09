@@ -17,6 +17,8 @@
  * 只寫在盤中（台北 09:00–13:45、週一到週五）；休市日抓到的報價不是今天的，會被丟掉、不寫入。
  */
 import { onRequestGet as quoteGet } from "./quote.js";
+import { onRequestGet as holidayGet } from "./holiday-schedule.js";
+import { holidayStatusFromRows } from "./twse-holiday.js";
 
 // 每分鐘一次的盤中 cron（UTC 01:00–05:59 = 台北 09:00–13:59；程式內再收斂到 13:45）。
 // 星期欄一定要用 MON-FRI：Cloudflare 的數字星期 1 = 週日，寫 1-5 會變成週日到週四、週五不跑。
@@ -155,10 +157,25 @@ export function usablePrices(data, today) {
  * 在這一分鐘內每 15 秒取樣一次，合成 1 分鐘 K 後寫進 KV。
  * 可注入 fetchQuotes / sleep / now 方便測試。
  */
+// 休市判斷：true = 休市、false = 開盤、null = 查不到（查不到時照常記錄，由報價日期把關）。
+async function defaultMarketClosed(ymd) {
+  try {
+    const res = await holidayGet();
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => null);
+    return holidayStatusFromRows(data?.rows, ymd)?.closed ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function recordIntradayMinute(env, deps = {}) {
   const now = deps.now ? deps.now() : new Date();
   if (!env?.health_kv) return { ok: false, reason: "no_kv" };
   if (!isRecordingWindow(now)) return { ok: true, skipped: "outside_market_hours" };
+  // 平日的國定假日／補假（例如國慶補假）也不開盤：查證交所休市表（邊緣快取 6 小時），休市就不取價。
+  const marketClosed = deps.marketClosed || defaultMarketClosed;
+  if ((await marketClosed(taipei(now).day)) === true) return { ok: true, skipped: "holiday" };
 
   const symbols = intradaySymbols(env);
   const fetchQuotes = deps.fetchQuotes || ((syms) => defaultFetchQuotes(env, syms));

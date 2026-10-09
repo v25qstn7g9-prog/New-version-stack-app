@@ -166,6 +166,30 @@ test('recordIntradayMinute: a failing quote fetch writes nothing and does not th
   assert.equal(kv.puts.length, 0);
 });
 
+test('recordIntradayMinute: a weekday market holiday (e.g. 2026-10-09 國慶補假) fetches no quotes at all', async () => {
+  const kv = fakeKV(); let fetched = 0; const asked = [];
+  const res = await recordIntradayMinute({ health_kv: kv, INTRADAY_SYMBOLS: '0056' }, {
+    now: at('2026-10-09T02:00:00Z'), sleep: async () => {},
+    marketClosed: async (day) => { asked.push(day); return true; },
+    fetchQuotes: async () => { fetched++; return {}; },
+  });
+  assert.deepEqual(res, { ok: true, skipped: 'holiday' });
+  assert.deepEqual(asked, ['2026-10-09']);
+  assert.equal(fetched, 0);
+  assert.equal(kv.puts.length, 0);
+});
+
+test('recordIntradayMinute: when the holiday calendar cannot be read it still records (quote dates guard stale prices)', async () => {
+  const kv = fakeKV();
+  const res = await recordIntradayMinute({ health_kv: kv, INTRADAY_SYMBOLS: '0056' }, {
+    now: at('2026-10-01T04:13:05Z'), sleep: async () => {},
+    marketClosed: async () => null,
+    fetchQuotes: async () => ({ quotes: { '0056': q(37.5, '2026-10-01T04:13:00.000Z') } }),
+  });
+  assert.equal(res.ok, true);
+  assert.deepEqual(res.recorded, ['0056']);
+});
+
 // ── 讀取 ───────────────────────────────────────────────
 
 test('readIntradayBars: aggregates stored 1-minute bars, reports coverage and missing symbols', async () => {
