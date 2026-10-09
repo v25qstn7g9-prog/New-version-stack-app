@@ -100,3 +100,16 @@ import { onRequestGet as roGet, onRequestPost as roPost } from '../functions/por
     assert.equal((await (await get(env, 'wrong-token-abcdefghijklmnop')).json()).found, false);
   });
 }
+
+{
+  const same = 'same-key-for-sync-and-read-abcdefg';
+  test('if SI_HUB_READ_TOKEN equals the real sync token, normal sync and reads keep working', async () => {
+    const d = new Map(); const env = { SI_HUB_READ_TOKEN: same, health_kv: { get: async k => d.get(k) ?? null, put: async (k, v) => { d.set(k, v); } } };
+    d.set('portfolio-sync:' + same, JSON.stringify({ holdings: [{ symbol: '0050' }], syncedAt: 'x' }));
+    const r = await roGet({ env, request: new Request('https://x/api/portfolio-sync', { headers: { authorization: 'Bearer ' + same } }) });
+    assert.equal((await r.json()).found, true);
+    const p = await roPost({ env, request: new Request('https://x/api/portfolio-sync', { method: 'POST', headers: { authorization: 'Bearer ' + same }, body: JSON.stringify({ summary: { holdings: [{ symbol: '2330' }] } }) }) });
+    assert.equal(p.status, 200);
+    assert.ok(d.has('portfolio-sync-latest'));
+  });
+}
