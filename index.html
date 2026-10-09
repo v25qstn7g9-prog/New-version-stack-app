@@ -4282,8 +4282,12 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
   return (
     <Panel title="即時股價">
       <div className="flex items-center justify-between gap-2 mb-2">
-        <div className="live-status-line text-[11px]" style={{ color: COLORS.sub }}>
-          <span>{UI_SHOW_ENGLISH ? "TW: 15s when open" : "台股開盤每 15 秒"}</span>
+        <div className={`live-status-line text-[11px] ${marketClosedNow ? "is-closed" : ""}`} style={{ color: COLORS.sub }}>
+          {/* 休市日（週末、國定假日、補假）提醒：v2.46 原有，10/05 美股改版時被拿掉，這裡補回 */}
+          {marketClosedNow && <span className="live-closed-note">{UI_SHOW_ENGLISH
+            ? `${marketClosure?.name || "Market holiday"} · Taiwan market closed, auto refresh paused${staleOne ? ` · showing ${staleOne.asOfDate.getMonth() + 1}/${staleOne.asOfDate.getDate()} close` : ""}`
+            : `${marketClosure?.name || "今日休市"}・台股休市，已停止自動更新${staleOne ? `・顯示 ${staleOne.asOfDate.getMonth() + 1}/${staleOne.asOfDate.getDate()} 收盤價` : ""}`}</span>}
+          {!marketClosedNow && <span>{UI_SHOW_ENGLISH ? "TW: 15s when open" : "台股開盤每 15 秒"}</span>}
           {activeHoldings.some((h) => !isTaiwanSymbol(h.symbol)) && <span>{UI_SHOW_ENGLISH ? " · US: 30s when open" : "・美股開盤每 30 秒"}</span>}
           {liveAt && <span>・{liveAt.toLocaleTimeString("zh-TW", { hour12: false })}</span>}
           {liveStatus === "error" && <span>・{UI_SHOW_ENGLISH ? "TW quote unavailable" : "台股報價暫時失敗"}</span>}
