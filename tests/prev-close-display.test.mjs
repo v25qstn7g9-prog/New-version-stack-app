@@ -8,7 +8,8 @@ const html = fs.readFileSync('index.html', 'utf8');
 
 test('each holding card shows previous close and the converted TWD price difference', () => {
   assert.match(html, /NT\$ \{r\.prevCloseOk \? formatNtdPrice\(quoteNtd\(r, r\.prevClose\), 1\) : "—"\}/);
-  assert.match(html, /NT\$ \{formatNtdPrice\(quoteNtd\(r, r\.chg\), 1\)\}/);
+  // v2.47.x：漲跌改成「▲ +NT$ 1.2」（符號在前、金額取絕對值），NT$ 位置與其他金額一致
+  assert.match(html, /\{r\.chg >= 0 \? "▲ \+" : "▼ -"\}NT\$ \{formatNtdPrice\(quoteNtd\(r, Math\.abs\(r\.chg\)\), 1\)\}/);
   assert.match(html, /SessionSparkline points=\{withLive\(sparkFor\(r\.symbol\)/);
 });
 
