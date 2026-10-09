@@ -79,3 +79,24 @@ test('no saved model leaves the owner on the default', async () => {
   const o = await askAs({ authorization: 'Bearer ' + OWNER }, { health_kv: kv() });
   assert.deepEqual(o.urls.map(modelOf), ['gemini-3.6-flash']);
 });
+
+async function bodyFor(headers) {
+  const original = globalThis.fetch; let sent = null;
+  globalThis.fetch = async (_u, init) => { sent = JSON.parse(init.body); return Response.json({ candidates: [{ content: { parts: [{ text: 'ok' }] } }] }); };
+  try {
+    await ask({
+      env: { AI: { run: async () => { throw new Error('503 unavailable'); } }, LINE_REMINDER_SYNC_TOKEN: OWNER, GEMINI_API_KEY: 'PAID', health_kv: kv() },
+      request: new Request('https://app/ask', { method: 'POST', headers, body: JSON.stringify({ message: 'thinking ' + (++n), context: '' }) }),
+    });
+  } finally { globalThis.fetch = original; }
+  return sent.generationConfig;
+}
+
+test('owner gets deeper thinking with a larger output budget; family keep minimal', async () => {
+  const o = await bodyFor({ authorization: 'Bearer ' + OWNER });
+  assert.equal(o.thinkingConfig.thinkingLevel, 'medium');
+  assert.equal(o.maxOutputTokens, 3000);
+  const f = await bodyFor({});
+  assert.equal(f.thinkingConfig.thinkingLevel, 'minimal');
+  assert.equal(f.maxOutputTokens, 1000);
+});
