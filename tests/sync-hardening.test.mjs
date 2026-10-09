@@ -34,9 +34,11 @@ function env(extra = {}) {
 // holiday-schedule.js 用 caches.default；Node 沒有，給一個空的。
 globalThis.caches ??= { default: { match: async () => null, put: async () => {} } };
 
-function withHolidayFeed(handler, fn) {
+// TWSE 休市表與人事總處辦公日曆（備援）都在這裡假造，測試不連外網。
+function withHolidayFeed(handler, fn, officeHandler = () => new Response('down', { status: 503 })) {
   const original = globalThis.fetch;
-  globalThis.fetch = async (url, init) => String(url).includes('twse') ? handler() : original(url, init);
+  globalThis.fetch = async (url, init) => String(url).includes('twse') ? handler()
+    : String(url).includes('TaiwanCalendar') ? officeHandler(String(url)) : original(url, init);
   return fn().finally(() => { globalThis.fetch = original; });
 }
 
@@ -79,6 +81,17 @@ test('today_asset_status reports market_status_unknown when the TWSE calendar ca
   assert.equal(result.status, 'market_status_unknown');
   assert.equal(result.marketDay, null);
   assert.match(result.message, /無法取得 TWSE 休市行事曆/);
+});
+
+test('today_asset_status falls back to the DGPA office calendar when the TWSE calendar is down', async (t) => {
+  if (isWeekend()) return t.skip('weekends short-circuit to market_closed');
+  const today = taipeiToday();
+  const e = env();
+  e.data.set(`portfolio-sync:${tokenA}`, JSON.stringify({ syncedAt: new Date().toISOString(), dataset: { dailyRecords: [{ date: '2026-01-05', totalAsset: 100 }] } }));
+  const office = () => Response.json([{ date: today.replace(/-/g, ''), week: '五', isHoliday: true, description: '補假' }]);
+  const result = await withHolidayFeed(() => new Response('down', { status: 503 }), () => callTool(e, 'today_asset_status'), office);
+  assert.equal(result.status, 'market_closed');
+  assert.equal(result.marketDay, false);
 });
 
 test("today's 開始交易日 row does not make today a holiday", async (t) => {

@@ -10,6 +10,8 @@ import { readFileSync } from 'node:fs';
 
 // quote.js 用 caches.default；Node 沒有 → 永遠 miss。
 globalThis.caches = { default: { match: async () => null, put: async () => {} } };
+// 休市表（證交所／人事總處）一律假裝抓不到，測試不連外網；要測休市就注入 deps.marketClosed。
+{ const real = globalThis.fetch; globalThis.fetch = async (url, init) => /twse|TaiwanCalendar/.test(String(url)) ? new Response('offline', { status: 503 }) : real(url, init); }
 
 // 2026-10-01 是週四；台北 = UTC+8。
 const at = (iso) => () => new Date(iso);
