@@ -16,6 +16,10 @@
 const ASK_VERSION = "4.7-personal-advisor-v3.2-bounded-learning";
 const GEMINI_MODEL_DEFAULT = "gemini-3.6-flash";
 const GEMINI_MAX_OUTPUT_TOKENS = 1000;
+// Owner 的詢問（量少、要品質）：思考深度調到 medium。Gemini 的思考 token 也算在輸出上限內，
+// 所以上限同步放寬，避免思考吃光額度、回答被截斷或空白。家人維持 minimal／1000。
+const GEMINI_OWNER_THINKING_LEVEL = "medium";
+const GEMINI_OWNER_MAX_OUTPUT_TOKENS = 3000;
 const LIGHT_MODEL = "@cf/zai-org/glm-4.7-flash";
 const HEAVY_MODEL = "@cf/openai/gpt-oss-20b";
 
@@ -463,8 +467,8 @@ async function callGemini(env, contents, systemInstruction, tools = true, option
     systemInstruction: { parts: [{ text: systemInstruction }] },
     contents,
     generationConfig: {
-      maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS,
-      thinkingConfig: { thinkingLevel: "minimal" },
+      maxOutputTokens: options.owner === true ? GEMINI_OWNER_MAX_OUTPUT_TOKENS : GEMINI_MAX_OUTPUT_TOKENS,
+      thinkingConfig: { thinkingLevel: options.owner === true ? GEMINI_OWNER_THINKING_LEVEL : "minimal" },
     },
   };
   if (tools) {
