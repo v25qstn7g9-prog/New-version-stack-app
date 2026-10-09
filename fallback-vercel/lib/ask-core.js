@@ -426,9 +426,19 @@ function geminiText(data) {
     .trim();
 }
 
+// 兩組 Gemini 金鑰：Owner 用付費版 GEMINI_API_KEY；家人／朋友（非 Owner）有設 GEMINI_API_KEY_FREE 就用免費版，
+// 免費版額度滿了只會讓他們自己的 AI 備援暫時失敗，不會動到 Owner 的付費額度。沒設 FREE 就維持原樣（大家共用 GEMINI_API_KEY）。
+export function pickGeminiKey(env, owner) {
+  const paid = String(env?.GEMINI_API_KEY || "").trim();
+  const free = String(env?.GEMINI_API_KEY_FREE || "").trim();
+  if (owner === false && free) return { key: free, tier: "free", name: "GEMINI_API_KEY_FREE" };
+  return { key: paid, tier: "paid", name: "GEMINI_API_KEY" };
+}
+
 async function callGemini(env, contents, systemInstruction, tools = true, options = {}) {
-  const apiKey = String(env?.GEMINI_API_KEY || "").trim();
-  if (!apiKey) throw new Error("Gemini 備援未設定 GEMINI_API_KEY");
+  const picked = pickGeminiKey(env, options.owner);
+  const apiKey = picked.key;
+  if (!apiKey) throw new Error(`Gemini 備援未設定 ${picked.name}`);
   const configuredModel = String(env?.GEMINI_MODEL || "").trim();
   const model = (!configuredModel || /^gemini-(?:2|3\.5)(?:\.|-|$)/i.test(configuredModel)) ? GEMINI_MODEL_DEFAULT : configuredModel;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
@@ -495,7 +505,7 @@ function buildGeminiContents(history, message, toolTurns = []) {
   return contents;
 }
 
-async function runGeminiFallback(env, { message, history, contextText, toolTurns, allowPrivate = false, forceAnswer = false }) {
+async function runGeminiFallback(env, { message, history, contextText, toolTurns, allowPrivate = false, forceAnswer = false, owner = true }) {
   const allowPrivateByEnv = String(env?.GEMINI_ALLOW_PRIVATE_CONTEXT || "false").toLowerCase() === "true";
   allowPrivate = allowPrivate === true || allowPrivateByEnv;
   if (!allowPrivate && toolTurns.some(turn =>
@@ -514,11 +524,11 @@ async function runGeminiFallback(env, { message, history, contextText, toolTurns
   while (true) {
     let geminiResult;
     try {
-      geminiResult = await callGemini(env, contents, systemPrompt, !forceAnswer);
+      geminiResult = await callGemini(env, contents, systemPrompt, !forceAnswer, { owner });
     } catch (e) {
       if (!/502|503|high demand|temporar|overload/i.test(String(e?.message || e))) throw e;
       await new Promise(resolve => setTimeout(resolve, 900));
-      geminiResult = await callGemini(env, contents, systemPrompt, !forceAnswer);
+      geminiResult = await callGemini(env, contents, systemPrompt, !forceAnswer, { owner });
     }
     const { data, model } = geminiResult;
     const toolCalls = parseGeminiToolCalls(data);
@@ -760,6 +770,7 @@ export async function onRequestPost(context) {
     try {
       const gemini = await withTimeout(runGeminiFallback(context.env, {
         message, history, contextText, toolTurns, allowPrivate: body?.allowGeminiPrivate === true, forceAnswer,
+        owner: isOwnerAsk(context.request, context.env),
       }), GEMINI_AI_TIMEOUT_MS, "Gemini 備援");
       const payload = { ok: true, version: ASK_VERSION, ...gemini, fallbackFrom: friendlyAiError(primaryError?.message) };
       if (cacheEnabled) writeAskCache(cacheKey, payload);
