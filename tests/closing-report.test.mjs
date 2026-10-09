@@ -9,6 +9,7 @@ function reportHarness(closed, marketPct) {
   const source=html.slice(start,html.indexOf('  useEffect(() => {',start));
   const ctx = { Number, Date, console, Promise,
     useState: value => [value, () => {}],
+    useTaipeiDayKey: () => '2026-10-04',
     taiwanDateParts: () => ({year:'2026',month:'10',day:'04',hour:22,minute:30}),
     isNonTradingDay: () => closed, refreshTwseHolidaySchedule: async () => ({}),
     isTaiwanSymbol: () => true, nf: String,
