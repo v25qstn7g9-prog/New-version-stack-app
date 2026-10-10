@@ -275,3 +275,23 @@ html.za-clean[data-theme="navy"] :is(.premium-tabbar button[data-active="false"]
 }
 html.za-clean[data-theme="navy"] :is(input,select,textarea)::placeholder{color:#ffffff!important;opacity:.88}
 html.za-clean[data-theme="navy"] .recharts-cartesian-axis-tick text{fill:#ffffff!important}
+
+/* Mobile quote layout: keep high / low / previous close on one line without
+   changing the price/value columns, data formatting or global font sizes. */
+html.za-clean .live-quote-stats>div{
+  font-size:11px!important;
+  line-height:1.65!important;
+  letter-spacing:-.25px;
+  white-space:nowrap!important;
+  overflow-wrap:normal!important;
+  word-break:keep-all!important;
+}
+/* Trades form: use a single native dropdown arrow, not the repeated custom
+   SVG arrows seen on iPhone after the input and theme styles combined. */
+html.za-clean .premium-tab-trades select.input{
+  -webkit-appearance:menulist!important;
+  appearance:auto!important;
+  background-image:none!important;
+  background-repeat:no-repeat!important;
+  padding-right:12px!important;
+}
