@@ -14,14 +14,18 @@ test("inputs are 17px so iPhone does not zoom", () => { assert.match(css, /font-
 test("clean-ui.js is DOM-only", () => {
   for (const bad of ["fetch(", "XMLHttpRequest", "localStorage", "indexedDB", "sendBeacon", "/mcp", "/api/"]) assert.ok(!js.includes(bad), bad);
 });
-test("clean.css has no gradients except the select arrow icon", () => {
-  assert.ok(!/linear-gradient|radial-gradient/.test(css.replace(/\/\*[\s\S]*?\*\//g, "").replace(/linear-gradient\(to bottom, rgba\(255/g, "")));
+test("Forma navy permits one asset hero gradient while other cards stay flat", () => {
+  const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.match(withoutComments, /--forma-hero-gradient:linear-gradient\(180deg,#334368 0%,#6a799a 100%\)/);
+  assert.match(withoutComments, /\.premium-dashboard>\.premium-asset-hero\{[^}]*background-image:var\(--forma-hero-gradient\)!important/);
+  assert.match(withoutComments, /html\.za-clean :is\(div,section,header,span,p,button\):not\(/);
+  assert.equal((withoutComments.match(/linear-gradient\(180deg/g) || []).length, 1);
 });
 test("navy theme is the default and redefines the shared colour variables", () => {
-  assert.match(css, /html\.za-clean\[data-theme="navy"\]\{[^}]*--c-bg:#2b3a63/);
-  assert.match(css, /@media all\{\s*html\.za-clean:not\(\[data-theme\]\)\{[^}]*--c-bg:#2b3a63/);
+  assert.match(css, /html\.za-clean\[data-theme="navy"\]\{[^}]*--c-bg:#2d3b62/);
+  assert.match(css, /@media all\{\s*html\.za-clean:not\(\[data-theme\]\)\{[^}]*--c-bg:#2d3b62/);
   assert.match(html, /bg: "var\(--z-bg, #3A4A75\)"/);
-  assert.match(html, /<meta name="theme-color" content="#2B3A63" id="zaThemeColor"/);
+  assert.match(html, /<meta name="theme-color" content="#2D3B62" id="zaThemeColor"/);
 });
 test("grey theme: medium grey page and cards, no white, deepened accent and up/down colours", () => {
   const grey = css.match(/html\.za-clean\{([\s\S]*?)\n\}/)[1];
