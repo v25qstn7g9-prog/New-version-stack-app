@@ -17,26 +17,32 @@ test("clean-ui.js is DOM-only", () => {
 test("clean.css has no gradients except the select arrow icon", () => {
   assert.ok(!/linear-gradient|radial-gradient/.test(css.replace(/\/\*[\s\S]*?\*\//g, "").replace(/linear-gradient\(to bottom, rgba\(255/g, "")));
 });
-test("automatic dark mode redefines the shared colour variables", () => {
-  assert.match(css, /html\.za-clean\[data-theme="dark"\]\{[^}]*--c-bg:#111317/);
-  assert.match(html, /bg: "var\(--z-bg, #FAF8F4\)"/);
-  assert.match(html, /gold: "var\(--z-gold, #3457C9\)"/);
+test("navy theme is the default and redefines the shared colour variables", () => {
+  assert.match(css, /html\.za-clean\[data-theme="navy"\]\{[^}]*--c-bg:#2b3a63/);
+  assert.match(css, /@media all\{\s*html\.za-clean:not\(\[data-theme\]\)\{[^}]*--c-bg:#2b3a63/);
+  assert.match(html, /bg: "var\(--z-bg, #3A4A75\)"/);
+  assert.match(html, /<meta name="theme-color" content="#2B3A63" id="zaThemeColor"/);
 });
-
-test("default light theme is warm off-white, never pure white", () => {
-  const light = css.match(/html\.za-clean\{([\s\S]*?)\n\}/)[1];
-  assert.match(light, /--c-bg:#f3f0ea/); assert.match(light, /--c-card:#faf8f4/);
-  assert.ok(!/#fff(fff)?\b/i.test(light));
-  for (const k of ["bg", "panel", "text"]) assert.ok(!new RegExp(k + ': "var\\(--z-[a-z-]+, #FFFFFF\\)"').test(html), k);
+test("grey theme: medium grey page and cards, no white, deepened accent and up/down colours", () => {
+  const grey = css.match(/html\.za-clean\{([\s\S]*?)\n\}/)[1];
+  assert.match(grey, /--c-bg:#a4a5a8/); assert.match(grey, /--c-card:#b5b6b9/); assert.match(grey, /--c-ink:#1e1f22/);
+  assert.match(grey, /--c-accent:#1b3890/); assert.match(grey, /--c-bad:#8e1f18/); assert.match(grey, /--c-good:#0b4f27/);
+  assert.ok(!/#fff(fff)?\b|#faf8f4|#f3f0ea/i.test(grey));
 });
-test("theme toggle: applied in <head> before paint, own storage key, follows system on first visit", () => {
-  const head = html.slice(0, html.indexOf("</head>") > 0 ? html.indexOf("</head>") : html.indexOf("<body"));
+test("theme toggle: applied in <head> before paint, own key, navy on first visit, old values mapped", () => {
+  const head = html.slice(0, html.indexOf("<body"));
   assert.match(head, /var K = "zaTheme"/);
-  assert.match(head, /prefers-color-scheme: dark/);
-  assert.match(head, /root\.setAttribute\("data-theme", t\)/);
-  assert.match(head, /id="zaThemeColor"/);
+  assert.match(head, /apply\(saved\(\) \|\| "navy"\)/);
+  assert.match(head, /v === "grey" \|\| v === "light"\) \? "grey"/);
+  assert.ok(!/prefers-color-scheme/.test(head));
   assert.ok(head.indexOf("zaTheme") < head.indexOf("clean.css"));
   assert.match(html, /<ThemeToggle showEnglish=\{showEnglish\} \/>/);
   assert.match(html, /id="themeToggle"/);
-  assert.match(css, /html\.za-clean:not\(\[data-theme\]\)/);
+  assert.match(html, /window\.zaSetTheme\(dark \? "grey" : "navy"\)/);
+});
+
+test("readability: secondary text at least 14px, body 16px", () => {
+  assert.match(css, /body\{font-size:16px;line-height:1\.55\}/);
+  assert.match(css, /text-\[8px\]"\],\[class~="text-\[9px\]"\],\[class~="text-\[10px\]"\],\[class~="text-\[11px\]"\],\.text-xs\)\{font-size:14px!important/);
+  assert.match(css, /\.live-quote-grid,html\.za-clean \.live-quote-heading\{font-size:14px!important/);
 });

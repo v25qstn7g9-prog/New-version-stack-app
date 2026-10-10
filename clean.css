@@ -7,11 +7,11 @@
    台股慣例：紅＝漲、綠＝跌（只用在文字顏色）。
    ════════════════════════════════════════════════════════════════════ */
 html.za-clean{
-  /* 預設淺色＝柔和米白：頁面暖灰米色、卡片稍亮的米白（不用純白）、深暖灰字（不用純黑）、暖色細線；
-     對比降低但數字仍符合 WCAG AA（內文／數字 ≥ 4.5:1） */
-  --c-bg:#f3f0ea;--c-card:#faf8f4;--c-ink:#2b2723;--c-ink-2:#4f4a43;--c-muted:#6b645b;
-  --c-line:#e6e0d6;--c-line-2:#d8d0c3;--c-accent:#3457c9;--c-accent-press:#2a47a8;
-  --c-good:#1a7f45;--c-warn:#94600f;--c-bad:#c23b32;--c-disabled-bg:#ebe6dd;--c-disabled-ink:#a39c91;
+  /* 灰色主題（切換鈕的另一個選項；預設是深色）：中灰頁面＋稍亮的灰卡片，沒有白色；
+     深色字、稍深的灰框線；重點藍、紅漲綠跌都加深，內文／數字在卡片上 ≥ 4.5:1（WCAG AA） */
+  --c-bg:#a4a5a8;--c-card:#b5b6b9;--c-ink:#1e1f22;--c-ink-2:#2c2e32;--c-muted:#3a3c40;
+  --c-line:#96979b;--c-line-2:#8a8b8f;--c-accent:#1b3890;--c-accent-press:#142a6c;
+  --c-good:#0b4f27;--c-warn:#5c3a00;--c-bad:#8e1f18;--c-disabled-bg:#9c9da1;--c-disabled-ink:#5f6166;
   /* 舊的 premium 變數改成淺色，沿用它們的規則會自動變成淺色 */
   --premium-bg:var(--c-bg);--premium-panel:var(--c-card);--premium-panel-soft:var(--c-card);
   --premium-line:var(--c-line);--premium-line-focus:var(--c-line-2);--premium-muted:var(--c-muted);
@@ -19,7 +19,7 @@ html.za-clean{
   /* index.html 的 COLORS 直接用這些變數，深色模式只要換變數 */
   --z-bg:var(--c-card);--z-panel:var(--c-card);--z-line:var(--c-line);--z-line-2:var(--c-line-2);
   --z-text:var(--c-ink);--z-sub:var(--c-muted);--z-gain:var(--c-bad);--z-loss:var(--c-good);--z-gold:var(--c-accent);
-  --c-btn:var(--c-accent);--c-tabbar:rgba(250,248,244,.96);--c-placeholder:#a0988c;--c-tick:#7a7368;
+  --c-btn:var(--c-accent);--c-btn-ink:#eef1f7;--c-solid-card:var(--c-card);--c-tabbar:rgba(181,182,185,.97);--c-placeholder:#55575c;--c-tick:#3a3c40;
   color-scheme:light;
 }
 html.za-clean,html.za-clean body,html.za-clean #root{background:var(--c-bg)!important;color:var(--c-ink)}
@@ -74,7 +74,7 @@ html.za-clean .rounded-full[style*="border"]:not(button){background:transparent!
 html.za-clean button{box-shadow:none!important;text-shadow:none!important}
 html.za-clean .live-refresh-btn{box-shadow:none!important}
 /* 主要按鈕（背景＝重點色）：實心、白字 */
-html.za-clean button[style*="background: var(--z-gold"]{background:var(--c-btn)!important;color:#fff!important;border-color:var(--c-btn)!important}
+html.za-clean button[style*="background: var(--z-gold"]{background:var(--c-btn)!important;color:var(--c-btn-ink)!important;border-color:var(--c-btn)!important}
 html.za-clean button[style*="background: var(--z-gold"] *{color:inherit!important}
 html.za-clean button[style*="background: var(--z-gold"]:active{background:var(--c-accent-press)!important}
 /* 「暫時不能按」只用半透明表示的按鈕，跟真正停用的一樣：平的灰色 */
@@ -95,7 +95,7 @@ html.za-clean :is(input,select,textarea)::placeholder{color:var(--c-placeholder)
 html.za-clean :is(input,select,textarea):focus,html.za-clean .premium-tab .input:focus{
   outline:none!important;border-color:var(--c-accent)!important;box-shadow:0 0 0 3px rgba(47,91,234,.14)!important}
 html.za-clean select{-webkit-appearance:none!important;appearance:none!important;padding-right:34px!important;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237a7368' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E")!important;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233a3c40' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E")!important;
   background-repeat:no-repeat!important;background-position:right 10px center!important;background-size:18px 18px!important}
 html.za-clean input[type=checkbox],html.za-clean input[type=radio]{accent-color:var(--c-accent)}
 html.za-clean input[type=date]{-webkit-appearance:none;appearance:none}
@@ -109,7 +109,7 @@ html.za-clean .premium-tabbar svg{stroke-width:1.5}
 html.za-clean .premium-tabbar button[data-active="true"] svg{stroke-width:1.9}
 
 /* ── AI 助手按鈕與面板 ── */
-html.za-clean .premium-ai-launcher{background:var(--c-btn)!important;color:#fff!important;border:0!important;box-shadow:0 6px 20px -8px rgba(15,23,42,.35)!important}
+html.za-clean .premium-ai-launcher{background:var(--c-btn)!important;color:var(--c-btn-ink)!important;border:0!important;box-shadow:0 6px 20px -8px rgba(15,23,42,.35)!important}
 html.za-clean .premium-ai-launcher svg{stroke-width:1.6}
 html.za-clean .ai-panel-h{background:var(--c-card)!important;border:1px solid var(--c-line)!important;box-shadow:0 -10px 30px -12px rgba(15,23,42,.25)!important}
 
@@ -144,45 +144,96 @@ html.za-clean .premium-empty{border:1px dashed var(--c-line-2)!important}
 /* 卡片標題：原本是金色字，現在一律深色字（重點色留給按鈕、圖示與數字） */
 html.za-clean :is(div,h2,h3,p):is(.font-bold,.font-black):is(.text-xs,.text-sm,.text-base,.text-lg)[style*="color: var(--z-gold"]:not(.mono){color:var(--c-ink)!important}
 
-/* ════ 深色模式（跟著 iPhone 設定自動切換；淺色是預設）════
+/* ════ 深藍主題（預設，參考 Blueprint：深石板藍頁面、半透明藍卡片、白字、白色膠囊主要按鈕；切換鈕可改成灰色）════
    深灰頁面、稍亮的卡片、細線框；同一個藍色重點色調亮一點讓字看得清楚；
    主要按鈕用較深的藍＋白字；紅漲綠跌只用在文字。 */
-/* 由右上角切換鈕（或第一次跟手機設定）決定：<html data-theme="dark"> */
-html.za-clean[data-theme="dark"]{
-    --c-bg:#111317;--c-card:#1a1d23;--c-ink:#e8ebf0;--c-ink-2:#b8c0cc;--c-muted:#98a2b3;
-    --c-line:#2a2f38;--c-line-2:#363c47;--c-accent:#7aa2ff;--c-accent-press:#2f5bea;--c-btn:#3d6af0;
-    --c-good:#3ccb7f;--c-warn:#e3b341;--c-bad:#ff6b63;--c-disabled-bg:#262a31;--c-disabled-ink:#6b7380;
-    --c-tabbar:rgba(26,29,35,.96);--c-placeholder:#6b7380;--c-tick:#7d8796;
+/* 由右上角切換鈕決定：<html data-theme="navy">（預設）或 grey */
+html.za-clean[data-theme="navy"]{
+    --c-bg:#2b3a63;--c-card:rgba(255,255,255,.085);--c-ink:#ffffff;--c-ink-2:#dce2f0;--c-muted:#b3bdd8;
+    --c-line:rgba(255,255,255,.08);--c-line-2:rgba(255,255,255,.16);--c-accent:#a8c2ff;--c-accent-press:#e6ecfa;--c-btn:#ffffff;--c-btn-ink:#1f2b4d;
+    --c-good:#6ee7b7;--c-warn:#f5c26b;--c-bad:#ff8a80;--c-disabled-bg:rgba(255,255,255,.08);--c-disabled-ink:#8592b5;
+    --c-tabbar:rgba(43,58,99,.96);--c-placeholder:#8592b5;--c-tick:#a9b4d0;--c-solid-card:#3a4a75;
     color-scheme:dark;
   }
-  html.za-clean[data-theme="dark"] :is(input,select,textarea):focus,html.za-clean[data-theme="dark"] .premium-tab .input:focus{box-shadow:0 0 0 3px rgba(122,162,255,.22)!important}
-  html.za-clean[data-theme="dark"] select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237d8796' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E")!important}
-  html.za-clean[data-theme="dark"] .premium-ai-launcher{box-shadow:0 6px 20px -8px rgba(0,0,0,.6)!important}
-  html.za-clean[data-theme="dark"] .ai-panel-h{box-shadow:0 -10px 30px -12px rgba(0,0,0,.6)!important}
-  html.za-clean[data-theme="dark"] .recharts-default-tooltip{box-shadow:0 6px 20px -8px rgba(0,0,0,.6)!important}
-  html.za-clean[data-theme="dark"] [style*="color: rgb(180, 83, 9)"]{color:var(--c-warn)!important}
-  html.za-clean[data-theme="dark"] input[type=date]::-webkit-datetime-edit{color:var(--c-ink)}
-  html.za-clean[data-theme="dark"] .cl-dot.g{background:#3ccb7f}html.za-clean[data-theme="dark"] .cl-dot.y{background:#e3b341}html.za-clean[data-theme="dark"] .cl-dot.r{background:#ff6b63}
+  html.za-clean[data-theme="navy"] :is(input,select,textarea):focus,html.za-clean[data-theme="navy"] .premium-tab .input:focus{box-shadow:0 0 0 3px rgba(168,194,255,.3)!important}
+  html.za-clean[data-theme="navy"] select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a9b4d0' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E")!important}
+  html.za-clean[data-theme="navy"] .premium-ai-launcher{box-shadow:0 6px 20px -8px rgba(0,0,0,.6)!important}
+  html.za-clean[data-theme="navy"] .ai-panel-h{box-shadow:0 -10px 30px -12px rgba(0,0,0,.6)!important}
+  html.za-clean[data-theme="navy"] .recharts-default-tooltip{box-shadow:0 6px 20px -8px rgba(0,0,0,.6)!important}
+  html.za-clean[data-theme="navy"] [style*="color: rgb(180, 83, 9)"]{color:var(--c-warn)!important}
+  html.za-clean[data-theme="navy"] input[type=date]::-webkit-datetime-edit{color:var(--c-ink)}
+  html.za-clean[data-theme="navy"] .cl-dot.g{background:#6ee7b7}html.za-clean[data-theme="navy"] .cl-dot.y{background:#f5c26b}html.za-clean[data-theme="navy"] .cl-dot.r{background:#ff8a80}
 
-/* 萬一 <head> 的小程式沒跑到：跟著手機設定 */
-@media (prefers-color-scheme: dark){
+/* 萬一 <head> 的小程式沒跑到：一樣用深色（預設） */
+@media all{
   html.za-clean:not([data-theme]){
-    --c-bg:#111317;--c-card:#1a1d23;--c-ink:#e8ebf0;--c-ink-2:#b8c0cc;--c-muted:#98a2b3;
-    --c-line:#2a2f38;--c-line-2:#363c47;--c-accent:#7aa2ff;--c-accent-press:#2f5bea;--c-btn:#3d6af0;
-    --c-good:#3ccb7f;--c-warn:#e3b341;--c-bad:#ff6b63;--c-disabled-bg:#262a31;--c-disabled-ink:#6b7380;
-    --c-tabbar:rgba(26,29,35,.96);--c-placeholder:#6b7380;--c-tick:#7d8796;
+    --c-bg:#2b3a63;--c-card:rgba(255,255,255,.085);--c-ink:#ffffff;--c-ink-2:#dce2f0;--c-muted:#b3bdd8;
+    --c-line:rgba(255,255,255,.08);--c-line-2:rgba(255,255,255,.16);--c-accent:#a8c2ff;--c-accent-press:#e6ecfa;--c-btn:#ffffff;--c-btn-ink:#1f2b4d;
+    --c-good:#6ee7b7;--c-warn:#f5c26b;--c-bad:#ff8a80;--c-disabled-bg:rgba(255,255,255,.08);--c-disabled-ink:#8592b5;
+    --c-tabbar:rgba(43,58,99,.96);--c-placeholder:#8592b5;--c-tick:#a9b4d0;--c-solid-card:#3a4a75;
     color-scheme:dark;
   }
-  html.za-clean:not([data-theme]) :is(input,select,textarea):focus,html.za-clean:not([data-theme]) .premium-tab .input:focus{box-shadow:0 0 0 3px rgba(122,162,255,.22)!important}
-  html.za-clean:not([data-theme]) select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237d8796' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E")!important}
+  html.za-clean:not([data-theme]) :is(input,select,textarea):focus,html.za-clean:not([data-theme]) .premium-tab .input:focus{box-shadow:0 0 0 3px rgba(168,194,255,.3)!important}
+  html.za-clean:not([data-theme]) select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a9b4d0' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E")!important}
   html.za-clean:not([data-theme]) .premium-ai-launcher{box-shadow:0 6px 20px -8px rgba(0,0,0,.6)!important}
   html.za-clean:not([data-theme]) .ai-panel-h{box-shadow:0 -10px 30px -12px rgba(0,0,0,.6)!important}
   html.za-clean:not([data-theme]) .recharts-default-tooltip{box-shadow:0 6px 20px -8px rgba(0,0,0,.6)!important}
   html.za-clean:not([data-theme]) [style*="color: rgb(180, 83, 9)"]{color:var(--c-warn)!important}
   html.za-clean:not([data-theme]) input[type=date]::-webkit-datetime-edit{color:var(--c-ink)}
-  .cl-dot.g{background:#3ccb7f}.cl-dot.y{background:#e3b341}.cl-dot.r{background:#ff6b63}
+  .cl-dot.g{background:#6ee7b7}.cl-dot.y{background:#f5c26b}.cl-dot.r{background:#ff8a80}
 }
 
 /* 主題切換鈕：跟 中/EN 一樣的細外框小圓鈕 */
 html.za-clean .za-theme-toggle{width:30px!important;min-width:30px!important;max-width:30px!important;height:30px!important;min-height:30px!important;padding:0!important;border-color:color-mix(in srgb,var(--c-accent) 45%,transparent)!important;color:var(--c-accent)!important;background:transparent!important}
 html.za-clean .za-theme-toggle svg{display:block}
+
+/* ════ 好讀一點（字大一點、行距寬一點、次要資訊淡一點）════
+   原本很多 8–11px 的小字擠在一起，看久了很累：
+   內文 16px；次要小字最小 14px；行距加大；列與列之間多留空間；
+   次要資訊（說明、日期、小標）用較淡的顏色，讓主要數字更突出；
+   左右並排的「標籤＋數值」放不下時改成上下兩行，不再硬擠或斷字。 */
+html.za-clean body{font-size:16px;line-height:1.55}
+html.za-clean .premium-main :is([class~="text-[8px]"],[class~="text-[9px]"],[class~="text-[10px]"],[class~="text-[11px]"],.text-xs){font-size:14px!important;line-height:1.5!important}
+html.za-clean .premium-main :is([class~="text-[12px]"],.text-sm){font-size:15px!important;line-height:1.5!important}
+html.za-clean .premium-main .text-base{font-size:17px!important;line-height:1.5!important}
+html.za-clean .premium-main :is(.leading-5,.leading-relaxed,.leading-tight,.leading-snug){line-height:1.55!important}
+/* 次要資訊淡一點；主要數字（粗體）維持清楚 */
+html.za-clean{--c-muted-2:color-mix(in srgb,var(--c-muted) 82%,var(--c-card))}
+html.za-clean .premium-main [style*="color: var(--z-sub"]:not(.font-bold):not(.font-black):not(.font-semibold){color:var(--c-muted-2)!important}
+/* 列距 */
+html.za-clean .premium-main :is(.space-y-1,.space-y-1\.5,.space-y-2)>:not([hidden])~:not([hidden]){margin-top:10px!important}
+html.za-clean .premium-main .space-y-3>:not([hidden])~:not([hidden]){margin-top:14px!important}
+html.za-clean .premium-main :is(.mt-0\.5,.mt-1){margin-top:6px!important}
+html.za-clean .premium-row{padding-top:14px!important;padding-bottom:14px!important}
+/* 標籤＋數值放不下時換行（不硬擠）；數字本身不拆開 */
+html.za-clean .premium-main .flex.justify-between{flex-wrap:wrap;column-gap:12px;row-gap:4px}
+html.za-clean .premium-main .flex.justify-between>*{min-width:0}
+html.za-clean .premium-main :is(.mono,[class*="text-right"]){overflow-wrap:normal;word-break:keep-all}
+html.za-clean .premium-main{overflow-wrap:anywhere}
+/* 頁首小字與分頁列 */
+html.za-clean .premium-header [class~="text-[10px]"]{font-size:13px!important}
+html.za-clean .premium-header [class~="text-[9px]"]{font-size:14px!important}
+html.za-clean .premium-tabbar [class~="text-[8px]"]{font-size:12px!important;line-height:1.25!important}
+html.za-clean .premium-tabbar svg{width:20px;height:20px}
+
+/* ── 深藍主題的細節：大圓角、幾乎看不到的框線、白色膠囊主要按鈕、半透明圓形圖示鈕 ── */
+html.za-clean[data-theme="navy"] :is(.premium-panel,.premium-asset-hero,.premium-dashboard>.rounded-xl,.premium-tab>.space-y-2>div.rounded-2xl,.premium-tab>.space-y-3>div.rounded-2xl,.trend-radar-shell){border-radius:24px!important;border-color:transparent!important}
+html.za-clean[data-theme="navy"] button[style*="background: var(--z-gold"]{border-radius:999px!important}
+html.za-clean[data-theme="navy"] .premium-ai-launcher{background:#ffffff!important;color:#1f2b4d!important}
+html.za-clean[data-theme="navy"] :is(.za-theme-toggle,.premium-header button){background:rgba(255,255,255,.12)!important;border-color:transparent!important;color:#ffffff!important}
+html.za-clean[data-theme="navy"] .premium-tabbar{border-top-color:rgba(255,255,255,.08)!important}
+html.za-clean[data-theme="navy"] .premium-tabbar button[data-active="false"]{color:#a9b4d0!important}
+html.za-clean[data-theme="navy"] .premium-tabbar button[data-active="true"]{color:#ffffff!important}
+html.za-clean[data-theme="navy"] .ai-panel-h,html.za-clean[data-theme="navy"] .recharts-default-tooltip{background:var(--c-solid-card)!important}
+html.za-clean[data-theme="navy"] :is(input:not([type=checkbox]):not([type=radio]),select,textarea,.input){background-color:rgba(255,255,255,.06)!important}
+html.za-clean[data-theme="navy"] select option{background:#3a4a75;color:#fff}
+
+/* ── 即時股價表與其他寫死小字的區塊：也放大到 14px 以上 ── */
+html.za-clean .live-quote-grid,html.za-clean .live-quote-heading{font-size:14px!important;line-height:1.5!important}
+html.za-clean .live-quote-grid{gap:8px!important;grid-template-columns:minmax(44px,.6fr) minmax(0,1fr) minmax(0,1.1fr) minmax(0,1.3fr)!important}
+html.za-clean .live-quote-row{padding:12px 0!important}
+html.za-clean .premium-panel>.premium-panel-title{font-size:15px!important}
+html.za-clean .premium-field-label{font-size:14px!important}
+html.za-clean .holding-cost-summary{font-size:14px!important}
+html.za-clean .premium-tabbar button>span:last-child{font-size:12px!important}
+html.za-clean :is(.holding-cost-summary,.holding-trade-average){background:transparent!important}
