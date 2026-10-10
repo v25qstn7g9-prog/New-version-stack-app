@@ -149,10 +149,10 @@ html.za-clean :is(div,h2,h3,p):is(.font-bold,.font-black):is(.text-xs,.text-sm,.
    主要按鈕用較深的藍＋白字；紅漲綠跌只用在文字。 */
 /* 由右上角切換鈕決定：<html data-theme="navy">（預設）或 grey */
 html.za-clean[data-theme="navy"]{
-    --c-bg:#2d3b62;--c-card:#35456e;--c-ink:#ffffff;--c-ink-2:#e0e6f0;--c-muted:#c6cddd;
+    --c-bg:#29385b;--c-card:#303f60;--c-ink:#ffffff;--c-ink-2:#e0e6f0;--c-muted:#c6cddd;
     --c-line:rgba(255,255,255,.08);--c-line-2:rgba(255,255,255,.16);--c-accent:#a8c2ff;--c-accent-press:#e6ecfa;--c-btn:#ffffff;--c-btn-ink:#1f2b4d;
     --c-good:#6ee7b7;--c-warn:#f5c26b;--c-bad:#ff8a80;--c-disabled-bg:rgba(255,255,255,.08);--c-disabled-ink:#8592b5;
-    --c-tabbar:rgba(45,59,98,.97);--c-placeholder:#a8b3ca;--c-tick:#b9c3d9;--c-solid-card:#435477;
+    --c-tabbar:rgba(41,56,91,.97);--c-placeholder:#a8b3ca;--c-tick:#b9c3d9;--c-solid-card:#354668;
     color-scheme:dark;
   }
   html.za-clean[data-theme="navy"] :is(input,select,textarea):focus,html.za-clean[data-theme="navy"] .premium-tab .input:focus{box-shadow:0 0 0 3px rgba(168,194,255,.3)!important}
@@ -167,10 +167,10 @@ html.za-clean[data-theme="navy"]{
 /* 萬一 <head> 的小程式沒跑到：一樣用深色（預設） */
 @media all{
   html.za-clean:not([data-theme]){
-    --c-bg:#2d3b62;--c-card:#35456e;--c-ink:#ffffff;--c-ink-2:#e0e6f0;--c-muted:#c6cddd;
+    --c-bg:#29385b;--c-card:#303f60;--c-ink:#ffffff;--c-ink-2:#e0e6f0;--c-muted:#c6cddd;
     --c-line:rgba(255,255,255,.08);--c-line-2:rgba(255,255,255,.16);--c-accent:#a8c2ff;--c-accent-press:#e6ecfa;--c-btn:#ffffff;--c-btn-ink:#1f2b4d;
     --c-good:#6ee7b7;--c-warn:#f5c26b;--c-bad:#ff8a80;--c-disabled-bg:rgba(255,255,255,.08);--c-disabled-ink:#8592b5;
-    --c-tabbar:rgba(45,59,98,.97);--c-placeholder:#a8b3ca;--c-tick:#b9c3d9;--c-solid-card:#435477;
+    --c-tabbar:rgba(41,56,91,.97);--c-placeholder:#a8b3ca;--c-tick:#b9c3d9;--c-solid-card:#354668;
     color-scheme:dark;
   }
   html.za-clean:not([data-theme]) :is(input,select,textarea):focus,html.za-clean:not([data-theme]) .premium-tab .input:focus{box-shadow:0 0 0 3px rgba(168,194,255,.3)!important}
@@ -242,20 +242,23 @@ html.za-clean :is(.holding-cost-summary,.holding-trade-average){background:trans
    Scope: navy only. Do not change grey theme, typography, table density, app logic.
    Palette comes from forma-design-system/tokens.css. */
 html.za-clean[data-theme="navy"]{
-  --forma-background:#2d3b62;
-  --forma-surface:#35456e;
-  --forma-surface-elevated:#435477;
-  --forma-hero-gradient:linear-gradient(180deg,#334368 0%,#6a799a 100%);
+  --forma-background:#29385b;
+  --forma-surface:#303f60;
+  --forma-surface-elevated:#354668;
+  --forma-hero-gradient:linear-gradient(180deg,#384b70 0%,#526584 100%);
   --forma-text:#ffffff;
   --forma-muted:#c6cddd;
   --forma-border:#576787;
 }
 /* Hero is the sole gradient emphasis; all financial rows remain flat and compact. */
 html.za-clean[data-theme="navy"] .premium-dashboard>.premium-asset-hero{
-  background:#455679!important;
+  background:#405374!important;
   background-image:var(--forma-hero-gradient)!important;
   border-color:rgba(255,255,255,.10)!important;
 }
 html.za-clean[data-theme="navy"] .premium-asset-hero:before,
 html.za-clean[data-theme="navy"] .premium-asset-hero:after{display:none!important}
 /* Preserve standard financial rise/fall colors and all existing font/line-height rules. */
+
+/* Refined navy: keep the hero gradient as a subdued accent, not a full-page wash. */
+html.za-clean[data-theme="navy"] .premium-dashboard>.premium-asset-hero{background-color:#405374!important}

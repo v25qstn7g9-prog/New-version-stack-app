@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
-  <meta name="theme-color" content="#2D3B62" id="zaThemeColor" />
+  <meta name="theme-color" content="#29385B" id="zaThemeColor" />
   <script>
     /* 外觀主題（只管畫面）：深藍（預設）／灰色。使用者選過就記在 zaTheme（舊的 dark 視為深藍、light 視為灰色）；沒選過一律深藍。畫面畫出來前先套用，避免閃一下。 */
     (function () {
-      var K = "zaTheme", BG = { navy: "#2D3B62", grey: "#A4A5A8" }, root = document.documentElement;
+      var K = "zaTheme", BG = { navy: "#29385B", grey: "#A4A5A8" }, root = document.documentElement;
       function saved() { try { var v = localStorage.getItem(K); return (v === "navy" || v === "dark") ? "navy" : (v === "grey" || v === "light") ? "grey" : null; } catch (e) { return null; } }
       function apply(t) {
         root.setAttribute("data-theme", t);
@@ -890,7 +890,7 @@
       line-height:17px!important;
     }
 </style>
-  <link rel="stylesheet" href="/clean.css?v=forma-portfolio-1" />
+  <link rel="stylesheet" href="/clean.css?v=forma-portfolio-2" />
 
   <script>
     window.addEventListener("error", function(e) {
