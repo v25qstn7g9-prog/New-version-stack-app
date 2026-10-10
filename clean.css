@@ -14,6 +14,10 @@ html.za-clean{
   --premium-bg:var(--c-bg);--premium-panel:var(--c-card);--premium-panel-soft:var(--c-card);
   --premium-line:var(--c-line);--premium-line-focus:var(--c-line-2);--premium-muted:var(--c-muted);
   --premium-text:var(--c-ink);--premium-gold:var(--c-accent);--premium-gold-soft:transparent;
+  /* index.html 的 COLORS 直接用這些變數，深色模式只要換變數 */
+  --z-bg:var(--c-card);--z-panel:var(--c-card);--z-line:var(--c-line);--z-line-2:var(--c-line-2);
+  --z-text:var(--c-ink);--z-sub:var(--c-muted);--z-gain:var(--c-bad);--z-loss:var(--c-good);--z-gold:var(--c-accent);
+  --c-btn:var(--c-accent);--c-tabbar:rgba(255,255,255,.96);--c-placeholder:#98a2b3;--c-tick:#8a94a6;
   color-scheme:light;
 }
 html.za-clean,html.za-clean body,html.za-clean #root{background:var(--c-bg)!important;color:var(--c-ink)}
@@ -67,7 +71,14 @@ html.za-clean .rounded-full[style*="border"]:not(button){background:transparent!
    停用：平的灰色。 */
 html.za-clean button{box-shadow:none!important;text-shadow:none!important}
 html.za-clean .live-refresh-btn{box-shadow:none!important}
-html.za-clean button[style*="background: rgb(47, 91, 234)"]:active{background:var(--c-accent-press)!important}
+/* 主要按鈕（背景＝重點色）：實心、白字 */
+html.za-clean button[style*="background: var(--z-gold"]{background:var(--c-btn)!important;color:#fff!important;border-color:var(--c-btn)!important}
+html.za-clean button[style*="background: var(--z-gold"] *{color:inherit!important}
+html.za-clean button[style*="background: var(--z-gold"]:active{background:var(--c-accent-press)!important}
+/* 「暫時不能按」只用半透明表示的按鈕，跟真正停用的一樣：平的灰色 */
+html.za-clean button[style*="background: var(--z-gold"][style*="opacity: 0."],
+html.za-clean button[style*="background: var(--z-line"]{
+  background:var(--c-disabled-bg)!important;color:var(--c-disabled-ink)!important;border-color:var(--c-disabled-bg)!important;opacity:1!important}
 html.za-clean button:disabled,html.za-clean button[aria-disabled="true"]{
   background:var(--c-disabled-bg)!important;color:var(--c-disabled-ink)!important;border-color:var(--c-disabled-bg)!important;opacity:1!important;box-shadow:none!important}
 html.za-clean button:disabled *{color:inherit!important}
@@ -78,7 +89,7 @@ html.za-clean .premium-tab .input,html.za-clean .input{
   background-color:var(--c-card)!important;color:var(--c-ink)!important;border:1px solid var(--c-line-2)!important;
   border-radius:12px!important;box-shadow:none!important;font-size:17px!important;font-family:inherit!important;min-height:44px;box-sizing:border-box;
   font-variant-numeric:tabular-nums}
-html.za-clean :is(input,select,textarea)::placeholder{color:#98a2b3!important;opacity:1}
+html.za-clean :is(input,select,textarea)::placeholder{color:var(--c-placeholder)!important;opacity:1}
 html.za-clean :is(input,select,textarea):focus,html.za-clean .premium-tab .input:focus{
   outline:none!important;border-color:var(--c-accent)!important;box-shadow:0 0 0 3px rgba(47,91,234,.14)!important}
 html.za-clean select{-webkit-appearance:none!important;appearance:none!important;padding-right:34px!important;
@@ -88,7 +99,7 @@ html.za-clean input[type=checkbox],html.za-clean input[type=radio]{accent-color:
 html.za-clean input[type=date]{-webkit-appearance:none;appearance:none}
 
 /* ── 底部分頁列：白底細線；選中＝重點色文字，不放色塊 ── */
-html.za-clean .premium-tabbar{background:rgba(255,255,255,.96)!important;border-top:1px solid var(--c-line)!important;box-shadow:none!important}
+html.za-clean .premium-tabbar{background:var(--c-tabbar)!important;border-top:1px solid var(--c-line)!important;box-shadow:none!important}
 html.za-clean .premium-tabbar button>span:first-child,
 html.za-clean .premium-tabbar button[data-active="true"]>span:first-child{background:transparent!important;border-color:transparent!important;box-shadow:none!important}
 html.za-clean .premium-tabbar button[data-active="false"]{opacity:1;color:#8a94a6!important}
@@ -96,13 +107,13 @@ html.za-clean .premium-tabbar svg{stroke-width:1.5}
 html.za-clean .premium-tabbar button[data-active="true"] svg{stroke-width:1.9}
 
 /* ── AI 助手按鈕與面板 ── */
-html.za-clean .premium-ai-launcher{background:var(--c-accent)!important;color:#fff!important;border:0!important;box-shadow:0 6px 20px -8px rgba(15,23,42,.35)!important}
+html.za-clean .premium-ai-launcher{background:var(--c-btn)!important;color:#fff!important;border:0!important;box-shadow:0 6px 20px -8px rgba(15,23,42,.35)!important}
 html.za-clean .premium-ai-launcher svg{stroke-width:1.6}
 html.za-clean .ai-panel-h{background:var(--c-card)!important;border:1px solid var(--c-line)!important;box-shadow:0 -10px 30px -12px rgba(15,23,42,.25)!important}
 
 /* ── 圖表（Recharts）：細格線、灰色刻度字 ── */
 html.za-clean .recharts-cartesian-grid line{stroke:var(--c-line)!important}
-html.za-clean .recharts-cartesian-axis-tick text,html.za-clean .recharts-text{fill:#8a94a6!important}
+html.za-clean .recharts-cartesian-axis-tick text,html.za-clean .recharts-text{fill:var(--c-tick)!important}
 html.za-clean .recharts-cartesian-axis-line{stroke:var(--c-line-2)!important}
 html.za-clean .recharts-default-tooltip{background:var(--c-card)!important;border:1px solid var(--c-line)!important;border-radius:10px!important;box-shadow:0 6px 20px -8px rgba(15,23,42,.2)!important;color:var(--c-ink)!important}
 html.za-clean .recharts-tooltip-cursor{stroke:var(--c-line-2)!important}
@@ -129,4 +140,25 @@ html.za-clean .trend-radar-pred-row+.trend-radar-pred-row{border-top-color:var(-
 html.za-clean .premium-empty{border:1px dashed var(--c-line-2)!important}
 
 /* 卡片標題：原本是金色字，現在一律深色字（重點色留給按鈕、圖示與數字） */
-html.za-clean :is(div,h2,h3,p):is(.font-bold,.font-black):is(.text-xs,.text-sm,.text-base,.text-lg)[style*="color: rgb(47, 91, 234)"]:not(.mono){color:var(--c-ink)!important}
+html.za-clean :is(div,h2,h3,p):is(.font-bold,.font-black):is(.text-xs,.text-sm,.text-base,.text-lg)[style*="color: var(--z-gold"]:not(.mono){color:var(--c-ink)!important}
+
+/* ════ 深色模式（跟著 iPhone 設定自動切換；淺色是預設）════
+   深灰頁面、稍亮的卡片、細線框；同一個藍色重點色調亮一點讓字看得清楚；
+   主要按鈕用較深的藍＋白字；紅漲綠跌只用在文字。 */
+@media (prefers-color-scheme: dark){
+  html.za-clean{
+    --c-bg:#111317;--c-card:#1a1d23;--c-ink:#e8ebf0;--c-ink-2:#b8c0cc;--c-muted:#98a2b3;
+    --c-line:#2a2f38;--c-line-2:#363c47;--c-accent:#7aa2ff;--c-accent-press:#2f5bea;--c-btn:#3d6af0;
+    --c-good:#3ccb7f;--c-warn:#e3b341;--c-bad:#ff6b63;--c-disabled-bg:#262a31;--c-disabled-ink:#6b7380;
+    --c-tabbar:rgba(26,29,35,.96);--c-placeholder:#6b7380;--c-tick:#7d8796;
+    color-scheme:dark;
+  }
+  html.za-clean :is(input,select,textarea):focus,html.za-clean .premium-tab .input:focus{box-shadow:0 0 0 3px rgba(122,162,255,.22)!important}
+  html.za-clean select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237d8796' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E")!important}
+  html.za-clean .premium-ai-launcher{box-shadow:0 6px 20px -8px rgba(0,0,0,.6)!important}
+  html.za-clean .ai-panel-h{box-shadow:0 -10px 30px -12px rgba(0,0,0,.6)!important}
+  html.za-clean .recharts-default-tooltip{box-shadow:0 6px 20px -8px rgba(0,0,0,.6)!important}
+  html.za-clean [style*="color: rgb(180, 83, 9)"]{color:var(--c-warn)!important}
+  html.za-clean input[type=date]::-webkit-datetime-edit{color:var(--c-ink)}
+  .cl-dot.g{background:#3ccb7f}.cl-dot.y{background:#e3b341}.cl-dot.r{background:#ff6b63}
+}

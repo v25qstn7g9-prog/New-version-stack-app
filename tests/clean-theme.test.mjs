@@ -17,3 +17,8 @@ test("clean-ui.js is DOM-only", () => {
 test("clean.css has no gradients except the select arrow icon", () => {
   assert.ok(!/linear-gradient|radial-gradient/.test(css.replace(/\/\*[\s\S]*?\*\//g, "").replace(/linear-gradient\(to bottom, rgba\(255/g, "")));
 });
+test("automatic dark mode redefines the shared colour variables", () => {
+  assert.match(css, /@media \(prefers-color-scheme: dark\)\{\s*html\.za-clean\{[^}]*--c-bg:#111317/);
+  assert.match(html, /bg: "var\(--z-bg, #FFFFFF\)"/);
+  assert.match(html, /gold: "var\(--z-gold, #2F5BEA\)"/);
+});

@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
-  <meta name="theme-color" content="#F6F7F9" />
+  <meta name="theme-color" content="#F6F7F9" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#111317" media="(prefers-color-scheme: dark)" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="存股資產追蹤" />
@@ -875,7 +876,7 @@
       line-height:17px!important;
     }
 </style>
-  <link rel="stylesheet" href="/clean.css?v=1" />
+  <link rel="stylesheet" href="/clean.css?v=2" />
 
   <script>
     window.addEventListener("error", function(e) {
@@ -1008,14 +1009,15 @@ function visibleTabsFor(allTabs, advanced) {
 
 // 清爽版配色（只管外觀）：白卡、細線框、單一重點色（gold 這個名字沿用，實際是藍色重點色）。
 const COLORS = {
-  bg: "#FFFFFF",
-  panel: "#FFFFFF",
-  panelBorder: "#E7EAF0",
-  text: "#0F172A",
-  sub: "#667085",
-  gain: "#D93D35",   // 台股慣例：紅漲
-  loss: "#12A150",   // 台股慣例：綠跌
-  gold: "#2F5BEA",
+  // 顏色走 CSS 變數（定義在 clean.css，淺色／深色自動切換）；逗號後是載不到 clean.css 時的淺色備案。
+  bg: "var(--z-bg, #FFFFFF)",
+  panel: "var(--z-panel, #FFFFFF)",
+  panelBorder: "var(--z-line, #E7EAF0)",
+  text: "var(--z-text, #0F172A)",
+  sub: "var(--z-sub, #667085)",
+  gain: "var(--z-gain, #D93D35)",   // 台股慣例：紅漲
+  loss: "var(--z-loss, #12A150)",   // 台股慣例：綠跌
+  gold: "var(--z-gold, #2F5BEA)",
 };
 
 const UI_EN = {
@@ -6685,7 +6687,7 @@ function DailyClosingAiReport({ holdings, dailyRecords }) {
             {!expanded && (
               <div
                 className="pointer-events-none absolute left-0 right-0 bottom-0 h-12"
-                style={{ background: `linear-gradient(to bottom, rgba(255,255,255,0), ${COLORS.panel})` }}
+                style={{ background: `linear-gradient(to bottom, transparent, ${COLORS.panel})` }}
               />
             )}
           </div>
@@ -6760,7 +6762,7 @@ function GoalProgressCard({ goal, totalToday, goalDate }) {
           <span className="font-bold" style={{ color: COLORS.gold }}>{showEnglish ? `${pct.toFixed(1)}% done` : `已達成 ${pct.toFixed(1)}%`}</span>
         </div>
         <div className="mt-1 h-1.5 rounded-full overflow-hidden" style={{ background: COLORS.panel }}>
-          <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: "#2F5BEA" }} />
+          <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: COLORS.gold }} />
         </div>
         <div className="mt-1 flex items-baseline justify-between gap-2 text-[11px] mono" style={{ color: COLORS.sub }}>
           <span>{showEnglish ? `NT$ ${nf(remain)} to go` : `距目標 NT$ ${nf(remain)}`}</span>
@@ -6882,8 +6884,8 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
                 <AreaChart data={rangedChartData} margin={{ top: 6, right: 4, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="assetCurveFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#2F5BEA" stopOpacity={0.18} />
-                      <stop offset="100%" stopColor="#2F5BEA" stopOpacity={0} />
+                      <stop offset="0%" stopColor={COLORS.gold} stopOpacity={0.18} />
+                      <stop offset="100%" stopColor={COLORS.gold} stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid stroke={COLORS.panelBorder} strokeDasharray="3 3" vertical={false} strokeOpacity={0.7} />
@@ -6905,8 +6907,8 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
                     cursor={{ stroke: COLORS.sub, strokeDasharray: "3 3" }}
                     formatter={(v) => [`NT$ ${nf(v)}`, uiText("總資產")]} />
                   {showGoal && goal?.targetAmount > 0 && <ReferenceLine y={goal.targetAmount} stroke={COLORS.gold} strokeDasharray="4 4" />}
-                  <Area type="monotone" dataKey="total" stroke="#2F5BEA" strokeWidth={2} fill="url(#assetCurveFill)"
-                    dot={false} activeDot={{ r: 4, fill: "#2F5BEA", stroke: COLORS.panel, strokeWidth: 2 }} />
+                  <Area type="monotone" dataKey="total" stroke={COLORS.gold} strokeWidth={2} fill="url(#assetCurveFill)"
+                    dot={false} activeDot={{ r: 4, fill: COLORS.gold, stroke: COLORS.panel, strokeWidth: 2 }} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -8788,7 +8790,7 @@ function PlanPanel({ advanced = false, setAdvancedMode, planItems, setPlanItems,
           style={{ background: COLORS.bg, border: `1px solid ${backupOverdue ? "rgba(47,91,234,0.45)" : COLORS.panelBorder}` }}>
           <div className="flex items-center" style={{ gap: 10 }}>
             <span className="flex items-center justify-center rounded-full flex-shrink-0"
-              style={{ width: 34, height: 34, background: "transparent", border: "1px solid #D9DEE7" }}>
+              style={{ width: 34, height: 34, background: "transparent", border: "1px solid var(--z-line-2, #D9DEE7)" }}>
               <ShieldCheck size={17} style={{ color: COLORS.gold }} />
             </span>
             <div className="min-w-0 flex-1">
@@ -10107,6 +10109,6 @@ function defaultPlanSchedule() {
 ReactDOM.createRoot(document.getElementById('root')).render(<AssetTracker />);
 
   </script>
-  <script src="/clean-ui.js?v=1" defer></script>
+  <script src="/clean-ui.js?v=2" defer></script>
 </body>
 </html>
