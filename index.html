@@ -5,18 +5,28 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
   <meta name="theme-color" content="#29385B" id="zaThemeColor" />
   <script>
-    /* 外觀主題（只管畫面）：深藍（預設）／灰色。使用者選過就記在 zaTheme（舊的 dark 視為深藍、light 視為灰色）；沒選過一律深藍。畫面畫出來前先套用，避免閃一下。 */
+    /* 外觀主題（只管畫面）：深藍／淺色（霧藍白，key 仍叫 grey）。沒有手動選過就跟著 iPhone 外觀（淺色模式＝淺色、深色模式＝深藍）；
+       手動切換只維持到 iPhone 外觀下一次改變為止，所以外觀設成「自動」時白天淺色、晚上深藍會自己切換。舊的 dark／light 值照舊對應。畫面畫出來前先套用，避免閃一下。 */
     (function () {
-      var K = "zaTheme", BG = { navy: "#29385B", grey: "#A4A5A8" }, root = document.documentElement;
-      function saved() { try { var v = localStorage.getItem(K); return (v === "navy" || v === "dark") ? "navy" : (v === "grey" || v === "light") ? "grey" : null; } catch (e) { return null; } }
+      var K = "zaTheme", KS = "zaThemeSys", BG = { navy: "#29385B", grey: "#F3F5F9" }, root = document.documentElement;
+      var mq = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+      function sysTheme() { return mq && !mq.matches ? "grey" : "navy"; }
+      function saved() {
+        try {
+          var v = localStorage.getItem(K); v = (v === "navy" || v === "dark") ? "navy" : (v === "grey" || v === "light") ? "grey" : null;
+          if (v && localStorage.getItem(KS) !== sysTheme()) { localStorage.removeItem(K); localStorage.removeItem(KS); return null; }
+          return v;
+        } catch (e) { return null; }
+      }
       function apply(t) {
         root.setAttribute("data-theme", t);
         var m = document.getElementById("zaThemeColor"); if (m) m.setAttribute("content", BG[t]);
         try { window.dispatchEvent(new CustomEvent("za-theme", { detail: t })); } catch (e) {}
       }
       window.zaGetTheme = function () { return root.getAttribute("data-theme") === "grey" ? "grey" : "navy"; };
-      window.zaSetTheme = function (t) { t = t === "grey" ? "grey" : "navy"; try { localStorage.setItem(K, t); } catch (e) {} apply(t); };
-      apply(saved() || "navy");
+      window.zaSetTheme = function (t) { t = t === "grey" ? "grey" : "navy"; try { localStorage.setItem(K, t); localStorage.setItem(KS, sysTheme()); } catch (e) {} apply(t); };
+      apply(saved() || sysTheme());
+      if (mq) { var onSys = function () { try { localStorage.removeItem(K); localStorage.removeItem(KS); } catch (e) {} apply(sysTheme()); }; if (mq.addEventListener) mq.addEventListener("change", onSys); else if (mq.addListener) mq.addListener(onSys); }
     })();
   </script>
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -890,7 +900,7 @@
       line-height:17px!important;
     }
 </style>
-  <link rel="stylesheet" href="/clean.css?v=quote-select-1" />
+  <link rel="stylesheet" href="/clean.css?v=light-mist-1" />
 
   <script>
     window.addEventListener("error", function(e) {
@@ -10061,7 +10071,7 @@ function AiChatWidget({ advancedUse = true, holdings, goal, totalToday, totalInv
   );
 }
 
-// 深藍／灰色切換鈕（只管外觀；主題記在 localStorage 的 zaTheme，由 <head> 的小程式套用）
+// 深藍／淺色切換鈕（只管外觀；主題記在 localStorage 的 zaTheme，由 <head> 的小程式套用；沒選過就跟著 iPhone 外觀）
 function ThemeToggle({ showEnglish }) {
   const [theme, setTheme] = useState(() => (window.zaGetTheme ? window.zaGetTheme() : "navy"));
   useEffect(() => {
@@ -10070,7 +10080,7 @@ function ThemeToggle({ showEnglish }) {
     return () => window.removeEventListener("za-theme", on);
   }, []);
   const dark = theme === "navy";
-  const label = dark ? (showEnglish ? "Switch to grey" : "切換成灰色") : (showEnglish ? "Switch to navy" : "切換成深藍");
+  const label = dark ? (showEnglish ? "Switch to light" : "切換成淺色") : (showEnglish ? "Switch to navy" : "切換成深藍");
   return (
     <button type="button" id="themeToggle" className="za-theme-toggle rounded-full flex items-center justify-center flex-shrink-0"
       aria-label={label} title={label} onClick={() => window.zaSetTheme && window.zaSetTheme(dark ? "grey" : "navy")}

@@ -27,18 +27,17 @@ test("navy theme is the default and redefines the shared colour variables", () =
   assert.match(html, /bg: "var\(--z-bg, #3A4A75\)"/);
   assert.match(html, /<meta name="theme-color" content="#29385B" id="zaThemeColor"/);
 });
-test("grey theme: medium grey page and cards, no white, deepened accent and up/down colours", () => {
+test("light theme (key grey): Forma portfolio-light mist-blue page, white cards, accessible accent and red-up / green-down", () => {
   const grey = css.match(/html\.za-clean\{([\s\S]*?)\n\}/)[1];
-  assert.match(grey, /--c-bg:#a4a5a8/); assert.match(grey, /--c-card:#b5b6b9/); assert.match(grey, /--c-ink:#1e1f22/);
-  assert.match(grey, /--c-accent:#1b3890/); assert.match(grey, /--c-bad:#8e1f18/); assert.match(grey, /--c-good:#0b4f27/);
-  assert.ok(!/#fff(fff)?\b|#faf8f4|#f3f0ea/i.test(grey));
+  assert.match(grey, /--c-bg:#f3f5f9/); assert.match(grey, /--c-card:#ffffff/); assert.match(grey, /--c-ink:#19233d/);
+  assert.match(grey, /--c-accent:#44749d/); assert.match(grey, /--c-bad:#d0321f/); assert.match(grey, /--c-good:#1e8665/);
 });
-test("theme toggle: applied in <head> before paint, own key, navy on first visit, old values mapped", () => {
+test("theme toggle: applied in <head> before paint, own key, follows the iPhone appearance until chosen, old values mapped", () => {
   const head = html.slice(0, html.indexOf("<body"));
   assert.match(head, /var K = "zaTheme"/);
-  assert.match(head, /apply\(saved\(\) \|\| "navy"\)/);
+  assert.match(head, /apply\(saved\(\) \|\| sysTheme\(\)\)/);
   assert.match(head, /v === "grey" \|\| v === "light"\) \? "grey"/);
-  assert.ok(!/prefers-color-scheme/.test(head));
+  assert.match(head, /prefers-color-scheme: dark/);
   assert.ok(head.indexOf("zaTheme") < head.indexOf("clean.css"));
   assert.match(html, /<ThemeToggle showEnglish=\{showEnglish\} \/>/);
   assert.match(html, /id="themeToggle"/);

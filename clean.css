@@ -7,11 +7,11 @@
    台股慣例：紅＝漲、綠＝跌（只用在文字顏色）。
    ════════════════════════════════════════════════════════════════════ */
 html.za-clean{
-  /* 灰色主題（切換鈕的另一個選項；預設是深色）：中灰頁面＋稍亮的灰卡片，沒有白色；
-     深色字、稍深的灰框線；重點藍、紅漲綠跌都加深，內文／數字在卡片上 ≥ 4.5:1（WCAG AA） */
-  --c-bg:#a4a5a8;--c-card:#b5b6b9;--c-ink:#1e1f22;--c-ink-2:#2c2e32;--c-muted:#3a3c40;
-  --c-line:#96979b;--c-line-2:#8a8b8f;--c-accent:#1b3890;--c-accent-press:#142a6c;
-  --c-good:#0b4f27;--c-warn:#5c3a00;--c-bad:#8e1f18;--c-disabled-bg:#9c9da1;--c-disabled-ink:#5f6166;
+  /* 淺色主題（切換鈕的另一個選項，key 仍叫 grey）：Forma portfolio-light「霧藍白」（forma-design-system@ebb5155，色票 FM-146）。
+     淡藍灰頁面＋白卡片、霧藍重點色；紅漲綠跌只用在文字。對比：文字 15.6:1、次要字 5.7:1、重點色 5.0:1、紅 5.1:1、綠 4.5:1（WCAG AA） */
+  --c-bg:#f3f5f9;--c-card:#ffffff;--c-ink:#19233d;--c-ink-2:#2e3a55;--c-muted:#5b6780;
+  --c-line:#e3e8f0;--c-line-2:#cdd6e3;--c-accent:#44749d;--c-accent-press:#19233d;
+  --c-good:#1e8665;--c-warn:#9c6c00;--c-bad:#d0321f;--c-disabled-bg:#eef2f7;--c-disabled-ink:#5b6780;
   /* 舊的 premium 變數改成淺色，沿用它們的規則會自動變成淺色 */
   --premium-bg:var(--c-bg);--premium-panel:var(--c-card);--premium-panel-soft:var(--c-card);
   --premium-line:var(--c-line);--premium-line-focus:var(--c-line-2);--premium-muted:var(--c-muted);
@@ -19,7 +19,7 @@ html.za-clean{
   /* index.html 的 COLORS 直接用這些變數，深色模式只要換變數 */
   --z-bg:var(--c-card);--z-panel:var(--c-card);--z-line:var(--c-line);--z-line-2:var(--c-line-2);
   --z-text:var(--c-ink);--z-sub:var(--c-muted);--z-gain:var(--c-bad);--z-loss:var(--c-good);--z-gold:var(--c-accent);
-  --c-btn:var(--c-accent);--c-btn-ink:#eef1f7;--c-solid-card:var(--c-card);--c-tabbar:rgba(181,182,185,.97);--c-placeholder:#55575c;--c-tick:#3a3c40;
+  --c-btn:var(--c-accent);--c-btn-ink:#ffffff;--c-solid-card:var(--c-card);--c-tabbar:rgba(255,255,255,.97);--c-placeholder:#5b6780;--c-tick:#5b6780;
   color-scheme:light;
 }
 html.za-clean,html.za-clean body,html.za-clean #root{background:var(--c-bg)!important;color:var(--c-ink)}
