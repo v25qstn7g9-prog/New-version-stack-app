@@ -30,7 +30,7 @@ test("navy theme is the default and redefines the shared colour variables", () =
 test("light theme (key grey): Forma portfolio-light mist-blue page, white cards, accessible accent and red-up / green-down", () => {
   const grey = css.match(/html\.za-clean\{([\s\S]*?)\n\}/)[1];
   assert.match(grey, /--c-bg:#f3f5f9/); assert.match(grey, /--c-card:#ffffff/); assert.match(grey, /--c-ink:#19233d/);
-  assert.match(grey, /--c-accent:#44749d/); assert.match(grey, /--c-bad:#d0321f/); assert.match(grey, /--c-good:#1e8665/);
+  assert.match(grey, /--c-accent:#44749d/); assert.match(grey, /--c-bad:#e0201b/); assert.match(grey, /--c-good:#00843d/);
 });
 test("theme toggle: applied in <head> before paint, own key, follows the iPhone appearance until chosen, old values mapped", () => {
   const head = html.slice(0, html.indexOf("<body"));

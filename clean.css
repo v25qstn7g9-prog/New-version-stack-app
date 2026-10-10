@@ -4,14 +4,14 @@
    （主要按鈕實心、次要按鈕白底外框、停用＝平的灰色）、
    不用漸層／底色色塊／彩色左邊框／實心徽章（顏色只出現在文字與小圓點）、
    數字等寬、輸入框 17px（iPhone 不會放大畫面）、最後一張卡片不被分頁列蓋住。
-   台股慣例：紅＝漲、綠＝跌（只用在文字顏色）。
+   台股慣例：紅＝漲、綠＝跌（只用在文字顏色），用一般看盤軟體的正紅／正綠：淺色 #e0201b／#00843d、深色 #ff5c5c／#00d26a。
    ════════════════════════════════════════════════════════════════════ */
 html.za-clean{
   /* 淺色主題（切換鈕的另一個選項，key 仍叫 grey）：Forma portfolio-light「霧藍白」（forma-design-system@ebb5155，色票 FM-146）。
-     淡藍灰頁面＋白卡片、霧藍重點色；紅漲綠跌只用在文字。對比：文字 15.6:1、次要字 5.7:1、重點色 5.0:1、紅 5.1:1、綠 4.5:1（WCAG AA） */
+     淡藍灰頁面＋白卡片、霧藍重點色；紅漲綠跌只用在文字。對比：文字 15.6:1、次要字 5.7:1、重點色 5.0:1、紅 4.8:1、綠 4.8:1（WCAG AA）；紅綠用一般看盤軟體的正紅／正綠 */
   --c-bg:#f3f5f9;--c-card:#ffffff;--c-ink:#19233d;--c-ink-2:#2e3a55;--c-muted:#5b6780;
   --c-line:#e3e8f0;--c-line-2:#cdd6e3;--c-accent:#44749d;--c-accent-press:#19233d;
-  --c-good:#1e8665;--c-warn:#9c6c00;--c-bad:#d0321f;--c-disabled-bg:#eef2f7;--c-disabled-ink:#5b6780;
+  --c-good:#00843d;--c-warn:#9c6c00;--c-bad:#e0201b;--c-disabled-bg:#eef2f7;--c-disabled-ink:#5b6780;
   /* 舊的 premium 變數改成淺色，沿用它們的規則會自動變成淺色 */
   --premium-bg:var(--c-bg);--premium-panel:var(--c-card);--premium-panel-soft:var(--c-card);
   --premium-line:var(--c-line);--premium-line-focus:var(--c-line-2);--premium-muted:var(--c-muted);
@@ -151,7 +151,7 @@ html.za-clean :is(div,h2,h3,p):is(.font-bold,.font-black):is(.text-xs,.text-sm,.
 html.za-clean[data-theme="navy"]{
     --c-bg:#29385b;--c-card:#303f60;--c-ink:#ffffff;--c-ink-2:#ffffff;--c-muted:#ffffff;
     --c-line:rgba(255,255,255,.08);--c-line-2:rgba(255,255,255,.16);--c-accent:#a8c2ff;--c-accent-press:#e6ecfa;--c-btn:#ffffff;--c-btn-ink:#1f2b4d;
-    --c-good:#6ee7b7;--c-warn:#f5c26b;--c-bad:#ff8a80;--c-disabled-bg:rgba(255,255,255,.08);--c-disabled-ink:#8592b5;
+    --c-good:#00d26a;--c-warn:#f5c26b;--c-bad:#ff5c5c;--c-disabled-bg:rgba(255,255,255,.08);--c-disabled-ink:#8592b5;
     --c-tabbar:rgba(41,56,91,.97);--c-placeholder:#ffffff;--c-tick:#ffffff;--c-solid-card:#354668;
     color-scheme:dark;
   }
@@ -162,14 +162,14 @@ html.za-clean[data-theme="navy"]{
   html.za-clean[data-theme="navy"] .recharts-default-tooltip{box-shadow:0 6px 20px -8px rgba(0,0,0,.6)!important}
   html.za-clean[data-theme="navy"] [style*="color: rgb(180, 83, 9)"]{color:var(--c-warn)!important}
   html.za-clean[data-theme="navy"] input[type=date]::-webkit-datetime-edit{color:var(--c-ink)}
-  html.za-clean[data-theme="navy"] .cl-dot.g{background:#6ee7b7}html.za-clean[data-theme="navy"] .cl-dot.y{background:#f5c26b}html.za-clean[data-theme="navy"] .cl-dot.r{background:#ff8a80}
+  html.za-clean[data-theme="navy"] .cl-dot.g{background:#00d26a}html.za-clean[data-theme="navy"] .cl-dot.y{background:#f5c26b}html.za-clean[data-theme="navy"] .cl-dot.r{background:#ff5c5c}
 
 /* 萬一 <head> 的小程式沒跑到：一樣用深色（預設） */
 @media all{
   html.za-clean:not([data-theme]){
     --c-bg:#29385b;--c-card:#303f60;--c-ink:#ffffff;--c-ink-2:#ffffff;--c-muted:#ffffff;
     --c-line:rgba(255,255,255,.08);--c-line-2:rgba(255,255,255,.16);--c-accent:#a8c2ff;--c-accent-press:#e6ecfa;--c-btn:#ffffff;--c-btn-ink:#1f2b4d;
-    --c-good:#6ee7b7;--c-warn:#f5c26b;--c-bad:#ff8a80;--c-disabled-bg:rgba(255,255,255,.08);--c-disabled-ink:#8592b5;
+    --c-good:#00d26a;--c-warn:#f5c26b;--c-bad:#ff5c5c;--c-disabled-bg:rgba(255,255,255,.08);--c-disabled-ink:#8592b5;
     --c-tabbar:rgba(41,56,91,.97);--c-placeholder:#ffffff;--c-tick:#ffffff;--c-solid-card:#354668;
     color-scheme:dark;
   }
@@ -180,7 +180,7 @@ html.za-clean[data-theme="navy"]{
   html.za-clean:not([data-theme]) .recharts-default-tooltip{box-shadow:0 6px 20px -8px rgba(0,0,0,.6)!important}
   html.za-clean:not([data-theme]) [style*="color: rgb(180, 83, 9)"]{color:var(--c-warn)!important}
   html.za-clean:not([data-theme]) input[type=date]::-webkit-datetime-edit{color:var(--c-ink)}
-  .cl-dot.g{background:#6ee7b7}.cl-dot.y{background:#f5c26b}.cl-dot.r{background:#ff8a80}
+  .cl-dot.g{background:#00d26a}.cl-dot.y{background:#f5c26b}.cl-dot.r{background:#ff5c5c}
 }
 
 /* 主題切換鈕：跟 中/EN 一樣的細外框小圓鈕 */
