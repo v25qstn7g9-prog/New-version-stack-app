@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="zh-Hant">
+<html class="za-clean" lang="zh-Hant">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
-  <meta name="theme-color" content="#0A0F1C" />
+  <meta name="theme-color" content="#F6F7F9" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="存股資產追蹤" />
@@ -875,6 +875,7 @@
       line-height:17px!important;
     }
 </style>
+  <link rel="stylesheet" href="/clean.css?v=1" />
 
   <script>
     window.addEventListener("error", function(e) {
@@ -1005,15 +1006,16 @@ function visibleTabsFor(allTabs, advanced) {
 }
 // </advanced-mode>
 
+// 清爽版配色（只管外觀）：白卡、細線框、單一重點色（gold 這個名字沿用，實際是藍色重點色）。
 const COLORS = {
-  bg: "#0A0F1C",
-  panel: "#111A2E",
-  panelBorder: "#1E2A44",
-  text: "#E9EEF7",
-  sub: "#7C88A3",
-  gain: "#EF4444",   // 台股慣例：紅漲
-  loss: "#22C55E",   // 台股慣例：綠跌
-  gold: "#C9A24B",
+  bg: "#FFFFFF",
+  panel: "#FFFFFF",
+  panelBorder: "#E7EAF0",
+  text: "#0F172A",
+  sub: "#667085",
+  gain: "#D93D35",   // 台股慣例：紅漲
+  loss: "#12A150",   // 台股慣例：綠跌
+  gold: "#2F5BEA",
 };
 
 const UI_EN = {
@@ -3913,7 +3915,7 @@ function Header({ goal, totalToday, goalDate, backupOverdue, backupAgeDays, show
           <button onClick={onToggleBilingual}
             className="rounded-full px-2.5 py-1 text-[9px] font-bold leading-none flex-shrink-0"
             title={showEnglish ? "切換中文介面" : "Switch to English"}
-            style={{ color: COLORS.gold, border: "1px solid rgba(201,162,75,0.75)", background: "rgba(201,162,75,0.08)" }}>
+            style={{ color: COLORS.gold, border: "1px solid rgba(47,91,234,0.45)", background: "transparent" }}>
             {showEnglish ? "EN / 中" : "中 / EN"}
           </button>
         </div>
@@ -5772,7 +5774,7 @@ function TrendRadar({ holdings, embedded = false }) {
   };
   if(!rows.length)return null;
   return (
-    <div className="trend-radar-shell rounded-2xl p-4" style={{background:COLORS.panel,border:"1px solid "+COLORS.panelBorder,boxShadow:"0 4px 16px rgba(0,0,0,0.28)"}}>
+    <div className="trend-radar-shell rounded-2xl p-4" style={{background:COLORS.panel,border:"1px solid "+COLORS.panelBorder,boxShadow:"none"}}>
       <div className="trend-radar-head flex items-center justify-between mb-2">
         <div className="min-w-0">{!embedded&&<div className="text-xs font-bold" style={{color:COLORS.gold}}><UiLabel zh="AI 今日／明日趨勢雷達" /></div>}<div className={"text-[9px] "+(embedded?"truncate":"mt-0.5")} style={{color:COLORS.sub}}>{UI_SHOW_ENGLISH ? `Learning v${TREND_RADAR_VERSION} · Time-Adaptive Weights · OHLC+KD+Institutional+TX Front Month+Overnight+Auto-Validated` : `學習版 v${TREND_RADAR_VERSION} · 時間自適應權重 · OHLC＋KD＋法人＋台指近月＋隔夜訊號＋自動驗證`}</div></div>
         {asOf&&<div className="text-[9px] mono" style={{color:COLORS.sub}}>{asOf.toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit",hour12:false})}</div>}
@@ -6289,7 +6291,7 @@ function PortfolioPerformanceCard({
     <div className="rounded-2xl p-4" style={{
       background: COLORS.panel,
       border: `1px solid ${COLORS.panelBorder}`,
-      boxShadow: "0 4px 16px rgba(0,0,0,0.22)",
+      boxShadow:"none",
     }}>
       <div className="flex items-start justify-between gap-3 mb-3">
         <div>
@@ -6632,7 +6634,7 @@ function DailyClosingAiReport({ holdings, dailyRecords }) {
     <div className="rounded-2xl p-4" style={{
       background: COLORS.panel,
       border: `1px solid ${COLORS.panelBorder}`,
-      boxShadow: "0 4px 16px rgba(0,0,0,0.24)",
+      boxShadow:"none",
     }}>
       <div className="flex items-start justify-between gap-3">
         <div>
@@ -6683,7 +6685,7 @@ function DailyClosingAiReport({ holdings, dailyRecords }) {
             {!expanded && (
               <div
                 className="pointer-events-none absolute left-0 right-0 bottom-0 h-12"
-                style={{ background: `linear-gradient(to bottom, rgba(0,0,0,0), ${COLORS.panel})` }}
+                style={{ background: `linear-gradient(to bottom, rgba(255,255,255,0), ${COLORS.panel})` }}
               />
             )}
           </div>
@@ -6720,7 +6722,7 @@ function DashboardCollapsibleSection({ storageKey, title, subtitle, children, de
       <button
         onClick={toggle}
         className="w-full rounded-2xl px-4 py-3 flex items-center justify-between gap-3 text-left"
-        style={{ background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`, boxShadow: "0 4px 16px rgba(0,0,0,0.20)" }}>
+        style={{ background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`, boxShadow:"none" }}>
         <div className="min-w-0">
           <div className="text-xs font-bold" style={{ color: COLORS.gold }}><UiLabel zh={title} /></div>
           {subtitle && <div className="text-[10px] mt-0.5 truncate" style={{ color: COLORS.sub }}><UiLabel zh={subtitle} /></div>}
@@ -6751,14 +6753,14 @@ function GoalProgressCard({ goal, totalToday, goalDate }) {
   const remain = Math.max(0, goal.targetAmount - totalToday);
   const pct = goal.targetAmount > 0 ? Math.min(100, (totalToday / goal.targetAmount) * 100) : 0;
   return (
-    <div className="rounded-2xl p-4" style={{ background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`, boxShadow: "0 4px 16px rgba(0,0,0,0.28)" }}>
+    <div className="rounded-2xl p-4" style={{ background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`, boxShadow:"none" }}>
       <div className="text-xs font-bold" style={{ color: COLORS.gold }}><UiLabel zh="目標進度" /></div>
       <div className="mt-2 flex items-baseline justify-between gap-2 text-[11px] mono" style={{ color: COLORS.sub }}>
           <span>{showEnglish ? "Goal" : "目標"} {goal.targetYear} · NT$ {nf(goal.targetAmount)}</span>
           <span className="font-bold" style={{ color: COLORS.gold }}>{showEnglish ? `${pct.toFixed(1)}% done` : `已達成 ${pct.toFixed(1)}%`}</span>
         </div>
         <div className="mt-1 h-1.5 rounded-full overflow-hidden" style={{ background: COLORS.panel }}>
-          <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: "#6FAFC2" }} />
+          <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: "#2F5BEA" }} />
         </div>
         <div className="mt-1 flex items-baseline justify-between gap-2 text-[11px] mono" style={{ color: COLORS.sub }}>
           <span>{showEnglish ? `NT$ ${nf(remain)} to go` : `距目標 NT$ ${nf(remain)}`}</span>
@@ -6805,7 +6807,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
 
       <div className="rounded-2xl p-4 premium-asset-hero" style={{
         background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`,
-        boxShadow: "0 4px 16px rgba(0,0,0,0.28)",
+        boxShadow:"none",
       }}>
         <div className="flex items-center gap-2">
           <div className="text-xs" style={{ color: COLORS.sub }}><UiLabel zh="目前總資產" /></div>
@@ -6819,7 +6821,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
           {showUsFields && <span><UiLabel zh="美股資產" inline /> <span style={{ color: COLORS.text }}>NT$ {nf(currentUsValue)}</span>{usLive?.brokerCalibrationActive && <span className="ml-1" style={{ color: COLORS.gold }}>· <UiLabel zh="已自動校準" inline /></span>}</span>}
         </div>
         <div className="inline-flex items-center gap-1 mt-1.5 text-xs mono rounded-full px-2 py-0.5"
-          style={{ color: up ? COLORS.gain : COLORS.loss, background: up ? "rgba(239,68,68,0.12)" : "rgba(34,197,94,0.12)" }}>
+          style={{ color: up ? COLORS.gain : COLORS.loss, background: "transparent" }}>
           {up ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
           {UI_SHOW_ENGLISH
             ? <>{pf(dailyChangePct)} NT$ {nf(dailyChange)} {changeDateLabel ? `(${changeDateLabel} record)` : "Today"}</>
@@ -6839,7 +6841,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
             <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
               <div className="flex items-baseline justify-between gap-2 text-[11px] mono">
                 <span style={{ color: COLORS.sub }}>{UI_SHOW_ENGLISH ? "Goal" : "目標"} {goal.targetYear} · NT$ {nf(goal.targetAmount)}</span>
-                <span className="font-bold" style={{ color: "#8BC4D4" }}>{UI_SHOW_ENGLISH ? `${pct.toFixed(1)}% done` : `已達成 ${pct.toFixed(1)}%`}</span>
+                <span className="font-bold" style={{ color: COLORS.gold }}>{UI_SHOW_ENGLISH ? `${pct.toFixed(1)}% done` : `已達成 ${pct.toFixed(1)}%`}</span>
               </div>
               <div className="mt-1.5 h-1.5 rounded-full overflow-hidden" style={{ background: COLORS.bg }}>
                 <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: COLORS.gold }} />
@@ -6865,8 +6867,9 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
                     <button key={r.id} onClick={() => setChartRangeId(r.id)} role="tab" aria-selected={active}
                       className="rounded-md px-2 py-1 text-[10px] font-bold whitespace-nowrap"
                       style={{
-                        background: active ? "rgba(201,162,75,0.18)" : "transparent",
+                        background: "transparent",
                         color: active ? COLORS.gold : COLORS.sub,
+                        border: `1px solid ${active ? COLORS.gold : "transparent"}`,
                       }}>
                       <UiLabel zh={r.label} />
                     </button>
@@ -6879,8 +6882,8 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
                 <AreaChart data={rangedChartData} margin={{ top: 6, right: 4, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="assetCurveFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#6FAFC2" stopOpacity={0.18} />
-                      <stop offset="100%" stopColor="#6FAFC2" stopOpacity={0} />
+                      <stop offset="0%" stopColor="#2F5BEA" stopOpacity={0.18} />
+                      <stop offset="100%" stopColor="#2F5BEA" stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid stroke={COLORS.panelBorder} strokeDasharray="3 3" vertical={false} strokeOpacity={0.7} />
@@ -6902,8 +6905,8 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
                     cursor={{ stroke: COLORS.sub, strokeDasharray: "3 3" }}
                     formatter={(v) => [`NT$ ${nf(v)}`, uiText("總資產")]} />
                   {showGoal && goal?.targetAmount > 0 && <ReferenceLine y={goal.targetAmount} stroke={COLORS.gold} strokeDasharray="4 4" />}
-                  <Area type="monotone" dataKey="total" stroke="#6FAFC2" strokeWidth={2} fill="url(#assetCurveFill)"
-                    dot={false} activeDot={{ r: 4, fill: "#6FAFC2", stroke: COLORS.panel, strokeWidth: 2 }} />
+                  <Area type="monotone" dataKey="total" stroke="#2F5BEA" strokeWidth={2} fill="url(#assetCurveFill)"
+                    dot={false} activeDot={{ r: 4, fill: "#2F5BEA", stroke: COLORS.panel, strokeWidth: 2 }} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -7289,7 +7292,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
           <div className="text-sm font-bold mono">{form.date.slice(5).replace("-", "/")}{isToday ? (UI_SHOW_ENGLISH ? " (today)" : "（今天）") : ""}</div>
           <span className="text-[11px] font-bold rounded-full px-2 py-0.5"
             style={sameDayRecord
-              ? { color: COLORS.gold, background: "rgba(201,162,75,0.12)" }
+              ? { color: COLORS.gold, background: "transparent" }
               : { color: COLORS.sub, background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
             <UiLabel zh={sameDayRecord ? (sameDayRecord.source === "auto" ? "🤖 自動記錄" : "✅ 已記錄") : "⏳ 還沒記錄"} inline />
           </span>
@@ -8250,7 +8253,7 @@ function UpcomingDividendReminder({ holdings }) {
             <div key={r.symbol} className="flex items-center justify-between text-sm">
               <div className="mono">{r.symbol}{r.name ? ` · ${r.name}` : ""}</div>
               <div className="text-right">
-                <span className="mono" style={{ color: COLORS.gold }}>{r.date}</span>{r.cashDividend != null ? <span className="text-[11px] ml-1" style={{ color: COLORS.sub }}>{UI_SHOW_ENGLISH ? `· ${r.cashDividend}/share` : `· 每股 ${r.cashDividend}`}</span> : (r.estimatedDividend != null ? <span className="text-[11px] ml-1" style={{ color: "#8BC4D4" }}>{UI_SHOW_ENGLISH ? `· est. ${r.estimatedDividend}` : `· 預估 ${r.estimatedDividend}`}</span> : <span className="text-[11px] ml-1" style={{ color: COLORS.sub }}><UiLabel zh="· 金額待公告" /></span>)}
+                <span className="mono" style={{ color: COLORS.gold }}>{r.date}</span>{r.cashDividend != null ? <span className="text-[11px] ml-1" style={{ color: COLORS.sub }}>{UI_SHOW_ENGLISH ? `· ${r.cashDividend}/share` : `· 每股 ${r.cashDividend}`}</span> : (r.estimatedDividend != null ? <span className="text-[11px] ml-1" style={{ color: COLORS.gold }}>{UI_SHOW_ENGLISH ? `· est. ${r.estimatedDividend}` : `· 預估 ${r.estimatedDividend}`}</span> : <span className="text-[11px] ml-1" style={{ color: COLORS.sub }}><UiLabel zh="· 金額待公告" /></span>)}
                 <span className="text-[11px] ml-1" style={{ color: COLORS.sub }}>
                   {days === 0 ? <UiLabel zh="就是今天" /> : (UI_SHOW_ENGLISH ? `${days} days left` : `還有 ${days} 天`)}
                 </span>
@@ -8310,8 +8313,8 @@ function DividendHistoryChart({ dividends }) {
             <button key={s} onClick={() => setFilter(s)}
               className="rounded-lg px-2 py-1 text-[11px] font-bold"
               style={{
-                background: active ? COLORS.gold : COLORS.bg,
-                color: active ? "#0A0F1C" : COLORS.sub,
+                background: COLORS.bg,
+                color: active ? COLORS.gold : COLORS.sub,
                 border: `1px solid ${active ? COLORS.gold : COLORS.panelBorder}`,
               }}>
               {s === "all" ? <UiLabel zh="全部" /> : s}
@@ -8782,10 +8785,10 @@ function PlanPanel({ advanced = false, setAdvancedMode, planItems, setPlanItems,
 
       <Panel title="資料備份與還原">
         <div className="rounded-xl p-3" data-backup-card
-          style={{ background: COLORS.bg, border: `1px solid ${backupOverdue ? "rgba(201,162,75,0.55)" : COLORS.panelBorder}` }}>
+          style={{ background: COLORS.bg, border: `1px solid ${backupOverdue ? "rgba(47,91,234,0.45)" : COLORS.panelBorder}` }}>
           <div className="flex items-center" style={{ gap: 10 }}>
             <span className="flex items-center justify-center rounded-full flex-shrink-0"
-              style={{ width: 34, height: 34, background: "rgba(201,162,75,0.12)", border: "1px solid rgba(201,162,75,0.35)" }}>
+              style={{ width: 34, height: 34, background: "transparent", border: "1px solid #D9DEE7" }}>
               <ShieldCheck size={17} style={{ color: COLORS.gold }} />
             </span>
             <div className="min-w-0 flex-1">
@@ -8943,7 +8946,7 @@ function ProgressPanel({ planSchedule, setPlanSchedule, planTotal, schedule, tot
               <div key={row.index}
                 className="grid grid-cols-4 gap-1 rounded-lg px-2 py-1.5 text-[11px] mono items-center"
                 style={{
-                  background: isCurrent ? "rgba(201,162,75,0.12)" : COLORS.bg,
+                  background: isCurrent ? "transparent" : COLORS.bg,
                   border: `1px solid ${isCurrent ? COLORS.gold : COLORS.panelBorder}`,
                 }}>
                 <div style={{ color: isCurrent ? COLORS.gold : COLORS.text }}>
@@ -8969,7 +8972,7 @@ function Panel({ title, children }) {
   return (
     <div className="premium-panel rounded-2xl p-4" style={{
       background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`,
-      boxShadow: "0 4px 16px rgba(0,0,0,0.28)",
+      boxShadow:"none",
     }}>
       <div className="premium-panel-title text-xs font-bold mb-3" style={{ color: COLORS.sub }}><UiLabel zh={title} /></div>
       {children}
@@ -9198,7 +9201,7 @@ function ClosingReminderBanner() {
 function AddButton({ onClick, label, disabled = false }) {
   return (
     <button onClick={onClick} disabled={disabled} className="premium-add-button mt-3 w-full flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-bold"
-      style={{ background: COLORS.gold, color: "#0A0F1C", opacity: disabled ? 0.45 : 1 }}>
+      style={{ background: COLORS.gold, color: "#FFFFFF", opacity: disabled ? 0.45 : 1 }}>
       <Plus size={16} /> <UiLabel zh={label} inline />
     </button>
   );
@@ -9900,7 +9903,7 @@ function AiChatWidget({ advancedUse = true, holdings, goal, totalToday, totalInv
         className="premium-ai-launcher fixed z-40 rounded-full flex items-center justify-center"
         style={{
           right: 14, bottom: "calc(64px + env(safe-area-inset-bottom, 4px))",
-          width: 46, height: 46, background: "rgba(17,24,39,0.48)", color: COLORS.gold,
+          width: 46, height: 46, background: COLORS.gold, color: "#FFFFFF",
           border: `1.5px solid ${COLORS.gold}`,
           backdropFilter: "blur(14px) saturate(140%)",
           WebkitBackdropFilter: "blur(14px) saturate(140%)",
@@ -9911,7 +9914,7 @@ function AiChatWidget({ advancedUse = true, holdings, goal, totalToday, totalInv
 
       {open && (
         <div className="ai-panel-wrap fixed inset-0 flex flex-col justify-end"
-          style={{ background: "rgba(0,0,0,0.5)", zIndex: 1000 }}
+          style={{ background: "rgba(15,23,42,0.32)", zIndex: 1000 }}
           onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}>
           <div className="ai-panel-h flex flex-col rounded-t-2xl" style={{
             background: COLORS.bg,
@@ -10055,7 +10058,7 @@ function TabBar({ tabs = TABS, tab, setTab, rootRef, showEnglish }) {
               className="flex-1 flex flex-col items-center justify-center gap-0.5 py-0.5 px-0.5 min-w-0"
               style={{ color: active ? COLORS.gold : COLORS.sub }}>
               <span className="flex items-center justify-center rounded-full"
-                style={{ width: 36, height: 20, background: active ? "rgba(201,162,75,0.16)" : "transparent", transition: "background-color .15s ease" }}>
+                style={{ width: 36, height: 20, background: active ? "transparent" : "transparent", transition: "background-color .15s ease" }}>
                 <Icon size={13} />
               </span>
               <span className="text-[8px] font-medium whitespace-nowrap leading-[1.05] text-center">
@@ -10104,5 +10107,6 @@ function defaultPlanSchedule() {
 ReactDOM.createRoot(document.getElementById('root')).render(<AssetTracker />);
 
   </script>
+  <script src="/clean-ui.js?v=1" defer></script>
 </body>
 </html>

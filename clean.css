@@ -1,0 +1,132 @@
+/* ════════════════════════════════════════════════════════════════════
+   Z∞ Assets — 清爽層（clean.css，最後載入，只管外觀，不碰資料與 API）
+   跟 Z∞ Training 同一套：淺灰頁面、白色卡片＋細線框、只有一個重點色
+   （主要按鈕實心、次要按鈕白底外框、停用＝平的灰色）、
+   不用漸層／底色色塊／彩色左邊框／實心徽章（顏色只出現在文字與小圓點）、
+   數字等寬、輸入框 17px（iPhone 不會放大畫面）、最後一張卡片不被分頁列蓋住。
+   台股慣例：紅＝漲、綠＝跌（只用在文字顏色）。
+   ════════════════════════════════════════════════════════════════════ */
+html.za-clean{
+  --c-bg:#f6f7f9;--c-card:#ffffff;--c-ink:#0f172a;--c-ink-2:#475467;--c-muted:#667085;
+  --c-line:#e7eaf0;--c-line-2:#d9dee7;--c-accent:#2f5bea;--c-accent-press:#2549c4;
+  --c-good:#12a150;--c-warn:#b7791f;--c-bad:#d93d35;--c-disabled-bg:#eef0f4;--c-disabled-ink:#a3abba;
+  /* 舊的 premium 變數改成淺色，沿用它們的規則會自動變成淺色 */
+  --premium-bg:var(--c-bg);--premium-panel:var(--c-card);--premium-panel-soft:var(--c-card);
+  --premium-line:var(--c-line);--premium-line-focus:var(--c-line-2);--premium-muted:var(--c-muted);
+  --premium-text:var(--c-ink);--premium-gold:var(--c-accent);--premium-gold-soft:transparent;
+  color-scheme:light;
+}
+html.za-clean,html.za-clean body,html.za-clean #root{background:var(--c-bg)!important;color:var(--c-ink)}
+html.za-clean body{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+html.za-clean .premium-app-shell{background:var(--c-bg)!important;color:var(--c-ink)!important}
+html.za-clean #boot-error{background:var(--c-bg);color:var(--c-ink)}
+html.za-clean #boot-error h2{color:var(--c-bad)}
+html.za-clean :where(button,a,input,select,textarea):focus-visible{outline:2px solid var(--c-accent);outline-offset:2px}
+
+/* ── 不要漸層、裝飾陰影與發光線 ── */
+html.za-clean .premium-dashboard>.premium-asset-hero:before,
+html.za-clean .premium-dashboard>.premium-asset-hero:after{display:none!important}
+html.za-clean :is(.premium-asset-hero,.premium-panel,.rounded-xl,.rounded-2xl,.trend-radar-shell,.shadow-lg,.shadow-xl,.shadow-md,.shadow){box-shadow:none!important}
+html.za-clean :is(div,section,header,span,p,button):not([style*="linear-gradient(to bottom, rgba(255"]){background-image:none!important}
+
+/* ── 卡片：白底、細線框、無陰影 ── */
+html.za-clean .premium-dashboard>.premium-asset-hero,
+html.za-clean .premium-dashboard>.rounded-xl,
+html.za-clean .premium-dashboard .premium-panel,
+html.za-clean .premium-panel{background:var(--c-card)!important;border:1px solid var(--c-line)!important;box-shadow:none!important;border-radius:18px!important}
+html.za-clean .premium-dashboard .rounded-2xl,
+html.za-clean .premium-tab>.space-y-2>div.rounded-2xl,
+html.za-clean .premium-tab>.space-y-3>div.rounded-2xl{border-color:var(--c-line)!important;box-shadow:none!important}
+html.za-clean .premium-panel>.premium-panel-title{color:var(--c-ink)!important;font-weight:700}
+/* 卡片裡的小框：白底細框（不再是深色塊） */
+html.za-clean :is(.premium-row,.premium-field-box,.holding-cost-summary){background:var(--c-card)!important;border-color:var(--c-line)!important}
+html.za-clean .premium-row:focus-within{background:var(--c-card)!important;border-color:var(--c-line-2)!important}
+html.za-clean .premium-row-delete:active,html.za-clean .holding-action:hover{background:var(--c-disabled-bg)!important}
+html.za-clean [style*="border-top: 1px dashed"],html.za-clean [style*="border: 1px dashed"]{border-color:var(--c-line-2)!important}
+html.za-clean .premium-empty{color:var(--c-muted)!important;background:var(--c-card)!important;border-color:var(--c-line-2)!important}
+html.za-clean :is(.holding-cost-summary,.holding-trade-average){border-color:var(--c-line)!important}
+
+/* 舊樣式裡寫死的深色框線 */
+html.za-clean [class*="border"]{border-color:var(--c-line)}
+html.za-clean :is(.border-t,.border-b,.border,.border-y){border-color:var(--c-line)!important}
+
+/* ── 文字 ── */
+html.za-clean :is(.text-white,.text-slate-100,.text-slate-200,.text-gray-100,.text-gray-200){color:var(--c-ink)!important}
+html.za-clean :is(.text-slate-300,.text-slate-400,.text-gray-300,.text-gray-400){color:var(--c-muted)!important}
+html.za-clean .premium-header h1,html.za-clean .premium-header [class*="font-black"]{color:var(--c-ink)!important;letter-spacing:-.02em}
+html.za-clean .mono,html.za-clean [class*="text-right"],html.za-clean .text-3xl,html.za-clean .text-2xl{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+
+/* ── 徽章與狀態：不放底色，文字＋細外框 ── */
+html.za-clean .live-status-line.is-closed{background:transparent!important;border:1px solid var(--c-line-2)!important;color:var(--c-muted)!important}
+html.za-clean .ai-panel-h [role="status"]{color:var(--c-accent)}
+html.za-clean .rounded-full[style*="border"]:not(button){background:transparent!important}
+
+/* ── 按鈕 ──
+   主要：實心重點色（COLORS.gold 已改成重點色，原本的實心金色按鈕自動變成實心藍）。
+   次要：白底外框（原本 COLORS.bg 底＋框線的按鈕自動變成白底）。
+   停用：平的灰色。 */
+html.za-clean button{box-shadow:none!important;text-shadow:none!important}
+html.za-clean .live-refresh-btn{box-shadow:none!important}
+html.za-clean button[style*="background: rgb(47, 91, 234)"]:active{background:var(--c-accent-press)!important}
+html.za-clean button:disabled,html.za-clean button[aria-disabled="true"]{
+  background:var(--c-disabled-bg)!important;color:var(--c-disabled-ink)!important;border-color:var(--c-disabled-bg)!important;opacity:1!important;box-shadow:none!important}
+html.za-clean button:disabled *{color:inherit!important}
+
+/* ── 輸入框與下拉選單：同一種樣子，17px ── */
+html.za-clean :is(input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]),select,textarea),
+html.za-clean .premium-tab .input,html.za-clean .input{
+  background-color:var(--c-card)!important;color:var(--c-ink)!important;border:1px solid var(--c-line-2)!important;
+  border-radius:12px!important;box-shadow:none!important;font-size:17px!important;font-family:inherit!important;min-height:44px;box-sizing:border-box;
+  font-variant-numeric:tabular-nums}
+html.za-clean :is(input,select,textarea)::placeholder{color:#98a2b3!important;opacity:1}
+html.za-clean :is(input,select,textarea):focus,html.za-clean .premium-tab .input:focus{
+  outline:none!important;border-color:var(--c-accent)!important;box-shadow:0 0 0 3px rgba(47,91,234,.14)!important}
+html.za-clean select{-webkit-appearance:none!important;appearance:none!important;padding-right:34px!important;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a94a6' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E")!important;
+  background-repeat:no-repeat!important;background-position:right 10px center!important;background-size:18px 18px!important}
+html.za-clean input[type=checkbox],html.za-clean input[type=radio]{accent-color:var(--c-accent)}
+html.za-clean input[type=date]{-webkit-appearance:none;appearance:none}
+
+/* ── 底部分頁列：白底細線；選中＝重點色文字，不放色塊 ── */
+html.za-clean .premium-tabbar{background:rgba(255,255,255,.96)!important;border-top:1px solid var(--c-line)!important;box-shadow:none!important}
+html.za-clean .premium-tabbar button>span:first-child,
+html.za-clean .premium-tabbar button[data-active="true"]>span:first-child{background:transparent!important;border-color:transparent!important;box-shadow:none!important}
+html.za-clean .premium-tabbar button[data-active="false"]{opacity:1;color:#8a94a6!important}
+html.za-clean .premium-tabbar svg{stroke-width:1.5}
+html.za-clean .premium-tabbar button[data-active="true"] svg{stroke-width:1.9}
+
+/* ── AI 助手按鈕與面板 ── */
+html.za-clean .premium-ai-launcher{background:var(--c-accent)!important;color:#fff!important;border:0!important;box-shadow:0 6px 20px -8px rgba(15,23,42,.35)!important}
+html.za-clean .premium-ai-launcher svg{stroke-width:1.6}
+html.za-clean .ai-panel-h{background:var(--c-card)!important;border:1px solid var(--c-line)!important;box-shadow:0 -10px 30px -12px rgba(15,23,42,.25)!important}
+
+/* ── 圖表（Recharts）：細格線、灰色刻度字 ── */
+html.za-clean .recharts-cartesian-grid line{stroke:var(--c-line)!important}
+html.za-clean .recharts-cartesian-axis-tick text,html.za-clean .recharts-text{fill:#8a94a6!important}
+html.za-clean .recharts-cartesian-axis-line{stroke:var(--c-line-2)!important}
+html.za-clean .recharts-default-tooltip{background:var(--c-card)!important;border:1px solid var(--c-line)!important;border-radius:10px!important;box-shadow:0 6px 20px -8px rgba(15,23,42,.2)!important;color:var(--c-ink)!important}
+html.za-clean .recharts-tooltip-cursor{stroke:var(--c-line-2)!important}
+
+/* ── 小色點與線條圖示（clean-ui.js 產生）── */
+.cl-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin:0 6px 0 1px;vertical-align:.08em;flex:none;background:#a6b0c0}
+.cl-dot.g{background:#12a150}.cl-dot.y{background:#e0a106}.cl-dot.r{background:#d93d35}
+.cl-ico{display:inline-block;width:1.1em;height:1.1em;flex:none;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;vertical-align:-.16em;margin-right:6px;color:var(--c-accent,#2f5bea)}
+button .cl-ico{display:none}
+
+/* 最後一張卡片：原本 .premium-main 已預留 124px＋安全區域給分頁列與 AI 按鈕，這裡不改。 */
+
+/* ── 舊樣式寫死的深色框線／色塊，逐一換成細線白底 ── */
+html.za-clean .premium-dashboard{--label-muted:var(--c-muted)}
+html.za-clean .premium-panel:before{display:none!important}
+html.za-clean .premium-dashboard>.rounded-xl,html.za-clean .premium-dashboard .premium-panel,html.za-clean .premium-dashboard .rounded-2xl{border-color:var(--c-line)!important}
+html.za-clean .premium-tab-holdings .space-y-3>div.rounded-xl,
+html.za-clean .premium-tab-trades .space-y-2.max-h-96>div,
+html.za-clean .premium-tab-dividends .space-y-2>div,
+html.za-clean .premium-tab-plan label.flex.items-start{background:var(--c-card)!important;border-color:var(--c-line)!important}
+html.za-clean .premium-add-button{box-shadow:none!important}
+html.za-clean :is(.holding-trade-average,.trend-radar-predictions){border-color:var(--c-line)!important}
+html.za-clean .trend-radar-pred-row+.trend-radar-pred-row{border-top-color:var(--c-line)!important}
+html.za-clean .premium-empty{border:1px dashed var(--c-line-2)!important}
+
+/* 卡片標題：原本是金色字，現在一律深色字（重點色留給按鈕、圖示與數字） */
+html.za-clean :is(div,h2,h3,p):is(.font-bold,.font-black):is(.text-xs,.text-sm,.text-base,.text-lg)[style*="color: rgb(47, 91, 234)"]:not(.mono){color:var(--c-ink)!important}
