@@ -7,9 +7,11 @@
    台股慣例：紅＝漲、綠＝跌（只用在文字顏色）。
    ════════════════════════════════════════════════════════════════════ */
 html.za-clean{
-  --c-bg:#f6f7f9;--c-card:#ffffff;--c-ink:#0f172a;--c-ink-2:#475467;--c-muted:#667085;
-  --c-line:#e7eaf0;--c-line-2:#d9dee7;--c-accent:#2f5bea;--c-accent-press:#2549c4;
-  --c-good:#12a150;--c-warn:#b7791f;--c-bad:#d93d35;--c-disabled-bg:#eef0f4;--c-disabled-ink:#a3abba;
+  /* 預設淺色＝柔和米白：頁面暖灰米色、卡片稍亮的米白（不用純白）、深暖灰字（不用純黑）、暖色細線；
+     對比降低但數字仍符合 WCAG AA（內文／數字 ≥ 4.5:1） */
+  --c-bg:#f3f0ea;--c-card:#faf8f4;--c-ink:#2b2723;--c-ink-2:#4f4a43;--c-muted:#6b645b;
+  --c-line:#e6e0d6;--c-line-2:#d8d0c3;--c-accent:#3457c9;--c-accent-press:#2a47a8;
+  --c-good:#1a7f45;--c-warn:#94600f;--c-bad:#c23b32;--c-disabled-bg:#ebe6dd;--c-disabled-ink:#a39c91;
   /* 舊的 premium 變數改成淺色，沿用它們的規則會自動變成淺色 */
   --premium-bg:var(--c-bg);--premium-panel:var(--c-card);--premium-panel-soft:var(--c-card);
   --premium-line:var(--c-line);--premium-line-focus:var(--c-line-2);--premium-muted:var(--c-muted);
@@ -17,7 +19,7 @@ html.za-clean{
   /* index.html 的 COLORS 直接用這些變數，深色模式只要換變數 */
   --z-bg:var(--c-card);--z-panel:var(--c-card);--z-line:var(--c-line);--z-line-2:var(--c-line-2);
   --z-text:var(--c-ink);--z-sub:var(--c-muted);--z-gain:var(--c-bad);--z-loss:var(--c-good);--z-gold:var(--c-accent);
-  --c-btn:var(--c-accent);--c-tabbar:rgba(255,255,255,.96);--c-placeholder:#98a2b3;--c-tick:#8a94a6;
+  --c-btn:var(--c-accent);--c-tabbar:rgba(250,248,244,.96);--c-placeholder:#a0988c;--c-tick:#7a7368;
   color-scheme:light;
 }
 html.za-clean,html.za-clean body,html.za-clean #root{background:var(--c-bg)!important;color:var(--c-ink)}
@@ -93,7 +95,7 @@ html.za-clean :is(input,select,textarea)::placeholder{color:var(--c-placeholder)
 html.za-clean :is(input,select,textarea):focus,html.za-clean .premium-tab .input:focus{
   outline:none!important;border-color:var(--c-accent)!important;box-shadow:0 0 0 3px rgba(47,91,234,.14)!important}
 html.za-clean select{-webkit-appearance:none!important;appearance:none!important;padding-right:34px!important;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a94a6' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E")!important;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237a7368' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E")!important;
   background-repeat:no-repeat!important;background-position:right 10px center!important;background-size:18px 18px!important}
 html.za-clean input[type=checkbox],html.za-clean input[type=radio]{accent-color:var(--c-accent)}
 html.za-clean input[type=date]{-webkit-appearance:none;appearance:none}
@@ -145,20 +147,42 @@ html.za-clean :is(div,h2,h3,p):is(.font-bold,.font-black):is(.text-xs,.text-sm,.
 /* ════ 深色模式（跟著 iPhone 設定自動切換；淺色是預設）════
    深灰頁面、稍亮的卡片、細線框；同一個藍色重點色調亮一點讓字看得清楚；
    主要按鈕用較深的藍＋白字；紅漲綠跌只用在文字。 */
-@media (prefers-color-scheme: dark){
-  html.za-clean{
+/* 由右上角切換鈕（或第一次跟手機設定）決定：<html data-theme="dark"> */
+html.za-clean[data-theme="dark"]{
     --c-bg:#111317;--c-card:#1a1d23;--c-ink:#e8ebf0;--c-ink-2:#b8c0cc;--c-muted:#98a2b3;
     --c-line:#2a2f38;--c-line-2:#363c47;--c-accent:#7aa2ff;--c-accent-press:#2f5bea;--c-btn:#3d6af0;
     --c-good:#3ccb7f;--c-warn:#e3b341;--c-bad:#ff6b63;--c-disabled-bg:#262a31;--c-disabled-ink:#6b7380;
     --c-tabbar:rgba(26,29,35,.96);--c-placeholder:#6b7380;--c-tick:#7d8796;
     color-scheme:dark;
   }
-  html.za-clean :is(input,select,textarea):focus,html.za-clean .premium-tab .input:focus{box-shadow:0 0 0 3px rgba(122,162,255,.22)!important}
-  html.za-clean select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237d8796' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E")!important}
-  html.za-clean .premium-ai-launcher{box-shadow:0 6px 20px -8px rgba(0,0,0,.6)!important}
-  html.za-clean .ai-panel-h{box-shadow:0 -10px 30px -12px rgba(0,0,0,.6)!important}
-  html.za-clean .recharts-default-tooltip{box-shadow:0 6px 20px -8px rgba(0,0,0,.6)!important}
-  html.za-clean [style*="color: rgb(180, 83, 9)"]{color:var(--c-warn)!important}
-  html.za-clean input[type=date]::-webkit-datetime-edit{color:var(--c-ink)}
+  html.za-clean[data-theme="dark"] :is(input,select,textarea):focus,html.za-clean[data-theme="dark"] .premium-tab .input:focus{box-shadow:0 0 0 3px rgba(122,162,255,.22)!important}
+  html.za-clean[data-theme="dark"] select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237d8796' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E")!important}
+  html.za-clean[data-theme="dark"] .premium-ai-launcher{box-shadow:0 6px 20px -8px rgba(0,0,0,.6)!important}
+  html.za-clean[data-theme="dark"] .ai-panel-h{box-shadow:0 -10px 30px -12px rgba(0,0,0,.6)!important}
+  html.za-clean[data-theme="dark"] .recharts-default-tooltip{box-shadow:0 6px 20px -8px rgba(0,0,0,.6)!important}
+  html.za-clean[data-theme="dark"] [style*="color: rgb(180, 83, 9)"]{color:var(--c-warn)!important}
+  html.za-clean[data-theme="dark"] input[type=date]::-webkit-datetime-edit{color:var(--c-ink)}
+  html.za-clean[data-theme="dark"] .cl-dot.g{background:#3ccb7f}html.za-clean[data-theme="dark"] .cl-dot.y{background:#e3b341}html.za-clean[data-theme="dark"] .cl-dot.r{background:#ff6b63}
+
+/* 萬一 <head> 的小程式沒跑到：跟著手機設定 */
+@media (prefers-color-scheme: dark){
+  html.za-clean:not([data-theme]){
+    --c-bg:#111317;--c-card:#1a1d23;--c-ink:#e8ebf0;--c-ink-2:#b8c0cc;--c-muted:#98a2b3;
+    --c-line:#2a2f38;--c-line-2:#363c47;--c-accent:#7aa2ff;--c-accent-press:#2f5bea;--c-btn:#3d6af0;
+    --c-good:#3ccb7f;--c-warn:#e3b341;--c-bad:#ff6b63;--c-disabled-bg:#262a31;--c-disabled-ink:#6b7380;
+    --c-tabbar:rgba(26,29,35,.96);--c-placeholder:#6b7380;--c-tick:#7d8796;
+    color-scheme:dark;
+  }
+  html.za-clean:not([data-theme]) :is(input,select,textarea):focus,html.za-clean:not([data-theme]) .premium-tab .input:focus{box-shadow:0 0 0 3px rgba(122,162,255,.22)!important}
+  html.za-clean:not([data-theme]) select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237d8796' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E")!important}
+  html.za-clean:not([data-theme]) .premium-ai-launcher{box-shadow:0 6px 20px -8px rgba(0,0,0,.6)!important}
+  html.za-clean:not([data-theme]) .ai-panel-h{box-shadow:0 -10px 30px -12px rgba(0,0,0,.6)!important}
+  html.za-clean:not([data-theme]) .recharts-default-tooltip{box-shadow:0 6px 20px -8px rgba(0,0,0,.6)!important}
+  html.za-clean:not([data-theme]) [style*="color: rgb(180, 83, 9)"]{color:var(--c-warn)!important}
+  html.za-clean:not([data-theme]) input[type=date]::-webkit-datetime-edit{color:var(--c-ink)}
   .cl-dot.g{background:#3ccb7f}.cl-dot.y{background:#e3b341}.cl-dot.r{background:#ff6b63}
 }
+
+/* 主題切換鈕：跟 中/EN 一樣的細外框小圓鈕 */
+html.za-clean .za-theme-toggle{width:30px!important;min-width:30px!important;max-width:30px!important;height:30px!important;min-height:30px!important;padding:0!important;border-color:color-mix(in srgb,var(--c-accent) 45%,transparent)!important;color:var(--c-accent)!important;background:transparent!important}
+html.za-clean .za-theme-toggle svg{display:block}
