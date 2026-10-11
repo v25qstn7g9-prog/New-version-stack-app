@@ -66,3 +66,36 @@ test("fallback handler passes App tool calls back to the browser for the confirm
   assert.equal(res.body.ok, true);
   assert.equal(res.body.toolCalls?.[0]?.name, "add_trade");
 });
+
+// 2026-10：Gemini 3.x 對「重播」的 functionCall 要求 thoughtSignature，沒有就回
+// 400 "Function call is missing a thought_signature ... query_app_data, position 2"。
+// 瀏覽器送回來的工具回合（Cloudflare GPT-OSS 產生的，或簽章在 ask-core 被丟掉的）不可能有簽章，
+// 所以備援要把它們當成純文字證據，而不是 functionCall／functionResponse。
+const toolTurn = [{
+  id: "call_1", name: "query_app_data", arguments: { topic: "daily_records" },
+}];
+const toolTurnResult = [{ id: "call_1", name: "query_app_data", content: "2026-09-30 資產 NT$ 5,900,000" }];
+
+test("fallback never replays an unsigned functionCall to Gemini (it becomes plain-text evidence)", async () => {
+  const { res, seen } = await callHandler(
+    { message: "給我 9 月月報", toolTurns: [{ calls: toolTurn, results: toolTurnResult }] },
+    [{ text: "這是 9 月月報" }],
+  );
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.reply, "這是 9 月月報");
+  const contents = seen[0].body.contents;
+  const parts = contents.flatMap((c) => c.parts);
+  assert.ok(!parts.some((p) => p.functionCall), "no functionCall may be replayed without a thoughtSignature");
+  assert.ok(!parts.some((p) => p.functionResponse), "its functionResponse must not be orphaned either");
+  const evidence = parts.map((p) => p.text || "").join("\n");
+  assert.match(evidence, /【App 工具結果：query_app_data】\n2026-09-30 資產 NT\$ 5,900,000/);
+});
+
+test("fallback still replays a functionCall natively when it carries a thoughtSignature", async () => {
+  // Only reachable if the signature survives (e.g. a future ask-core that forwards it).
+  const mod = await import("../fallback-vercel/api/ask.js");
+  assert.equal(typeof mod.default, "function");
+  const src = fs.readFileSync("fallback-vercel/api/ask.js", "utf8");
+  assert.match(src, /if \(!m\.tool_calls\.some\(\(tc\) => tc\?\._geminiThoughtSignature\)\)/);
+  assert.match(src, /if \(tc\._geminiThoughtSignature\) part\.thoughtSignature = tc\._geminiThoughtSignature;/);
+});
