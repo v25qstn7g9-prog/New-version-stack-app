@@ -9758,6 +9758,19 @@ function AiChatWidget({ advancedUse = true, holdings, goal, totalToday, totalInv
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([]); // {role, content} 一般訊息，或 {role:'assistant', toolCall, status} 確認卡片
   const [input, setInput] = useState("");
+  // 輸入框跟著內容長高（最多約 5 行，再多就在框裡捲動）；送出清空後縮回一行。
+  const inputRef = useRef(null);
+  useLayoutEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const cs = window.getComputedStyle(el);
+    const line = parseFloat(cs.lineHeight) || 24;
+    const chrome = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) + (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+    const max = Math.round(line * 5 + chrome);
+    el.style.height = Math.min(el.scrollHeight + (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0), max) + "px";
+    el.style.overflowY = el.scrollHeight + chrome > max ? "auto" : "hidden";
+  }, [input, open]);
   const [sending, setSending] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState("");
   const [error, setError] = useState("");
@@ -10183,7 +10196,7 @@ function AiChatWidget({ advancedUse = true, holdings, goal, totalToday, totalInv
             )}
             <div className="px-3 py-3 flex items-end gap-2"
               style={{ borderTop: `1px solid ${COLORS.panelBorder}`, paddingBottom: "calc(12px + env(safe-area-inset-bottom, 4px))" }}>
-              <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onKeyDown}
+              <textarea ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onKeyDown}
                 placeholder={uiText("輸入訊息…")} rows={1}
                 className="flex-1 rounded-xl px-3 py-2 text-sm resize-none"
                 style={{ 
@@ -10194,7 +10207,6 @@ function AiChatWidget({ advancedUse = true, holdings, goal, totalToday, totalInv
                   WebkitAppearance: "none",
                   lineHeight: "1.5",
                   minHeight: "44px",
-                  overflow: "hidden",
                   WebkitBoxSizing: "border-box",
                   boxSizing: "border-box"
                 }} />
