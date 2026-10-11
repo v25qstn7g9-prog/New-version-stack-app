@@ -1298,7 +1298,7 @@ const UI_EN = {
   "尚無交易紀錄": "No trade records",
   "搜尋代號或名稱，例如 0050 或 元大台灣50": "Search symbol or name, e.g. 0050",
   "查詢最新除息公告中…": "Checking latest ex-dividend notice…",
-  "尚未有除權息公告（可能還沒到公告時間，日期請自行填寫）": "No ex-dividend notice yet. Please enter the date manually.",
+  "尚未有除息公告": "No ex-dividend notice yet",
   "查詢公告失敗，請自行填寫除息日": "Notice lookup failed. Please enter the ex-dividend date.",
   "每股配息（已用最新公告帶入，請確認後再送出）": "Dividend / Share (Prefilled; Please Verify)",
   "每股配息": "Dividend / Share",
@@ -8487,7 +8487,7 @@ function DividendsPanel({ dividends, setDividends, holdings, usLive }) {
         : `已抓到最新公告：${scheduleInfo.date} 除${scheduleInfo.type || "息"}${cash}`;
       return { text, color: COLORS.gold };
     }
-    if (scheduleStatus === "not-found") return { text: uiText("尚未有除權息公告（可能還沒到公告時間，日期請自行填寫）"), color: COLORS.sub };
+    if (scheduleStatus === "not-found") return { text: uiText("尚未有除息公告"), color: COLORS.sub };
     if (scheduleStatus === "error") return { text: uiText("查詢公告失敗，請自行填寫除息日"), color: "#EF4444" };
     return null;
   })();
