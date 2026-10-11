@@ -1130,7 +1130,7 @@ const UI_EN = {
   "交易稅（賣出）": "Transaction Tax (Sell)",
   "備註": "Note",
   "除息日": "Ex-Dividend Date",
-  "股數（選了有持股的代號會自動帶入，可再手動調整）": "Shares",
+  "股數（有持股自動帶入）": "Shares",
   "目標金額 (NTD)": "Target Amount (NTD)",
   "目標年份": "Target Year",
   "標的": "Asset",
@@ -8526,7 +8526,7 @@ function DividendsPanel({ dividends, setDividends, holdings, usLive }) {
           <div className="text-[11px] mt-2" data-form-hint style={{ color: scheduleHint.color }}>{scheduleHint.text}</div>
         )}
         <div className="grid grid-cols-2 gap-2 mt-2">
-          <Field label="股數（選了有持股的代號會自動帶入，可再手動調整）"><input type="number" value={form.shares}
+          <Field label="股數（有持股自動帶入）"><input type="number" value={form.shares}
             onChange={(e) => setForm({ ...form, shares: e.target.value })} className="input" /></Field>
           <Field label={
             scheduleStatus === "found" && scheduleInfo?.cashDividend != null
