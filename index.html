@@ -7683,16 +7683,15 @@ function HoldingsWorkspace({ trades = [], holdings, setHoldings, usLive, market,
           </button>
         ))}
       </div>}
-      {activeMarket === "us" && (
-        <UsBrokerCalibrationCard usLive={usLive} calibration={usBrokerCalibration} setCalibration={setUsBrokerCalibration} />
-      )}
+      {/* 台股、美股的「持股進度」排版一致：第一張卡都是持股進度；美股市值校準放在持股清單下面。 */}
       <HoldingsPanel trades={trades} key={activeMarket} market={activeMarket} holdings={visibleHoldings}
-        allHoldings={holdings} setHoldings={setHoldings} usLive={usLive} />
+        allHoldings={holdings} setHoldings={setHoldings} usLive={usLive}
+        afterList={activeMarket === "us" ? <UsBrokerCalibrationCard usLive={usLive} calibration={usBrokerCalibration} setCalibration={setUsBrokerCalibration} /> : null} />
     </div>
   );
 }
 
-function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldings, usLive, onFillDailyCost, market = "tw" }) {
+function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldings, usLive, onFillDailyCost, market = "tw", afterList = null }) {
   const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
   const [form, setForm] = useState({ symbol: "", name: "", initialShares: "", target2035: "", costBasis: "" });
   const [editingId, setEditingId] = useState(null);
@@ -8004,6 +8003,8 @@ function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldi
           {holdings.length === 0 && <Empty text="尚未新增持股標的" />}
         </div>
       </Panel>
+
+      {afterList}
 
       <Panel title="新增持股標的">
         <div className="grid grid-cols-2 gap-2">
