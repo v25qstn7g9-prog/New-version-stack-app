@@ -17,6 +17,7 @@ const ALLOWED_REDIRECTS = new Set([
   "https://claude.ai/api/mcp/auth_callback",
   "https://claude.com/api/mcp/auth_callback",
   "https://grok.com/connectors-oauth-exchange-code/",
+  "https://manus.im/api/webhook/mcp/callback",
 ]);
 
 const enc = new TextEncoder();
