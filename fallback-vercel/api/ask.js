@@ -57,6 +57,12 @@ function toGeminiRequest(messages, tools) {
   const systemParts = [];
   const contents = [];
   const callIdToName = {};
+  // Gemini 3.x rejects (HTTP 400 "Function call is missing a thought_signature") any replayed
+  // functionCall that has no model-generated thoughtSignature. Tool turns that come from the
+  // browser (Cloudflare GPT-OSS calls, or Gemini calls whose signature was dropped on the way
+  // through ask-core) cannot have one, so they are replayed as plain-text evidence instead,
+  // exactly like buildGeminiContents() does in the primary path.
+  const textOnlyCalls = {};
 
   for (const m of messages || []) {
     if (m.role === "system") {
@@ -69,6 +75,10 @@ function toGeminiRequest(messages, tools) {
     }
     if (m.role === "assistant") {
       if (Array.isArray(m.tool_calls) && m.tool_calls.length) {
+        if (!m.tool_calls.some((tc) => tc?._geminiThoughtSignature)) {
+          m.tool_calls.forEach((tc) => { textOnlyCalls[tc.id] = tc.function?.name || "app_tool"; });
+          continue;
+        }
         const parts = m.tool_calls.map((tc) => {
           let args = {};
           try { args = JSON.parse(tc.function?.arguments || "{}"); } catch { args = {}; }
@@ -90,6 +100,10 @@ function toGeminiRequest(messages, tools) {
       continue;
     }
     if (m.role === "tool") {
+      if (Object.prototype.hasOwnProperty.call(textOnlyCalls, m.tool_call_id)) {
+        contents.push({ role: "user", parts: [{ text: `【App 工具結果：${textOnlyCalls[m.tool_call_id]}】\n${String(m.content || "")}` }] });
+        continue;
+      }
       const name = callIdToName[m.tool_call_id] || "tool_result";
       // Gemini 原生 generateContent 的 functionResponse 要當成 user content 回送；
       // 同時帶回 id，和上一個 functionCall 精確配對。
