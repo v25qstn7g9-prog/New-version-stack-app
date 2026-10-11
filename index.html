@@ -8013,6 +8013,7 @@ function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldi
       {afterList}
 
       <Panel title="新增持股標的">
+        {/* 名稱查詢提示放在格子外面（原因同配息表單）：避免把代號欄頂下去。 */}
         <div className="grid grid-cols-2 gap-2">
           <Field label="代號"><input value={form.symbol}
             onChange={(e) => setForm({ ...form, symbol: normalizeStockSymbol(e.target.value) })}
@@ -8020,16 +8021,18 @@ function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldi
           <Field label="名稱"><input value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
             placeholder={market === "us" ? "Apple Inc." : "高股息ETF"} className="input" />
-            {nameHint && (
-              <div className="text-[10px] mt-1" aria-live="polite"
-                style={{ color: nameHint === "found" ? COLORS.gold : COLORS.sub }}>
-                <UiLabel zh={nameHint === "loading" ? "查詢名稱中…"
-                  : nameHint === "found" ? "已自動帶入名稱（可修改）"
-                  : nameHint === "missing" ? "查不到此代號，請手動輸入名稱"
-                  : "名稱查詢失敗，請手動輸入"} />
-              </div>
-            )}
           </Field>
+        </div>
+        {nameHint && (
+          <div className="text-[10px] mt-2" aria-live="polite" data-form-hint
+            style={{ color: nameHint === "found" ? COLORS.gold : COLORS.sub }}>
+            <UiLabel zh={nameHint === "loading" ? "查詢名稱中…"
+              : nameHint === "found" ? "已自動帶入名稱（可修改）"
+              : nameHint === "missing" ? "查不到此代號，請手動輸入名稱"
+              : "名稱查詢失敗，請手動輸入"} />
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-2 mt-2">
           <Field label="期初股數"><input type="number" step="any" value={form.initialShares}
             onChange={(e) => setForm({ ...form, initialShares: e.target.value })}
             placeholder="0" className="input" /></Field>
@@ -8509,6 +8512,7 @@ function DividendsPanel({ dividends, setDividends, holdings, usLive }) {
       <UpcomingDividendReminder holdings={holdings} />
 
       <Panel title="新增配息">
+        {/* 提示文字放在格子外面：表單格子是「底部對齊」，提示放在代號欄裡面會把同一排的除息日整個頂下去。 */}
         <div className="grid grid-cols-2 gap-2">
           <Field label="除息日"><input type="date" value={form.date}
             onChange={(e) => setForm({ ...form, date: e.target.value })} className="input" /></Field>
@@ -8516,10 +8520,12 @@ function DividendsPanel({ dividends, setDividends, holdings, usLive }) {
             <input value={form.symbol} onChange={(e) => handleSymbolChange(e.target.value)}
               placeholder="0056 / AAPL" list="symbols2" className="input" />
             <datalist id="symbols2">{holdings.map((h) => <option key={h.id} value={h.symbol} />)}</datalist>
-            {scheduleHint && (
-              <div className="text-[11px] mt-1" style={{ color: scheduleHint.color }}>{scheduleHint.text}</div>
-            )}
           </Field>
+        </div>
+        {scheduleHint && (
+          <div className="text-[11px] mt-2" data-form-hint style={{ color: scheduleHint.color }}>{scheduleHint.text}</div>
+        )}
+        <div className="grid grid-cols-2 gap-2 mt-2">
           <Field label="股數（選了有持股的代號會自動帶入，可再手動調整）"><input type="number" value={form.shares}
             onChange={(e) => setForm({ ...form, shares: e.target.value })} className="input" /></Field>
           <Field label={
