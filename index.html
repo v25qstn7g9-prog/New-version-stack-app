@@ -45,6 +45,21 @@
     .ai-panel-h .whitespace-pre-wrap{font-size:14px;line-height:1.75;overflow-wrap:anywhere}
     .ai-panel-h [role="status"]{display:inline-flex;align-items:center;gap:8px;color:#d4ad57;font-size:12px}
     .ai-panel-h [role="status"]::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+    /* AI 對話框回答排版（只改顯示）：標題、重點列、段落；顏色全用既有的 --z-* 變數 */
+    .ai-panel-h .forma-chat-body{display:flex;flex-direction:column;gap:8px;min-width:0}
+    .ai-panel-h .forma-chat-heading{margin-top:8px;padding-left:8px;border-left:3px solid var(--z-gold,#A8C2FF);font-size:14px;font-weight:700;line-height:1.5;color:var(--z-text,#FFFFFF)}
+    .ai-panel-h .forma-chat-body>.forma-chat-heading:first-child{margin-top:0}
+    .ai-panel-h .forma-chat-row{display:grid;gap:2px;padding:8px 12px;border:1px solid var(--z-line,#4A5A85);border-radius:12px;background:var(--z-bg,#3A4A75)}
+    .ai-panel-h .forma-chat-label{font-size:12px;line-height:1.5;color:var(--z-sub,#B3BDD8)}
+    .ai-panel-h .forma-chat-value{font-size:15px;font-weight:700;line-height:1.5;color:var(--z-text,#FFFFFF);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+    .ai-panel-h .forma-chat-value.is-long{font-size:14px;font-weight:400;line-height:1.6}
+    .ai-panel-h .forma-chat-note{font-size:12px;line-height:1.6;color:var(--z-sub,#B3BDD8);overflow-wrap:anywhere}
+    .ai-panel-h .forma-chat-item,.ai-panel-h .forma-chat-para{margin:0;font-size:14px;line-height:1.75;overflow-wrap:anywhere;white-space:pre-wrap}
+    .ai-panel-h .forma-chat-item{position:relative;padding-left:14px}
+    .ai-panel-h .forma-chat-item::before{content:"";position:absolute;left:3px;top:.8em;width:4px;height:4px;border-radius:50%;background:var(--z-sub,#B3BDD8)}
+    .ai-panel-h .forma-chat-chips{display:flex;gap:8px;overflow-x:auto;padding:8px 12px 0;scrollbar-width:none}
+    .ai-panel-h .forma-chat-chips::-webkit-scrollbar{display:none}
+    .ai-panel-h .forma-chat-chip{flex:0 0 auto;min-height:44px;padding:0 14px;border:1px solid var(--z-line,#4A5A85);border-radius:999px;background:var(--z-panel,#3A4A75);color:var(--z-text,#FFFFFF);font-size:14px;line-height:1.2;white-space:nowrap}
     .premium-shell input,.premium-shell select,.premium-shell textarea{transition:border-color .15s,box-shadow .15s}
     .premium-shell .mono{font-variant-numeric:tabular-nums}
     @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
@@ -1461,6 +1476,9 @@ const UI_EN = {
   "目標金額數值不合理": "Invalid target amount",
   "目標年份不合理": "Invalid target year",
   "存股助手 AI": "Stock Assistant AI",
+  "持股分析": "Holdings Analysis",
+  "今日盤勢": "Market Today",
+  "快速提問": "Quick questions",
   "Gemini 獨立備援": "Gemini Fallback",
   "GPT-OSS": "GPT-OSS",
   "AI 想執行（資料看起來不完整）：": "AI wants to run (data looks incomplete):",
@@ -9671,6 +9689,71 @@ function cleanAiDisplayText(text) {
   return out;
 }
 
+// 只做顯示：把 AI 的回答整理成「標題／重點列／重點項目／段落」。不改內容，也不碰 AI 呼叫與任何計算。
+function parseAiBlocks(text) {
+  const blocks = [];
+  const bulletRe = /^[•・·]\s*/;
+  const groups = String(text || "").split(/\n\s*\n/);
+  groups.forEach((g, gi) => {
+    const lines = g.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (!lines.length) return;
+    if (lines.length === 1 && gi < groups.length - 1 && !bulletRe.test(lines[0]) && lines[0].length <= 20 && !/[。！？!?]/.test(lines[0])) {
+      blocks.push({ type: "heading", text: lines[0].replace(/[：:]\s*$/, "") });
+      return;
+    }
+    let para = [];
+    const flush = () => { if (para.length) { blocks.push({ type: "para", text: para.join("\n") }); para = []; } };
+    lines.forEach((line, li) => {
+      const next = lines[li + 1];
+      if (!bulletRe.test(line) && /[：:]$/.test(line) && line.length <= 24 && next && bulletRe.test(next)) {
+        flush();
+        blocks.push({ type: "heading", text: line.replace(/[：:]\s*$/, "") });
+      } else if (bulletRe.test(line)) {
+        flush();
+        const body = line.replace(bulletRe, "");
+        const m = body.match(/^([^：:]{1,24})[：:]\s*(.+)$/);
+        if (m) {
+          const n = m[2].match(/^(.*?)\s*([（(].*[）)])\s*$/);
+          blocks.push({ type: "row", label: m[1].trim(), value: (n && n[1] ? n[1] : m[2]).trim(), note: n && n[1] ? n[2] : "" });
+        } else blocks.push({ type: "item", text: body });
+      } else para.push(line);
+    });
+    flush();
+  });
+  return blocks;
+}
+
+function AiMessageBody({ text }) {
+  const blocks = parseAiBlocks(text);
+  return (
+    <div className="forma-chat-body">
+      {blocks.map((b, i) => {
+        if (b.type === "heading") return <div key={i} className="forma-chat-heading" role="heading" aria-level={3}>{b.text}</div>;
+        if (b.type === "row") return (
+          <div key={i} className="forma-chat-row">
+            <div className="forma-chat-label">{b.label}</div>
+            <div className={`forma-chat-value${b.value.length > 22 ? " is-long" : ""}`}>{b.value}</div>
+            {b.note ? <div className="forma-chat-note">{b.note}</div> : null}
+          </div>
+        );
+        if (b.type === "item") return <div key={i} className="forma-chat-item">{b.text}</div>;
+        return <p key={i} className="forma-chat-para">{b.text}</p>;
+      })}
+    </div>
+  );
+}
+
+// 輸入框上方的快速提問：只把句子填進輸入框，要不要送出由使用者決定。
+function aiQuickPrompts() {
+  const m = new Date().getMonth(); // 0–11；月報預設是「上個月」
+  const prev = m === 0 ? 12 : m;
+  return [
+    { label: UI_SHOW_ENGLISH ? `Month ${prev} report` : `${prev}月月報`, prompt: `幫我做一個${prev}月份的月報` },
+    { label: uiText("持股分析"), prompt: "幫我分析目前持股的集中度與累計配息" },
+    { label: uiText("今日盤勢"), prompt: "今天盤勢怎麼樣，我的持股有什麼變化？" },
+  ];
+}
+
 function AiChatWidget({ advancedUse = true, holdings, goal, totalToday, totalInvested, trades, setTrades, setHoldings, setGoal, dailyRecords, dividends, planItems, planSchedule, goalDate, perf, aiFallbackConfig, zinfSyncToken }) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([]); // {role, content} 一般訊息，或 {role:'assistant', toolCall, status} 確認卡片
@@ -10008,7 +10091,7 @@ function AiChatWidget({ advancedUse = true, holdings, goal, totalToday, totalInv
                 {providerInfo && (() => {
                   const isGemini = String(providerInfo.provider || "").toLowerCase().includes("gemini");
                   return (
-                    <div className="text-[9px] px-1.5 py-0.5 rounded-full truncate max-w-[170px]"
+                    <div className="text-[11px] px-2 py-0.5 rounded-full truncate max-w-[170px]"
                       title={`${providerInfo.provider} · ${providerInfo.model}`}
                       style={{ color: isGemini ? COLORS.gold : COLORS.sub, border: `1px solid ${isGemini ? COLORS.gold : COLORS.panelBorder}` }}>
                       {isGemini ? <UiLabel zh="Gemini 獨立備援" inline /> : "GPT-OSS"}
@@ -10070,13 +10153,13 @@ function AiChatWidget({ advancedUse = true, holdings, goal, totalToday, totalInv
                 }
                 return (
                   <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                    <div className="max-w-[80%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap leading-relaxed"
+                    <div className={`${m.role === "user" ? "max-w-[80%] whitespace-pre-wrap" : "max-w-[92%] min-w-0"} rounded-2xl px-3 py-2 text-sm leading-relaxed`}
                       style={{
                         background: m.role === "user" ? COLORS.gold : COLORS.panel,
                         color: m.role === "user" ? COLORS.bg : COLORS.text,
                         border: m.role === "user" ? "none" : `1px solid ${COLORS.panelBorder}`,
                       }}>
-                      {m.role === "assistant" ? cleanAiDisplayText(m.content) : m.content}
+                      {m.role === "assistant" ? <AiMessageBody text={cleanAiDisplayText(m.content)} /> : m.content}
                     </div>
                   </div>
                 );
@@ -10091,6 +10174,13 @@ function AiChatWidget({ advancedUse = true, holdings, goal, totalToday, totalInv
               {error && <div className="text-xs text-center" style={{ color: COLORS.gain }}>{error}</div>}
             </div>
 
+            {!sending && !input.trim() && (
+              <div className="forma-chat-chips" role="group" aria-label={uiText("快速提問")}>
+                {aiQuickPrompts().map((q) => (
+                  <button key={q.prompt} type="button" className="forma-chat-chip" onClick={() => setInput(q.prompt)}>{q.label}</button>
+                ))}
+              </div>
+            )}
             <div className="px-3 py-3 flex items-end gap-2"
               style={{ borderTop: `1px solid ${COLORS.panelBorder}`, paddingBottom: "calc(12px + env(safe-area-inset-bottom, 4px))" }}>
               <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onKeyDown}
