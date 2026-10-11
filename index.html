@@ -1278,6 +1278,11 @@ const UI_EN = {
   "儲存紀錄": "Save Record",
   "尚無紀錄，新增第一筆吧": "No records yet. Add the first one.",
   "總持有成本（所有標的合計）": "Total Holding Cost",
+  "目前累積成本（台股＋美股）": "Current Cost (TW + US)",
+  "目前累積成本": "Current Cost",
+  "全部買賣紀錄淨額": "Net of All Trades",
+  "起始成本（倒推）": "Starting Cost (back-calculated)",
+  "累積成本跟「持股進度」的總持有成本是同一個數字，起始成本由它扣掉全部買賣紀錄倒推，不用自己輸入。": "Current cost is the same number as the total holding cost on the Holdings page; the starting cost is back-calculated by subtracting all trades, so there is nothing to type in.",
   "資產配置（以市值計，抓不到報價時退回用成本）": "Asset Allocation (Market Value; Cost Fallback)",
   "尚未新增持股標的": "No holdings added yet",
   "新增標的": "Add Holding",
@@ -2933,7 +2938,7 @@ function AssetTracker() {
       { 項目: "App版本", 資料: APP_VERSION },
       { 項目: "退休目標金額", 資料: Number(goal.targetAmount || 0) },
       { 項目: "退休目標年份", 資料: Number(goal.targetYear || 0) },
-      { 項目: "起始成本", 資料: Number(costBasis?.startingCost || 0) },
+      { 項目: "起始成本", 資料: Number(costTrack.startingCost || 0) },
       { 項目: "目前累積成本", 資料: Number(accumulatedCost || 0) },
       { 項目: "累積配息", 資料: dividends.reduce((sum, d) => sum + Number(d.amount || 0), 0) },
     ];
@@ -3043,8 +3048,6 @@ function AssetTracker() {
   const tradesInvested = trades.reduce(
     (s, t) => s + (t.action === "buy" ? t.amount : -t.amount), 0
   );
-  // Running cost basis: starting cost plus every buy (+) / sell (-) since.
-  const accumulatedCost = Number(costBasis.startingCost || 0) + tradesInvested;
   // 每日紀錄成本保留作為歷史快照／XIRR 等時間序列計算來源。
   // 「目前」績效則在 holdingsWithShares 算完後，統一改用持股頁的即時持有成本。
   const latestTwCost = latest ? Number(latest.twCost || 0) : 0;
@@ -3182,6 +3185,9 @@ function AssetTracker() {
   const totalInvested = currentHoldingCost > 0
     ? currentHoldingCost
     : (latestCost > 0 ? latestCost : tradesInvested);
+  // 交易紀錄頁的成本追蹤：跟「持股進度」台股＋美股同一個成本，起始成本倒推。
+  const costTrack = costTracking({ holdingCost: currentHoldingCost, tradesNet: tradesInvested, manualStartingCost: costBasis.startingCost });
+  const accumulatedCost = costTrack.accumulatedCost;
 
   // 報酬先分台股、美股各自計算（市值－成本＋股息），最後再相加成總報酬。
   // 這樣美股不會因為缺少成本而被整筆誤當成獲利。
@@ -3764,7 +3770,7 @@ function AssetTracker() {
               case "trades":
                 return (
                   <TradesPanel trades={trades} setTrades={setTrades} holdings={showUsFields ? holdings : holdings.filter((h) => isTaiwanSymbol(h.symbol))} setHoldings={setHoldings} usLive={usAssetLive}
-                    costBasis={costBasis} setCostBasis={setCostBasis} accumulatedCost={accumulatedCost}
+                    costBasis={costBasis} setCostBasis={setCostBasis} accumulatedCost={accumulatedCost} costTrack={costTrack} twCost={currentTwCost} usCost={currentUsCost}
                   />
                 );
               case "dividends":
@@ -3871,7 +3877,7 @@ function AssetTracker() {
         goalDate={goalDate} aiFallbackConfig={aiFallbackConfig} zinfSyncToken={zinfSyncToken}
         perf={{
           capitalGain, totalDividends, totalReturn, totalReturnPct, highPoint, drawdown, ytdGain, ytdPct,
-          elapsedMonths, costLeadMonths, assetLeadMonths, startingCost: costBasis?.startingCost,
+          elapsedMonths, costLeadMonths, assetLeadMonths, startingCost: costTrack.startingCost,
         }} />
 
       <TabBar tabs={visibleTabs} tab={tab} setTab={goToTab} rootRef={tabBarRef} showEnglish={showEnglish} />
@@ -8045,7 +8051,7 @@ function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldi
 }
 
 // ---------------- Trades Panel ----------------
-function TradesPanel({ trades, setTrades, holdings, setHoldings, usLive, costBasis, setCostBasis, accumulatedCost, onFillDailyCost }) {
+function TradesPanel({ trades, setTrades, holdings, setHoldings, usLive, costBasis, setCostBasis, accumulatedCost, costTrack, twCost = 0, usCost = 0, onFillDailyCost }) {
   const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
   const [form, setForm] = useState({
     date: todayStr(), symbol: "", action: "buy", shares: "", price: "", fee: "", tax: "", note: "", fxRate: "",
@@ -8209,15 +8215,41 @@ function TradesPanel({ trades, setTrades, holdings, setHoldings, usLive, costBas
       {/* 成本追蹤是設定一次的東西，放在最下面，不擋住每天的「新增交易」 */}
       {costBasis && (
         <Panel title="成本追蹤">
-          <Field label="起始成本（交易紀錄開始追蹤之前，已經投入的成本）">
-            <input type="number" value={costBasis.startingCost}
-              onChange={(e) => setCostBasis({ ...costBasis, startingCost: Number(e.target.value || 0) })}
-              className="input" />
-          </Field>
-          <div className="flex justify-between items-baseline mt-3 text-sm mono">
-            <span style={{ color: COLORS.sub }}><UiLabel zh="目前累積成本（起始成本 + 全部買賣紀錄）" /></span>
-            <span className="font-bold" style={{ color: COLORS.gold }}>NT$ {nf(accumulatedCost)}</span>
-          </div>
+          {costTrack?.derived ? (
+            <div className="text-sm mono space-y-2" data-cost-tracking="derived">
+              <div className="flex justify-between items-baseline">
+                <span style={{ color: COLORS.sub }}><UiLabel zh={usCost > 0 ? "目前累積成本（台股＋美股）" : "目前累積成本"} /></span>
+                <span className="font-bold" style={{ color: COLORS.gold }}>NT$ {nf(accumulatedCost)}</span>
+              </div>
+              {usCost > 0 && (
+                <div className="flex justify-between text-[11px]" style={{ color: COLORS.sub }}>
+                  <span>{M("TW", "台股")} NT$ {nf(Math.round(twCost))}</span>
+                  <span>{M("US", "美股")} NT$ {nf(Math.round(usCost))}</span>
+                </div>
+              )}
+              <div className="flex justify-between items-baseline">
+                <span style={{ color: COLORS.sub }}><UiLabel zh="全部買賣紀錄淨額" /></span>
+                <span style={{ color: COLORS.text }}>NT$ {nf(Math.round(costTrack.tradesNet))}</span>
+              </div>
+              <div className="flex justify-between items-baseline">
+                <span style={{ color: COLORS.sub }}><UiLabel zh="起始成本（倒推）" /></span>
+                <span className="font-bold" style={{ color: COLORS.text }}>NT$ {nf(costTrack.startingCost)}</span>
+              </div>
+              <div className="text-[11px] leading-snug" style={{ color: COLORS.sub }}>
+                <UiLabel zh="累積成本跟「持股進度」的總持有成本是同一個數字，起始成本由它扣掉全部買賣紀錄倒推，不用自己輸入。" />
+              </div>
+            </div>
+          ) : (<>
+            <Field label="起始成本（交易紀錄開始追蹤之前，已經投入的成本）">
+              <input type="number" value={costBasis.startingCost}
+                onChange={(e) => setCostBasis({ ...costBasis, startingCost: Number(e.target.value || 0) })}
+                className="input" />
+            </Field>
+            <div className="flex justify-between items-baseline mt-3 text-sm mono">
+              <span style={{ color: COLORS.sub }}><UiLabel zh="目前累積成本（起始成本 + 全部買賣紀錄）" /></span>
+              <span className="font-bold" style={{ color: COLORS.gold }}>NT$ {nf(accumulatedCost)}</span>
+            </div>
+          </>)}
         </Panel>
       )}
     </div>
@@ -9033,6 +9065,15 @@ function MissingHint({ missing }) {
     </div>
   );
 }
+// <cost-tracking>
+// 交易紀錄頁的「成本追蹤」：目前累積成本＝台股＋美股目前的持有成本（跟持股進度同一個數字），
+// 起始成本由它倒推（累積成本 − 全部買賣紀錄淨額）。完全沒有持股成本可用時，才退回手動輸入的起始成本。
+function costTracking({ holdingCost, tradesNet, manualStartingCost }) {
+  const hc = Number(holdingCost || 0), tn = Number(tradesNet || 0), manual = Number(manualStartingCost || 0);
+  if (hc > 0) return { derived: true, accumulatedCost: Math.round(hc), startingCost: Math.round(hc - tn), tradesNet: tn };
+  return { derived: false, accumulatedCost: manual + tn, startingCost: manual, tradesNet: tn };
+}
+// </cost-tracking>
 // <missed-days>
 // 漏記的交易日補記：自動補記（沒買賣、美股以外）做不到的時候，請使用者按一下，
 // 用「那天的持股（依交易紀錄倒推）× 那天收盤價」補上。costFn 就是 holdingCostAt。
