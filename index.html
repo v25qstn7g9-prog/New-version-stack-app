@@ -1320,8 +1320,8 @@ const UI_EN = {
   "●目前": "●Now",
   "投入節奏領先計畫": "Contributions Ahead of Plan",
   "投入節奏落後計畫": "Contributions Behind Plan",
-  "資產成長領先假設報酬率": "Asset Growth Ahead of Assumption",
-  "資產成長落後假設報酬率": "Asset Growth Behind Assumption",
+  "資產成長領先計畫": "Asset Growth Ahead of Plan",
+  "資產成長落後計畫": "Asset Growth Behind Plan",
   "已取得": "Available",
   "目前": "Current",
   "大盤": "Market",
@@ -8923,14 +8923,16 @@ function ProgressPanel({ planSchedule, setPlanSchedule, planTotal, schedule, tot
             <div className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="成本進度" /></div>
             <div className="text-lg font-bold mono mt-1">{principalDate}{principalBeyond ? "+" : ""}</div>
             <div className="text-[11px] mono mt-1" style={{ color: COLORS.sub }}>
-              <UiLabel zh="目前持倉成本" inline /> NT$ {nf(totalInvested)}
+              <div><UiLabel zh="目前持倉成本" inline /></div>
+              <div className="whitespace-nowrap">NT$ {nf(totalInvested)}</div>
             </div>
           </div>
           <div className="rounded-xl p-3" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
             <div className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="資產進度" /></div>
             <div className="text-lg font-bold mono mt-1">{assetDate}{assetBeyond ? "+" : ""}</div>
             <div className="text-[11px] mono mt-1" style={{ color: COLORS.sub }}>
-              <UiLabel zh="實際資產" inline /> NT$ {nf(totalToday)}
+              <div><UiLabel zh="實際資產" inline /></div>
+              <div className="whitespace-nowrap">NT$ {nf(totalToday)}</div>
             </div>
           </div>
         </div>
@@ -8953,7 +8955,7 @@ function ProgressPanel({ planSchedule, setPlanSchedule, planTotal, schedule, tot
               {assetLeadMonths == null ? "—" : M(`${assetLeadMonths >= 0 ? "+" : ""}${assetLeadMonths.toFixed(1)} mo`, `${assetLeadMonths >= 0 ? "+" : ""}${assetLeadMonths.toFixed(1)} 個月`)}
             </span>
             <span className="text-[10px] mt-1" style={{ color: COLORS.sub }}>
-              {assetLeadMonths == null ? "" : <UiLabel zh={assetLeadMonths >= 0 ? "資產成長領先假設報酬率" : "資產成長落後假設報酬率"} />}
+              {assetLeadMonths == null ? "" : <UiLabel zh={assetLeadMonths >= 0 ? "資產成長領先計畫" : "資產成長落後計畫"} />}
             </span>
           </div>
         </div>
