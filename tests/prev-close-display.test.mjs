@@ -34,7 +34,7 @@ test('compact quotes expand naturally without a nested scroll area', () => {
   assert.ok(start > 0);
   assert.doesNotMatch(block, /max-h-|overflow-y-auto|live-quote-card/);
   assert.match(block, /live-quote-grid/);
-  assert.match(block, /formatNtdPrice\(r.value, 1\)/);
+  assert.match(block, /ntdAmount\(r.value, UI_SHOW_ENGLISH\)/); // 市值整數、窄欄不換行（見 ntd-amount.test.mjs）
 });
 
 

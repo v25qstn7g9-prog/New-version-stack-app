@@ -4569,8 +4569,12 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="font-bold">NT$ {formatNtdPrice(r.value, 1)}</div>
-                    {!r.quoteIsStale && <div style={{ color: r.chg >= 0 ? COLORS.gain : COLORS.loss }}>{r.chg >= 0 ? "+" : "-"}NT$ {formatNtdPrice(Math.abs(r.chg * r.current * (r.isUS ? Number(usLive?.state?.fx || 0) * Number(usLive?.calibrationFactor || 1) : 1)), 1)}</div>}
+                    {(() => { const a = ntdAmount(r.value, UI_SHOW_ENGLISH); return <div className="font-bold whitespace-nowrap" data-live-amount style={a.small ? { fontSize: 12 } : undefined}>{a.text}</div>; })()}
+                    {!r.quoteIsStale && (() => {
+                      const pnl = Math.abs(r.chg * r.current * (r.isUS ? Number(usLive?.state?.fx || 0) * Number(usLive?.calibrationFactor || 1) : 1));
+                      const a = ntdAmount(pnl, UI_SHOW_ENGLISH);
+                      return <div className="whitespace-nowrap" data-live-amount style={{ color: r.chg >= 0 ? COLORS.gain : COLORS.loss, ...(a.small ? { fontSize: 12 } : {}) }}>{r.chg >= 0 ? "+" : "-"}{a.text}</div>;
+                    })()}
                   </div>
                 </div>
                 <div className="h-[20px] mt-1 opacity-80">
@@ -4588,18 +4592,18 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
             <div className="space-y-1 mono">
               <div className="flex justify-between items-baseline gap-2 text-xs">
                 <span style={{ color: COLORS.sub }}><UiLabel zh="台股持股市值" /></span>
-                <span className="font-bold" style={{ color: COLORS.gold }}>NT$ {formatNtdPrice(twLiveValue, 1)}</span>
+                <span className="font-bold" style={{ color: COLORS.gold }}>NT$ {formatNtdPrice(twLiveValue, 0)}</span>
               </div>
               {hasUsLiveRows && (
                 <div className="flex justify-between items-baseline gap-2 text-xs">
                   <span style={{ color: COLORS.sub }}><UiLabel zh="美股持股市值" /></span>
-                  <span className="font-bold" style={{ color: COLORS.gold }}>NT$ {formatNtdPrice(usLiveValue, 1)}</span>
+                  <span className="font-bold" style={{ color: COLORS.gold }}>NT$ {formatNtdPrice(usLiveValue, 0)}</span>
                 </div>
               )}
               <div className="flex justify-between items-baseline gap-2 text-[11px] pt-1"
                 style={{ borderTop: `1px dashed ${COLORS.panelBorder}` }}>
                 <span style={{ color: COLORS.sub }}><UiLabel zh={quoteComplete ? "合計市值" : "目前可得市值（部分）"} /></span>
-                <span style={{ color: COLORS.text }}>NT$ {formatNtdPrice(totalValue, 1)}</span>
+                <span style={{ color: COLORS.text }}>NT$ {formatNtdPrice(totalValue, 0)}</span>
               </div>
             </div>
             {(yesterdayTwValue != null || yesterdayUsValue != null) && (() => {
@@ -4609,9 +4613,9 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
               return (
                 <div className="flex justify-between items-baseline gap-2 text-[11px] mono mt-0.5">
                   <span style={{ color: dUp ? COLORS.gain : COLORS.loss }}>
-                    {UI_SHOW_ENGLISH ? "vs yesterday " : "較昨日 "}{dUp ? "+" : ""}NT$ {formatNtdPrice(diff, 1)}（{dUp ? "+" : ""}{diffPct.toFixed(2)}%）
+                    {UI_SHOW_ENGLISH ? "vs yesterday " : "較昨日 "}{dUp ? "+" : ""}NT$ {formatNtdPrice(diff, 0)}（{dUp ? "+" : ""}{diffPct.toFixed(2)}%）
                   </span>
-                  <span style={{ color: COLORS.sub }}>{UI_SHOW_ENGLISH ? "Yesterday " : "昨日 "}NT$ {formatNtdPrice((Number(yesterdayTwValue || 0) + Number(yesterdayUsValue || 0)), 1)}</span>
+                  <span style={{ color: COLORS.sub }}>{UI_SHOW_ENGLISH ? "Yesterday " : "昨日 "}NT$ {formatNtdPrice((Number(yesterdayTwValue || 0) + Number(yesterdayUsValue || 0)), 0)}</span>
                 </div>
               );
             })()}
@@ -9092,6 +9096,21 @@ function MissingHint({ missing }) {
     </div>
   );
 }
+// <ntd-amount>
+// 資產金額（市值、損益）一律整數；放在窄欄位時不換行：
+//   ≥ 1 億 → 「1.23億」（英文 1.2M 單位用 M），避免 9 位數撐爆欄位；
+//   ≥ 1 千萬 → 數字多一位，縮小一點字（small）。
+function ntdAmount(value, english = false) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return { text: "NT$ —", small: false };
+  const abs = Math.abs(n), sign = n < 0 ? "-" : "";
+  if (abs >= 100000000) {
+    return { text: english ? `${sign}NT$ ${(abs / 1e6).toFixed(1)}M` : `${sign}NT$ ${(abs / 1e8).toFixed(2)}億`, small: false };
+  }
+  const text = `${sign}NT$ ${Math.round(abs).toLocaleString("en-US")}`;
+  return { text, small: Math.round(abs) >= 10000000 };
+}
+// </ntd-amount>
 // <cost-tracking>
 // 交易紀錄頁的「成本追蹤」：目前累積成本＝台股＋美股目前的持有成本（跟持股進度同一個數字），
 // 起始成本由它倒推（累積成本 − 全部買賣紀錄淨額）。完全沒有持股成本可用時，才退回手動輸入的起始成本。
