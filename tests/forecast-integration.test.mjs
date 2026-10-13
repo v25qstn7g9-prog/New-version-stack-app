@@ -8,6 +8,8 @@ const effectStart=html.indexOf('  useEffect(() => {',html.indexOf('function Tren
 const bodyStart=effectStart+'  useEffect(() => {'.length;
 const bodyEnd=html.indexOf('  },[holdings]);',bodyStart);
 const effectBody=html.slice(bodyStart,bodyEnd);
+// kdFromBars / monthlyFromDaily 是模組層級共用函式（雷達與補匯入共用），不在效果函式裡面。
+const sharedKd=html.match(/const kdFromBars = [\s\S]*?\n};\nconst monthlyFromDaily = [\s\S]*?\n};\n/)[0];
 const RealDate=Date;
 async function mount(time,{blocked=false,lock=null}={}){
  const timers=[],events=new Map(),storage=new Map(),rows=[],markets=[];let cleanup;
@@ -32,6 +34,7 @@ async function mount(time,{blocked=false,lock=null}={}){
  window:{addEventListener:(n,fn)=>events.set(n,fn),removeEventListener:()=>{}},document:{visibilityState:'visible',addEventListener:()=>{},removeEventListener:()=>{}}
  });
  c.globalThis=c;
+ vm.runInContext(sharedKd+'\nthis.kdFromBars=kdFromBars;this.monthlyFromDaily=monthlyFromDaily;',c);
  cleanup=vm.runInContext('(function(){'+effectBody+'})()',c);
  // Let the initial calculation finish independently of slow jobs.
  for(let i=0;i<40;i++)await Promise.resolve();
