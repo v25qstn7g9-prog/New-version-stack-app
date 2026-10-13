@@ -4902,6 +4902,20 @@ function buildServerSamples({ day, symbols, serverBars, daily, modelVersion, exi
   }
   return out;
 }
+// 早期的快照寫入時日線還沒載好，日 KD / 月 KD 是空的、之後也不會補（因子回測這兩列永遠 n=0）。
+// 日線是前一日已定案的資料，可以用「當天以前的日線」原樣還原，不是猜的。只補空的、只補已過去的日子。
+function fillMissingDailyKd(records, daily, today) {
+  let n = 0;
+  for (const r of records || []) {
+    if (!r || r.day >= today || r.kd?.kDaily != null || r.symbol === "TAIEX") continue;
+    const prior = (daily?.[r.symbol] || []).filter((b) => b.day < r.day);
+    const kd = kdFromBars(prior), km = kdFromBars(monthlyFromDaily(prior));
+    if (!kd) continue;
+    r.kd = { ...(r.kd || {}), kDaily: kd.K, dDaily: kd.D, kMonthly: km?.K ?? null, dMonthly: km?.D ?? null };
+    n++;
+  }
+  return n;
+}
 // </server-bars-import>
 async function importServerBarSamples({ symbols, today, isClosedDay, modelVersion }) {
   const wanted = [...new Set(symbols.map(String))].slice(0, MAX_SERVER_IMPORT_SYMBOLS);
@@ -4910,7 +4924,8 @@ async function importServerBarSamples({ symbols, today, isClosedDay, modelVersio
   const checked = Array.isArray(store?.checked) ? store.checked : [];
   const hist0 = await loadKey("trendRadarHistory", { records: [] });
   const days = serverImportDays(hist0?.records || [], today, wanted, isClosedDay, checked);
-  if (!days.length) return 0;
+  const needKd = (hist0?.records || []).some((r) => r && r.day < today && r.symbol !== "TAIEX" && r.kd?.kDaily == null);
+  if (!days.length && !needKd) return 0;
   const list = ["TAIEX", ...wanted];
   const dres = await fetchWithTimeout(`/daily-history?symbols=${encodeURIComponent(list.join(","))}`, { cache: "no-store" }, 12000);
   const dj = dres.ok ? await dres.json().catch(() => null) : null;
@@ -4926,16 +4941,18 @@ async function importServerBarSamples({ symbols, today, isClosedDay, modelVersio
     fresh.push(...buildServerSamples({ day, symbols: wanted, serverBars: j.bars, daily: dj.bars, modelVersion, existingKeys: new Set((hist0.records || []).map((r) => r.key)) }));
   }
   // 讀最新的歷史再合併（避免蓋掉雷達這段時間剛寫的紀錄），key 重複的以 App 自己當時記的為準。
-  if (fresh.length) {
-    const latest = await loadKey("trendRadarHistory", { records: [] });
-    const records = Array.isArray(latest?.records) ? latest.records.slice() : [];
-    const keys = new Set(records.map((r) => r.key));
-    fresh.forEach((r) => { if (!keys.has(r.key)) { records.push(r); keys.add(r.key); } });
+  let filled = 0;
+  const latest = await loadKey("trendRadarHistory", { records: [] });
+  const records = Array.isArray(latest?.records) ? latest.records.slice() : [];
+  const keys = new Set(records.map((r) => r.key));
+  fresh.forEach((r) => { if (!keys.has(r.key)) { records.push(r); keys.add(r.key); } });
+  filled = fillMissingDailyKd(records, dj.bars, today);
+  if (fresh.length || filled) {
     records.sort((a, b) => String(a.day).localeCompare(String(b.day)));
     await saveKey("trendRadarHistory", { ...(latest || {}), records: records.slice(-1500), at: latest?.at || new Date().toISOString() });
   }
   if (done.length) await saveKey("serverBarsImport", { checked: [...checked, ...done].slice(-60), at: new Date().toISOString() });
-  return fresh.length;
+  return fresh.length + filled;
 }
 
 const TREND_RADAR_VERSION = "2.47";
