@@ -3420,6 +3420,19 @@ function AssetTracker() {
   const missedDays = (ready && backfillSettled && !usHoldings.some((h) => h.shares > 0))
     ? missedWeekdays(dailyRecords, todayStr(), (d) => Boolean(marketClosureFromCache(new Date(d + "T12:00:00+08:00")))).filter((d) => !missedChecked.includes(d))
     : [];
+  // ⑤ App 收在背景時，伺服器會代收持股分 K；打開後把錯過的上午 / 收盤前因子樣本補進因子回測。
+  useEffect(() => {
+    if (!ready) return;
+    const symbols = holdingsWithShares.filter((h) => isTaiwanSymbol(h.symbol) && Number(h.current || 0) > 0).map((h) => h.symbol);
+    if (!symbols.length) return;
+    const t = setTimeout(() => {
+      importServerBarSamples({
+        symbols, today: todayStr(), modelVersion: TREND_MODEL_VERSION,
+        isClosedDay: (d) => Boolean(marketClosureFromCache(new Date(d + "T12:00:00+08:00"))),
+      }).catch(() => {});
+    }, 5000);
+    return () => clearTimeout(t);
+  }, [ready]);
   const fillMissedDays = async () => {
     if (missedBusy || !missedDays.length) return;
     setMissedBusy(true); setMissedMsg("");
@@ -4790,6 +4803,141 @@ function marginForRecord(m) {
 }
 // </margin-helpers>
 
+// <server-bars-import>
+// 日 KD / 月 KD（雷達與「補匯入」共用同一份算法，兩邊的數字才會一致）。
+const kdFromBars = (bars) => {
+  if (!bars || bars.length < 9) return null;
+  let K = 50, D = 50, prevK = 50, prevD = 50;
+  for (let i = 8; i < bars.length; i++) {
+    const w = bars.slice(i - 8, i + 1), hi = Math.max(...w.map((x) => x.high)), lo = Math.min(...w.map((x) => x.low)), c = bars[i].close;
+    const rsv = hi === lo ? 50 : ((c - lo) / (hi - lo)) * 100;
+    prevK = K; prevD = D; K = (2 * K + rsv) / 3; D = (2 * D + K) / 3;
+  }
+  const cross = prevK <= prevD && K > D ? "黃金交叉" : prevK >= prevD && K < D ? "死亡交叉" : K > D ? "K>D" : "K<D";
+  const state = K >= 80 && D >= 80 ? "高檔" : K <= 20 && D <= 20 ? "低檔" : cross;
+  return { K, D, state, bull: K > D ? 1 : -1 };
+};
+const monthlyFromDaily = (bars) => {
+  if (!bars || !bars.length) return [];
+  const map = new Map();
+  bars.forEach((b) => {
+    const mk = String(b.day).slice(0, 7);
+    const cur = map.get(mk);
+    if (!cur) map.set(mk, { key: mk, day: b.day, open: b.open, high: b.high, low: b.low, close: b.close });
+    else { cur.high = Math.max(cur.high, b.high); cur.low = Math.min(cur.low, b.low); cur.close = b.close; cur.day = b.day; }
+  });
+  return [...map.values()].sort((a, b) => a.day.localeCompare(b.day));
+};
+// 人沒開 App 的日子，伺服器每分鐘代收了持股的分 K。打開 App 時用那些分 K 補回
+// 「上午 09:30 / 收盤前 13:25」兩個時間點的因子樣本，因子回測才不會因為你把 App 收在背景就斷掉。
+// 能還原的只有：大盤 %、個股 %、日 KD / 月 KD（當時已知的日線）。
+// 還原不了的（新聞分數、RVOL / VWAP、市場廣度、法人、融資、盤中 KD、模型機率）一律留空，
+// 不補猜；沒有機率的樣本不會進入命中率與校準統計，只供因子回測相關係數使用。
+const SERVER_IMPORT_LOOKBACK_DAYS = 10;
+const SERVER_IMPORT_MAX_DAYS = 4;
+const MAX_SERVER_IMPORT_SYMBOLS = 30;
+const SERVER_IMPORT_PHASES = [["morning", "09:25"], ["closeLock", "13:25"]];
+function serverImportDays(records, today, symbols, isClosedDay, checked = []) {
+  const have = new Set((records || []).map((r) => r.key));
+  const out = [];
+  const t = Date.parse(today + "T12:00:00+08:00");
+  for (let i = 1; i <= SERVER_IMPORT_LOOKBACK_DAYS; i++) {
+    const day = new Date(t - i * 86400000).toISOString().slice(0, 10);
+    const wd = new Date(day + "T12:00:00+08:00").getUTCDay();
+    if (wd === 0 || wd === 6) continue;
+    if (checked.includes(day) || (isClosedDay && isClosedDay(day))) continue;
+    const missing = symbols.some((s) => SERVER_IMPORT_PHASES.some(([ph]) => !have.has(`${day}|${s}|${ph}`)));
+    if (missing) out.push(day);
+  }
+  return out.slice(0, SERVER_IMPORT_MAX_DAYS).reverse();
+}
+function serverBarAt(bars, target) {
+  // 取「開始時間不晚於 target」的最後一根；離 target 超過 15 分鐘就視為當時沒資料。
+  const mins = (s) => Number(String(s).slice(0, 2)) * 60 + Number(String(s).slice(3, 5));
+  const goal = mins(target);
+  let pick = null;
+  for (const b of bars || []) { if (Number.isFinite(mins(b.time)) && mins(b.time) <= goal) pick = b; else break; }
+  if (!pick || goal - mins(pick.time) > 15 || !(Number(pick.close) > 0)) return null;
+  return pick;
+}
+function buildServerSamples({ day, symbols, serverBars, daily, modelVersion, existingKeys }) {
+  const prevCloseOf = (sym) => {
+    const prior = (daily?.[sym] || []).filter((b) => b.day < day && Number(b.close) > 0);
+    return prior.length ? Number(prior[prior.length - 1].close) : null;
+  };
+  const closeInfo = (sym, prev) => {
+    // 當天收盤以日線為準（整天走完才有）；沒有就不產生樣本，不用分 K 的最後一根冒充收盤。
+    const close = Number((daily?.[sym] || []).find((b) => b.day === day)?.close);
+    if (!(close > 0) || !(prev > 0)) return null;
+    const pct = (close / prev - 1) * 100;
+    return { pct, up: Math.abs(pct) < 1e-8 ? null : pct > 0, hit: null, sourceAt: day + "T13:30:00+08:00", source: "completed-daily-bar", closedAt: day + "T13:30:00+08:00" };
+  };
+  const indexBars = serverBars?.TAIEX || [];
+  const indexPrev = prevCloseOf("TAIEX");
+  const out = [];
+  for (const sym of symbols) {
+    const bars = serverBars?.[sym] || [];
+    const prev = prevCloseOf(sym);
+    const actual = closeInfo(sym, prev);
+    if (!bars.length || !actual) continue;
+    const priorDaily = (daily?.[sym] || []).filter((b) => b.day < day);
+    const kd = kdFromBars(priorDaily), km = kdFromBars(monthlyFromDaily(priorDaily));
+    for (const [phase, target] of SERVER_IMPORT_PHASES) {
+      const key = `${day}|${sym}|${phase}`;
+      if (existingKeys?.has(key)) continue;
+      const bar = serverBarAt(bars, target);
+      if (!bar || !(prev > 0)) continue;
+      const ib = serverBarAt(indexBars, target);
+      out.push({
+        key, day, symbol: sym, phase, ts: `${day}T${target === "09:25" ? "09:30" : "13:30"}:00+08:00`,
+        source: "server", modelVersion, probability: null, direction: null,
+        indexPct: ib && indexPrev > 0 ? (Number(ib.close) / indexPrev - 1) * 100 : null,
+        stockPct: (Number(bar.close) / prev - 1) * 100,
+        newsScore: null, instLoaded: false, margin: null,
+        kd: { k5: null, d5: null, k15: null, d15: null, k60: null, d60: null,
+          kDaily: kd?.K ?? null, dDaily: kd?.D ?? null, kMonthly: km?.K ?? null, dMonthly: km?.D ?? null },
+        actual,
+      });
+    }
+  }
+  return out;
+}
+// </server-bars-import>
+async function importServerBarSamples({ symbols, today, isClosedDay, modelVersion }) {
+  const wanted = [...new Set(symbols.map(String))].slice(0, MAX_SERVER_IMPORT_SYMBOLS);
+  if (!wanted.length) return 0;
+  const store = await loadKey("serverBarsImport", { checked: [] });
+  const checked = Array.isArray(store?.checked) ? store.checked : [];
+  const hist0 = await loadKey("trendRadarHistory", { records: [] });
+  const days = serverImportDays(hist0?.records || [], today, wanted, isClosedDay, checked);
+  if (!days.length) return 0;
+  const list = ["TAIEX", ...wanted];
+  const dres = await fetchWithTimeout(`/daily-history?symbols=${encodeURIComponent(list.join(","))}`, { cache: "no-store" }, 12000);
+  const dj = dres.ok ? await dres.json().catch(() => null) : null;
+  if (!dj?.ok || !dj.bars) return 0;
+  const fresh = [];
+  const done = [];
+  for (const day of days) {
+    const res = await fetchWithTimeout(`/intraday-bars?date=${day}&interval=5&symbols=${encodeURIComponent(list.join(","))}`, { cache: "no-store" }, 12000).catch(() => null);
+    const j = res?.ok ? await res.json().catch(() => null) : null;
+    if (!j?.ok) continue; // 暫時抓不到：不標記，下次打開再試
+    done.push(day);
+    if (!j.found) continue;
+    fresh.push(...buildServerSamples({ day, symbols: wanted, serverBars: j.bars, daily: dj.bars, modelVersion, existingKeys: new Set((hist0.records || []).map((r) => r.key)) }));
+  }
+  // 讀最新的歷史再合併（避免蓋掉雷達這段時間剛寫的紀錄），key 重複的以 App 自己當時記的為準。
+  if (fresh.length) {
+    const latest = await loadKey("trendRadarHistory", { records: [] });
+    const records = Array.isArray(latest?.records) ? latest.records.slice() : [];
+    const keys = new Set(records.map((r) => r.key));
+    fresh.forEach((r) => { if (!keys.has(r.key)) { records.push(r); keys.add(r.key); } });
+    records.sort((a, b) => String(a.day).localeCompare(String(b.day)));
+    await saveKey("trendRadarHistory", { ...(latest || {}), records: records.slice(-1500), at: latest?.at || new Date().toISOString() });
+  }
+  if (done.length) await saveKey("serverBarsImport", { checked: [...checked, ...done].slice(-60), at: new Date().toISOString() });
+  return fresh.length;
+}
+
 const TREND_RADAR_VERSION = "2.47";
 const TREND_MODEL_VERSION = "2.47-fresh-source-audit";
 
@@ -4970,18 +5118,6 @@ function TrendRadar({ holdings, embedded = false }) {
       // Weekends and detected market holidays have no session: never record,
       // lock or validate forecasts from last session's stale prices.
       const nonTradingToday = isNonTradingDay(now);
-      const kdFromBars=(bars)=>{
-        if(!bars || bars.length<9) return null;
-        let K=50,D=50,prevK=50,prevD=50;
-        for(let i=8;i<bars.length;i++){
-          const w=bars.slice(i-8,i+1), hi=Math.max(...w.map(x=>x.high)), lo=Math.min(...w.map(x=>x.low)), c=bars[i].close;
-          const rsv=hi===lo?50:((c-lo)/(hi-lo))*100;
-          prevK=K; prevD=D; K=(2*K+rsv)/3; D=(2*D+K)/3;
-        }
-        const cross=prevK<=prevD&&K>D?"黃金交叉":prevK>=prevD&&K<D?"死亡交叉":K>D?"K>D":"K<D";
-        const state=K>=80&&D>=80?"高檔":K<=20&&D<=20?"低檔":cross;
-        return {K,D,state,bull:K>D?1:-1};
-      };
       const bucketBars=(sym,mins)=>{
         const buckets=new Map();
         tape.forEach(p=>{
@@ -5042,17 +5178,6 @@ function TrendRadar({ holdings, embedded = false }) {
       // Partial current-session daily bars must not leak into daily indicators.
       const dailyBarsMap=Object.fromEntries(Object.entries(memoDailyBars||{}).map(([sym,bars])=>[sym,bars.filter(b=>b.day<todayKey || (historyPhase==="closed"&&b.day===todayKey))]));
       launchSlow("audit",todayKey,60000,async()=>Promise.all([loadKey("trendRadarHistory",{records:[]}),loadKey("trendRadarTomorrowHistory",{records:[]})]),([h,t])=>{historyRecords=h?.records||[];tomorrowRecords=t?.records||[];});
-      const monthlyFromDaily = (bars) => {
-        if (!bars || !bars.length) return [];
-        const map = new Map();
-        bars.forEach((b) => {
-          const mk = String(b.day).slice(0, 7);
-          const cur = map.get(mk);
-          if (!cur) map.set(mk, { key: mk, day: b.day, open: b.open, high: b.high, low: b.low, close: b.close });
-          else { cur.high = Math.max(cur.high, b.high); cur.low = Math.min(cur.low, b.low); cur.close = b.close; cur.day = b.day; }
-        });
-        return [...map.values()].sort((a, b) => a.day.localeCompare(b.day));
-      };
       const dailyKdFor = (sym) => kdFromBars(dailyBarsMap[sym]);
       const monthlyKdFor = (sym) => kdFromBars(monthlyFromDaily(dailyBarsMap[sym]));
 
@@ -6026,6 +6151,7 @@ function FactorBacktest() {
   }, [open]);
 
   const MIN_N = 20;
+  const serverSampleN = useMemo(() => (today?.records || []).filter((r) => r.source === "server" && r.actual).length, [today]);
 
   const buildFactors = (records, defs) => defs.map(([label, fn]) => {
     const pairs = records
@@ -6107,6 +6233,13 @@ function FactorBacktest() {
               ? `Computes each factor's Pearson correlation (-1 to 1) with the actual move; |r| >= 0.3 counts as a meaningful relationship. Under ${MIN_N} samples shows only the sample count, no coefficient, to avoid reading noise as signal. The morning model and the 13:25 lock model are tracked separately so they don't distort each other. Research reference only — never feeds back into the radar's live weights.`
               : <>算每個因子跟「實際漲跌幅」的皮爾森相關係數（-1～1）；|r|≥0.3 才視為有意義的關聯，樣本數不到 {MIN_N} 筆時只顯示樣本數、不給係數，避免把噪音誤讀成訊號。上午模型與 13:25 鎖定模型分開統計，避免混在一起失真。這只是研究參考，不會自動回頭改雷達的權重。</>}
           </div>
+          {serverSampleN > 0 && (
+            <div className="text-[9px] mb-2 leading-relaxed" style={{ color: COLORS.sub }}>
+              {UI_SHOW_ENGLISH
+                ? `${serverSampleN} samples were rebuilt from minute bars the server collected while the app was closed (only index %, stock %, daily/monthly KD; no hit-rate).`
+                : `其中 ${serverSampleN} 筆樣本是你沒開 App 時，由伺服器代收的分 K 補回的（只有大盤 %、個股 %、日／月 KD，不計入命中率）。`}
+            </div>
+          )}
           <div className="text-[10px] font-bold mb-1" style={{ color: COLORS.text }}><UiLabel zh="上午模型（09:00–10:00）vs 當日收盤" /></div>
           {morningFactors.every((f) => f.n === 0) ? <Empty text="還沒有已驗證的上午預測資料，先持續累積" /> : morningFactors.map(renderRow)}
 
