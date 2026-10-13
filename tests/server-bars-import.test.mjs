@@ -14,7 +14,7 @@ const plain = (v) => JSON.parse(JSON.stringify(v));
 function load(env = {}) {
   const ctx = { ...env };
   vm.createContext(ctx);
-  vm.runInContext(block + '\n' + importer + '\nthis.api={serverImportDays,serverBarAt,buildServerSamples,importServerBarSamples,kdFromBars,monthlyFromDaily};', ctx);
+  vm.runInContext(block + '\n' + importer + '\nthis.api={serverImportDays,serverBarAt,buildServerSamples,fillMissingDailyKd,importServerBarSamples,kdFromBars,monthlyFromDaily};', ctx);
   return ctx.api;
 }
 
@@ -174,4 +174,20 @@ test('the server-bars import is wired into the app and the backtest explains the
   assert.ok(hook, 'the import hook must depend only on [ready]');
   assert.match(hook, /holdingsWithShares\.filter/);
   assert.doesNotMatch(hook, /backfillSettled/);
+});
+
+test('fillMissingDailyKd restores empty daily/monthly KD on past records from the daily bars known that day, nothing else', () => {
+  const { fillMissingDailyKd, kdFromBars } = api();
+  const daily = { 2330: dailyBars('2330', '2026-10-12') };
+  const old = { key: 'a', day: '2026-10-08', symbol: '2330', phase: 'morning', kd: { k5: 40, d5: 45, kDaily: null, dDaily: null } };
+  const have = { key: 'b', day: '2026-10-08', symbol: '2330', phase: 'closeLock', kd: { kDaily: 11, dDaily: 12 } };
+  const today = { key: 'c', day: '2026-10-13', symbol: '2330', phase: 'morning', kd: {} };
+  const idx = { key: 'd', day: '2026-10-08', symbol: 'TAIEX', phase: 'morning' };
+  const recs = [old, have, today, idx];
+  assert.equal(fillMissingDailyKd(recs, daily, '2026-10-13'), 1);
+  assert.equal(old.kd.kDaily, kdFromBars(daily['2330'].filter((b) => b.day < '2026-10-08')).K);
+  assert.equal(old.kd.k5, 40, 'existing intraday fields are untouched');
+  assert.equal(have.kd.kDaily, 11, 'a filled value is never overwritten');
+  assert.deepEqual(plain(today.kd), {}, 'today is left to the radar');
+  assert.equal(idx.kd, undefined);
 });
