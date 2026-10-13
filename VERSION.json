@@ -8,8 +8,8 @@
     "ask.js": "4.7-personal-advisor-v3.2-bounded-learning",
     "news.js": "4.6-news-stable-6",
     "health-check.js": "4.6-health-check-2",
-    "lightModel": "@cf/zai-org/glm-4.7-flash",
-    "heavyModel": "@cf/openai/gpt-oss-20b"
+    "lightModel": "@cf/zai-org/glm-5.3-flash",
+    "heavyModel": "@cf/zai-org/glm-5.3-flash"
   },
   "vercel": {
     "package": "2.22.0",

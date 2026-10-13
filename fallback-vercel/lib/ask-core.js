@@ -20,8 +20,10 @@ const GEMINI_MAX_OUTPUT_TOKENS = 1000;
 // 所以上限同步放寬，避免思考吃光額度、回答被截斷或空白。家人維持 minimal／1000。
 const GEMINI_OWNER_THINKING_LEVEL = "medium";
 const GEMINI_OWNER_MAX_OUTPUT_TOKENS = 3000;
-const LIGHT_MODEL = "@cf/zai-org/glm-4.7-flash";
-const HEAVY_MODEL = "@cf/openai/gpt-oss-20b";
+// 2026-10：輕、重都升級成 GLM-5.3 Flash（較新、較強、價格仍低）；原本的 20B 留作 Workers AI 內的備援
+const LIGHT_MODEL = "@cf/zai-org/glm-5.3-flash";
+const HEAVY_MODEL = "@cf/zai-org/glm-5.3-flash";
+const FALLBACK_MODEL = "@cf/openai/gpt-oss-20b";
 
 function chooseAssetModel(message = "", contextText = "", toolTurns = [], forceAnswer = false) {
   const question = String(message || "");
@@ -608,7 +610,7 @@ function extractCloudflareText(result) {
     result?.choices?.[0]?.text,
   ];
   for (const value of candidates) {
-    if (typeof value === "string" && value.trim()) return value.trim();
+    if (typeof value === "string" && value.trim()) { const clean = value.replace(/<think>[\s\S]*?(<\/think>|$)/gi, "").trim(); if (clean) return clean; continue; }
     if (Array.isArray(value)) {
       const joined = value.map(x => typeof x === "string" ? x : (x?.text || x?.content || "")).filter(Boolean).join("\n").trim();
       if (joined) return joined;
@@ -736,9 +738,9 @@ export async function onRequestPost(context) {
       // （502/503）、逾時或冷卻中這類整個 Workers AI 共通的暫時性錯誤，換模型也
       // 一樣會失敗，只會讓使用者多等一輪才輪到 Gemini 備援。
       const transientFailure = /429|quota|額度|timeout|逾時|503|502|temporar|冷卻/i.test(String(e?.message));
-      if (!forceGeminiOnly && activeModel === LIGHT_MODEL && ai && !transientFailure) {
+      if (!forceGeminiOnly && activeModel !== FALLBACK_MODEL && ai && !transientFailure) {
         try {
-          activeModel = HEAVY_MODEL;
+          activeModel = FALLBACK_MODEL;
           primaryError = null;
           result = await runModel();
         } catch (heavyError) {
@@ -777,8 +779,8 @@ export async function onRequestPost(context) {
           return jsonResponse(payload);
         }
         let reply = extractCloudflareText(result);
-        if (!reply && activeModel === LIGHT_MODEL && ai) {
-          activeModel = HEAVY_MODEL;
+        if (!reply && activeModel !== FALLBACK_MODEL && ai) {
+          activeModel = FALLBACK_MODEL;
           result = await runModel();
           reply = extractCloudflareText(result);
         }
