@@ -70,7 +70,7 @@ test('wrangler.jsonc parses and declares assets.run_worker_first', () => {
 
 test('the route extractor actually finds the known API routes (guards against a silently empty scan)', () => {
   const routes = workerRoutes();
-  for (const r of ['/mcp', '/quote', '/taifex-tx', '/intraday-metrics', '/market-breadth', '/api/health', '/api/pending-trades/resolve']) {
+  for (const r of ['/mcp', '/quote', '/taifex-tx', '/intraday-metrics', '/intraday-bars', '/market-breadth', '/api/health', '/api/pending-trades/resolve']) {
     assert.ok(routes.includes(r), `expected scan of worker.js to find ${r}`);
   }
   const oauth = oauthRoutes();
@@ -111,6 +111,7 @@ test('no environment overrides assets without the same run_worker_first list', (
 test('the frontend-called endpoints from the 10/02 regression are in run_worker_first', () => {
   const patterns = readWrangler().assets.run_worker_first;
   assert.ok(coveredBy(patterns, '/intraday-metrics'));
+  assert.ok(coveredBy(patterns, '/intraday-bars'));
   assert.ok(coveredBy(patterns, '/market-breadth'));
   assert.ok(coveredBy(patterns, '/taifex-tx'));
 });

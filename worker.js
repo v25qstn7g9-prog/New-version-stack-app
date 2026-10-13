@@ -73,6 +73,7 @@ import { onRequestGet as dailyHistoryHandler } from "./functions/daily-history.j
 import { onRequestGet as holidayScheduleHandler } from "./functions/holiday-schedule.js";
 import { onRequestGet as taifexTxHandler } from "./functions/taifex-tx.js";
 import { onRequestGet as intradayMetricsHandler } from "./functions/intraday-metrics.js";
+import { onRequestGet as intradayBarsHandler } from "./functions/intraday-bars.js";
 import { onRequestGet as marketBreadthHandler } from "./functions/market-breadth.js";
 import { onRequestGet as stockNameHandler } from "./functions/stock-name.js";
 import {
@@ -120,6 +121,7 @@ const API_METHODS = new Map([
   ["/holiday-schedule", ["GET"]],
   ["/taifex-tx", ["GET"]],
   ["/intraday-metrics", ["GET"]],
+  ["/intraday-bars", ["GET"]],
   ["/market-breadth", ["GET"]],
   ["/stock-name", ["GET"]],
   ["/api/health", ["GET"]],
@@ -224,6 +226,9 @@ export default {
     }
     if (url.pathname === "/intraday-metrics" && request.method === "GET") {
       return intradayMetricsHandler({ request, env, ctx });
+    }
+    if (url.pathname === "/intraday-bars" && request.method === "GET") {
+      return intradayBarsHandler({ request, env, ctx });
     }
     if (url.pathname === "/market-breadth" && request.method === "GET") {
       return marketBreadthHandler({ request, env, ctx });
