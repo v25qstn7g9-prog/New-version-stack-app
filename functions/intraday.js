@@ -83,6 +83,83 @@ export function intradaySymbols(env) {
   return unique.length ? unique : DEFAULT_INTRADAY_SYMBOLS;
 }
 
+// ── 追蹤清單：預設／環境變數 + 所有同步使用者的台股持股（相同的只記一次）────────────
+//
+// 收集器每分鐘取價時，除了預設那幾檔，還會把「所有同步使用者目前持有的台股」也一起記下來；
+// 大家都有的股票（例如 0050）只在清單裡出現一次、只取一次價、只存一份分時資料。
+// 這樣使用者把 App 收在背景時，打開 App 後仍然能用伺服器存的分時資料補回當時的因子樣本。
+//
+// KV intraday-symbols：{ v:1, day, at, symbols:[...] }，只存股票代號（公開資訊），不含股數、金額或 token。
+// 每天第一次執行、或超過 6 小時就重新掃描一次同步快照；掃描失敗就沿用舊清單或預設清單，絕不影響分時收集。
+const TRACKED_KEY = "intraday-symbols";
+const TRACKED_REFRESH_MS = 6 * 60 * 60 * 1000;
+const TRACKED_TTL_SECONDS = 60 * 60 * 24 * 3;
+export const MAX_TRACKED_SYMBOLS = 30;
+const SYNC_PREFIX = "portfolio-sync:";
+const TW_SYMBOL_RE = /^[0-9]{4,6}[A-Z]?$/;
+
+/**
+ * perUser: 每位使用者持有的代號清單（陣列的陣列）。
+ * 回傳去重後的清單：被越多人持有的排越前面，同票數按代號排序，最多 max 檔。
+ */
+export function mergeTrackedSymbols(perUser, max = MAX_TRACKED_SYMBOLS) {
+  const count = new Map();
+  for (const list of perUser || []) {
+    for (const sym of new Set((list || []).map((x) => String(x || "").trim().toUpperCase()))) {
+      if (TW_SYMBOL_RE.test(sym)) count.set(sym, (count.get(sym) || 0) + 1);
+    }
+  }
+  return [...count.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, max)
+    .map(([sym]) => sym);
+}
+
+async function scanSnapshotSymbols(env) {
+  const lists = [];
+  let cursor;
+  for (let i = 0; i < 20; i++) {
+    const page = await env.health_kv.list({ prefix: SYNC_PREFIX, cursor });
+    for (const k of page.keys || []) {
+      try {
+        const raw = await env.health_kv.get(k.name);
+        const snap = raw ? JSON.parse(raw) : null;
+        const holdings = Array.isArray(snap?.holdings) ? snap.holdings : (Array.isArray(snap?.dataset?.holdings) ? snap.dataset.holdings : []);
+        lists.push(holdings.filter((h) => Number(h?.shares ?? 1) > 0).map((h) => h?.symbol));
+      } catch { /* 一份壞快照不影響其他人 */ }
+    }
+    if (page.list_complete || !page.cursor) break;
+    cursor = page.cursor;
+  }
+  return lists;
+}
+
+/**
+ * 這一分鐘要記錄的代號：intradaySymbols(env) + 同步使用者持股（去重、最多 30 檔）。
+ * refresh=false 時只讀已存的清單、不掃描（健康檢查用）。
+ */
+export async function resolveIntradaySymbols(env, now = new Date(), { refresh = true, scan } = {}) {
+  const base = intradaySymbols(env);
+  if (!env?.health_kv) return base;
+  const today = taipei(now).day;
+  let doc = null;
+  try {
+    const raw = await env.health_kv.get(TRACKED_KEY);
+    doc = raw ? JSON.parse(raw) : null;
+  } catch { doc = null; }
+  const at = Date.parse(doc?.at || "");
+  const fresh = doc && doc.day === today && Number.isFinite(at) && now.getTime() - at < TRACKED_REFRESH_MS;
+  if (refresh && !fresh) {
+    try {
+      const lists = await (scan || scanSnapshotSymbols)(env);
+      doc = { v: 1, day: today, at: now.toISOString(), symbols: mergeTrackedSymbols(lists) };
+      await env.health_kv.put(TRACKED_KEY, JSON.stringify(doc), { expirationTtl: TRACKED_TTL_SECONDS });
+    } catch { /* 掃描失敗：沿用舊清單（若有）或只用預設 */ }
+  }
+  const extra = Array.isArray(doc?.symbols) ? doc.symbols.filter((x) => TW_SYMBOL_RE.test(String(x))) : [];
+  return [...new Set([...base, ...extra])].slice(0, MAX_TRACKED_SYMBOLS);
+}
+
 // ── 純函式：取樣 → 1 分鐘 K → 合成 N 分 K ───────────────────
 
 /** 一分鐘內的幾筆價格 → [HH:MM, o, h, l, c, n]；沒有有效價格回 null。 */
@@ -169,7 +246,7 @@ export async function recordIntradayMinute(env, deps = {}) {
   const marketClosed = deps.marketClosed || defaultMarketClosed;
   if ((await marketClosed(taipei(now).day)) === true) return { ok: true, skipped: "holiday" };
 
-  const symbols = intradaySymbols(env);
+  const symbols = await resolveIntradaySymbols(env, now, { scan: deps.scanSymbols });
   const fetchQuotes = deps.fetchQuotes || ((syms) => defaultFetchQuotes(env, syms));
   const sleep = deps.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
   const start = taipei(now);
@@ -340,7 +417,7 @@ function continuityStats(rows) {
  */
 async function readIntradayHealthCore(env, now = new Date()) {
   const p = taipei(now);
-  const symbols = intradaySymbols(env);
+  const symbols = await resolveIntradaySymbols(env, now, { refresh: false });
   const base = {
     ok: true,
     day: p.day,
