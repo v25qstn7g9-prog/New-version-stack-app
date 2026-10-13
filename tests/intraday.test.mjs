@@ -4,6 +4,7 @@ import {
   INTRADAY_CRON, isRecordingWindow, buildMinuteBar, mergeBar, aggregateBars,
   usablePrices, recordIntradayMinute, readIntradayBars, intradaySymbols, readIntradayHealth,
   describeIntradayRun, noteIntradayRun, readIntradayStatus,
+  mergeTrackedSymbols, resolveIntradaySymbols, MAX_TRACKED_SYMBOLS,
 } from '../functions/intraday.js';
 import { PREPARED_ASSET_TOOLS } from '../functions/ai-connector-prepared.js';
 import { readFileSync } from 'node:fs';
@@ -343,4 +344,80 @@ test('intraday cron uses weekday names (Cloudflare numeric 1 = Sunday, so 1-5 wo
   assert.equal(dow, 'MON-FRI');
   const wrangler = readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
   assert.doesNotMatch(wrangler, /\* 1-5 \* \* 1-5/);
+});
+
+
+// ── 追蹤清單：所有同步使用者的持股，相同的只記一次 ──────────────────────
+
+// 帶 list() 的假 KV：portfolio-sync:<token> 是各使用者的持股快照。
+function syncKV(snapshots) {
+  const kv = fakeKV();
+  kv.lists = 0; kv.gets = [];
+  snapshots.forEach((snap, i) => kv.data.set(`portfolio-sync:token-${i}-xxxxxxxxxxxx`, JSON.stringify(snap)));
+  const rawGet = kv.get;
+  kv.get = async (k) => { kv.gets.push(k); return rawGet(k); };
+  kv.list = async ({ prefix }) => { kv.lists += 1; return { keys: [...kv.data.keys()].filter((k) => k.startsWith(prefix)).map((name) => ({ name })), list_complete: true }; };
+  return kv;
+}
+const hold = (...syms) => ({ holdings: syms.map((symbol) => ({ symbol, shares: 100 })) });
+
+test('mergeTrackedSymbols: a stock held by several users counts once; popular first; TW symbols only; capped', () => {
+  const merged = mergeTrackedSymbols([['0050', '0056', 'VOO', 'AAPL'], ['0050', '00878'], ['0050', '0056', '2330'], [' 00919 ', 'bad symbol', '']]);
+  assert.deepEqual(merged, ['0050', '0056', '00878', '00919', '2330']);
+  const many = Array.from({ length: 80 }, (_, i) => String(1000 + i));
+  assert.equal(mergeTrackedSymbols([many]).length, MAX_TRACKED_SYMBOLS);
+  assert.deepEqual(mergeTrackedSymbols(undefined), []);
+});
+
+test('resolveIntradaySymbols: defaults + every synced user\'s holdings, shared symbols only once', async () => {
+  const kv = syncKV([hold('0050', '0056', '006208'), hold('0050', '00878', 'VOO'), hold('2330', '00919')]);
+  const syms = await resolveIntradaySymbols({ health_kv: kv }, new Date('2026-10-13T00:30:00Z'));
+  assert.deepEqual(syms, ['0050', '0056', '2330', 'TAIEX', '006208', '00878', '00919']);
+  assert.equal(new Set(syms).size, syms.length);
+  // only public symbols are persisted: no shares, no tokens
+  const stored = kv.data.get('intraday-symbols');
+  assert.ok(!/shares|token/i.test(stored));
+  assert.deepEqual(JSON.parse(stored).symbols, ['0050', '0056', '006208', '00878', '00919', '2330']); // 被 2 人持有的 0050 排最前，其餘按代號
+});
+
+test('resolveIntradaySymbols: scans at most once per day / 6 hours, not every minute', async () => {
+  const kv = syncKV([hold('0050', '006208')]);
+  const env = { health_kv: kv };
+  await resolveIntradaySymbols(env, new Date('2026-10-13T01:00:00Z'));
+  await resolveIntradaySymbols(env, new Date('2026-10-13T01:01:00Z'));
+  await resolveIntradaySymbols(env, new Date('2026-10-13T03:00:00Z'));
+  assert.equal(kv.lists, 1);
+  await resolveIntradaySymbols(env, new Date('2026-10-13T07:30:00Z')); // > 6h later
+  assert.equal(kv.lists, 2);
+  await resolveIntradaySymbols(env, new Date('2026-10-14T01:00:00Z')); // next Taipei day
+  assert.equal(kv.lists, 3);
+});
+
+test('resolveIntradaySymbols: scan failure or missing list() falls back to defaults and writes nothing', async () => {
+  const plain = fakeKV(); // no list()
+  assert.deepEqual(await resolveIntradaySymbols({ health_kv: plain }, new Date('2026-10-13T01:00:00Z')), ['0050', '0056', '2330', 'TAIEX']);
+  assert.equal(plain.puts.length, 0);
+  const boom = syncKV([hold('0050')]); boom.list = async () => { throw new Error('kv down'); };
+  assert.deepEqual(await resolveIntradaySymbols({ health_kv: boom }, new Date('2026-10-13T01:00:00Z')), ['0050', '0056', '2330', 'TAIEX']);
+  assert.deepEqual(await resolveIntradaySymbols({}, new Date()), ['0050', '0056', '2330', 'TAIEX'], 'no KV at all');
+});
+
+test('resolveIntradaySymbols: refresh:false never scans (health check)', async () => {
+  const kv = syncKV([hold('006208')]);
+  assert.deepEqual(await resolveIntradaySymbols({ health_kv: kv }, new Date('2026-10-13T01:00:00Z'), { refresh: false }), ['0050', '0056', '2330', 'TAIEX']);
+  assert.equal(kv.lists, 0);
+});
+
+test('recordIntradayMinute: quotes and bars cover the users\' holdings too (one shared bar per symbol)', async () => {
+  const kv = syncKV([hold('0050', '006208'), hold('0050', '00878')]);
+  let asked = null;
+  const iso = '2026-10-13T01:30:05Z'; // 09:30 on Tue 10/13
+  const res = await recordIntradayMinute({ health_kv: kv }, {
+    now: at(iso), sleep: async () => {}, marketClosed: async () => false,
+    fetchQuotes: async (syms) => { asked = syms; return { quotes: Object.fromEntries(syms.map((s) => [s, q(100, iso)])) }; },
+  });
+  assert.deepEqual(asked, ['0050', '0056', '2330', 'TAIEX', '006208', '00878']);
+  assert.deepEqual([...res.recorded].sort(), [...asked].sort()); // (數字樣的 key 如 2330 在物件裡會排最前面，所以比較排序後的)
+  const doc = JSON.parse(kv.data.get('intraday:2026-10-13'));
+  assert.deepEqual(Object.keys(doc.bars).sort(), [...asked].sort());
 });
