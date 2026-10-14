@@ -7407,6 +7407,10 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
     if (isToday && autoFrom.usValue === "wantQuote" && form.usValue === "" && autoUs.status === "ok") {
       fills.usValue = String(autoUs.value); from.usValue = "usQuote";
     }
+    // 按了「重新抓報價」：成本也改用持股進度目前的總持有成本（剛改過持股成本時，才不會一直顯示舊的）。
+    const wantCost = (k) => isToday && autoFrom[k] === "wantHoldings" && form[k] === "";
+    if (wantCost("twCost") && holdings.some((h) => isTaiwanSymbol(h.symbol))) { fills.twCost = String(autoTwCost); from.twCost = "holdings"; }
+    if (wantCost("usCost") && (autoUsCost > 0 || (usHoldings.length > 0 && !activeUs.length))) { fills.usCost = String(autoUsCost); from.usCost = "holdings"; }
     if (sameDayRecord) {
       ["twValue", "usValue", "twCost", "usCost"].forEach((k) => {
         if (k === "twValue" && autoFrom.twValue === "wantQuote") return;
@@ -7659,7 +7663,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
             <input type="date" value={form.date} onChange={(e) => changeDate(e.target.value)} className="input" />
           </Field>
           {isToday && (activeTw.length > 0 || activeUs.length > 0) && (
-            <button onClick={() => { setForm((f) => ({ ...f, twValue: "" })); setAutoFrom((a) => ({ ...a, twValue: "wantQuote", usValue: "wantQuote" })); setForm((f) => ({ ...f, usValue: "" })); loadAutoTw(true); loadAutoUs(true); }}
+            <button onClick={() => { setForm((f) => ({ ...f, twValue: "", usValue: "", twCost: "", usCost: "" })); setAutoFrom((a) => ({ ...a, twValue: "wantQuote", usValue: "wantQuote", twCost: "wantHoldings", usCost: "wantHoldings" })); loadAutoTw(true); loadAutoUs(true); }}
               className="text-[11px] font-bold rounded-lg px-3 py-2 whitespace-nowrap"
               style={{ border: `1px solid ${COLORS.gold}`, color: COLORS.gold }}>
               <UiLabel zh="重新抓報價" inline />
