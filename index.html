@@ -4804,6 +4804,50 @@ function marginForRecord(m) {
 }
 // </margin-helpers>
 
+// <baseline-compare>
+// 對照組：盤中預測有沒有比「跟著目前漲跌猜」更好？以及只看波動的機率模型（影子模型，只記錄、不影響預測）。
+function normCdf(x) {
+  // Abramowitz–Stegun 7.1.26，誤差 < 1.5e-7
+  const t = 1 / (1 + 0.3275911 * Math.abs(x) / Math.SQRT2);
+  const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-(x * x) / 2);
+  return x >= 0 ? (1 + y) / 2 : (1 - y) / 2;
+}
+// 近 60 個交易日、每天漲跌幅（%）的標準差；資料不足回 null。
+function dailySigma(bars) {
+  const b = (bars || []).filter((x) => Number(x?.close) > 0).slice(-61);
+  if (b.length < 21) return null;
+  const r = [];
+  for (let i = 1; i < b.length; i++) r.push((Number(b[i].close) / Number(b[i - 1].close) - 1) * 100);
+  const m = r.reduce((a, v) => a + v, 0) / r.length;
+  const sd = Math.sqrt(r.reduce((a, v) => a + (v - m) ** 2, 0) / (r.length - 1));
+  return sd > 0 ? sd : null;
+}
+// 收盤收漲的機率 ≈ Φ(目前漲跌 ÷ (日波動 × √剩餘時間比例))。盤中 09:00–13:30 共 270 分鐘。
+function volProbability(pct, sigma, minute) {
+  if (!Number.isFinite(Number(pct)) || !(sigma > 0)) return null;
+  const remaining = Math.max(1 / 270, Math.min(1, (810 - Number(minute)) / 270));
+  const z = Number(pct) / (sigma * Math.sqrt(remaining));
+  return { p: Math.round(Math.max(1, Math.min(99, normCdf(z) * 100))), sigma: Math.round(sigma * 1000) / 1000, remaining: Math.round(remaining * 1000) / 1000 };
+}
+// 同一批已驗證紀錄上：模型 vs 簡單規則的方向命中；有影子機率時再比機率準度（Brier，越低越好）。
+function baselineStats(records, { phase, modelVersion, limit = 60 }) {
+  const rows = (records || []).filter((r) => r && r.phase === phase && r.modelVersion === modelVersion && r.source !== "server"
+    && Number.isFinite(Number(r.probability)) && Number.isFinite(Number(r.actual?.pct)) && Math.abs(Number(r.actual.pct)) > 1e-8);
+  const nowPct = (r) => Number(r.symbol === "TAIEX" ? r.indexPct : r.stockPct);
+  const both = rows.filter((r) => r.direction !== "方向不明" && Number.isFinite(nowPct(r)) && nowPct(r) !== 0).slice(-limit);
+  const up = (r) => Number(r.actual.pct) > 0;
+  const modelHits = both.filter((r) => (Number(r.probability) >= 50) === up(r)).length;
+  const naiveHits = both.filter((r) => (nowPct(r) > 0) === up(r)).length;
+  const shadow = rows.filter((r) => Number.isFinite(Number(r.shadow?.p))).slice(-limit);
+  const brier = (list, f) => list.length ? list.reduce((a, r) => a + (f(r) / 100 - (up(r) ? 1 : 0)) ** 2, 0) / list.length : null;
+  return {
+    n: both.length, modelHits, naiveHits,
+    brierN: shadow.length,
+    brierModel: brier(shadow, (r) => Number(r.probability)),
+    brierVol: brier(shadow, (r) => Number(r.shadow.p)),
+  };
+}
+// </baseline-compare>
 // <server-bars-import>
 // 日 KD / 月 KD（雷達與「補匯入」共用同一份算法，兩邊的數字才會一致）。
 const kdFromBars = (bars) => {
@@ -4917,6 +4961,21 @@ function fillMissingDailyKd(records, daily, today) {
   }
   return n;
 }
+// 舊紀錄補上影子波動模型的機率：只用「紀錄當天以前」的日線算波動，加上那筆紀錄自己的漲跌與時間。
+function fillMissingShadow(records, daily, today) {
+  let n = 0;
+  for (const r of records || []) {
+    if (!r || r.shadow || r.day >= today || r.source === "server" || !Number.isFinite(Number(r.probability))) continue;
+    const pct = r.symbol === "TAIEX" ? r.indexPct : r.stockPct;
+    const ts = Date.parse(r.ts || "");
+    if (!Number.isFinite(ts)) continue;
+    const t = new Date(ts + 8 * 3600000), minute = t.getUTCHours() * 60 + t.getUTCMinutes();
+    const sg = dailySigma((daily?.[r.symbol] || []).filter((b) => b.day < r.day));
+    const v = volProbability(pct, sg, minute);
+    if (v) { r.shadow = v; n++; }
+  }
+  return n;
+}
 // </server-bars-import>
 async function importServerBarSamples({ symbols, today, isClosedDay, modelVersion }) {
   const wanted = [...new Set(symbols.map(String))].slice(0, MAX_SERVER_IMPORT_SYMBOLS);
@@ -4926,7 +4985,8 @@ async function importServerBarSamples({ symbols, today, isClosedDay, modelVersio
   const hist0 = await loadKey("trendRadarHistory", { records: [] });
   const days = serverImportDays(hist0?.records || [], today, wanted, isClosedDay, checked);
   const needKd = (hist0?.records || []).some((r) => r && r.day < today && r.symbol !== "TAIEX" && r.kd?.kDaily == null);
-  if (!days.length && !needKd) return 0;
+  const needShadow = (hist0?.records || []).some((r) => r && r.day < today && !r.shadow && r.source !== "server" && Number.isFinite(Number(r.probability)));
+  if (!days.length && !needKd && !needShadow) return 0;
   const list = ["TAIEX", ...wanted];
   const dres = await fetchWithTimeout(`/daily-history?symbols=${encodeURIComponent(list.join(","))}`, { cache: "no-store" }, 12000);
   const dj = dres.ok ? await dres.json().catch(() => null) : null;
@@ -4951,7 +5011,7 @@ async function importServerBarSamples({ symbols, today, isClosedDay, modelVersio
   const records = Array.isArray(latest?.records) ? latest.records.slice() : [];
   const keys = new Set(records.map((r) => r.key));
   fresh.forEach((r) => { if (!keys.has(r.key)) { records.push(r); keys.add(r.key); } });
-  filled = fillMissingDailyKd(records, dj.bars, today);
+  filled = fillMissingDailyKd(records, dj.bars, today) + fillMissingShadow(records, dj.bars, today);
   if (fresh.length || filled) {
     records.sort((a, b) => String(a.day).localeCompare(String(b.day)));
     await saveKey("trendRadarHistory", { ...(latest || {}), records: records.slice(-1500), at: latest?.at || new Date().toISOString() });
@@ -4977,6 +5037,7 @@ function TrendRadar({ holdings, embedded = false }) {
   const [globalStatus, setGlobalStatus] = useState("loading");
   const [accuracy, setAccuracy] = useState(null);
   const [closeLockAccuracy, setCloseLockAccuracy] = useState(null);
+  const [baseline, setBaseline] = useState(null);
   const [tomorrowAccuracy, setTomorrowAccuracy] = useState(null);
   const [postCloseAccuracy, setPostCloseAccuracy] = useState(null);
   const [premarketAccuracy, setPremarketAccuracy] = useState(null);
@@ -5202,6 +5263,7 @@ function TrendRadar({ holdings, embedded = false }) {
       const dailyBarsMap=Object.fromEntries(Object.entries(memoDailyBars||{}).map(([sym,bars])=>[sym,bars.filter(b=>b.day<todayKey || (historyPhase==="closed"&&b.day===todayKey))]));
       launchSlow("audit",todayKey,60000,async()=>Promise.all([loadKey("trendRadarHistory",{records:[]}),loadKey("trendRadarTomorrowHistory",{records:[]})]),([h,t])=>{historyRecords=h?.records||[];tomorrowRecords=t?.records||[];});
       const dailyKdFor = (sym) => kdFromBars(dailyBarsMap[sym]);
+      const sigmaFor = (sym) => dailySigma(dailyBarsMap[sym]); // 影子模型用（只記錄）
       const monthlyKdFor = (sym) => kdFromBars(monthlyFromDaily(dailyBarsMap[sym]));
 
       // Three additional model inputs:
@@ -5482,7 +5544,7 @@ function TrendRadar({ holdings, embedded = false }) {
         const conviction = Math.abs(probability-50);
         const confidence = (calibration.calibrated && evidence>=3.5 && flows.length>=3 && conviction>=14 && kdSignals.length>=3) ? "高"
           : (evidence>=2.5 && conviction>=7) ? "中" : "低";
-        return {symbol:h.symbol,name:h.name||"",rawProbability,calibration,probability,direction,confidence,indexPct,stockPct,priceBand:quoteFresh?todayRangeBand(dailyBarsMap[h.symbol],q,Number(q.price)):null,currentPrice:Number(q.price)||null,dayHigh:Number(q.high)||null,dayLow:Number(q.low)||null,newsScore,flows,f1,f3,f5,t1,t3,t5,d1,d3,d5,kd5,kd15,kd60,kdDaily,kdMonthly,micro,range,volumePrice,margin,breadth,breadthSource,breadthTerm,evidence,quoteFresh,modelVersion:TREND_MODEL_VERSION,lateProgress,closeProgress,closeDirectionBoost,weights:{indexW,stockW,newsW,instTimeW},timedKdScore,volumePriceRecord};
+        return {symbol:h.symbol,name:h.name||"",rawProbability,calibration,probability,direction,confidence,indexPct,stockPct,priceBand:quoteFresh?todayRangeBand(dailyBarsMap[h.symbol],q,Number(q.price)):null,currentPrice:Number(q.price)||null,dayHigh:Number(q.high)||null,dayLow:Number(q.low)||null,newsScore,flows,f1,f3,f5,t1,t3,t5,d1,d3,d5,kd5,kd15,kd60,kdDaily,kdMonthly,micro,range,volumePrice,margin,breadth,breadthSource,breadthTerm,evidence,quoteFresh,modelVersion:TREND_MODEL_VERSION,lateProgress,closeProgress,closeDirectionBoost,weights:{indexW,stockW,newsW,instTimeW},timedKdScore,volumePriceRecord,shadowVol:volProbability(stockPct,sigmaFor(h.symbol),sessionClock)};
       });
 
       // Model correction #2: freeze today's forecast at/after 13:25.
@@ -5541,6 +5603,8 @@ function TrendRadar({ holdings, embedded = false }) {
           }
           if(!rec.margin&&r.margin) rec.margin=marginForRecord(r.margin);
           if(!rec.breadthPrev&&prevBreadth) rec.breadthPrev=prevBreadth;
+          // 影子波動模型：用這筆快照自己的漲跌與時間 + 前一日以前的日波動，所以晚點才算也一樣。
+          if(!rec.shadow&&sigmaFor(rec.symbol)) rec.shadow=volProbability(rec.stockPct,sigmaFor(rec.symbol),F.clock(new Date(rec.ts)).minute);
           // 量價也是背景慢慢載入的（而且開盤前 20 分鐘 Yahoo 還沒有今天的分 K）：同一個時段內載到了就補上。
           // 只補空的，而且只補快照後 30 分鐘內的值，避免把很晚的量價配到很早的快照上。
           if(rec.volumePrice?.rvol==null&&rec.volumePrice?.distPct==null&&r.volumePriceRecord?.available&&stamp.getTime()-Date.parse(rec.ts)<=30*60000) rec.volumePrice={...r.volumePriceRecord,filledAt:stamp.toISOString()};
@@ -5554,7 +5618,7 @@ function TrendRadar({ holdings, embedded = false }) {
             const key=day+"|"+r.symbol+"|morning";
             if(records.some(x=>x.key===key)) fillSlow(records.find(x=>x.key===key),r);
             if(!records.some(x=>x.key===key)){
-              records.push({key,day,symbol:r.symbol,phase:"morning",ts:stamp.toISOString(),rawProbability:r.rawProbability,probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,modelVersion:r.modelVersion,lateProgress:r.lateProgress,closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,weights:r.weights,timedKdScore:r.timedKdScore,volumePrice:r.volumePriceRecord||r.volumePrice,breadth:r.breadth,breadthSource:r.breadthSource,breadthPrev:prevBreadth,margin:marginForRecord(r.margin),instLoaded:instNow,inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
+              records.push({key,day,symbol:r.symbol,phase:"morning",ts:stamp.toISOString(),rawProbability:r.rawProbability,probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,modelVersion:r.modelVersion,lateProgress:r.lateProgress,closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,weights:r.weights,timedKdScore:r.timedKdScore,volumePrice:r.volumePriceRecord||r.volumePrice,breadth:r.breadth,breadthSource:r.breadthSource,breadthPrev:prevBreadth,shadow:r.shadowVol||null,margin:marginForRecord(r.margin),instLoaded:instNow,inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
             }
           });
         }
@@ -5565,14 +5629,16 @@ function TrendRadar({ holdings, embedded = false }) {
             const key=day+"|"+r.symbol+"|closeLock";
             if(records.some(x=>x.key===key)) fillSlow(records.find(x=>x.key===key),r);
             if(!records.some(x=>x.key===key)){
-              records.push({key,day,symbol:r.symbol,phase:"closeLock",ts:stamp.toISOString(),rawProbability:r.rawProbability,probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,modelVersion:r.modelVersion,lateProgress:r.lateProgress,closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,weights:r.weights,timedKdScore:r.timedKdScore,volumePrice:r.volumePriceRecord||r.volumePrice,breadth:r.breadth,breadthSource:r.breadthSource,breadthPrev:prevBreadth,margin:marginForRecord(r.margin),instLoaded:instNow,inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
+              records.push({key,day,symbol:r.symbol,phase:"closeLock",ts:stamp.toISOString(),rawProbability:r.rawProbability,probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,modelVersion:r.modelVersion,lateProgress:r.lateProgress,closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,weights:r.weights,timedKdScore:r.timedKdScore,volumePrice:r.volumePriceRecord||r.volumePrice,breadth:r.breadth,breadthSource:r.breadthSource,breadthPrev:prevBreadth,shadow:r.shadowVol||null,margin:marginForRecord(r.margin),instLoaded:instNow,inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
             }
           });
         }
         const marketPhase=mins>=540&&mins<=600?"morning":mins>=805&&mins<810?"closeLock":null;
         if(marketPhase&&!nonTradingToday&&marketFresh){
           const key=day+"|TAIEX|"+marketPhase;
-          if(!records.some(x=>x.key===key))records.push({key,day,symbol:"TAIEX",phase:marketPhase,ts:stamp.toISOString(),modelVersion:TREND_MODEL_VERSION,rawProbability:computedMarketRow.rawProbability,probability:computedMarketRow.probability,direction:computedMarketRow.direction,indexPct,priceBand:computedMarketRow.priceBand});
+          if(!records.some(x=>x.key===key))records.push({key,day,symbol:"TAIEX",phase:marketPhase,ts:stamp.toISOString(),modelVersion:TREND_MODEL_VERSION,rawProbability:computedMarketRow.rawProbability,probability:computedMarketRow.probability,direction:computedMarketRow.direction,indexPct,priceBand:computedMarketRow.priceBand,shadow:volProbability(indexPct,sigmaFor("TAIEX"),mins)});
+          const mrec=records.find(x=>x.key===key);
+          if(mrec&&!mrec.shadow&&!mrec.actual&&sigmaFor("TAIEX")) mrec.shadow=volProbability(mrec.indexPct,sigmaFor("TAIEX"),F.clock(new Date(mrec.ts)).minute);
         }
         // At/after close, attach the actual close-vs-prev-close outcome when quote data is available.
         if(mins>=810 && !nonTradingToday){
@@ -5885,6 +5951,10 @@ function TrendRadar({ holdings, embedded = false }) {
         const recentClose=closeLockDone.slice(-60);
         if(!dead) setAccuracy(recent.length?{n:recent.length,hits:recent.filter(r=>r.actual.hit).length}:null);
         if(!dead) setCloseLockAccuracy(recentClose.length?{n:recentClose.length,hits:recentClose.filter(r=>r.actual.hit).length}:null);
+        if(!dead) setBaseline({
+          morning:baselineStats(h?.records,{phase:"morning",modelVersion:TREND_MODEL_VERSION}),
+          closeLock:baselineStats(h?.records,{phase:"closeLock",modelVersion:TREND_MODEL_VERSION}),
+        });
       }catch(e){}
       try{
         const th=await loadKey("trendRadarTomorrowHistory",{records:[]});
@@ -6144,7 +6214,9 @@ function TrendRadar({ holdings, embedded = false }) {
       </button>
       <div className="text-[9px] mt-2" style={{color:COLORS.sub}}>{UI_SHOW_ENGLISH?"Percentages are trend scores until calibrated; ranges are historical volatility references.":"百分比為趨勢分數，樣本足夠才校準；價格區間為歷史波動參考。"}</div>
       {accuracy&&<div className="text-[9px] mt-2 mono" style={{color:COLORS.gold}}>{UI_SHOW_ENGLISH ? `Last ${accuracy.n} validated "morning" forecasts: ${((accuracy.hits/accuracy.n)*100).toFixed(1)}% hit rate (excludes unclear direction; stats only, not a guarantee)` : `近 ${accuracy.n} 次已驗證「上午」預測：方向命中 ${((accuracy.hits/accuracy.n)*100).toFixed(1)}%（已排除方向不明，僅統計，不代表未來）`}</div>}
+      <BaselineLine stats={baseline?.morning} />
       {closeLockAccuracy&&<div className="text-[9px] mt-1 mono" style={{color:COLORS.gold}}>{UI_SHOW_ENGLISH ? `Last ${closeLockAccuracy.n} validated "pre-close lock" forecasts: ${((closeLockAccuracy.hits/closeLockAccuracy.n)*100).toFixed(1)}% hit rate (locked at 13:25, far easier than morning — kept separate above)` : `近 ${closeLockAccuracy.n} 次已驗證「收盤前鎖定」預測：方向命中 ${((closeLockAccuracy.hits/closeLockAccuracy.n)*100).toFixed(1)}%（13:25 才鎖定，難度遠低於上午，跟上面分開看）`}</div>}
+      <BaselineLine stats={baseline?.closeLock} />
       {tomorrowAccuracy&&<div className="text-[9px] mt-1 mono" style={{color:COLORS.gold}}>{UI_SHOW_ENGLISH ? `Last ${tomorrowAccuracy.n} validated "tomorrow" forecasts: ${((tomorrowAccuracy.hits/tomorrowAccuracy.n)*100).toFixed(1)}% hit rate (excludes unclear direction; stats only, not a guarantee)` : `近 ${tomorrowAccuracy.n} 次已驗證「明日」預測：方向命中 ${((tomorrowAccuracy.hits/tomorrowAccuracy.n)*100).toFixed(1)}%（已排除方向不明，僅統計，不代表未來）`}</div>}
       {[ ["盤後建立",postCloseAccuracy], ["盤前修正",premarketAccuracy] ].map(([label,stats])=>stats?.n>0?<div key={label} className="text-[9px] mt-1 mono" style={{color:COLORS.gold}}>{label} {stats.n} 筆：方向命中 {(stats.hits/stats.n*100).toFixed(1)}%（獨立統計）</div>:null)}
       {tomorrowAccuracy&&<div className="text-[9px] mt-1" style={{color:COLORS.sub}}>{UI_SHOW_ENGLISH?`Coverage ${(tomorrowAccuracy.coverage*100).toFixed(0)}% · Always-up baseline ${(tomorrowAccuracy.baselineHits/tomorrowAccuracy.n*100).toFixed(1)}% · Brier ${tomorrowAccuracy.brier.toFixed(3)}`:`出手覆蓋 ${(tomorrowAccuracy.coverage*100).toFixed(0)}% ｜ 同批全猜漲 ${(tomorrowAccuracy.baselineHits/tomorrowAccuracy.n*100).toFixed(1)}% ｜ 機率誤差 ${tomorrowAccuracy.brier.toFixed(3)}`}</div>}
@@ -6173,6 +6245,22 @@ function pearsonCorr(pairs) {
   return sxy / Math.sqrt(sxx * syy);
 }
 
+// 對照組那一行：同一批紀錄上，模型 vs「跟著目前漲跌猜」；影子波動模型的機率準度（≥20 筆才顯示）。
+function BaselineLine({ stats }) {
+  if (!stats?.n) return null;
+  const pct = (h) => ((h / stats.n) * 100).toFixed(1);
+  const brierOk = stats.brierN >= 20;
+  return (
+    <div className="text-[9px] mt-0.5 mono leading-relaxed" style={{ color: COLORS.sub }}>
+      {UI_SHOW_ENGLISH
+        ? `Same ${stats.n}: model ${pct(stats.modelHits)}% vs simple "follow today's move" ${pct(stats.naiveHits)}%`
+        : `對照（同一批 ${stats.n} 次）：模型 ${pct(stats.modelHits)}%｜簡單規則「跟著目前漲跌」${pct(stats.naiveHits)}%`}
+      {brierOk && (UI_SHOW_ENGLISH
+        ? ` · probability error (Brier, lower is better, ${stats.brierN}): model ${stats.brierModel.toFixed(3)} vs volatility model ${stats.brierVol.toFixed(3)}`
+        : `｜機率誤差（Brier，越低越好，${stats.brierN} 筆）：模型 ${stats.brierModel.toFixed(3)}｜波動模型 ${stats.brierVol.toFixed(3)}`)}
+    </div>
+  );
+}
 function FactorBacktest() {
   const [open, setOpen] = useState(false);
   const [today, setToday] = useState({ records: [] });
