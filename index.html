@@ -1244,6 +1244,8 @@ const UI_EN = {
   "方向不明": "Unclear",
   "稍偏漲": "Slightly Bullish",
   "稍偏跌": "Slightly Bearish",
+  "略偏漲（不確定）": "Slight lean up (uncertain)",
+  "略偏跌（不確定）": "Slight lean down (uncertain)",
   "明顯偏漲": "Bullish",
   "明顯偏跌": "Bearish",
   "信心低": "Low Confidence",
@@ -4804,6 +4806,17 @@ function marginForRecord(m) {
 }
 // </margin-helpers>
 
+// <lean-label>
+// 明日預測只顯示用：機率落在 46–54%（原本一律寫「方向不明」）時，仍標出微弱傾向，但明講「不確定」。
+// 只改顯示文字；pred.direction 本身不變（命中率、校準、紀錄都還是用原本的判斷），所以統計口徑沒有被動到。
+function leanLabel(pred) {
+  const dir = pred?.direction, p = Math.round(Number(pred?.probability));
+  if (dir !== "方向不明" || !Number.isFinite(p)) return dir;
+  if (p >= 51 && p <= 54) return "略偏漲（不確定）";
+  if (p >= 46 && p <= 49) return "略偏跌（不確定）";
+  return dir;
+}
+// </lean-label>
 // <baseline-compare>
 // 對照組：盤中預測有沒有比「跟著目前漲跌猜」更好？以及只看波動的機率模型（影子模型，只記錄、不影響預測）。
 function normCdf(x) {
@@ -6106,7 +6119,7 @@ function TrendRadar({ holdings, embedded = false }) {
           const ms=easyMarketSummary(marketRow);
           const marketTone=marketRow.direction.includes("漲")?COLORS.gain:marketRow.direction.includes("跌")?COLORS.loss:COLORS.sub;
           const next=tomorrowMap.TAIEX;
-          const nextTone=next?.direction?.includes("漲")?COLORS.gain:next?.direction?.includes("跌")?COLORS.loss:COLORS.sub;
+          const nextTone=next?leanLabel(next).includes("漲")?COLORS.gain:leanLabel(next).includes("跌")?COLORS.loss:COLORS.sub:COLORS.sub;
           return <div className={"trend-radar-card trend-radar-market rounded-xl "+(detailsOpen?"is-open":"")} style={{background:COLORS.bg,border:"1px solid "+COLORS.gold}}>
             <div className="trend-radar-card-head">
               <div className="min-w-0">
@@ -6130,7 +6143,7 @@ function TrendRadar({ holdings, embedded = false }) {
               </div>
               <div className="trend-radar-pred-row">
                 <span style={{color:COLORS.sub}}>{targetLabel(next)}</span>
-                <span className="font-black mono" style={{color:nextTone}}>{next?<><UiLabel zh={next.direction} inline />{" "+next.probability.toFixed(0)+"%"}</>:<UiLabel zh="資料累積中" inline />}</span>
+                <span className="font-black mono" style={{color:nextTone}}>{next?<><UiLabel zh={leanLabel(next)} inline />{" "+next.probability.toFixed(0)+"%"}</>:<UiLabel zh="資料累積中" inline />}</span>
               </div>
             </div>
             <div className="trend-radar-band text-[9px] mono" style={{color:COLORS.gold}}>
@@ -6171,7 +6184,7 @@ function TrendRadar({ holdings, embedded = false }) {
               </div>
               <div className="trend-radar-pred-row">
                 <span style={{color:COLORS.sub}}>{targetLabel(tomorrowMap[r.symbol])}</span>
-                <span className="font-black mono" style={{color:tomorrowMap[r.symbol]?.direction?.includes("漲")?COLORS.gain:tomorrowMap[r.symbol]?.direction?.includes("跌")?COLORS.loss:COLORS.sub}}>{tomorrowMap[r.symbol]?<><UiLabel zh={tomorrowMap[r.symbol].direction} inline />{" "+tomorrowMap[r.symbol].probability.toFixed(0)+"%"}</>:<UiLabel zh="資料累積中" inline />}</span>
+                <span className="font-black mono" style={{color:tomorrowMap[r.symbol]?leanLabel(tomorrowMap[r.symbol]).includes("漲")?COLORS.gain:leanLabel(tomorrowMap[r.symbol]).includes("跌")?COLORS.loss:COLORS.sub:COLORS.sub}}>{tomorrowMap[r.symbol]?<><UiLabel zh={leanLabel(tomorrowMap[r.symbol])} inline />{" "+tomorrowMap[r.symbol].probability.toFixed(0)+"%"}</>:<UiLabel zh="資料累積中" inline />}</span>
               </div>
             </div>
             <div className="trend-radar-band text-[9px] mono" style={{color:COLORS.gold}}>
@@ -6840,7 +6853,7 @@ function DailyClosingAiReport({ holdings, dailyRecords }) {
       }) : [];
 
       const tomorrowLines = r.tomorrow && typeof r.tomorrow === "object"
-        ? Object.entries(r.tomorrow).slice(0,12).map(([sym,x]) => `${sym}：${x?.direction||"—"}，趨勢分數 ${Number(x?.probability||0).toFixed(0)}%，信心 ${x?.confidence||"—"}`)
+        ? Object.entries(r.tomorrow).slice(0,12).map(([sym,x]) => `${sym}：${(x&&leanLabel(x))||"—"}，趨勢分數 ${Number(x?.probability||0).toFixed(0)}%，信心 ${x?.confidence||"—"}`)
         : [];
 
       const global = r.global || {};
