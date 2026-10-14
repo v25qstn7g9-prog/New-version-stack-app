@@ -68,7 +68,6 @@
 ├── 🔑 .env.example                 # 🆕 環境變數範本 (Cloudflare)
 ├── 🚫 .gitignore                   # 🆕 Git 忽略規則
 ├── ⚙️  wrangler.jsonc              # 🆕 改進版 (支援 dev/prod)
-├── ⚙️  _routes.json                # 路由配置
 ├── ⚙️  worker.js                   # Cloudflare Worker 進入點
 ├── 📁 functions/                   # Cloudflare 函式
 └── 📁 fallback-vercel/            # Vercel 備援
