@@ -314,3 +314,20 @@ test('client skips an upload only when the content hash is unchanged and the las
   assert.match(html, /authorization: "Bearer " \+ syncToken/);
   assert.doesNotMatch(html, /portfolio-sync\?token=/);
 });
+
+test('SI Hub read-only key can call the read-only /mcp tools; a wrong key still gets 401', async () => {
+  const roKey = 'si-hub-read-only-key-123456';
+  const e = env({ SI_HUB_READ_TOKEN: roKey });
+  const rpc = (key, body) => worker.fetch(new Request(`${origin}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key }, body: JSON.stringify(body) }), e, { waitUntil() {} });
+  const list = await rpc(roKey, { jsonrpc: '2.0', id: 1, method: 'tools/list' });
+  assert.equal(list.status, 200);
+  const names = (await list.json()).result.tools.map(t => t.name);
+  assert.ok(names.includes('asset_agent_brief') && names.includes('daily_history'));
+  const bad = await rpc('si-hub-read-only-key-WRONG', { jsonrpc: '2.0', id: 2, method: 'tools/list' });
+  assert.equal(bad.status, 401);
+  const none = await rpc(roKey, { jsonrpc: '2.0', id: 3, method: 'tools/list' });
+  assert.equal(none.status, 200);
+  const noKeyEnv = env();
+  const res = await worker.fetch(new Request(`${origin}/mcp`, { method: 'POST', headers: { authorization: 'Bearer ' + roKey }, body: '{}' }), noKeyEnv, { waitUntil() {} });
+  assert.equal(res.status, 401, 'without the Secret set, the key does nothing');
+});

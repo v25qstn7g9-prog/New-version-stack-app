@@ -91,7 +91,7 @@ import { AUTO_DAILY_CRON, runAutoDaily, runDailyReminder, onRequestGet as autoDa
 import { onRequestGet as closesGetHandler } from "./functions/closes.js";
 import { onRequestPush as pushHandler, runPushRound } from "./functions/push.js";
 import { adminTokenMatches, bearerToken, writeAllowed } from "./functions/request-guard.js";
-import { isKnownSyncToken } from "./functions/portfolio-sync.js";
+import { isKnownSyncToken, isSiHubReadToken } from "./functions/portfolio-sync.js";
 import { handleAssetOAuth, verifyAssetAccessToken, readAssetMcpSyncToken } from "./functions/asset-mcp-oauth.js";
 import { runCalendarCheck } from "./functions/market-calendar.js";
 import {
@@ -152,6 +152,15 @@ export default {
 
     if (url.pathname === "/mcp") {
       const bearer = (request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
+      // SI Hub reads through the fixed read-only key (Secret SI_HUB_READ_TOKEN, the same key that already reads
+      // the snapshot from /api/portfolio-sync). Every MCP tool here is read-only; this key can never write.
+      if (bearer && isSiHubReadToken(env, bearer)) {
+        try {
+          return await handlePreparedAssetMcp(request, env, { syncToken: bearer });
+        } catch (error) {
+          return apiJson({ error: "MCP Internal Server Error", detail: String(error?.message || error).slice(0, 300) || null }, 500);
+        }
+      }
       const access = bearer ? await verifyAssetAccessToken(env, bearer, url.origin) : null;
       if (!access) {
         return new Response(JSON.stringify({ error: "Unauthorized" }), {

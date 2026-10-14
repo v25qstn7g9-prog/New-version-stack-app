@@ -79,6 +79,12 @@ function readOnlyToken(env) {
   return isValidToken(t) ? t : "";
 }
 
+// True only for the SI Hub read-only key (constant-time compare). Used by /mcp so SI Hub can read the asset tools.
+export function isSiHubReadToken(env, token) {
+  const ro = readOnlyToken(env);
+  return Boolean(ro && token && sameSecret(String(token).trim(), ro));
+}
+
 function sameSecret(a, b) {
   const x = new TextEncoder().encode(String(a)), y = new TextEncoder().encode(String(b));
   let diff = x.length ^ y.length;
