@@ -5209,14 +5209,17 @@ function TrendRadar({ holdings, embedded = false }) {
         const j=await res.json();if(!res.ok||!j.ok)throw Error("metrics unavailable");return j.metrics||{};
       },metrics=>{memoIntradayMetrics=metrics;});
       const intradayMetrics=Object.fromEntries(Object.entries(memoIntradayMetrics||{}).filter(([,m])=>F.metricsFresh(m,now)));
+      // 只給「因子回測紀錄」用：Yahoo 台股分 K 延遲 20 分鐘，上面 3 分鐘的新鮮度門檻在盤中永遠不過，
+      // 紀錄裡的 RVOL / VWAP 因此一直是空的（n=0）。紀錄改放寬到 25 分鐘；模型本身仍用上面嚴格的版本，預測不變。
+      const intradayMetricsRecord=Object.fromEntries(Object.entries(memoIntradayMetrics||{}).filter(([,m])=>F.metricsFresh(m,now,25)));
       launchSlow("breadth",todayKey,60000,async()=>{
         const res=await fetchWithTimeout('/market-breadth',{cache:"no-store"},8000);
         const j=await res.json();if(!res.ok||!j.ok)throw Error("breadth unavailable");return j;
       },value=>{memoMarketBreadth=value;});
       const fullBreadth=memoMarketBreadth?.day===todayKey?memoMarketBreadth:null;
 
-      const volumePriceSignal=(sym,q,stockPct=0)=>{
-        const m=intradayMetrics?.[sym]||null;
+      const volumePriceSignal=(sym,q,stockPct=0,metricsMap=intradayMetrics)=>{
+        const m=metricsMap?.[sym]||null;
         const px=Number(q?.price),vwap=Number(m?.vwap),rvol=Number(m?.rvol);
         const comparisonDays=Number(m?.comparisonDays)||0;
         const vwapSlopePct=F.valid(m?.vwapSlopePct)?Number(m.vwapSlopePct):NaN;
@@ -5409,6 +5412,7 @@ function TrendRadar({ holdings, embedded = false }) {
         const micro=microMomentum(h.symbol,Number(q.price));
         const range=rangePressure(q,Number(q.price));
         const volumePrice=volumePriceSignal(h.symbol,q,stockPct);
+        const volumePriceRecord=volumePriceSignal(h.symbol,q,stockPct,intradayMetricsRecord); // record-only
         const breadthTerm=breadthSource==="market"?clamp((breadth-0.5)*6,-2.5,2.5):clamp((breadth-0.5)*1.5,-0.5,0.5);
         const timedKdScore=(kd5?.bull||0)*(1+1.0*lateProgress)
           +(kd15?.bull||0)*(1+0.75*lateProgress)
@@ -5464,7 +5468,7 @@ function TrendRadar({ holdings, embedded = false }) {
         const conviction = Math.abs(probability-50);
         const confidence = (calibration.calibrated && evidence>=3.5 && flows.length>=3 && conviction>=14 && kdSignals.length>=3) ? "高"
           : (evidence>=2.5 && conviction>=7) ? "中" : "低";
-        return {symbol:h.symbol,name:h.name||"",rawProbability,calibration,probability,direction,confidence,indexPct,stockPct,priceBand:quoteFresh?todayRangeBand(dailyBarsMap[h.symbol],q,Number(q.price)):null,currentPrice:Number(q.price)||null,dayHigh:Number(q.high)||null,dayLow:Number(q.low)||null,newsScore,flows,f1,f3,f5,t1,t3,t5,d1,d3,d5,kd5,kd15,kd60,kdDaily,kdMonthly,micro,range,volumePrice,margin,breadth,breadthSource,breadthTerm,evidence,quoteFresh,modelVersion:TREND_MODEL_VERSION,lateProgress,closeProgress,closeDirectionBoost,weights:{indexW,stockW,newsW,instTimeW},timedKdScore};
+        return {symbol:h.symbol,name:h.name||"",rawProbability,calibration,probability,direction,confidence,indexPct,stockPct,priceBand:quoteFresh?todayRangeBand(dailyBarsMap[h.symbol],q,Number(q.price)):null,currentPrice:Number(q.price)||null,dayHigh:Number(q.high)||null,dayLow:Number(q.low)||null,newsScore,flows,f1,f3,f5,t1,t3,t5,d1,d3,d5,kd5,kd15,kd60,kdDaily,kdMonthly,micro,range,volumePrice,margin,breadth,breadthSource,breadthTerm,evidence,quoteFresh,modelVersion:TREND_MODEL_VERSION,lateProgress,closeProgress,closeDirectionBoost,weights:{indexW,stockW,newsW,instTimeW},timedKdScore,volumePriceRecord};
       });
 
       // Model correction #2: freeze today's forecast at/after 13:25.
@@ -5522,6 +5526,9 @@ function TrendRadar({ holdings, embedded = false }) {
             rec.instLoaded=true;
           }
           if(!rec.margin&&r.margin) rec.margin=marginForRecord(r.margin);
+          // 量價也是背景慢慢載入的（而且開盤前 20 分鐘 Yahoo 還沒有今天的分 K）：同一個時段內載到了就補上。
+          // 只補空的，而且只補快照後 30 分鐘內的值，避免把很晚的量價配到很早的快照上。
+          if(rec.volumePrice?.rvol==null&&rec.volumePrice?.distPct==null&&r.volumePriceRecord?.available&&stamp.getTime()-Date.parse(rec.ts)<=30*60000) rec.volumePrice={...r.volumePriceRecord,filledAt:stamp.toISOString()};
           if(rec.kd?.kDaily==null&&r.kdDaily){
             rec.kd={...(rec.kd||{}),kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null};
           }
@@ -5532,7 +5539,7 @@ function TrendRadar({ holdings, embedded = false }) {
             const key=day+"|"+r.symbol+"|morning";
             if(records.some(x=>x.key===key)) fillSlow(records.find(x=>x.key===key),r);
             if(!records.some(x=>x.key===key)){
-              records.push({key,day,symbol:r.symbol,phase:"morning",ts:stamp.toISOString(),rawProbability:r.rawProbability,probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,modelVersion:r.modelVersion,lateProgress:r.lateProgress,closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,weights:r.weights,timedKdScore:r.timedKdScore,volumePrice:r.volumePrice,breadth:r.breadth,breadthSource:r.breadthSource,margin:marginForRecord(r.margin),instLoaded:instNow,inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
+              records.push({key,day,symbol:r.symbol,phase:"morning",ts:stamp.toISOString(),rawProbability:r.rawProbability,probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,modelVersion:r.modelVersion,lateProgress:r.lateProgress,closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,weights:r.weights,timedKdScore:r.timedKdScore,volumePrice:r.volumePriceRecord||r.volumePrice,breadth:r.breadth,breadthSource:r.breadthSource,margin:marginForRecord(r.margin),instLoaded:instNow,inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
             }
           });
         }
@@ -5543,7 +5550,7 @@ function TrendRadar({ holdings, embedded = false }) {
             const key=day+"|"+r.symbol+"|closeLock";
             if(records.some(x=>x.key===key)) fillSlow(records.find(x=>x.key===key),r);
             if(!records.some(x=>x.key===key)){
-              records.push({key,day,symbol:r.symbol,phase:"closeLock",ts:stamp.toISOString(),rawProbability:r.rawProbability,probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,modelVersion:r.modelVersion,lateProgress:r.lateProgress,closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,weights:r.weights,timedKdScore:r.timedKdScore,volumePrice:r.volumePrice,breadth:r.breadth,breadthSource:r.breadthSource,margin:marginForRecord(r.margin),instLoaded:instNow,inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
+              records.push({key,day,symbol:r.symbol,phase:"closeLock",ts:stamp.toISOString(),rawProbability:r.rawProbability,probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,modelVersion:r.modelVersion,lateProgress:r.lateProgress,closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,weights:r.weights,timedKdScore:r.timedKdScore,volumePrice:r.volumePriceRecord||r.volumePrice,breadth:r.breadth,breadthSource:r.breadthSource,margin:marginForRecord(r.margin),instLoaded:instNow,inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
             }
           });
         }
@@ -6177,13 +6184,15 @@ function FactorBacktest() {
     return { label, n: pairs.length, r: pairs.length >= MIN_N ? pearsonCorr(pairs) : null };
   });
 
+  const instOf = (r, k) => (r.instLoaded === false ? null : r.inst?.[k]);
   const todayFactorDefs = useMemo(() => ([
     ["大盤 %", (r) => r.indexPct],
     ["個股 %", (r) => r.stockPct],
     ["新聞分數", (r) => r.newsScore],
-    ["外資 1日", (r) => r.inst?.f1], ["外資 3日", (r) => r.inst?.f3], ["外資 5日", (r) => r.inst?.f5],
-    ["投信 1日", (r) => r.inst?.t1], ["投信 3日", (r) => r.inst?.t3], ["投信 5日", (r) => r.inst?.t5],
-    ["自營 1日", (r) => r.inst?.d1], ["自營 3日", (r) => r.inst?.d3], ["自營 5日", (r) => r.inst?.d5],
+    // 法人資料還沒載到時快照記的是 0（instLoaded:false），那不是「法人沒買賣」，不能當樣本。
+    ["外資 1日", (r) => instOf(r, "f1")], ["外資 3日", (r) => instOf(r, "f3")], ["外資 5日", (r) => instOf(r, "f5")],
+    ["投信 1日", (r) => instOf(r, "t1")], ["投信 3日", (r) => instOf(r, "t3")], ["投信 5日", (r) => instOf(r, "t5")],
+    ["自營 1日", (r) => instOf(r, "d1")], ["自營 3日", (r) => instOf(r, "d3")], ["自營 5日", (r) => instOf(r, "d5")],
     ["KD 5分 (K-D)", (r) => (r.kd?.k5 != null && r.kd?.d5 != null) ? r.kd.k5 - r.kd.d5 : null],
     ["KD 15分 (K-D)", (r) => (r.kd?.k15 != null && r.kd?.d15 != null) ? r.kd.k15 - r.kd.d15 : null],
     ["KD 60分 (K-D)", (r) => (r.kd?.k60 != null && r.kd?.d60 != null) ? r.kd.k60 - r.kd.d60 : null],

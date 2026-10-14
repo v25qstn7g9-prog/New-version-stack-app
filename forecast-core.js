@@ -26,10 +26,12 @@
     const pct=(Number(q.price)/Number(q.prevClose)-1)*100;
     return {pct:Math.round(pct*1e8)/1e8,up:Math.abs(pct)<1e-8?null:pct>0,sourceAt:new Date(ts).toISOString()};
   }
-  function metricsFresh(m,now=new Date()){
+  // maxLag: how many minutes behind "now" the metrics may be. The model keeps the strict 3;
+  // the research record uses ~25 because Yahoo's Taiwan feed (.TW / ^TWII) is delayed 20 minutes.
+  function metricsFresh(m,now=new Date(),maxLag=3){
     const t=clock(now),minute=Number(m?.lastMinute);
     return m?.day===t.day&&valid(m?.lastMinute)&&minute>=540&&minute<=810&&
-      (t.minute>=810?minute>=807:t.minute-minute>=0&&t.minute-minute<=3);
+      (t.minute>=810?minute>=807:t.minute-minute>=0&&t.minute-minute<=maxLag);
   }
   function micro(tape,sym,px,now=new Date()){
     const empty={available:false,m1:null,m3:null,m8:null,score:0,agreement:0};
