@@ -1514,6 +1514,7 @@ const UI_EN = {
   "融資 1日增減 %": "Margin 1D Chg %",
   "融資 3日增減 %": "Margin 3D Chg %",
   "券資比 %": "Short/Margin Ratio %",
+  "前日全市場廣度": "Prior-Day Market Breadth",
 };
 
 function uiText(zh) {
@@ -4860,7 +4861,7 @@ function serverBarAt(bars, target) {
   if (!pick || goal - mins(pick.time) > 15 || !(Number(pick.close) > 0)) return null;
   return pick;
 }
-function buildServerSamples({ day, symbols, serverBars, daily, modelVersion, existingKeys }) {
+function buildServerSamples({ day, symbols, serverBars, daily, modelVersion, existingKeys, breadthPrev = null }) {
   const prevCloseOf = (sym) => {
     const prior = (daily?.[sym] || []).filter((b) => b.day < day && Number(b.close) > 0);
     return prior.length ? Number(prior[prior.length - 1].close) : null;
@@ -4893,7 +4894,7 @@ function buildServerSamples({ day, symbols, serverBars, daily, modelVersion, exi
         source: "server", modelVersion, probability: null, direction: null,
         indexPct: ib && indexPrev > 0 ? (Number(ib.close) / indexPrev - 1) * 100 : null,
         stockPct: (Number(bar.close) / prev - 1) * 100,
-        newsScore: null, instLoaded: false, margin: null,
+        newsScore: null, instLoaded: false, margin: null, breadthPrev,
         kd: { k5: null, d5: null, k15: null, d15: null, k60: null, d60: null,
           kDaily: kd?.K ?? null, dDaily: kd?.D ?? null, kMonthly: km?.K ?? null, dMonthly: km?.D ?? null },
         actual,
@@ -4938,7 +4939,11 @@ async function importServerBarSamples({ symbols, today, isClosedDay, modelVersio
     if (!j?.ok) continue; // 暫時抓不到：不標記，下次打開再試
     done.push(day);
     if (!j.found) continue;
-    fresh.push(...buildServerSamples({ day, symbols: wanted, serverBars: j.bars, daily: dj.bars, modelVersion, existingKeys: new Set((hist0.records || []).map((r) => r.key)) }));
+    // 前一交易日全市場廣度（開盤前已定案）也一起補；抓不到就留空。
+    const bres = await fetchWithTimeout(`/market-breadth?before=${day}`, { cache: "no-store" }, 15000).catch(() => null);
+    const bj = bres?.ok ? await bres.json().catch(() => null) : null;
+    const breadthPrev = bj?.available && Number.isFinite(Number(bj.breadth)) ? { day: bj.day, breadth: Number(bj.breadth), up: bj.up ?? null, down: bj.down ?? null, flat: bj.flat ?? null } : null;
+    fresh.push(...buildServerSamples({ day, symbols: wanted, serverBars: j.bars, daily: dj.bars, modelVersion, existingKeys: new Set((hist0.records || []).map((r) => r.key)), breadthPrev }));
   }
   // 讀最新的歷史再合併（避免蓋掉雷達這段時間剛寫的紀錄），key 重複的以 App 自己當時記的為準。
   let filled = 0;
@@ -4995,6 +5000,7 @@ function TrendRadar({ holdings, embedded = false }) {
     let memoGlobal = null, memoGlobalAt = 0;
     let memoIntradayMetrics = null;
     let memoMarketBreadth = null;
+    let memoPrevBreadth = null;
     let historyRecords = [], tomorrowRecords = [];
     let latestLive = null, slowTimer = null;
     const F = globalThis.ZinfForecast;
@@ -5217,6 +5223,14 @@ function TrendRadar({ holdings, embedded = false }) {
         const j=await res.json();if(!res.ok||!j.ok)throw Error("breadth unavailable");return j;
       },value=>{memoMarketBreadth=value;});
       const fullBreadth=memoMarketBreadth?.day===todayKey?memoMarketBreadth:null;
+      // 前一交易日的全市場廣度（盤後報表，開盤前就已定案）。研究紀錄用，不進模型。
+      // 今天的廣度要收盤後才公布，盤中的快照永遠拿不到，所以因子回測改看這個。
+      launchSlow("breadthPrev",todayKey,30*60000,async()=>{
+        const res=await fetchWithTimeout(`/market-breadth?before=${todayKey}`,{cache:"no-store"},15000);
+        const j=await res.json();if(!res.ok||!j.ok||!j.available)throw Error("prev breadth unavailable");return j;
+      },value=>{memoPrevBreadth=value;});
+      const prevBreadth=memoPrevBreadth?.before===todayKey&&memoPrevBreadth.available&&F.valid(memoPrevBreadth.breadth)
+        ?{day:memoPrevBreadth.day,breadth:Number(memoPrevBreadth.breadth),up:memoPrevBreadth.up??null,down:memoPrevBreadth.down??null,flat:memoPrevBreadth.flat??null}:null;
 
       const volumePriceSignal=(sym,q,stockPct=0,metricsMap=intradayMetrics)=>{
         const m=metricsMap?.[sym]||null;
@@ -5526,6 +5540,7 @@ function TrendRadar({ holdings, embedded = false }) {
             rec.instLoaded=true;
           }
           if(!rec.margin&&r.margin) rec.margin=marginForRecord(r.margin);
+          if(!rec.breadthPrev&&prevBreadth) rec.breadthPrev=prevBreadth;
           // 量價也是背景慢慢載入的（而且開盤前 20 分鐘 Yahoo 還沒有今天的分 K）：同一個時段內載到了就補上。
           // 只補空的，而且只補快照後 30 分鐘內的值，避免把很晚的量價配到很早的快照上。
           if(rec.volumePrice?.rvol==null&&rec.volumePrice?.distPct==null&&r.volumePriceRecord?.available&&stamp.getTime()-Date.parse(rec.ts)<=30*60000) rec.volumePrice={...r.volumePriceRecord,filledAt:stamp.toISOString()};
@@ -5539,7 +5554,7 @@ function TrendRadar({ holdings, embedded = false }) {
             const key=day+"|"+r.symbol+"|morning";
             if(records.some(x=>x.key===key)) fillSlow(records.find(x=>x.key===key),r);
             if(!records.some(x=>x.key===key)){
-              records.push({key,day,symbol:r.symbol,phase:"morning",ts:stamp.toISOString(),rawProbability:r.rawProbability,probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,modelVersion:r.modelVersion,lateProgress:r.lateProgress,closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,weights:r.weights,timedKdScore:r.timedKdScore,volumePrice:r.volumePriceRecord||r.volumePrice,breadth:r.breadth,breadthSource:r.breadthSource,margin:marginForRecord(r.margin),instLoaded:instNow,inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
+              records.push({key,day,symbol:r.symbol,phase:"morning",ts:stamp.toISOString(),rawProbability:r.rawProbability,probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,modelVersion:r.modelVersion,lateProgress:r.lateProgress,closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,weights:r.weights,timedKdScore:r.timedKdScore,volumePrice:r.volumePriceRecord||r.volumePrice,breadth:r.breadth,breadthSource:r.breadthSource,breadthPrev:prevBreadth,margin:marginForRecord(r.margin),instLoaded:instNow,inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
             }
           });
         }
@@ -5550,7 +5565,7 @@ function TrendRadar({ holdings, embedded = false }) {
             const key=day+"|"+r.symbol+"|closeLock";
             if(records.some(x=>x.key===key)) fillSlow(records.find(x=>x.key===key),r);
             if(!records.some(x=>x.key===key)){
-              records.push({key,day,symbol:r.symbol,phase:"closeLock",ts:stamp.toISOString(),rawProbability:r.rawProbability,probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,modelVersion:r.modelVersion,lateProgress:r.lateProgress,closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,weights:r.weights,timedKdScore:r.timedKdScore,volumePrice:r.volumePriceRecord||r.volumePrice,breadth:r.breadth,breadthSource:r.breadthSource,margin:marginForRecord(r.margin),instLoaded:instNow,inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
+              records.push({key,day,symbol:r.symbol,phase:"closeLock",ts:stamp.toISOString(),rawProbability:r.rawProbability,probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,modelVersion:r.modelVersion,lateProgress:r.lateProgress,closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,weights:r.weights,timedKdScore:r.timedKdScore,volumePrice:r.volumePriceRecord||r.volumePrice,breadth:r.breadth,breadthSource:r.breadthSource,breadthPrev:prevBreadth,margin:marginForRecord(r.margin),instLoaded:instNow,inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
             }
           });
         }
@@ -6200,7 +6215,8 @@ function FactorBacktest() {
     ["KD 月線 (K-D)", (r) => (r.kd?.kMonthly != null && r.kd?.dMonthly != null) ? r.kd.kMonthly - r.kd.dMonthly : null],
     ["RVOL", (r) => r.volumePrice?.rvol],
     ["VWAP 距離 %", (r) => r.volumePrice?.distPct],
-    ["市場廣度", (r) => r.breadthSource==="market" ? r.breadth : null],
+    // 當天的全市場廣度收盤後才公布，盤中快照拿不到（一直是 n=0），改用開盤前已知的前一交易日廣度。
+    ["前日全市場廣度", (r) => r.breadthPrev?.breadth],
     ["融資 1日增減 %", (r) => r.margin?.chg1],
     ["融資 3日增減 %", (r) => r.margin?.chg3],
     ["券資比 %", (r) => r.margin?.shortRatio],
