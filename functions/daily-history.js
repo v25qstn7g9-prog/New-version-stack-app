@@ -10,7 +10,9 @@
  * 邊緣快取以「當天」為 key，一天只會真的打一次 Yahoo，其餘都吃快取。
  */
 
-const HISTORY_VERSION = "1.2-session-cache-adjusted";
+import { readIntradayBars } from "./intraday.js";
+
+const HISTORY_VERSION = "1.3-gap-fill";
 const SYMBOL_PATTERN = /^[0-9]{4,6}[A-Z]?$/;
 
 function isAllowedSymbol(s) {
@@ -112,6 +114,46 @@ async function writeCache(symbol, day, slot, bars) {
   }
 }
 
+// Yahoo 日K 偶爾整天缺一根（例：10/13 的 0050、0056 不見了，台積電和大盤都有）。
+// 缺的那天如果別的代號有（＝那天有開盤），就用伺服器自己每分鐘記錄的盤中資料補成日K。
+// 只補近 30 天、已收盤的日子，標 source:"intraday-archive"；補不到就維持原樣，不猜。
+export function findDailyGaps(barsBySymbol, today, lookbackDays = 30, maxGaps = 10) {
+  const since = new Date(Date.parse(today + "T12:00:00Z") - lookbackDays * 86400000).toISOString().slice(0, 10);
+  const tradingDays = new Set();
+  for (const bars of Object.values(barsBySymbol)) for (const b of bars || []) if (b.day >= since && b.day < today) tradingDays.add(b.day);
+  const gaps = [];
+  for (const [sym, bars] of Object.entries(barsBySymbol)) {
+    if (!bars?.length) continue;
+    const have = new Set(bars.map((b) => b.day));
+    for (const day of tradingDays) if (!have.has(day) && day > bars[0].day) gaps.push({ sym, day });
+  }
+  return gaps.sort((a, b) => a.day.localeCompare(b.day) || a.sym.localeCompare(b.sym)).slice(-maxGaps);
+}
+async function fillDailyGaps(env, barsBySymbol, today, read = readIntradayBars) {
+  if (!env?.health_kv) return [];
+  const byDay = new Map();
+  for (const g of findDailyGaps(barsBySymbol, today)) byDay.set(g.day, [...(byDay.get(g.day) || []), g.sym]);
+  const filled = [];
+  for (const [day, syms] of byDay) {
+    let res = null;
+    try { res = await read(env, { symbols: syms, interval: 60, date: day }); } catch { res = null; }
+    if (!res?.found) continue;
+    for (const sym of syms) {
+      const rows = res.bars?.[sym];
+      const last = String(res.recorded?.[sym]?.lastMinute || "");
+      if (!rows?.length || last < "13:30") continue; // 那天沒收完整就不補
+      const bar = {
+        day, open: rows[0].open, high: Math.max(...rows.map((r) => r.high)), low: Math.min(...rows.map((r) => r.low)),
+        close: rows[rows.length - 1].close, adjustedClose: null, volume: null, source: "intraday-archive",
+      };
+      if (![bar.open, bar.high, bar.low, bar.close].every((v) => Number.isFinite(v) && v > 0)) continue;
+      barsBySymbol[sym] = [...barsBySymbol[sym], bar].sort((a, b) => a.day.localeCompare(b.day));
+      filled.push(`${sym}@${day}`);
+    }
+  }
+  return filled;
+}
+
 export async function onRequestGet(context) {
   try {
     const url = new URL(context.request.url);
@@ -151,8 +193,11 @@ export async function onRequestGet(context) {
       })
     );
 
+    const filled = await fillDailyGaps(context.env, bars, day, context.readIntradayBars).catch(() => []);
+
     return jsonResponse({
       ok: true,
+      ...(filled.length ? { filled } : {}),
       version: HISTORY_VERSION,
       day,
       cachePhase:slot,

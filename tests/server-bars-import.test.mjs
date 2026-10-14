@@ -7,6 +7,7 @@ import vm from 'node:vm';
 const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const block = html.match(/\/\/ <server-bars-import>([\s\S]*?)\/\/ <\/server-bars-import>/)?.[1];
 assert.ok(block, 'server-bars-import block must exist');
+const baselineBlock = html.match(/\/\/ <baseline-compare>([\s\S]*?)\/\/ <\/baseline-compare>/)?.[1];
 const importer = html.match(/async function importServerBarSamples[\s\S]*?\n}\n/)?.[0];
 assert.ok(importer, 'importServerBarSamples must exist');
 const plain = (v) => JSON.parse(JSON.stringify(v));
@@ -14,7 +15,7 @@ const plain = (v) => JSON.parse(JSON.stringify(v));
 function load(env = {}) {
   const ctx = { ...env };
   vm.createContext(ctx);
-  vm.runInContext(block + '\n' + importer + '\nthis.api={serverImportDays,serverBarAt,buildServerSamples,fillMissingDailyKd,importServerBarSamples,kdFromBars,monthlyFromDaily};', ctx);
+  vm.runInContext(baselineBlock + '\n' + block + '\n' + importer + '\nthis.api={serverImportDays,serverBarAt,buildServerSamples,fillMissingDailyKd,importServerBarSamples,kdFromBars,monthlyFromDaily};', ctx);
   return ctx.api;
 }
 
