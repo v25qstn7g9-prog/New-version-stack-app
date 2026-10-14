@@ -359,6 +359,9 @@ async function fetchGlobalDailyQuote(symbol) {
     asOfDate: new Date(last.ts * 1000).toISOString(),
     source: "Yahoo-daily",
     intradayFresh: false,
+    // 「上一個已收盤的美股交易日」本來就不會有台股時段的盤中資料；它是否過舊由 asOfDate 判斷，
+    // 不能因為台股正在開盤就標成 stale（否則 13:25 鎖定明日預測時，美股／費半／匯率全被當成過期丟掉）。
+    isGlobal: true,
   };
 }
 
@@ -688,7 +691,7 @@ export async function onRequestGet(context) {
         const yq = result.value;
 
         if (quotes[symbol] && Number.isFinite(quotes[symbol].prevClose)) {
-          const relevantMarketOpen = yq.isUS ? isUsRegularTradingHours() : isTaiwanTradingHours();
+          const relevantMarketOpen = yq.isGlobal ? false : yq.isUS ? isUsRegularTradingHours() : isTaiwanTradingHours();
           quotes[symbol] = {
             price: yq.price,
             prevClose: quotes[symbol].prevClose,
@@ -703,7 +706,7 @@ export async function onRequestGet(context) {
         } else {
           const yahooPrev = Number.isFinite(yq.prevClose) && yq.prevClose > 0 ? yq.prevClose : yq.price;
 
-          const relevantMarketOpen = yq.isUS ? isUsRegularTradingHours() : isTaiwanTradingHours();
+          const relevantMarketOpen = yq.isGlobal ? false : yq.isUS ? isUsRegularTradingHours() : isTaiwanTradingHours();
           quotes[symbol] = {
             price: yq.price,
             prevClose: yahooPrev,
