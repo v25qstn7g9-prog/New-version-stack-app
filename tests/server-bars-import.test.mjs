@@ -31,17 +31,17 @@ function dailyBars(sym, upToDay) {
 const bar = (time, close) => ({ time, open: close, high: close, low: close, close, samples: 4, minutes: 5 });
 const dayBars = (a, b) => [bar('09:00', a), bar('09:25', a), bar('13:20', b), bar('13:25', b)];
 
-test('serverImportDays: past weekdays missing a morning/closeLock record, newest 4, oldest first', () => {
+test('serverImportDays: past weekdays missing a morning/closeLock record, newest 8 within 3 weeks, oldest first', () => {
   const syms = ['2330'];
   const days = api().serverImportDays([], '2026-10-13', syms, () => false, []);
-  assert.deepEqual(plain(days), ['2026-10-07', '2026-10-08', '2026-10-09', '2026-10-12']);
+  assert.deepEqual(plain(days), ['2026-10-01', '2026-10-02', '2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-09', '2026-10-12']);
   // 已有兩個時間點的紀錄 → 不用補；只缺一個仍要補
   const both = ['morning', 'closeLock'].map((p) => ({ key: `2026-10-12|2330|${p}` }));
   assert.ok(!api().serverImportDays(both, '2026-10-13', syms, () => false, []).includes('2026-10-12'));
   assert.ok(api().serverImportDays([both[0]], '2026-10-13', syms, () => false, []).includes('2026-10-12'));
   // 休市日與已查過的日子不再查；今天永遠不補（App 開著時雷達自己會記）
   const d2 = api().serverImportDays([], '2026-10-13', syms, (d) => d === '2026-10-09', ['2026-10-08']);
-  assert.deepEqual(plain(d2), ['2026-10-05', '2026-10-06', '2026-10-07', '2026-10-12']);
+  assert.deepEqual(plain(d2), ['2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02', '2026-10-05', '2026-10-06', '2026-10-07', '2026-10-12']);
   assert.ok(!api().serverImportDays([], '2026-10-13', syms, () => false, []).includes('2026-10-13'));
 });
 function api() { return load(); }
@@ -190,4 +190,15 @@ test('fillMissingDailyKd restores empty daily/monthly KD on past records from th
   assert.equal(have.kd.kDaily, 11, 'a filled value is never overwritten');
   assert.deepEqual(plain(today.kd), {}, 'today is left to the radar');
   assert.equal(idx.kd, undefined);
+});
+
+test('factor backtest: raw market factors count records from before the model change; model-dependent ones do not', () => {
+  for (const label of ['大盤 %', '個股 %', 'KD 日線 (K-D)', 'KD 月線 (K-D)']) {
+    assert.match(html, new RegExp(`\\["${label.replace(/[()]/g, '\\$&')}", \\(r\\) => [^\\n]*, true\\],`), label);
+  }
+  assert.match(html, /\.filter\(\(r\) => anyVersion \|\| r\.modelVersion === TREND_MODEL_VERSION\)/);
+  for (const label of ['新聞分數', 'RVOL', '融資 1日增減 %']) {
+    const line = html.split('\n').find((l) => l.includes(`["${label}"`) && l.includes('(r) =>'));
+    assert.ok(line && !/, true\],/.test(line), label + ' stays current-version only');
+  }
 });

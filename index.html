@@ -4834,8 +4834,8 @@ const monthlyFromDaily = (bars) => {
 // 能還原的只有：大盤 %、個股 %、日 KD / 月 KD（當時已知的日線）。
 // 還原不了的（新聞分數、RVOL / VWAP、市場廣度、法人、融資、盤中 KD、模型機率）一律留空，
 // 不補猜；沒有機率的樣本不會進入命中率與校準統計，只供因子回測相關係數使用。
-const SERVER_IMPORT_LOOKBACK_DAYS = 10;
-const SERVER_IMPORT_MAX_DAYS = 4;
+const SERVER_IMPORT_LOOKBACK_DAYS = 21; // 伺服器 5 分 K 封存從 10/1 開始、約留 60 天
+const SERVER_IMPORT_MAX_DAYS = 8;
 const MAX_SERVER_IMPORT_SYMBOLS = 30;
 const SERVER_IMPORT_PHASES = [["morning", "09:25"], ["closeLock", "13:25"]];
 function serverImportDays(records, today, symbols, isClosedDay, checked = []) {
@@ -6192,8 +6192,10 @@ function FactorBacktest() {
   const MIN_N = 20;
   const serverSampleN = useMemo(() => (today?.records || []).filter((r) => r.source === "server" && r.actual).length, [today]);
 
-  const buildFactors = (records, defs) => defs.map(([label, fn]) => {
+  // 第三欄 true = 原始市場數據（不受模型改版影響），連改版前的紀錄一起算；其餘只算目前模型版本的紀錄。
+  const buildFactors = (records, defs) => defs.map(([label, fn, anyVersion]) => {
     const pairs = records
+      .filter((r) => anyVersion || r.modelVersion === TREND_MODEL_VERSION)
       .map((r) => [fn(r), r.actual?.pct])
       .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
     return { label, n: pairs.length, r: pairs.length >= MIN_N ? pearsonCorr(pairs) : null };
@@ -6201,8 +6203,8 @@ function FactorBacktest() {
 
   const instOf = (r, k) => (r.instLoaded === false ? null : r.inst?.[k]);
   const todayFactorDefs = useMemo(() => ([
-    ["大盤 %", (r) => r.indexPct],
-    ["個股 %", (r) => r.stockPct],
+    ["大盤 %", (r) => r.indexPct, true],
+    ["個股 %", (r) => r.stockPct, true],
     ["新聞分數", (r) => r.newsScore],
     // 法人資料還沒載到時快照記的是 0（instLoaded:false），那不是「法人沒買賣」，不能當樣本。
     ["外資 1日", (r) => instOf(r, "f1")], ["外資 3日", (r) => instOf(r, "f3")], ["外資 5日", (r) => instOf(r, "f5")],
@@ -6211,8 +6213,8 @@ function FactorBacktest() {
     ["KD 5分 (K-D)", (r) => (r.kd?.k5 != null && r.kd?.d5 != null) ? r.kd.k5 - r.kd.d5 : null],
     ["KD 15分 (K-D)", (r) => (r.kd?.k15 != null && r.kd?.d15 != null) ? r.kd.k15 - r.kd.d15 : null],
     ["KD 60分 (K-D)", (r) => (r.kd?.k60 != null && r.kd?.d60 != null) ? r.kd.k60 - r.kd.d60 : null],
-    ["KD 日線 (K-D)", (r) => (r.kd?.kDaily != null && r.kd?.dDaily != null) ? r.kd.kDaily - r.kd.dDaily : null],
-    ["KD 月線 (K-D)", (r) => (r.kd?.kMonthly != null && r.kd?.dMonthly != null) ? r.kd.kMonthly - r.kd.dMonthly : null],
+    ["KD 日線 (K-D)", (r) => (r.kd?.kDaily != null && r.kd?.dDaily != null) ? r.kd.kDaily - r.kd.dDaily : null, true],
+    ["KD 月線 (K-D)", (r) => (r.kd?.kMonthly != null && r.kd?.dMonthly != null) ? r.kd.kMonthly - r.kd.dMonthly : null, true],
     ["RVOL", (r) => r.volumePrice?.rvol],
     ["VWAP 距離 %", (r) => r.volumePrice?.distPct],
     // 當天的全市場廣度收盤後才公布，盤中快照拿不到（一直是 n=0），改用開盤前已知的前一交易日廣度。
@@ -6223,12 +6225,12 @@ function FactorBacktest() {
   ]), []);
 
   const morningFactors = useMemo(() => {
-    const recs = (today?.records || []).filter((r) => r.modelVersion===TREND_MODEL_VERSION && r.actual && r.phase === "morning");
+    const recs = (today?.records || []).filter((r) => r.actual && r.phase === "morning");
     return buildFactors(recs, todayFactorDefs);
   }, [today, todayFactorDefs]);
 
   const closeLockFactors = useMemo(() => {
-    const recs = (today?.records || []).filter((r) => r.modelVersion===TREND_MODEL_VERSION && r.actual && r.phase === "closeLock");
+    const recs = (today?.records || []).filter((r) => r.actual && r.phase === "closeLock");
     return buildFactors(recs, todayFactorDefs);
   }, [today, todayFactorDefs]);
 
@@ -6274,6 +6276,11 @@ function FactorBacktest() {
             {UI_SHOW_ENGLISH
               ? `Computes each factor's Pearson correlation (-1 to 1) with the actual move; |r| >= 0.3 counts as a meaningful relationship. Under ${MIN_N} samples shows only the sample count, no coefficient, to avoid reading noise as signal. The morning model and the 13:25 lock model are tracked separately so they don't distort each other. Research reference only — never feeds back into the radar's live weights.`
               : <>算每個因子跟「實際漲跌幅」的皮爾森相關係數（-1～1）；|r|≥0.3 才視為有意義的關聯，樣本數不到 {MIN_N} 筆時只顯示樣本數、不給係數，避免把噪音誤讀成訊號。上午模型與 13:25 鎖定模型分開統計，避免混在一起失真。這只是研究參考，不會自動回頭改雷達的權重。</>}
+          </div>
+          <div className="text-[9px] mb-2 leading-relaxed" style={{ color: COLORS.sub }}>
+            {UI_SHOW_ENGLISH
+              ? "Index %, stock %, and daily/monthly KD are raw market data that do not depend on the model version, so records from before the 10/6 model change are included for them."
+              : "大盤 %、個股 %、日／月 KD 是原始市場數據，跟模型版本無關，所以連 10/6 改版前的紀錄也一起算；其他因子只算目前版本。"}
           </div>
           {serverSampleN > 0 && (
             <div className="text-[9px] mb-2 leading-relaxed" style={{ color: COLORS.sub }}>
