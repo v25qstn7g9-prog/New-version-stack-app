@@ -3423,6 +3423,12 @@ function AssetTracker() {
   const missedDays = (ready && backfillSettled && !usHoldings.some((h) => h.shares > 0))
     ? missedWeekdays(dailyRecords, todayStr(), (d) => Boolean(marketClosureFromCache(new Date(d + "T12:00:00+08:00")))).filter((d) => !missedChecked.includes(d))
     : [];
+  // ⑥ 自主學習：只從已驗證紀錄學；學習版在樣本外贏過手調模型才會接手，變差會自動退回。
+  useEffect(() => {
+    if (!ready) return;
+    const t = setTimeout(() => { runSelfLearn(TREND_MODEL_VERSION).catch(() => {}); }, 8000);
+    return () => clearTimeout(t);
+  }, [ready]);
   // ⑤ App 收在背景時，伺服器會代收持股分 K；打開後把錯過的上午 / 收盤前因子樣本補進因子回測。
   useEffect(() => {
     if (!ready) return;
@@ -4806,6 +4812,152 @@ function marginForRecord(m) {
 }
 // </margin-helpers>
 
+// <self-learn>
+// 自主學習：只從「已驗證的紀錄」學，而且從手調模型出發、只做小幅修正（脊迴歸收縮回手調模型）。
+// 每次都用「依日期往前走」的方式驗證（只拿當天以前的紀錄訓練、預測當天），學習版在樣本外的機率誤差（Brier）
+// 連續贏過手調模型才會啟用；之後表現變差會自動退回。訓練永遠以紀錄裡的 rawProbability（手調模型的原始輸出）為基底，
+// 所以學習版啟用後，也不會自己拿自己的輸出再學。
+const LEARN_MIN_ROWS = 60;       // 至少這麼多筆已驗證紀錄才開始學
+const LEARN_MIN_TRAIN = 40;      // 往前走驗證時，訓練集至少這麼多筆才開始預測
+const LEARN_MIN_EVAL = 30;       // 樣本外預測至少這麼多筆才有資格判斷
+const LEARN_EVAL_WINDOW = 80;    // 只看最近這麼多筆樣本外預測
+const LEARN_LAMBDA = 20;         // 收縮強度（越大越貼近手調模型）
+const LEARN_ACTIVATE_RATIO = 0.97; // 啟用：Brier 要比手調模型低 3% 以上
+const learnClamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const learnSign = (v) => (Number(v) > 0 ? 1 : Number(v) < 0 ? -1 : 0);
+const learnNum = (v) => (v == null || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
+const LEARN_FEATURES = [
+  ["stockPct", (r) => learnNum(r.stockPct)],
+  ["indexPct", (r) => learnNum(r.indexPct)],
+  ["news", (r) => learnNum(r.newsScore)],
+  ["inst", (r) => {
+    if (r.instLoaded === false || !r.inst) return null;
+    const ks = ["f1", "f3", "f5", "t1", "t3", "t5"].map((k) => r.inst[k]);
+    return ks.every((v) => learnNum(v) == null) ? null : ks.reduce((a, v) => a + learnSign(v), 0) / 6;
+  }],
+  ["kdDaily", (r) => (learnNum(r.kd?.kDaily) != null && learnNum(r.kd?.dDaily) != null ? r.kd.kDaily - r.kd.dDaily : null)],
+  ["kdIntraday", (r) => {
+    const d = [["k5", "d5"], ["k15", "d15"], ["k60", "d60"]].map(([k, dd]) => (learnNum(r.kd?.[k]) != null && learnNum(r.kd?.[dd]) != null ? r.kd[k] - r.kd[dd] : null)).filter((v) => v != null);
+    return d.length ? d.reduce((a, v) => a + v, 0) / d.length : null;
+  }],
+  ["timedKd", (r) => learnNum(r.timedKdScore)],
+  ["vwapDist", (r) => learnNum(r.volumePrice?.distPct)],
+  ["rvolLog", (r) => (learnNum(r.volumePrice?.rvol) > 0 ? Math.log(Number(r.volumePrice.rvol)) : null)],
+  ["breadthPrev", (r) => learnNum(r.breadthPrev?.breadth)],
+];
+const learnVector = (rec) => LEARN_FEATURES.map(([, f]) => f(rec));
+const learnLogit = (p) => { const q = learnClamp(Number(p) / 100, 0.01, 0.99); return Math.log(q / (1 - q)); };
+function learnSolve(A, b) {
+  const n = b.length, M = A.map((row, i) => [...row, b[i]]);
+  for (let c = 0; c < n; c++) {
+    let p = c; for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+    [M[c], M[p]] = [M[p], M[c]];
+    if (Math.abs(M[c][c]) < 1e-12) return null;
+    for (let r = c + 1; r < n; r++) { const f = M[r][c] / M[c][c]; for (let k = c; k <= n; k++) M[r][k] -= f * M[c][k]; }
+  }
+  const x = Array(n).fill(0);
+  for (let i = n - 1; i >= 0; i--) { let s = M[i][n]; for (let k = i + 1; k < n; k++) s -= M[i][k] * x[k]; x[i] = s / M[i][i]; }
+  return x;
+}
+// rows: [{ x:[特徵…|null], raw:手調機率(%), y:0|1 }]
+function learnFit(rows, lambda = LEARN_LAMBDA) {
+  const d = LEARN_FEATURES.length, n = rows.length;
+  if (!n) return null;
+  const mean = Array(d).fill(0), std = Array(d).fill(1);
+  for (let j = 0; j < d; j++) {
+    const v = rows.map((r) => r.x[j]).filter((t) => t != null);
+    if (v.length >= 5) {
+      mean[j] = v.reduce((a, t) => a + t, 0) / v.length;
+      const sd = Math.sqrt(v.reduce((a, t) => a + (t - mean[j]) ** 2, 0) / v.length);
+      std[j] = sd > 1e-9 ? sd : 1;
+    }
+  }
+  const design = rows.map((r) => [1, learnLogit(r.raw), ...r.x.map((t, j) => (t == null ? 0 : learnClamp((t - mean[j]) / std[j], -3, 3)))]);
+  const k = d + 2, prior = [0, 1, ...Array(d).fill(0)];
+  let th = prior.slice();
+  for (let it = 0; it < 15; it++) {
+    const g = Array(k).fill(0), H = Array.from({ length: k }, () => Array(k).fill(0));
+    design.forEach((xr, i) => {
+      let z = 0; for (let j = 0; j < k; j++) z += th[j] * xr[j];
+      const p = 1 / (1 + Math.exp(-z)), w = p * (1 - p);
+      for (let a = 0; a < k; a++) { g[a] += (p - rows[i].y) * xr[a]; for (let b = a; b < k; b++) H[a][b] += w * xr[a] * xr[b]; }
+    });
+    for (let a = 0; a < k; a++) { for (let b = 0; b < a; b++) H[a][b] = H[b][a]; }
+    for (let a = 1; a < k; a++) { g[a] += lambda * (th[a] - prior[a]); H[a][a] += lambda; }
+    H[0][0] += 1e-6;
+    const delta = learnSolve(H, g);
+    if (!delta) return null;
+    let step = 0; for (let a = 0; a < k; a++) { th[a] -= delta[a]; step = Math.max(step, Math.abs(delta[a])); }
+    if (step < 1e-6) break;
+  }
+  return { mean, std, theta: th, n };
+}
+function learnPredictVec(model, vec, raw) {
+  if (!model?.theta || !Number.isFinite(Number(raw))) return null;
+  const x = vec.map((t, j) => (t == null ? 0 : learnClamp((t - model.mean[j]) / model.std[j], -3, 3)));
+  const row = [1, learnLogit(raw), ...x];
+  let z = 0; for (let j = 0; j < row.length; j++) z += model.theta[j] * row[j];
+  return Math.round(learnClamp(100 / (1 + Math.exp(-z)), 25, 75)); // 顯示範圍沿用手調模型的 25–75
+}
+const learnPredict = (model, rec, raw) => learnPredictVec(model, learnVector(rec), raw);
+// 從已驗證紀錄整理出訓練列（同一個時段、目前模型版本、手調模型有輸出、非伺服器補回、非大盤列）。
+function learnRows(records, { phase, modelVersion }) {
+  return (records || []).filter((r) => r && r.phase === phase && r.modelVersion === modelVersion && r.source !== "server" && r.symbol !== "TAIEX"
+    && learnNum(r.rawProbability) != null && learnNum(r.actual?.pct) != null && Math.abs(Number(r.actual.pct)) > 1e-8)
+    .map((r) => ({ day: r.day, x: learnVector(r), raw: Number(r.rawProbability), y: Number(r.actual.pct) > 0 ? 1 : 0 }))
+    .sort((a, b) => String(a.day).localeCompare(String(b.day)));
+}
+// 依日期往前走：訓練只用「當天以前」的列，預測當天；回傳樣本外的對照成績。
+function learnWalkForward(rows) {
+  const days = [...new Set(rows.map((r) => r.day))];
+  const preds = [];
+  for (const day of days) {
+    const train = rows.filter((r) => r.day < day);
+    if (train.length < LEARN_MIN_TRAIN) continue;
+    const m = learnFit(train);
+    if (!m) continue;
+    rows.filter((r) => r.day === day).forEach((r) => {
+      const pm = learnClamp(r.raw, 25, 75);
+      const pl = learnPredictVec(m, r.x, r.raw);
+      if (pl != null) preds.push({ pm, pl, y: r.y });
+    });
+  }
+  const last = preds.slice(-LEARN_EVAL_WINDOW);
+  const brier = (f) => (last.length ? last.reduce((a, t) => a + (f(t) / 100 - t.y) ** 2, 0) / last.length : null);
+  const hits = (f) => last.filter((t) => (f(t) >= 50) === (t.y === 1)).length;
+  return { evalN: last.length, brierModel: brier((t) => t.pm), brierLearned: brier((t) => t.pl), hitModel: hits((t) => t.pm), hitLearned: hits((t) => t.pl) };
+}
+// 重新訓練並決定「學習版要不要啟用」。prev 是上次存的狀態（用來做啟用／退回的遲滯：要啟用得明顯贏，已啟用則只要沒輸就留著）。
+function trainSelfLearn(records, prevState, { modelVersion, today }) {
+  const out = {};
+  for (const phase of ["morning", "closeLock"]) {
+    const rows = learnRows(records, { phase, modelVersion });
+    const prev = prevState?.[phase] || null;
+    const base = { n: rows.length, need: LEARN_MIN_ROWS, trainedDay: today, modelVersion };
+    if (rows.length < LEARN_MIN_ROWS) { out[phase] = { ...base, active: false, reason: "collecting" }; continue; }
+    const wf = learnWalkForward(rows);
+    const model = learnFit(rows);
+    if (!model || wf.evalN < LEARN_MIN_EVAL || wf.brierModel == null) { out[phase] = { ...base, active: false, ...wf, reason: "validating" }; continue; }
+    const winsBy = prev?.active ? 1 : LEARN_ACTIVATE_RATIO;
+    const active = wf.brierLearned <= wf.brierModel * winsBy && (prev?.active || wf.hitLearned >= wf.hitModel);
+    out[phase] = {
+      ...base, ...wf, active, model,
+      since: active ? (prev?.active ? prev.since : today) : null,
+      reason: active ? "active" : prev?.active ? "reverted" : "not-better",
+    };
+  }
+  return out;
+}
+// 雷達的一列（特徵來源散在各變數）→ 紀錄形狀；訓練和即時預測用同一個形狀，特徵才會一致。
+function learnRecFromRow(r, { prevBreadth, volumePriceRecord, instLoaded }) {
+  return {
+    indexPct: r.indexPct, stockPct: r.stockPct, newsScore: r.newsScore, instLoaded,
+    inst: { f1: r.f1, f3: r.f3, f5: r.f5, t1: r.t1, t3: r.t3, t5: r.t5 },
+    kd: { k5: r.kd5?.K, d5: r.kd5?.D, k15: r.kd15?.K, d15: r.kd15?.D, k60: r.kd60?.K, d60: r.kd60?.D, kDaily: r.kdDaily?.K, dDaily: r.kdDaily?.D },
+    timedKdScore: r.timedKdScore, volumePrice: volumePriceRecord, breadthPrev: prevBreadth,
+  };
+}
+// </self-learn>
 // <lean-label>
 // 明日預測只顯示用：機率落在 46–54%（原本一律寫「方向不明」）時，仍標出微弱傾向，但明講「不確定」。
 // 只改顯示文字；pred.direction 本身不變（命中率、校準、紀錄都還是用原本的判斷），所以統計口徑沒有被動到。
@@ -5032,6 +5184,20 @@ async function importServerBarSamples({ symbols, today, isClosedDay, modelVersio
   if (done.length) await saveKey("serverBarsImport", { checked: [...checked, ...done].slice(-60), at: new Date().toISOString() });
   return fresh.length + filled;
 }
+// 打開 App 時重新訓練（新增的已驗證紀錄數有變、或換日了才重算；很便宜）。
+async function runSelfLearn(modelVersion) {
+  const today = taipeiDateKey();
+  const hist = await loadKey("trendRadarHistory", { records: [] });
+  const records = Array.isArray(hist?.records) ? hist.records : [];
+  const prev = await loadKey("selfLearn", null);
+  const count = records.filter((r) => r && r.modelVersion === modelVersion && r.actual).length;
+  if (prev?.recordCount === count && prev?.trainedDay === today && prev?.modelVersion === modelVersion) return prev;
+  const state = trainSelfLearn(records, prev?.modelVersion === modelVersion ? prev : null, { modelVersion, today });
+  state.recordCount = count; state.trainedDay = today; state.modelVersion = modelVersion;
+  await saveKey("selfLearn", state);
+  try { window.dispatchEvent(new CustomEvent("selfLearnUpdated", { detail: state })); } catch {}
+  return state;
+}
 
 const TREND_RADAR_VERSION = "2.47";
 const TREND_MODEL_VERSION = "2.47-fresh-source-audit";
@@ -5051,6 +5217,7 @@ function TrendRadar({ holdings, embedded = false }) {
   const [accuracy, setAccuracy] = useState(null);
   const [closeLockAccuracy, setCloseLockAccuracy] = useState(null);
   const [baseline, setBaseline] = useState(null);
+  const [learnState, setLearnState] = useState(null);
   const [tomorrowAccuracy, setTomorrowAccuracy] = useState(null);
   const [postCloseAccuracy, setPostCloseAccuracy] = useState(null);
   const [premarketAccuracy, setPremarketAccuracy] = useState(null);
@@ -5075,6 +5242,7 @@ function TrendRadar({ holdings, embedded = false }) {
     let memoIntradayMetrics = null;
     let memoMarketBreadth = null;
     let memoPrevBreadth = null;
+    let memoSelfLearn = null;
     let historyRecords = [], tomorrowRecords = [];
     let latestLive = null, slowTimer = null;
     const F = globalThis.ZinfForecast;
@@ -5474,6 +5642,9 @@ function TrendRadar({ holdings, embedded = false }) {
       const marketDirection=marketProbability>=64?"明顯偏漲":marketProbability>=55?"稍偏漲":marketProbability<=36?"明顯偏跌":marketProbability<=45?"稍偏跌":"方向不明";
       let computedMarketRow={rawProbability:marketRawProbability,calibration:marketCalibration,quoteFresh:marketFresh,currentPrice:Number(idx?.price)||null,priceBand:marketFresh?todayRangeBand(dailyBarsMap.TAIEX,idx,Number(idx?.price)):null,probability:marketProbability,direction:marketDirection,indexPct,breadth,breadthSource,breadthCounts:breadthSource==="market"?{up:fullBreadth?.up,down:fullBreadth?.down,flat:fullBreadth?.flat}:null,kd5:marketKd5,kd15:marketKd15,kd60:marketKd60,kdDaily:marketKdDaily,kdMonthly:marketKdMonthly,micro:marketMicro,range:marketRange,volumePrice:marketVolumePrice,evidence:marketEvidence,marketCloseBoost,modelVersion:TREND_MODEL_VERSION};
       if(cancelled) return;
+      // 學習狀態是本機一小筆資料，每次計算前直接讀（不走慢速載入），這樣第一筆快照記下的機率就已經是學習版或手調版，不會前後不一致。
+      try{memoSelfLearn=await loadKey("selfLearn",null);}catch(e){memoSelfLearn=null;}
+      if(cancelled) return;
       let next = active.map((h) => {
         const q = quoteMap[h.symbol] || {};
         // Same rounding as indexPct above: keep this equal to the 2-decimal
@@ -5552,12 +5723,21 @@ function TrendRadar({ holdings, embedded = false }) {
         const rawProbability=probability;
         const calibration=F.calibrate(probability,historyRecords,{symbol:h.symbol,phase:sessionClock<630?"morning":"closeLock",modelVersion:TREND_MODEL_VERSION,beforeDay:todayKey});
         if(quoteFresh)probability=calibration.probability;
+        // 自主學習：學習版在樣本外贏過手調模型時才接手（見 trainSelfLearn）；平常只當影子預測記下來。
+        const learnPhase=sessionClock<630?"morning":"closeLock";
+        const learnSt=memoSelfLearn?.[learnPhase]?.modelVersion===TREND_MODEL_VERSION?memoSelfLearn[learnPhase]:null;
+        let learnedP=null;
+        if(quoteFresh&&learnSt?.model){
+          learnedP=learnPredict(learnSt.model,learnRecFromRow({indexPct,stockPct,newsScore,f1,f3,f5,t1,t3,t5,kd5,kd15,kd60,kdDaily,timedKdScore},{prevBreadth,volumePriceRecord,instLoaded:instDays.length>0}),rawProbability);
+        }
+        const learnActive=Boolean(learnSt?.active&&learnedP!=null);
+        if(learnActive)probability=learnedP;
         const direction = probability>=64 ? "明顯偏漲" : probability>=55 ? "稍偏漲" : probability<=36 ? "明顯偏跌" : probability<=45 ? "稍偏跌" : "方向不明";
         // Confidence now requires actual evidence breadth, not probability alone.
         const conviction = Math.abs(probability-50);
         const confidence = (calibration.calibrated && evidence>=3.5 && flows.length>=3 && conviction>=14 && kdSignals.length>=3) ? "高"
           : (evidence>=2.5 && conviction>=7) ? "中" : "低";
-        return {symbol:h.symbol,name:h.name||"",rawProbability,calibration,probability,direction,confidence,indexPct,stockPct,priceBand:quoteFresh?todayRangeBand(dailyBarsMap[h.symbol],q,Number(q.price)):null,currentPrice:Number(q.price)||null,dayHigh:Number(q.high)||null,dayLow:Number(q.low)||null,newsScore,flows,f1,f3,f5,t1,t3,t5,d1,d3,d5,kd5,kd15,kd60,kdDaily,kdMonthly,micro,range,volumePrice,margin,breadth,breadthSource,breadthTerm,evidence,quoteFresh,modelVersion:TREND_MODEL_VERSION,lateProgress,closeProgress,closeDirectionBoost,weights:{indexW,stockW,newsW,instTimeW},timedKdScore,volumePriceRecord,shadowVol:volProbability(stockPct,sigmaFor(h.symbol),sessionClock)};
+        return {symbol:h.symbol,name:h.name||"",rawProbability,calibration,probability,direction,confidence,indexPct,stockPct,priceBand:quoteFresh?todayRangeBand(dailyBarsMap[h.symbol],q,Number(q.price)):null,currentPrice:Number(q.price)||null,dayHigh:Number(q.high)||null,dayLow:Number(q.low)||null,newsScore,flows,f1,f3,f5,t1,t3,t5,d1,d3,d5,kd5,kd15,kd60,kdDaily,kdMonthly,micro,range,volumePrice,margin,breadth,breadthSource,breadthTerm,evidence,quoteFresh,modelVersion:TREND_MODEL_VERSION,lateProgress,closeProgress,closeDirectionBoost,weights:{indexW,stockW,newsW,instTimeW},timedKdScore,volumePriceRecord,learn:learnedP!=null?{p:learnedP,active:learnActive}:null,shadowVol:volProbability(stockPct,sigmaFor(h.symbol),sessionClock)};
       });
 
       // Model correction #2: freeze today's forecast at/after 13:25.
@@ -5631,7 +5811,7 @@ function TrendRadar({ holdings, embedded = false }) {
             const key=day+"|"+r.symbol+"|morning";
             if(records.some(x=>x.key===key)) fillSlow(records.find(x=>x.key===key),r);
             if(!records.some(x=>x.key===key)){
-              records.push({key,day,symbol:r.symbol,phase:"morning",ts:stamp.toISOString(),rawProbability:r.rawProbability,probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,modelVersion:r.modelVersion,lateProgress:r.lateProgress,closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,weights:r.weights,timedKdScore:r.timedKdScore,volumePrice:r.volumePriceRecord||r.volumePrice,breadth:r.breadth,breadthSource:r.breadthSource,breadthPrev:prevBreadth,shadow:r.shadowVol||null,margin:marginForRecord(r.margin),instLoaded:instNow,inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
+              records.push({key,day,symbol:r.symbol,phase:"morning",ts:stamp.toISOString(),rawProbability:r.rawProbability,probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,modelVersion:r.modelVersion,lateProgress:r.lateProgress,closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,weights:r.weights,timedKdScore:r.timedKdScore,volumePrice:r.volumePriceRecord||r.volumePrice,breadth:r.breadth,breadthSource:r.breadthSource,breadthPrev:prevBreadth,shadow:r.shadowVol||null,learn:r.learn||null,margin:marginForRecord(r.margin),instLoaded:instNow,inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
             }
           });
         }
@@ -5642,7 +5822,7 @@ function TrendRadar({ holdings, embedded = false }) {
             const key=day+"|"+r.symbol+"|closeLock";
             if(records.some(x=>x.key===key)) fillSlow(records.find(x=>x.key===key),r);
             if(!records.some(x=>x.key===key)){
-              records.push({key,day,symbol:r.symbol,phase:"closeLock",ts:stamp.toISOString(),rawProbability:r.rawProbability,probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,modelVersion:r.modelVersion,lateProgress:r.lateProgress,closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,weights:r.weights,timedKdScore:r.timedKdScore,volumePrice:r.volumePriceRecord||r.volumePrice,breadth:r.breadth,breadthSource:r.breadthSource,breadthPrev:prevBreadth,shadow:r.shadowVol||null,margin:marginForRecord(r.margin),instLoaded:instNow,inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
+              records.push({key,day,symbol:r.symbol,phase:"closeLock",ts:stamp.toISOString(),rawProbability:r.rawProbability,probability:r.probability,direction:r.direction,indexPct:r.indexPct,stockPct:r.stockPct,newsScore:r.newsScore,modelVersion:r.modelVersion,lateProgress:r.lateProgress,closeProgress:r.closeProgress,closeDirectionBoost:r.closeDirectionBoost,weights:r.weights,timedKdScore:r.timedKdScore,volumePrice:r.volumePriceRecord||r.volumePrice,breadth:r.breadth,breadthSource:r.breadthSource,breadthPrev:prevBreadth,shadow:r.shadowVol||null,learn:r.learn||null,margin:marginForRecord(r.margin),instLoaded:instNow,inst:{f1:r.f1,f3:r.f3,f5:r.f5,t1:r.t1,t3:r.t3,t5:r.t5,d1:r.d1,d3:r.d3,d5:r.d5},kd:{k5:r.kd5?.K??null,d5:r.kd5?.D??null,k15:r.kd15?.K??null,d15:r.kd15?.D??null,k60:r.kd60?.K??null,d60:r.kd60?.D??null,kDaily:r.kdDaily?.K??null,dDaily:r.kdDaily?.D??null,kMonthly:r.kdMonthly?.K??null,dMonthly:r.kdMonthly?.D??null}});
             }
           });
         }
@@ -5948,6 +6128,11 @@ function TrendRadar({ holdings, embedded = false }) {
     const timer=setInterval(()=>{if(document.visibilityState==="visible")recalc();},60000);
     return()=>{cancelled=true;clearTimeout(liveSyncTimer);clearTimeout(slowTimer);document.removeEventListener("visibilitychange",onVisible);window.removeEventListener("livePricesUpdated",onLivePricesUpdated);clearInterval(timer);};
   },[holdings]);
+  useEffect(() => {
+    const on = (e) => { const ls = e?.detail; if (ls?.modelVersion === TREND_MODEL_VERSION) setLearnState(ls); };
+    window.addEventListener("selfLearnUpdated", on);
+    return () => window.removeEventListener("selfLearnUpdated", on);
+  }, []);
 
   useEffect(()=>{
     let dead=false;
@@ -5964,6 +6149,7 @@ function TrendRadar({ holdings, embedded = false }) {
         const recentClose=closeLockDone.slice(-60);
         if(!dead) setAccuracy(recent.length?{n:recent.length,hits:recent.filter(r=>r.actual.hit).length}:null);
         if(!dead) setCloseLockAccuracy(recentClose.length?{n:recentClose.length,hits:recentClose.filter(r=>r.actual.hit).length}:null);
+        try{const ls=await loadKey("selfLearn",null);if(!dead)setLearnState(ls?.modelVersion===TREND_MODEL_VERSION?ls:null);}catch(e){}
         if(!dead) setBaseline({
           morning:baselineStats(h?.records,{phase:"morning",modelVersion:TREND_MODEL_VERSION}),
           closeLock:baselineStats(h?.records,{phase:"closeLock",modelVersion:TREND_MODEL_VERSION}),
@@ -6230,6 +6416,7 @@ function TrendRadar({ holdings, embedded = false }) {
       <BaselineLine stats={baseline?.morning} />
       {closeLockAccuracy&&<div className="text-[9px] mt-1 mono" style={{color:COLORS.gold}}>{UI_SHOW_ENGLISH ? `Last ${closeLockAccuracy.n} validated "pre-close lock" forecasts: ${((closeLockAccuracy.hits/closeLockAccuracy.n)*100).toFixed(1)}% hit rate (locked at 13:25, far easier than morning — kept separate above)` : `近 ${closeLockAccuracy.n} 次已驗證「收盤前鎖定」預測：方向命中 ${((closeLockAccuracy.hits/closeLockAccuracy.n)*100).toFixed(1)}%（13:25 才鎖定，難度遠低於上午，跟上面分開看）`}</div>}
       <BaselineLine stats={baseline?.closeLock} />
+      <SelfLearnLine state={learnState} />
       {tomorrowAccuracy&&<div className="text-[9px] mt-1 mono" style={{color:COLORS.gold}}>{UI_SHOW_ENGLISH ? `Last ${tomorrowAccuracy.n} validated "tomorrow" forecasts: ${((tomorrowAccuracy.hits/tomorrowAccuracy.n)*100).toFixed(1)}% hit rate (excludes unclear direction; stats only, not a guarantee)` : `近 ${tomorrowAccuracy.n} 次已驗證「明日」預測：方向命中 ${((tomorrowAccuracy.hits/tomorrowAccuracy.n)*100).toFixed(1)}%（已排除方向不明，僅統計，不代表未來）`}</div>}
       {[ ["盤後建立",postCloseAccuracy], ["盤前修正",premarketAccuracy] ].map(([label,stats])=>stats?.n>0?<div key={label} className="text-[9px] mt-1 mono" style={{color:COLORS.gold}}>{label} {stats.n} 筆：方向命中 {(stats.hits/stats.n*100).toFixed(1)}%（獨立統計）</div>:null)}
       {tomorrowAccuracy&&<div className="text-[9px] mt-1" style={{color:COLORS.sub}}>{UI_SHOW_ENGLISH?`Coverage ${(tomorrowAccuracy.coverage*100).toFixed(0)}% · Always-up baseline ${(tomorrowAccuracy.baselineHits/tomorrowAccuracy.n*100).toFixed(1)}% · Brier ${tomorrowAccuracy.brier.toFixed(3)}`:`出手覆蓋 ${(tomorrowAccuracy.coverage*100).toFixed(0)}% ｜ 同批全猜漲 ${(tomorrowAccuracy.baselineHits/tomorrowAccuracy.n*100).toFixed(1)}% ｜ 機率誤差 ${tomorrowAccuracy.brier.toFixed(3)}`}</div>}
@@ -6271,6 +6458,23 @@ function BaselineLine({ stats }) {
       {brierOk && (UI_SHOW_ENGLISH
         ? ` · probability error (Brier, lower is better, ${stats.brierN}): model ${stats.brierModel.toFixed(3)} vs volatility model ${stats.brierVol.toFixed(3)}`
         : `｜機率誤差（Brier，越低越好，${stats.brierN} 筆）：模型 ${stats.brierModel.toFixed(3)}｜波動模型 ${stats.brierVol.toFixed(3)}`)}
+    </div>
+  );
+}
+// 自主學習狀態：現在用的是手調版還是學習版，讓它不是黑箱。
+function SelfLearnLine({ state }) {
+  const parts = [["morning", "上午", "Morning"], ["closeLock", "收盤前", "Pre-close"]].map(([k, zh, en]) => {
+    const s = state?.[k];
+    if (!s) return { zh: `${zh}：累積中（0/${60}）`, en: `${en}: collecting (0/60)` };
+    const b = (v) => (v == null ? "—" : Number(v).toFixed(3));
+    if (s.reason === "collecting") return { zh: `${zh}：累積中（${s.n}/${s.need}）`, en: `${en}: collecting (${s.n}/${s.need})` };
+    if (s.active) return { zh: `${zh}：學習版使用中（樣本外 ${s.evalN} 筆，誤差 ${b(s.brierLearned)} 比手調 ${b(s.brierModel)} 低）`, en: `${en}: learned model ON (out-of-sample ${s.evalN}, error ${b(s.brierLearned)} vs hand-tuned ${b(s.brierModel)})` };
+    if (s.reason === "reverted") return { zh: `${zh}：已退回手調版（學習版表現變差）`, en: `${en}: reverted to hand-tuned (learned model got worse)` };
+    return { zh: `${zh}：手調版（學習版驗證中，${s.evalN ?? 0} 筆，尚未明顯勝出）`, en: `${en}: hand-tuned (learned model validating, ${s.evalN ?? 0}, not clearly better yet)` };
+  });
+  return (
+    <div className="text-[9px] mt-0.5 mono leading-relaxed" style={{ color: COLORS.sub }}>
+      {UI_SHOW_ENGLISH ? "Self-learning · " : "自主學習｜"}{parts.map((p) => (UI_SHOW_ENGLISH ? p.en : p.zh)).join(UI_SHOW_ENGLISH ? " · " : "；")}
     </div>
   );
 }
