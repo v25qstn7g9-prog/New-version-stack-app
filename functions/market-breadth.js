@@ -67,7 +67,60 @@ function sameDay(payload,day){
   const rocDate=`${roc}年${Number(day.slice(5,7))}月${Number(day.slice(8,10))}日`;
   return text.includes(day.replace(/-/g,""))||text.includes(day.replace(/-/g,"/"))||text.includes(rocDate);
 }
-export async function onRequestGet(){
+// 前一個（或指定日期之前最近一個）已收盤交易日的全市場廣度。盤後報表收盤後才公布，
+// 盤中（09:00–10:00、13:25 鎖定）拿不到「今天」的，所以研究紀錄改記「開盤前就已知」的前一日廣度。
+const MAX_LOOKBACK_DAYS = 7;
+function dayMinus(day, n) {
+  return new Date(Date.parse(day + "T12:00:00Z") - n * 86400000).toISOString().slice(0, 10);
+}
+async function breadthOn(day) {
+  const ymdDay = day.replace(/-/g, "");
+  const urls = [
+    `https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=${ymdDay}&type=MS&response=json`,
+    `https://www.twse.com.tw/exchangeReport/MI_INDEX?date=${ymdDay}&type=MS&response=json`,
+  ];
+  for (const u of urls) {
+    try {
+      const payload = await fetchJson(u);
+      if (!payload) continue;
+      const parsed = parseRows(payload);
+      return parsed?.breadth != null && sameDay(payload, day) ? parsed : null; // 休市日：沒有表 → null
+    } catch {}
+  }
+  throw new Error("TWSE unreachable");
+}
+export async function prevDayBreadth(before, deps = {}) {
+  const fetchDay = deps.breadthOn || breadthOn;
+  let unreachable = 0;
+  for (let i = 1; i <= MAX_LOOKBACK_DAYS; i++) {
+    const day = dayMinus(before, i);
+    const wd = new Date(day + "T12:00:00Z").getUTCDay();
+    if (wd === 0 || wd === 6) continue;
+    try {
+      const parsed = await fetchDay(day);
+      if (parsed) return { ok: true, available: true, before, day, source: "TWSE MI_INDEX", ...parsed };
+    } catch { unreachable++; if (unreachable >= 2) break; }
+  }
+  return { ok: true, available: false, before, source: "TWSE MI_INDEX", ...(unreachable ? { error: "TWSE 暫時連不上" } : {}) };
+}
+async function onPrevDay(before) {
+  const key = new Request(`https://market-breadth-cache.local/before/${before}`);
+  try {
+    const hit = await caches.default.match(key);
+    if (hit) { const c = await hit.json(); return json({ ...c, cached: true }); }
+  } catch {}
+  const out = await prevDayBreadth(before);
+  // 已定案的歷史資料可以快取久一點；沒找到的只快取一下，稍後再試。
+  const maxAge = out.available ? 6 * 3600 : 120;
+  try { await caches.default.put(key, new Response(JSON.stringify(out), { headers: { "content-type": "application/json", "cache-control": `public,max-age=${maxAge},s-maxage=${maxAge}` } })); } catch {}
+  return json(out);
+}
+export async function onRequestGet(context){
+  const before=(()=>{try{return new URL(context?.request?.url).searchParams.get("before");}catch{return null;}})();
+  if(before!=null){
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(before)) return json({ok:false,error:"before 需為 YYYY-MM-DD"},400);
+    return onPrevDay(before);
+  }
   try{
     const day=taiwanDay();
     const key=new Request(`https://market-breadth-cache.local/${day}`);
