@@ -22,7 +22,13 @@ test('both the morning and the close-lock snapshots call it, and mark whether in
 
 test('the probability and intraday fields are never rewritten by the fill', () => {
   const fill = hist.slice(hist.indexOf('const fillSlow='), hist.indexOf('// Keep a representative morning forecast'));
-  for (const field of ['probability', 'rawProbability', 'volumePrice', 'breadth', 'direction', 'ts']) {
+  for (const field of ['probability', 'rawProbability', 'breadth', 'direction', 'ts']) {
     assert.ok(!new RegExp(`rec\\.${field}\\s*=`).test(fill), `fillSlow must not assign rec.${field}`);
   }
+  // 量價例外（10/14 盤查）：只在原本是空的、且離快照 30 分鐘內才補，並標 filledAt；有值的永遠不覆蓋。
+  const vp = fill.split('\n').filter((l) => /rec\.volumePrice\s*=/.test(l));
+  assert.equal(vp.length, 1);
+  assert.match(vp[0], /rec\.volumePrice\?\.rvol==null&&rec\.volumePrice\?\.distPct==null/);
+  assert.match(vp[0], /30\*60000/);
+  assert.match(vp[0], /filledAt/);
 });
