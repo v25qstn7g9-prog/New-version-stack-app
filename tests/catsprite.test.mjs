@@ -36,7 +36,7 @@ test("sprite asset is small enough and the manifest matches the atlas", () => {
   const { api } = load();
   const S = api.sprite;
   assert.ok(fs.statSync(new URL("../za-cat-sprite.webp", import.meta.url)).size + fs.statSync(new URL("../za-cat-photo.webp", import.meta.url)).size <= 300000, "all cat images together <= 300KB");
-  for (const k of ["sit", "look", "walk", "sad", "happy", "loaf", "jump"]) assert.ok(S.actions[k] && S.actions[k].count > 0, k);
+  for (const k of ["sit", "look", "walk", "sad", "happy", "loaf", "jump", "rise", "settle"]) assert.ok(S.actions[k] && S.actions[k].count > 0, k);
   const last = Math.max(...Object.values(S.actions).map((a) => a.start + a.count));
   assert.equal(last, S.total); assert.ok(S.total <= S.cols * S.rows);
 });
@@ -106,4 +106,10 @@ test("roaming states map to clips: sleep->loaf, run uses walk frames, jump uses 
   assert.equal(A("happy", "jump", null, false, 0), "jump");
   assert.ok(["sit", "look"].includes(A("relaxed", "groom", null, false, 5)));
   assert.ok(api.sprite.actions.loaf.fps < api.sprite.actions.walk.fps, "sleep breathes slowly");
+});
+
+test("new real clips: 12-frame side-view walk loop (shot facing right), stand-up and settle-down transitions", () => {
+  const { api } = load(); const A = api.sprite.actions;
+  assert.equal(A.walk.count, 12); assert.equal(A.walk.play, "loop"); assert.equal(A.walk.dir, "r");
+  assert.equal(A.rise.play, "once"); assert.ok(A.rise.count >= 8); assert.ok(A.settle.count >= 8);
 });

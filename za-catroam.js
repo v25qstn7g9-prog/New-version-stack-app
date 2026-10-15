@@ -6,7 +6,10 @@
 // - 自然的作息（狀態機 plan()）：睡覺 40–90 秒、坐著／理毛 10–25 秒，起身後慢慢走（起步、停下都有緩衝），
 //   腳步影格依走過的距離前進（不滑步）、面向前進方向；偶爾小跑一段、或跳到高低不同的休息點（真的跳躍影格＋拋物線）。
 // - 心情：開心＝比較常跑跟跳；悠閒＝慢慢散步、常睡；難過＝走得少又慢、多半趴著、待在標題列附近、不跑不跳。
-// - 點牠：停下來、原地跳一下（睡著會被叫醒、坐起來）。
+// - 不會瞬間換姿勢：站→坐（真的「站起來」影格倒著播）→ 低頭趴下（真的影格）→ 淡入睡覺；
+//   醒來：抬頭（倒著播）→ 伸懶腰（合成：拉長壓扁）→ 站起來（真的影格）→ 才開始走。
+// - 轉身：先減速停下，原地用約 0.4 秒把身體「壓扁再翻過去」，不會走路中瞬間鏡像。
+// - 點牠：停下來、原地跳一下（睡著會被叫醒、慢慢坐起來）。
 // - 只用 CSS transform + requestAnimationFrame；版面位置只在捲動／縮放／畫面重畫時（有節流）重新量，每一幀不量版面；分頁切到背景就暫停。
 (function () {
   var RATIO = 160 / 128, GRID = 12, M = 4;
@@ -16,13 +19,15 @@
   // 走路速度（px/秒，最快時）；跑步只在不難過時偶爾出現
   var SPEED = { happy: 52, relaxed: 40, sad: 28 }, RUN = 150;
   // 一個走路循環（18 格）前進的距離＝貓寬的倍數：影格跟距離綁在一起，腳不會滑
-  var STRIDE = 0.8, RUN_STRIDE = 1.9, WALK_FRAMES = 18;
+  var STRIDE = 0.8, RUN_STRIDE = 1.9, WALK_FRAMES = 12;
   var DUR = { sleep: [40, 90], sit: [10, 25], groom: [10, 25] };
   // 休息時做什麼的機率（sleep / sit / groom）
   var REST_MIX = { happy: [0.25, 0.5, 0.25], relaxed: [0.45, 0.3, 0.25], sad: [0.65, 0.35, 0] };
   var RUN_P = { happy: 0.45, relaxed: 0.15, sad: 0 }, JUMP_P = { happy: 0.7, relaxed: 0.5, sad: 0 };
   var JUMP = { crouch: 0.28, air: 0.5, land: 0.3, maxD: 200, minDy: 36 };
-  var ACCEL = 0.7, BRAKE = 0.9;   // 起步加速、停下減速各大約幾秒
+  var ACCEL = 0.7, BRAKE = 0.9;
+  // 姿勢轉換（秒）。rise/settle 是影片裡真的影格；stretch 是合成的（沒有伸懶腰的影片）
+  var TRANS = { rise: 0.85, settle: 1.25, stretch: 1.1, fade: 0.35 }, TURN = 0.42;   // 起步加速、停下減速各大約幾秒
   var SAD_NEAR = 220;
 
   // ── 純計算（測試直接呼叫） ──
@@ -92,7 +97,25 @@
     if (t < JUMP.crouch + JUMP.air) { var q = (t - JUMP.crouch) / JUMP.air; return { p: q * q * (3 - 2 * q), lift: 4 * q * (1 - q), frame: q < 0.3 ? 2 : 3, done: false }; }
     return { p: 1, lift: 0, frame: t < T - JUMP.land / 2 ? 4 : 5, done: t >= T };
   }
-  var core = { W: W, H: H, sizeFor: sizeFor, hit: hit, findSpots: findSpots, pick: pick, validSpot: validSpot, SPEED: SPEED, RUN: RUN, DUR: DUR, JUMP: JUMP,
+  // 從一個姿勢到另一個：回傳要依序播的步驟 [{clip, dur, rev, synth}]
+  function transition(from, to) {
+    var out = [];
+    var stand = function (m) { return m === "walk" || m === "run" || m === "jump" || m === "turn" || m === "stand"; };
+    if (from === "sleep") { out.push({ clip: "settle", dur: TRANS.settle, rev: true }); out.push({ clip: "stretch", dur: TRANS.stretch, synth: true }); from = "sit"; }
+    if (stand(from) && !stand(to)) { out.push({ clip: "rise", dur: TRANS.rise, rev: true }); from = "sit"; }
+    if (!stand(from) && stand(to)) out.push({ clip: "rise", dur: TRANS.rise });
+    if (from !== "sleep" && to === "sleep") { out.push({ clip: "settle", dur: TRANS.settle }); out.push({ clip: "loaf", dur: TRANS.fade, fade: true }); }
+    return out;
+  }
+  // 轉身：0..1 進度 → 水平縮放（+1 朝左 → -1 朝右）與壓扁
+  function turnAt(q, fromS, toS) {
+    q = Math.max(0, Math.min(1, q)); var e = q * q * (3 - 2 * q), sx = fromS + (toS - fromS) * e;
+    if (Math.abs(sx) < 0.18) sx = sx < 0 || (sx === 0 && toS < 0) ? -0.18 : 0.18;
+    return { sx: sx, sy: 1 - 0.07 * Math.sin(Math.PI * q) };
+  }
+  // 走路上下起伏跟著影格（一個循環兩次，前後腳各一次），振幅很小
+  function bobFor(frame, amp) { return -Math.abs(Math.sin(frame / WALK_FRAMES * 2 * Math.PI)) * amp; }
+  var core = { W: W, TRANS: TRANS, TURN: TURN, transition: transition, turnAt: turnAt, bobFor: bobFor, WALK_FRAMES: WALK_FRAMES, H: H, sizeFor: sizeFor, hit: hit, findSpots: findSpots, pick: pick, validSpot: validSpot, SPEED: SPEED, RUN: RUN, DUR: DUR, JUMP: JUMP,
     planRest: planRest, planTravel: planTravel, easedSpeed: easedSpeed, framesFor: framesFor, jumpAt: jumpAt };
   window.__zaCatRoamCore = core;
 
@@ -103,7 +126,7 @@
   var css = document.createElement("style");
   css.textContent =
     "html .za-photocat.za-roaming.za-roaming{position:fixed;left:0;top:0;z-index:20;animation:none;will-change:transform}" +
-    ".za-roaming .za-pc-face{transition:transform .18s ease}.za-roaming.za-face-r .za-pc-face{transform:scaleX(-1)}" +
+    ".za-roaming .za-pc-face{transform-origin:50% 100%}" +
     ".za-roaming.za-nap img{animation-duration:6.5s!important;filter:drop-shadow(0 2px 3px rgba(0,0,0,.28)) brightness(.96)}" +
     "@media (prefers-reduced-motion:reduce){.za-roaming .za-pc-face{transition:none}}";
   document.head.appendChild(css);
@@ -144,25 +167,46 @@
   function markDirty() { dirty = true; }
 
   // ── 走路狀態 ──
-  var st = { x: 0, y: 0, mode: "sit", t: 0, wait: 1, target: null, from: null, phase: 0, frame: null, spot: null, hidden: false, lift: 0, hop: 0, pause: 0 };
+  // faceS：+1 朝左（影格原本的方向）、-1 朝右；clip/clipP/clipRev：姿勢轉換時播哪段、播到哪
+  var st = { x: 0, y: 0, mode: "sit", t: 0, wait: 1, target: null, from: null, phase: 0, frame: null, spot: null, hidden: false, lift: 0, hop: 0, pause: 0,
+    faceS: 1, sy: 1, sx2: 1, seq: [], after: null, clip: null, clipP: 0, clipRev: false, turnFrom: 1, turnTo: 1 };
   core.state = st;
   function setNap(on) { if (on) box.classList.add("za-nap"); else box.classList.remove("za-nap"); }
   function isRest(m) { return m === "sit" || m === "groom" || m === "sleep"; }
   core.isRest = isRest;
+  // 依序播轉換步驟，播完進入 after（"travel" 或休息狀態）
+  function runSeq(steps, after) {
+    st.seq = steps.slice(); st.after = after; st.t = 0;
+    if (!st.seq.length) { finishSeq(); return; }
+    st.mode = "trans"; st.clip = st.seq[0].clip; st.clipRev = !!st.seq[0].rev; st.clipP = 0;
+  }
+  function finishSeq() {
+    var a = st.after; st.after = null; st.clip = null; st.sx2 = 1; st.sy = 1; st.t = 0;
+    if (a === "travel") startTravel();
+    else if (a) { st.mode = a.mode; st.wait = a.wait; setNap(a.mode === "sleep"); }
+  }
   function go(urgent) {
     var mood = cat.mood || "relaxed", s = pick(L, st.spot ? { x: st.x, y: st.y } : null, mood);
     if (!s) { hideCat(true); return; }
     hideCat(false);
-    st.target = s; st.from = { x: st.x, y: st.y }; st.t = 0; st.urgent = !!urgent; st.frame = 0;
-    st.mode = planTravel(mood, s.x - st.x, s.y - st.y, urgent);
+    st.target = s; st.urgent = !!urgent;
     setNap(false);
-    if (Math.abs(s.x - st.x) > 2) box.classList.toggle("za-face-r", s.x > st.x);   // 面向前進方向（影格本來朝左）
+    if (urgent) { startTravel(); return; }                         // 腳下變成內容：直接走開
+    runSeq(transition(st.mode, "stand"), "travel");
+  }
+  function startTravel() {
+    var s = st.target, mood = cat.mood || "relaxed";
+    st.from = { x: st.x, y: st.y }; st.t = 0; st.frame = 0; st.clip = null;
+    st.travel = planTravel(mood, s.x - st.x, s.y - st.y, st.urgent);
+    var want = Math.abs(s.x - st.x) > 2 ? (s.x > st.x ? -1 : 1) : st.faceS;
+    if (Math.abs(s.x - st.x) > 2) box.classList.toggle("za-face-r", s.x > st.x);   // 面向前進方向
+    if (want !== (st.faceS > 0 ? 1 : -1) && !st.urgent) { st.mode = "turn"; st.turnFrom = st.faceS; st.turnTo = want; return; }
+    st.faceS = want; st.mode = st.travel;
   }
   function arrive() {
     var r = planRest(cat.mood || "relaxed");
     st.x = st.target.x; st.y = st.target.y; st.spot = st.target; st.lift = 0; st.frame = null;
-    st.mode = r.mode; st.wait = r.wait; st.t = 0;
-    setNap(r.mode === "sleep");
+    runSeq(transition("stand", r.mode), { mode: r.mode, wait: r.wait });
   }
   function hideCat(h) { if (st.hidden === h) return; st.hidden = h; box.style.visibility = h ? "hidden" : ""; }
   function step(dt) {
@@ -176,6 +220,18 @@
       return;
     }
     st.t += dt;
+    if (st.mode === "trans") {
+      var cs = st.seq[0], q = Math.min(1, st.t / cs.dur);
+      st.clip = cs.clip; st.clipRev = !!cs.rev; st.clipP = q;
+      if (cs.synth) { var k = Math.sin(Math.PI * q); st.sx2 = 1 + 0.14 * k; st.sy = 1 - 0.1 * k; st.clip = "settle"; st.clipP = 1; st.clipRev = false; }  // 伸懶腰（合成）：趴低的那格拉長壓扁
+      if (q >= 1) { st.seq.shift(); st.t = 0; st.sx2 = 1; st.sy = 1; if (!st.seq.length) finishSeq(); }
+      return;
+    }
+    if (st.mode === "turn") {
+      var tr = turnAt(st.t / TURN, st.turnFrom, st.turnTo); st.faceS = tr.sx; st.sy = tr.sy;
+      if (st.t >= TURN) { st.faceS = st.turnTo; st.sy = 1; st.mode = st.travel; st.t = 0; }
+      return;
+    }
     if (st.mode === "jump") {
       var j = jumpAt(st.t);
       st.x = st.from.x + (st.target.x - st.from.x) * j.p; st.y = st.from.y + (st.target.y - st.from.y) * j.p;
@@ -187,21 +243,23 @@
     var v = easedSpeed(run ? RUN : (SPEED[mood] || 40), st.t, d), mv = v * dt;
     if (d <= mv || d < 1) { arrive(); return; }
     st.x += dx / d * mv; st.y += dy / d * mv;
-    st.frame += framesFor(mv, W, run); st.phase += mv / 18;
+    st.frame += framesFor(mv, W, run); st.phase += mv / 18;          // 影格只跟走過的距離走：不會滑步
   }
-  // 點牠：停一下、原地跳一下；睡覺中被叫醒就改成坐著
+  // 點牠：停一下、原地跳一下；睡覺中被叫醒會慢慢坐起來（抬頭、伸懶腰）
   function react(k) {
-    st.hop = 0.45; st.pause = isRest(st.mode) ? 0 : 1.2;
-    if (st.mode === "sleep") { st.mode = "sit"; st.t = 0; st.wait = rand(DUR.sit); setNap(false); }
+    st.hop = 0.45; st.pause = (st.mode === "walk" || st.mode === "run") ? 1.2 : 0;
+    if (st.mode === "sleep") { setNap(false); runSeq(transition("sleep", "sit"), { mode: "sit", wait: rand(DUR.sit) }); }
     return k;
   }
   core.step = step; core.go = go; core.measure = measure; core.react = react;
   function draw() {
-    var bob = 0, mood = cat.mood || "relaxed";
-    if (st.mode === "walk" && !st.pause) bob = -Math.abs(Math.sin(st.phase)) * (mood === "happy" ? 1.6 : 1);
-    if (st.mode === "run" && !st.pause) bob = -Math.abs(Math.sin(st.phase * 0.6)) * 4;
+    var bob = 0;
+    if (st.mode === "walk" && !st.pause && st.frame != null) bob = bobFor(st.frame, W * 0.02);
+    if (st.mode === "run" && !st.pause && st.frame != null) bob = bobFor(st.frame, W * 0.05);
     if (st.hop > 0) { var q = 1 - st.hop / 0.45; bob -= Math.sin(Math.PI * q) * 16; }
-    box.style.transform = "translate3d(" + st.x.toFixed(1) + "px," + (st.y - st.lift + bob).toFixed(1) + "px,0)";
+    var sc = (st.sx2 !== 1 || st.sy !== 1) ? " scale(" + st.sx2.toFixed(3) + "," + st.sy.toFixed(3) + ")" : "";
+    box.style.transform = "translate3d(" + st.x.toFixed(1) + "px," + (st.y - st.lift + bob).toFixed(1) + "px,0)" + sc;
+    if (face && face.style) face.style.transform = "scaleX(" + st.faceS.toFixed(3) + ")";
   }
 
   // ── 接手位置 ──
