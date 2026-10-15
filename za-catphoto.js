@@ -5,7 +5,8 @@
 // token 跟 portfolio-sync 同一份（index.html 提供 window.zaGetSyncToken），只放 Authorization header。
 // 沒 token、401／403、found:false、任何失敗 → 固定「悠閒」，絕不用假資料。
 // 摸摸：點一下依心情隨機反應；2 秒內點超過 4 下會哈氣、冷靜 3 秒；長按約 0.6 秒會呼嚕、冒愛心。
-// 「減少動態效果」：反應改成不動的樣子變化＋短短的文字泡泡，不做任何動畫。
+// 「減少動態效果」：反應改成不動的樣子變化＋短短的文字泡泡，不做任何動畫，也不會到處走。
+// 沒開「減少動態效果」時，za-catroam.js 會讓牠在畫面上走來走去，只停在沒有數字／圖表的空白處。
 (function () {
   if (window.__zaPhotoCat) return;
   var api = window.__zaPhotoCat = { shown: false, mood: "relaxed", last: null };
@@ -30,6 +31,7 @@
     // 標題列的按鈕樣式（最小寬度 58px、深藍主題的底色）不要套到小貓身上：小貓的大小就是照片大小
     "html .premium-header button.za-photocat.za-photocat.za-photocat{min-width:0!important;min-height:0!important;background:none!important;border:0!important;box-shadow:none!important;padding:0!important;color:inherit!important}" +
     ".za-photocat:focus-visible{outline:2px solid var(--c-accent,#44749d);outline-offset:2px}" +
+    ".za-pc-face{display:block;width:100%;height:100%;pointer-events:none}" +
     ".za-photocat img{display:block;width:100%;height:auto;transform-origin:50% 100%;animation:za-pc-breathe 3.8s ease-in-out infinite;filter:drop-shadow(0 2px 3px rgba(0,0,0,.28));-webkit-user-drag:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;pointer-events:none}" +
     ".za-photocat[data-mood=happy] img{animation-duration:2.6s}" +
     ".za-photocat[data-mood=sad] img{filter:drop-shadow(0 2px 3px rgba(0,0,0,.28)) saturate(.75) brightness(.95);transform:scale(.97,.94)}" +
@@ -60,7 +62,8 @@
   img.alt = ""; img.width = 400; img.height = 503; img.decoding = "async"; img.draggable = false;
   img.src = "/za-cat-photo.webp?v=1";
   img.onerror = function () { if (box.parentNode) box.parentNode.removeChild(box); api.shown = false; api.failed = true; };
-  box.appendChild(img);
+  var face = document.createElement("span"); face.className = "za-pc-face"; // 走路轉向時只翻轉照片，不翻轉泡泡文字
+  face.appendChild(img); box.appendChild(face); api.box = box; api.face = face;
   var bubble = null, bubbleTimer = 0, clsTimer = 0;
   function setMood(m) {
     api.mood = MOOD_LABEL[m] ? m : "relaxed";
@@ -128,8 +131,21 @@
   box.addEventListener("contextmenu", function (e) { e.preventDefault(); });
   box.addEventListener("click", function (e) { e.preventDefault(); if (longFired) { longFired = false; return; } api.tap(); });  // Enter／Space 也會觸發 click
 
-  // ── 位置：只坐在標題與右上角按鈕之間的空位 ──
+  // ── 位置：只坐在標題與右上角按鈕之間的空位（會走動的版本 za-catroam.js 接手時，這裡只負責算空位） ──
+  // 回傳標題列空位在畫面上的位置（給走動版當「回家」的休息點）；放不下寬 w 的貓就回 null。
+  api.headerGap = function (w) {
+    var row = document.querySelector(".premium-header .justify-between");
+    var h1 = row && row.querySelector("h1"), btns = h1 && h1.nextElementSibling;
+    if (!row || !h1 || !btns) return null;
+    var title = h1.firstElementChild || h1;
+    var rr = row.getBoundingClientRect(), tr = title.getBoundingClientRect(), br = btns.getBoundingClientRect();
+    var gap = br.left - tr.right - PAD * 2;
+    if (gap < w) return null;
+    var h = w * RATIO;
+    return { x: tr.right + PAD + (gap - w) / 2, y: rr.bottom - h, w: w, h: h, gapL: tr.right, gapR: br.left };
+  };
   function place() {
+    if (api.roam) { api.roam.refresh(); return; }
     var row = document.querySelector(".premium-header .justify-between");
     var h1 = row && row.querySelector("h1"), btns = h1 && h1.nextElementSibling;
     if (!row || !h1 || !btns || api.failed) { hide(); return; }
@@ -158,4 +174,10 @@
   }).observe(document.body, { childList: true, subtree: true, characterData: true });
   if (img.complete) place(); else img.addEventListener("load", place);
   place();
+  // 沒開「減少動態效果」才讓貓到處走（za-catroam.js）；開了就一直坐在標題列空位。
+  var rm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)");
+  if (!(rm && rm.matches) && !window.__zaNoRoam) {
+    var sc = document.createElement("script"); sc.src = "/za-catroam.js?v=1"; sc.defer = true;
+    document.body.appendChild(sc);
+  }
 })();
