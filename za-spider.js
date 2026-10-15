@@ -1,6 +1,7 @@
 // Z∞ Assets 機械蜘蛛（純裝飾，只管畫面：不呼叫 API、不碰儲存、不能點、不擋任何按鈕）。
 // 一隻用線條組成的蜘蛛在畫面上慢慢爬：藍色身體、青色兩節的腿、粉紅色關節。
-// 腳會一步一步踩到卡片的角落與邊緣，踩到的卡片會亮起一圈細框和一小條粉紅標記，之後慢慢淡掉。
+// 腳會一步一步踩到卡片、列表列的角落與邊緣，踩到的地方會亮起一圈細框和一小條粉紅標記，
+// 並跳出該處畫面上的文字（例如「總資產 1,234,567」）貼成標籤，之後慢慢淡掉。標籤的字只畫在你自己的畫面上，不會送到任何地方。
 // 畫在一張固定在畫面上的透明 canvas（層級低於底部分頁列與所有彈出視窗）；開了「減少動態效果」就完全不啟動。
 (function () {
   if (window.__zaSpider) return;
@@ -12,7 +13,8 @@
   var HALF_W = 8;                // 身體半寬（髖關節離中線的距離）
   var BODY_L = 15, BODY_W = 9;   // 身體半長、半寬（畫出來的方塊）
   var STEP_DIST = 36, STEP_TIME = 0.17, SPEED = 38, TURN = 3.2;
-  var TOUCH_LIFE = 1600;
+  var TOUCH_LIFE = 2200;
+  var TAG_FONT = "bold 10px ui-monospace,SFMono-Regular,Menlo,monospace";
   var HIP_U = [-11, -4, 4, 11];
 
   var canvas = document.createElement("canvas");
@@ -37,16 +39,16 @@
   function sy() { return window.scrollY || 0; }
 
   function scanAnchors() {
-    var els = document.querySelectorAll(".premium-panel,.premium-asset-hero,.rounded-2xl");
+    var els = document.querySelectorAll(".premium-panel,.premium-asset-hero,.rounded-2xl,.premium-row,[data-spy]");
     var ox = sx(), oy = sy(), out = [];
     for (var i = 0; i < els.length && out.length < 320; i++) {
       var r = els[i].getBoundingClientRect();
-      if (r.width < 110 || r.height < 36 || r.width > W * 1.2) continue;
+      if (r.width < 90 || r.height < 28 || r.width > W * 1.2) continue;
       if (r.bottom < -200 || r.top > H + 200) continue;
       var rect = { l: r.left + ox, t: r.top + oy, r: r.right + ox, b: r.bottom + oy };
       var cx = (rect.l + rect.r) / 2, cy = (rect.t + rect.b) / 2;
       var pts = [[rect.l, rect.t], [rect.r, rect.t], [rect.l, rect.b], [rect.r, rect.b], [cx, rect.t], [cx, rect.b], [rect.l, cy], [rect.r, cy]];
-      for (var k = 0; k < pts.length; k++) out.push({ x: pts[k][0], y: pts[k][1], rect: rect });
+      for (var k = 0; k < pts.length; k++) out.push({ x: pts[k][0], y: pts[k][1], rect: rect, el: els[i] });
     }
     anchors = out;
   }
@@ -136,7 +138,7 @@
         leg.x = leg.step.fx + (leg.step.tx - leg.step.fx) * e;
         leg.y = leg.step.fy + (leg.step.ty - leg.step.fy) * e;
         if (leg.step.t >= 1) {
-          if (leg.step.anchor) touches.push({ rect: leg.step.anchor.rect, x: leg.step.tx, y: leg.step.ty, born: now });
+          if (leg.step.anchor) touches.push({ rect: leg.step.anchor.rect, x: leg.step.tx, y: leg.step.ty, text: spyText(leg.step.anchor.el), born: now });
           leg.step = null;
         }
         continue;
@@ -173,11 +175,42 @@
     return Math.hypot(k1.x - bx, k1.y - by) > Math.hypot(k2.x - bx, k2.y - by) ? k1 : k2;
   }
 
+  // 該處畫面上的文字：有 data-spy 就用它，否則取前 3 行（卡片標題、數字）合成一行；只讀畫面上看得到的字
+  function spyText(el) {
+    try {
+      var t = el.getAttribute && el.getAttribute("data-spy");
+      if (!t) {
+        var raw = String(el.innerText || "").split(/\n+/), parts = [];
+        for (var i = 0; i < raw.length && parts.length < 3; i++) {
+          var line = raw[i].replace(/\s+/g, " ").trim();
+          if (line) parts.push(line);
+        }
+        t = parts.join(" · ");
+      }
+      t = String(t || "").replace(/\s+/g, " ").trim();
+      return t.length > 36 ? t.slice(0, 35) + "…" : t;
+    } catch (e) { return ""; }
+  }
+
+  function drawTag(t, f, ox, oy, c) {
+    if (!t.text) return;
+    ctx.font = TAG_FONT;
+    var w = ctx.measureText(t.text).width + 12, h = 18;
+    var x = Math.min(W - w - 4, Math.max(4, t.x - ox - w / 2));
+    var y = t.y - oy - 28;
+    if (y < 4) y = t.y - oy + 12;
+    ctx.globalAlpha = Math.min(1, f * 1.6) * 0.96;
+    ctx.fillStyle = c.tagBg; ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = c.joint; ctx.lineWidth = 1.5; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    ctx.fillStyle = c.tagText; ctx.textBaseline = "middle"; ctx.fillText(t.text, x + 6, y + h / 2 + 0.5);
+    ctx.textBaseline = "alphabetic";
+  }
+
   function palette() {
     var light = document.documentElement.getAttribute("data-theme") === "grey";
     return light
-      ? { line: "#168a9e", joint: "#d6336c", body: "#2b3f9a", eye: "#bfe3ff" }
-      : { line: "#4fd6e8", joint: "#ff5c8a", body: "#1a2670", eye: "#7fc4ff" };
+      ? { line: "#168a9e", joint: "#d6336c", body: "#2b3f9a", eye: "#bfe3ff", tagBg: "#fff4f8", tagText: "#a3124f" }
+      : { line: "#4fd6e8", joint: "#ff5c8a", body: "#1a2670", eye: "#7fc4ff", tagBg: "#150f22", tagText: "#ff9ccc" };
   }
 
   function draw(now) {
@@ -223,6 +256,13 @@
     ctx.fillStyle = c.eye;
     ctx.beginPath(); ctx.arc(BODY_L - 5, 0, 3, 0, 6.2832); ctx.fill();
     ctx.restore();
+
+    // 最近踩到的地方：把那裡的文字貼成標籤
+    for (i = Math.max(0, touches.length - 3); i < touches.length; i++) {
+      var tt = touches[i], ff = 1 - (now - tt.born) / TOUCH_LIFE;
+      if (ff > 0) drawTag(tt, ff, ox, oy, c);
+    }
+    ctx.globalAlpha = 1;
   }
 
   function frame(ts) {
