@@ -12,6 +12,7 @@
  * - /api/health-cards（GET/POST）→ 交給 functions/health-check.js，讀卡片清單／確認或忽略卡片
  * - /api/health-check（GET）→ 交給 functions/health-check.js，手動觸發一次健康檢查
  * - /api/portfolio-sync（GET/POST）→ 交給 functions/portfolio-sync.js，讓 Z∞ 中控可以讀到持股摘要
+ * - /api/spider（GET，唯讀，同 portfolio-sync 權限）→ functions/spider.js，蜘蛛圖 6 參數
  * - 其他所有網址 → 當一般靜態檔案送出去（index.html 等）
  *
  * 另外 export 了 scheduled()：Cloudflare Cron Trigger 會定期呼叫這個，
@@ -89,6 +90,7 @@ import { handlePreparedAssetMcp } from "./functions/ai-connector-prepared.js";
 import { INTRADAY_CRON, recordIntradayMinute, archiveIntradayDay, readIntradayHealth, noteIntradayRun } from "./functions/intraday.js";
 import { AUTO_DAILY_CRON, runAutoDaily, runDailyReminder, onRequestGet as autoDailyGetHandler } from "./functions/auto-daily.js";
 import { onRequestGet as closesGetHandler } from "./functions/closes.js";
+import { onRequestGet as spiderGetHandler } from "./functions/spider.js";
 import { onRequestPush as pushHandler, runPushRound } from "./functions/push.js";
 import { adminTokenMatches, bearerToken, writeAllowed } from "./functions/request-guard.js";
 import { isKnownSyncToken, isSiHubReadToken } from "./functions/portfolio-sync.js";
@@ -134,6 +136,7 @@ const API_METHODS = new Map([
   ["/api/system-stats", ["GET"]],
   ["/api/owner-model", ["GET", "POST"]],
   ["/api/closes", ["GET"]],
+  ["/api/spider", ["GET"]],
   ["/api/push/key", ["GET"]],
   ["/api/push/subscribe", ["POST"]],
   ["/api/push/unsubscribe", ["POST"]],
@@ -282,6 +285,9 @@ export default {
     }
     if (url.pathname === "/api/closes" && request.method === "GET") {
       return closesGetHandler({ request, env, ctx });
+    }
+    if (url.pathname === "/api/spider" && request.method === "GET") {
+      return spiderGetHandler({ request, env, ctx });
     }
     if (PUSH_PATHS.has(url.pathname)) {
       return pushHandler({ request, env, ctx });
