@@ -6,6 +6,8 @@
 // 沒 token、401／403、found:false、任何失敗 → 固定「悠閒」，絕不用假資料。
 // 摸摸：點一下依心情隨機反應；2 秒內點超過 4 下會哈氣、冷靜 3 秒；長按約 0.6 秒會呼嚕、冒愛心。
 // 「減少動態效果」：反應改成不動的樣子變化＋短短的文字泡泡，不做任何動畫，也不會到處走。
+// 真貓動作：Johnny 給的兩段影片，去背後切成坐著眨眼、盯著你、走路、低頭、翹尾巴走過來、趴著呼嚕六段（za-cat-sprite.webp）；
+// 依心情、走路／休息、你點牠或摸牠來挑要播哪段。圖載不到時維持原本的照片。
 // 沒開「減少動態效果」時，za-catroam.js 會讓牠在畫面上走來走去，只停在沒有數字／圖表的空白處。
 (function () {
   if (window.__zaPhotoCat) return;
@@ -53,6 +55,7 @@
     "@media (prefers-reduced-motion:reduce){.za-photocat,.za-photocat img,.za-pc-bubble,.za-pc-heart{animation:none!important}" +
     ".za-photocat.r-jump img,.za-photocat.r-wiggle img{transform:scale(1.04)}.za-photocat.r-blink img{filter:brightness(.92)}.za-photocat.r-stretch img{transform:scale(1.08,.94)}" +
     ".za-photocat.r-shrink img,.za-photocat.r-cling img{transform:scale(.9)}.za-photocat.r-hiss img{transform:scale(1.06)}.za-photocat.r-pet img{transform:scale(1.03)}}";
+  css.textContent += css.textContent.replace(/ img/g, " canvas.za-pc-sprite");   // 真貓動作的畫布套用同一組樣式與反應
   document.head.appendChild(css);
 
   var box = document.createElement("button");
@@ -64,11 +67,73 @@
   img.onerror = function () { if (box.parentNode) box.parentNode.removeChild(box); api.shown = false; api.failed = true; };
   var face = document.createElement("span"); face.className = "za-pc-face"; // 走路轉向時只翻轉照片，不翻轉泡泡文字
   face.appendChild(img); box.appendChild(face); api.box = box; api.face = face;
+
+  // ── 真貓動作（影片去背的雪碧圖） ──
+  var SPRITE = {"frame":[128,160],"fps":12,"actions":{"sit":{"start":0,"count":24,"play":"pingpong"},"look":{"start":24,"count":24,"play":"pingpong"},"walk":{"start":48,"count":18,"play":"loop"},"sad":{"start":66,"count":12,"play":"pingpong"},"happy":{"start":78,"count":12,"play":"once"},"loaf":{"start":90,"count":7,"play":"pingpong"}},"cols":12,"rows":9,"total":97};
+  var FPS = { happy: 15, relaxed: 12, sad: 8 };
+  var REACT_SPRITE = { jump: "happy", wiggle: "happy", blink: "look", stretch: "look", shrink: "sad", cling: "sad", pet: "loaf" };
+  // 現在要播哪一段：你點／摸牠的反應優先，其次走路，再來依心情休息（t 是秒）
+  function spriteAction(mood, motion, reaction, nap, t) {
+    if (reaction && SPRITE.actions[reaction]) return reaction;
+    if (motion === "walk") return "walk";
+    if (mood === "sad") return Math.floor(t / 7) % 2 ? "loaf" : "sad";
+    if (nap) return "loaf";
+    return Math.floor(t / 6) % 3 === 2 ? "look" : "sit";
+  }
+  // 第幾格：loop 循環、pingpong 來回、once 播完停在最後一格
+  function spriteFrame(name, elapsed, fps) {
+    var a = SPRITE.actions[name], k = Math.max(0, Math.floor(elapsed * fps)), n = a.count;
+    if (a.play === "once") return a.start + Math.min(k, n - 1);
+    if (a.play === "pingpong" && n > 1) { var per = 2 * n - 2, j = k % per; return a.start + (j < n ? j : per - j); }
+    return a.start + (k % n);
+  }
+  api.spriteAction = spriteAction; api.spriteFrame = spriteFrame; api.sprite = SPRITE;
+  var spr = null, sctx = null, atlas = null, cur = null, curSince = 0, lastIdx = -1, reaction = null, reactUntil = 0, t0 = 0;
+  var still = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  function drawIdx(i) {
+    if (!sctx || i === lastIdx) return;
+    lastIdx = i;
+    var fw = SPRITE.frame[0], fh = SPRITE.frame[1], c = i % SPRITE.cols, r = Math.floor(i / SPRITE.cols);
+    sctx.clearRect(0, 0, fw, fh); sctx.drawImage(atlas, c * fw, r * fh, fw, fh, 0, 0, fw, fh);
+  }
+  function tick() {
+    if (!sctx) return;
+    var ms = Date.now(), t = ms / 1000; if (!t0) t0 = t;
+    if (reaction && ms > reactUntil) reaction = null;
+    var roam = api.roam && api.roam.core && api.roam.core.state;
+    var name = spriteAction(api.mood, roam ? roam.mode : "rest", reaction, box.classList.contains("za-nap"), t - t0);
+    if (name !== cur) { cur = name; curSince = t; api.action = name; }
+    drawIdx(still ? SPRITE.actions[name].start : spriteFrame(name, t - curSince, FPS[api.mood] || 12));
+    if (!still) requestAnimationFrame(tick);
+  }
+  api.spriteReact = function (k, ms) {
+    var n = REACT_SPRITE[k]; if (!n || !SPRITE.actions[n]) return null;
+    var a = SPRITE.actions[n];
+    reaction = n; reactUntil = (ms == null ? Date.now() : ms) + Math.max(1500, a.count / 12 * 1000 * (a.play === "pingpong" ? 2 : 1));
+    if (still && sctx) tick();
+    return n;
+  };
+  if (typeof Image === "function") {
+    atlas = new Image(); atlas.decoding = "async";
+    atlas.onload = function () {
+      spr = document.createElement("canvas"); spr.className = "za-pc-sprite";
+      spr.width = SPRITE.frame[0]; spr.height = SPRITE.frame[1];
+      spr.setAttribute("aria-hidden", "true");
+      sctx = spr.getContext && spr.getContext("2d");
+      if (!sctx) return;
+      spr.style.cssText = "display:block;width:100%;height:auto;pointer-events:none";
+      face.appendChild(spr); img.style.display = "none"; api.spriteReady = true;
+      api.onMood = function () { if (still) tick(); };
+      requestAnimationFrame(tick);
+    };
+    atlas.src = "/za-cat-sprite.webp?v=1";
+  }
   var bubble = null, bubbleTimer = 0, clsTimer = 0;
   function setMood(m) {
     api.mood = MOOD_LABEL[m] ? m : "relaxed";
     box.setAttribute("data-mood", api.mood);
     box.setAttribute("aria-label", "白貓，心情：" + MOOD_LABEL[api.mood]);
+    if (api.onMood) api.onMood();
   }
   setMood("relaxed");
   api.setMood = setMood;
@@ -99,6 +164,7 @@
   function now() { return Date.now(); }
   function show(r) {
     api.last = r.k;
+    if (api.spriteReady) api.spriteReact(r.k);
     box.classList.remove("r-" + (api.lastCls || "x")); void box.offsetWidth;
     box.classList.add("r-" + r.k); api.lastCls = r.k;
     clearTimeout(clsTimer); clsTimer = setTimeout(function () { box.classList.remove("r-" + r.k); }, BUBBLE_MS);
