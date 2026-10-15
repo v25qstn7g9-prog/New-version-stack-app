@@ -71,19 +71,24 @@
   api.setMood = setMood;
 
   // ── 心情：讀一次 /api/spider（只記在記憶體） ──
-  var moodLoaded = false;
+  // 每個 token 只讀一次：token 還沒讀到（空的）就先悠閒、不上鎖；之後 token 出現或在計畫設定換掉時，
+  // App 會再發 za-sync-token 事件，這時才讀（同一個 token 不重讀；沒有定時輪詢）。
+  var lastTok = null, seq = 0;
   function loadMood() {
-    if (moodLoaded) return;
     var get = window.zaGetSyncToken;
     if (typeof get !== "function") return;               // App 還沒讀到 token，等 za-sync-token 事件
-    moodLoaded = true;
     var tok = String(get() || "").trim();
+    if (tok === lastTok) return;                          // 同一個 token：不重讀
+    lastTok = tok;
+    var my = ++seq;                                       // 換 token 時，舊的回應作廢
     if (!tok || typeof fetch !== "function") { setMood("relaxed"); return; }
     api.moodPromise = fetch("/api/spider", { cache: "no-store", headers: { accept: "application/json", authorization: "Bearer " + tok } })
       .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (j) { setMood(moodFrom(j)); }, function () { setMood("relaxed"); });
+      .then(function (j) { if (my === seq) setMood(moodFrom(j)); }, function () { if (my === seq) setMood("relaxed"); });
   }
-  window.addEventListener("za-sync-token", loadMood);
+  // 在計畫設定打字時 token 每個字都會變：等停手 0.8 秒再讀，避免一路打一路送。
+  var tokTimer = 0;
+  window.addEventListener("za-sync-token", function () { clearTimeout(tokTimer); tokTimer = setTimeout(loadMood, 800); });
   loadMood();
 
   // ── 反應 ──

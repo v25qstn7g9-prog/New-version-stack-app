@@ -51,8 +51,11 @@ function env({ titleRight = 210, btnLeft = 300, token, fetchImpl } = {}) {
     fetch: (u, init) => { calls.push({ u, init }); return fetchImpl ? fetchImpl(u, init) : Promise.reject(new Error("x")); },
     getComputedStyle: () => ({ position: "static" }), requestAnimationFrame: (f) => f(), setTimeout: (f, ms) => { timers.push({ f, ms }); return timers.length; }, clearTimeout() {},
     MutationObserver: function () { this.observe = () => {}; }, Date, Math, Promise, String });
-  return { api: win.__zaPhotoCat, box: kids[0], row, calls, wl, win, timers, vib, btnLeft, titleRight };
+  const out = { api: win.__zaPhotoCat, box: kids[0], row, calls, wl, win, timers, vib, btnLeft, titleRight };
+  Object.defineProperty(out, "timers", { get: () => timers, set: (v) => { timers.length = 0; timers.push(...v); } });
+  return out;
 }
+function fire(e) { e.wl["za-sync-token"].forEach((f) => f()); const t = e.timers.filter((x) => x.ms === 800); e.timers = e.timers.filter((x) => x.ms !== 800); t.slice(-1).forEach((x) => x.f()); }
 const flush = async () => { for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r)); };
 const res = (status, j) => () => Promise.resolve({ ok: status < 400, status, json: () => Promise.resolve(j) });
 
@@ -93,7 +96,7 @@ test("fetch once with Bearer token (header only), result sets mood + aria-label"
   assert.equal(e.calls.length, 1); assert.equal(e.calls[0].u, "/api/spider");
   assert.equal(e.calls[0].init.headers.authorization, "Bearer tok-1234567890abcdef");
   assert.equal(e.api.mood, "sad"); assert.equal(e.box.attrs["aria-label"], "白貓，心情：難過，想撒嬌");
-  e.wl["za-sync-token"].forEach((f) => f()); await flush();
+  fire(e); await flush();
   assert.equal(e.calls.length, 1, "only once, no polling");
 });
 for (const [name, opts] of [
@@ -113,7 +116,7 @@ for (const [name, opts] of [
 test("waits for the app's token (za-sync-token) before fetching", async () => {
   const e = env({ fetchImpl: res(200, { ok: true, found: true, mood: "up" }) });
   assert.equal(e.calls.length, 0);
-  e.win.zaGetSyncToken = () => "tok"; e.wl["za-sync-token"].forEach((f) => f()); await flush();
+  e.win.zaGetSyncToken = () => "tok"; fire(e); await flush();
   assert.equal(e.calls.length, 1); assert.equal(e.api.mood, "happy");
 });
 
@@ -148,4 +151,51 @@ test("long press (600ms) -> pet with hearts, and the click after it does not als
   const before = e.api.last; e.box.listeners.click[0]({ preventDefault() {} });
   assert.equal(e.api.last, before);
   assert.ok(e.vib.length >= 1, "light haptic when available");
+});
+
+test("empty token first, then token arrives -> exactly one fetch and mood applied", async () => {
+  let tok = "";
+  const e = env({ token: "", fetchImpl: res(200, { ok: true, found: true, mood: "up" }) });
+  e.win.zaGetSyncToken = () => tok;
+  fire(e); await flush();
+  assert.equal(e.calls.length, 0); assert.equal(e.api.mood, "relaxed");
+  tok = "tok-a"; fire(e); await flush();
+  assert.equal(e.calls.length, 1); assert.equal(e.calls[0].init.headers.authorization, "Bearer tok-a"); assert.equal(e.api.mood, "happy");
+});
+test("token changed in 計畫設定 -> refetch once; same token again -> no refetch", async () => {
+  let tok = "tok-a", mood = "up";
+  const e = env({ token: "tok-a", fetchImpl: () => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true, found: true, mood }) }) });
+  e.win.zaGetSyncToken = () => tok;
+  await flush(); assert.equal(e.calls.length, 1); assert.equal(e.api.mood, "happy");
+  fire(e); fire(e); await flush();
+  assert.equal(e.calls.length, 1, "same token: no refetch");
+  tok = "tok-b"; mood = "down"; fire(e); await flush();
+  assert.equal(e.calls.length, 2); assert.equal(e.calls[1].init.headers.authorization, "Bearer tok-b"); assert.equal(e.api.mood, "sad");
+  tok = ""; fire(e); await flush();
+  assert.equal(e.calls.length, 2); assert.equal(e.api.mood, "relaxed", "token cleared -> relaxed, no fetch");
+});
+test("stale response from an old token is ignored", async () => {
+  let tok = "tok-a"; const pending = [];
+  const e = env({ token: "tok-a", fetchImpl: () => new Promise((r) => pending.push(r)) });
+  e.win.zaGetSyncToken = () => tok;
+  tok = "tok-b"; fire(e);
+  pending[1]({ ok: true, json: () => Promise.resolve({ ok: true, found: true, mood: "down" }) }); await flush();
+  pending[0]({ ok: true, json: () => Promise.resolve({ ok: true, found: true, mood: "up" }) }); await flush();
+  assert.equal(e.api.mood, "sad");
+});
+test("failure after token arrives -> relaxed", async () => {
+  let tok = "";
+  const e = env({ token: "", fetchImpl: res(401, { ok: false }) });
+  e.win.zaGetSyncToken = () => tok; tok = "bad"; fire(e); await flush();
+  assert.equal(e.calls.length, 1); assert.equal(e.api.mood, "relaxed");
+});
+
+test("typing a token in 計畫設定 (many events quickly) -> only the final token is fetched", async () => {
+  let tok = "";
+  const e = env({ token: "", fetchImpl: res(200, { ok: true, found: true, mood: "up" }) });
+  e.win.zaGetSyncToken = () => tok;
+  for (const t of ["a", "ab", "abc", "abcd"]) { tok = t; e.wl["za-sync-token"].forEach((f) => f()); }
+  const pend = e.timers.filter((x) => x.ms === 800); assert.equal(pend.length, 4);
+  pend[pend.length - 1].f(); await flush();
+  assert.equal(e.calls.length, 1); assert.equal(e.calls[0].init.headers.authorization, "Bearer abcd");
 });
