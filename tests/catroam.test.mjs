@@ -40,7 +40,10 @@ function seeded(seed) { let a = seed >>> 0; return () => { a += 0x6d2b79f5; let 
 // 模擬總覽：總資產卡、資產曲線、回撤列（都是禁區）
 const DASH = [[12, 180, 366, 60], [12, 250, 200, 24], [12, 300, 366, 160], [12, 470, 260, 24], [290, 470, 88, 24], [12, 520, 366, 120]];
 
-test("cat size is small (44-56px wide)", () => { const { core } = env(); assert.ok(core.W >= 44 && core.W <= 56); });
+test("cat is phone-sized: 60-76px box (cat itself ~55-65px) at 375/390/430", () => {
+  for (const vw of [375, 390, 430]) { const { core } = env({ vw }); assert.ok(core.W >= 60 && core.W <= 76, vw + ":" + core.W); }
+  const { core } = env({ vw: 1400 }); assert.equal(core.W, 76, "does not grow on desktop");
+});
 
 test("rest spots never touch protected rects (numbers, chart, 回撤), tab bar or chat button", () => {
   const e = env({ protect: DASH });
@@ -64,18 +67,18 @@ test("no clear spot -> goes back to the header gap; no header gap either -> hide
   assert.equal(e.core.pick(e.core.measure(), null, "relaxed", () => 0.5), null);
 });
 
-test("simulated 3 minutes per mood: never pauses over content, never overlaps tab bar/chat, even while walking", () => {
+test("simulated 10 minutes per mood: never pauses over content, never overlaps tab bar/chat, even while walking", () => {
   for (const mood of ["happy", "relaxed", "sad"]) for (const seed of [1, 7, 42]) {
     const realR = Math.random; Math.random = seeded(seed);
     try {
       const e = env({ protect: DASH, mood });
       const L = e.core.last, st = e.core.state;
       let rests = 0, walking = 0;
-      for (let i = 0; i < 180 * 30; i++) {
+      for (let i = 0; i < 600 * 30; i++) {
         e.core.step(1 / 30);
         const r = { x: st.x, y: st.y, w: e.core.W, h: e.core.H };
         assert.ok(!e.core.hit(r, toXY(e.tab)) && !e.core.hit(r, toXY(e.chat)), `${mood} overlaps tab/chat at frame ${i}`);
-        if (st.mode === "rest") { rests++; assert.ok(e.core.validSpot(L, st.spot), `${mood} resting on content`); } else walking++;
+        if (e.core.isRest(st.mode)) { rests++; assert.ok(e.core.validSpot(L, st.spot), `${mood} resting on content`); } else walking++;
       }
       assert.ok(walking > 0 && rests > 0, `${mood} both walks and rests`);
     } finally { Math.random = realR; }
@@ -88,7 +91,7 @@ test("mood affects movement: happy fastest, sad slowest and stays near the heade
   const realR = Math.random; Math.random = seeded(3);
   try {
     const e = env({ protect: DASH, mood: "sad" }); const st = e.core.state;
-    for (let i = 0; i < 120 * 30; i++) { e.core.step(1 / 30); if (st.mode === "rest") assert.ok(Math.hypot(st.x - 196, st.y - 6) <= 221 || st.spot.home); }
+    for (let i = 0; i < 600 * 30; i++) { e.core.step(1 / 30); if (e.core.isRest(st.mode)) assert.ok(Math.hypot(st.x - 196, st.y - 6) <= 221 || st.spot.home); }
   } finally { Math.random = realR; }
 });
 
@@ -97,17 +100,17 @@ test("faces the walking direction (flip class) and relaxed naps get the nap clas
   try {
     const e = env({ protect: DASH, mood: "relaxed" }); const st = e.core.state;
     let flips = new Set(), napped = false;
-    for (let i = 0; i < 300 * 30; i++) { e.core.step(1 / 30); if (st.mode === "walk") flips.add(e.classes.has("za-face-r")); if (e.classes.has("za-nap")) napped = true; }
+    for (let i = 0; i < 1200 * 30; i++) { e.core.step(1 / 30); if (!e.core.isRest(st.mode)) flips.add(e.classes.has("za-face-r")); if (e.classes.has("za-nap")) napped = true; }
     assert.equal(flips.size, 2, "walks both ways, image flipped"); assert.ok(napped);
   } finally { Math.random = realR; }
 });
 
 test("scroll puts content under a resting cat -> it leaves right away (urgent)", () => {
   const e = env({ protect: [] }); const st = e.core.state;
-  st.mode = "rest"; st.spot = { x: 100, y: 300 }; st.x = 100; st.y = 300; st.wait = 99; st.t = 0;
+  st.mode = "sit"; st.spot = { x: 100, y: 300 }; st.x = 100; st.y = 300; st.wait = 99; st.t = 0;
   e.core.last.protect.push({ x: 90, y: 290, w: 100, h: 100 });
   e.core.step(1 / 30);
-  assert.equal(st.mode, "walk"); assert.equal(st.urgent, true);
+  assert.ok(!e.core.isRest(st.mode)); assert.equal(st.urgent, true);
 });
 
 test("tab hidden -> no animation frames; visible again -> resumes", () => {
@@ -136,4 +139,68 @@ test("takes over the box: fixed, roaming class, moves via transform", () => {
   assert.ok(e.classes.has("za-roaming")); assert.match(e.box.style.transform, /translate3d/);
   assert.equal(e.box.parentNode, e.doc.body);
   assert.match(code, /\.za-photocat\.za-roaming\.za-roaming\{position:fixed/);
+});
+
+test("state machine durations: sleep 40-90s, sit/groom 10-25s; sad never runs or jumps", () => {
+  const { core } = env(); const r = seeded(5); const seen = {};
+  for (let i = 0; i < 2000; i++) for (const mood of ["happy", "relaxed", "sad"]) {
+    const p = core.planRest(mood, r); (seen[p.mode] ||= []).push(p.wait);
+    const lim = p.mode === "sleep" ? [40, 90] : [10, 25];
+    assert.ok(p.wait >= lim[0] && p.wait <= lim[1], p.mode + " " + p.wait);
+    if (mood === "sad") assert.equal(core.planTravel("sad", 300, 80, false, r), "walk");
+  }
+  for (const k of ["sleep", "sit", "groom"]) assert.ok(seen[k] && seen[k].length > 100, k);
+});
+
+test("travel: long trips sometimes run, close spots at a different height sometimes jump, urgent runs", () => {
+  const { core } = env();
+  assert.equal(core.planTravel("happy", 120, 60, false, () => 0), "jump");
+  assert.equal(core.planTravel("happy", 300, 0, false, () => 0), "run");
+  assert.equal(core.planTravel("relaxed", 300, 0, false, () => 0.99), "walk");
+  assert.equal(core.planTravel("relaxed", 60, 0, true, () => 0.99), "run");
+  assert.equal(core.planTravel("relaxed", 500, 200, false, () => 0.99), "walk", "too far to jump");
+});
+
+test("walk eases in and out; feet are synced to distance (no sliding)", () => {
+  const { core } = env();
+  const v = 40;
+  assert.ok(core.easedSpeed(v, 0, 200) < v * 0.2, "starts slowly");
+  assert.ok(core.easedSpeed(v, 0.35, 200) < core.easedSpeed(v, 1, 200), "accelerates");
+  assert.equal(core.easedSpeed(v, 2, 200), v, "cruises");
+  assert.ok(core.easedSpeed(v, 2, 2) < v * 0.4, "slows before stopping");
+  const per = core.framesFor(100, 64, false); assert.ok(Math.abs(per - 100 / (64 * 0.8) * 18) < 1e-9);
+  // 12 fps-ish at cruise: frames per second = speed / stride * 18
+  const fps = core.framesFor(v, 64, false); assert.ok(fps > 10 && fps < 16, String(fps));
+  const runFps = core.framesFor(core.RUN, 64, true); assert.ok(runFps > fps && runFps < 30, String(runFps));
+});
+
+test("jump arc: crouch on the ground, lift in the air, lands; uses all 6 real frames", () => {
+  const { core } = env(); const J = core.JUMP, T = J.crouch + J.air + J.land, frames = new Set();
+  let maxLift = 0;
+  for (let t = 0; t <= T + 0.01; t += 0.01) { const j = core.jumpAt(t); frames.add(j.frame); maxLift = Math.max(maxLift, j.lift); if (t < J.crouch) assert.equal(j.lift, 0); }
+  assert.deepEqual([...frames].sort(), [0, 1, 2, 3, 4, 5]); assert.ok(maxLift > 0.95);
+  assert.equal(core.jumpAt(T + 0.01).done, true);
+});
+
+test("a full simulated hour: sleeps happen and last 40-90s; jumps and runs occur for happy", () => {
+  const realR = Math.random; Math.random = seeded(11);
+  try {
+    const e = env({ protect: DASH, mood: "happy" }); const st = e.core.state;
+    let prev = st.mode, since = 0, modes = new Set();
+    for (let i = 0; i < 3600 * 30; i++) {
+      e.core.step(1 / 30); modes.add(st.mode);
+      if (st.mode !== prev) { if (prev === "sleep") assert.ok(since >= 39.9 && since <= 90.1, "sleep lasted " + since); prev = st.mode; since = 0; }
+      since += 1 / 30;
+    }
+    for (const m of ["walk", "sleep", "sit", "groom"]) assert.ok(modes.has(m), m);
+    assert.ok(modes.has("run") || modes.has("jump"), "some run or jump");
+  } finally { Math.random = realR; }
+});
+
+test("tap: wakes a sleeping cat, pauses a walking cat, and hops", () => {
+  const e = env(); const st = e.core.state;
+  st.mode = "sleep"; st.t = 5; st.wait = 60; e.core.react("blink");
+  assert.equal(st.mode, "sit"); assert.ok(st.hop > 0);
+  e.core.go(false); const x = st.x, y = st.y; e.core.react("jump"); e.core.step(0.5);
+  assert.equal(st.x, x); assert.equal(st.y, y); assert.ok(st.pause > 0);
 });

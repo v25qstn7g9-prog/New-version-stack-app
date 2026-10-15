@@ -35,8 +35,8 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 test("sprite asset is small enough and the manifest matches the atlas", () => {
   const { api } = load();
   const S = api.sprite;
-  assert.ok(fs.statSync(new URL("../za-cat-sprite.webp", import.meta.url)).size < 450000);
-  for (const k of ["sit", "look", "walk", "sad", "happy", "loaf"]) assert.ok(S.actions[k] && S.actions[k].count > 0, k);
+  assert.ok(fs.statSync(new URL("../za-cat-sprite.webp", import.meta.url)).size + fs.statSync(new URL("../za-cat-photo.webp", import.meta.url)).size <= 300000, "all cat images together <= 300KB");
+  for (const k of ["sit", "look", "walk", "sad", "happy", "loaf", "jump"]) assert.ok(S.actions[k] && S.actions[k].count > 0, k);
   const last = Math.max(...Object.values(S.actions).map((a) => a.start + a.count));
   assert.equal(last, S.total); assert.ok(S.total <= S.cols * S.rows);
 });
@@ -72,6 +72,8 @@ test("after the sprite loads it replaces the photo, animates, and taps / pets sw
   assert.ok(canvas && canvas.attrs["aria-hidden"] === "true");
   e.runRaf(); assert.ok(e.draws.length >= 1, "drew a frame");
   e.api.setMood("happy"); assert.equal(e.api.tap(5000, 0), "jump"); e.runRaf();
+  assert.equal(e.api.action, "jump", "real jump clip");
+  e.advance(4000); e.runRaf(); assert.equal(e.api.tap(9000, 0.9), "wiggle"); e.runRaf();
   assert.equal(e.api.action, "happy", "tail-up walk toward you");
   e.advance(4000); e.runRaf(); assert.notEqual(e.api.action, "happy", "reaction ends");
   e.api.pet(); e.runRaf(); assert.equal(e.api.action, "loaf", "petting -> purring loaf");
@@ -88,4 +90,20 @@ test("sprite fails to load -> keeps the photo", async () => {
   const e = load({ imageOk: false }); await flush();
   assert.ok(!e.api.spriteReady);
   assert.ok(!e.els.some((x) => x.tag === "canvas"));
+});
+
+test("no EXIF / metadata chunks in the sprite", () => {
+  const b = fs.readFileSync(new URL("../za-cat-sprite.webp", import.meta.url));
+  assert.equal(b.toString("latin1", 0, 4), "RIFF");
+  for (const c of ["EXIF", "XMP ", "ICCP"]) assert.ok(!b.includes(Buffer.from(c)), c);
+});
+
+test("roaming states map to clips: sleep->loaf, run uses walk frames, jump uses the real jump frames", () => {
+  const { api } = load();
+  const A = api.spriteAction;
+  assert.equal(A("relaxed", "sleep", null, false, 0), "loaf");
+  assert.equal(A("happy", "run", null, false, 0), "walk");
+  assert.equal(A("happy", "jump", null, false, 0), "jump");
+  assert.ok(["sit", "look"].includes(A("relaxed", "groom", null, false, 5)));
+  assert.ok(api.sprite.actions.loaf.fps < api.sprite.actions.walk.fps, "sleep breathes slowly");
 });

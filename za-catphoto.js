@@ -37,7 +37,7 @@
     ".za-photocat img{display:block;width:100%;height:auto;transform-origin:50% 100%;animation:za-pc-breathe 3.8s ease-in-out infinite;filter:drop-shadow(0 2px 3px rgba(0,0,0,.28));-webkit-user-drag:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;pointer-events:none}" +
     ".za-photocat[data-mood=happy] img{animation-duration:2.6s}" +
     ".za-photocat[data-mood=sad] img{filter:drop-shadow(0 2px 3px rgba(0,0,0,.28)) saturate(.75) brightness(.95);transform:scale(.97,.94)}" +
-    ".za-pc-bubble{position:absolute;bottom:calc(100% - 4px);left:50%;transform:translateX(-50%);white-space:nowrap;font-size:10px;line-height:1.3;font-weight:700;padding:2px 6px;border-radius:8px;background:var(--c-card,#fff);color:var(--c-ink,#19233d);box-shadow:0 2px 6px rgba(0,0,0,.25);pointer-events:none;animation:za-pc-pop .2s ease-out}" +
+    ".za-pc-bubble{position:absolute;bottom:calc(100% - 4px);left:50%;transform:translateX(-50%);white-space:nowrap;font-size:12px;line-height:1.3;font-weight:700;padding:3px 8px;border-radius:8px;background:var(--c-card,#fff);color:var(--c-ink,#19233d);box-shadow:0 2px 6px rgba(0,0,0,.25);pointer-events:none;animation:za-pc-pop .2s ease-out}" +
     ".za-pc-heart{position:absolute;top:0;font-size:10px;color:#ff6b8a;pointer-events:none;animation:za-pc-heart 1.2s ease-out forwards}" +
     "@keyframes za-pc-breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.03,1.045)}}" +
     "@keyframes za-pc-sway{0%,70%,100%{transform:rotate(0)}78%{transform:rotate(-4deg)}86%{transform:rotate(3deg)}92%{transform:rotate(-1deg)}}" +
@@ -69,15 +69,20 @@
   face.appendChild(img); box.appendChild(face); api.box = box; api.face = face;
 
   // ── 真貓動作（影片去背的雪碧圖） ──
-  var SPRITE = {"frame":[128,160],"fps":12,"actions":{"sit":{"start":0,"count":24,"play":"pingpong"},"look":{"start":24,"count":24,"play":"pingpong"},"walk":{"start":48,"count":18,"play":"loop"},"sad":{"start":66,"count":12,"play":"pingpong"},"happy":{"start":78,"count":12,"play":"once"},"loaf":{"start":90,"count":7,"play":"pingpong"}},"cols":12,"rows":9,"total":97};
-  var FPS = { happy: 15, relaxed: 12, sad: 8 };
-  var REACT_SPRITE = { jump: "happy", wiggle: "happy", blink: "look", stretch: "look", shrink: "sad", cling: "sad", pet: "loaf" };
-  // 現在要播哪一段：你點／摸牠的反應優先，其次走路，再來依心情休息（t 是秒）
+  // 影片 user-cat.mp4 約 3.7–4.4 秒那段：真的從地上跳上椅子（蹲低、起跳、空中、落地）＝ jump 六格。
+  var SPRITE = {"frame":[128,160],"actions":{"sit":{"start":0,"count":12,"play":"pingpong","fps":6},"look":{"start":12,"count":12,"play":"pingpong","fps":6},"walk":{"start":24,"count":18,"play":"loop","fps":12},"sad":{"start":42,"count":12,"play":"pingpong","fps":6},"happy":{"start":54,"count":12,"play":"once","fps":12},"loaf":{"start":66,"count":7,"play":"pingpong","fps":2.5},"jump":{"start":73,"count":6,"play":"once","fps":10}},"cols":12,"rows":7,"total":79};
+  var FPS_MUL = { happy: 1.2, relaxed: 1, sad: 0.7 };
+  var REACT_SPRITE = { jump: "jump", wiggle: "happy", blink: "look", stretch: "happy", shrink: "sad", cling: "sad", pet: "loaf", hiss: "jump" };
+  // 走動版的狀態 → 動作：sleep 睡覺（趴著）、sit/groom 坐著（理毛沒有真的影片，用坐著／盯著你交替）、walk/run 走／跑（跑＝走路影格加快，影片裡沒有跑步）、jump 真的跳
+  var MODE_ACTION = { walk: "walk", run: "walk", jump: "jump", sleep: "loaf", sit: "sit", groom: "look" };
+  // 現在要播哪一段：你點／摸牠的反應優先，其次走動版的狀態，再來依心情休息（t 是秒）
   function spriteAction(mood, motion, reaction, nap, t) {
     if (reaction && SPRITE.actions[reaction]) return reaction;
-    if (motion === "walk") return "walk";
+    if (motion === "walk" || motion === "run") return "walk";
+    if (motion === "jump") return "jump";
+    if (nap || motion === "sleep") return "loaf";
     if (mood === "sad") return Math.floor(t / 7) % 2 ? "loaf" : "sad";
-    if (nap) return "loaf";
+    if (motion === "groom") return Math.floor(t / 4) % 2 ? "look" : "sit";
     return Math.floor(t / 6) % 3 === 2 ? "look" : "sit";
   }
   // 第幾格：loop 循環、pingpong 來回、once 播完停在最後一格
@@ -103,13 +108,18 @@
     var roam = api.roam && api.roam.core && api.roam.core.state;
     var name = spriteAction(api.mood, roam ? roam.mode : "rest", reaction, box.classList.contains("za-nap"), t - t0);
     if (name !== cur) { cur = name; curSince = t; api.action = name; }
-    drawIdx(still ? SPRITE.actions[name].start : spriteFrame(name, t - curSince, FPS[api.mood] || 12));
+    var a = SPRITE.actions[name], idx;
+    if (still) idx = a.start;
+    // 走／跑／跳時影格由走動版依「走了多遠」決定（腳步跟移動同步，不會滑步）
+    else if (!reaction && roam && roam.frame != null && (name === "walk" || name === "jump")) idx = a.start + (Math.floor(roam.frame) % a.count + a.count) % a.count;
+    else idx = spriteFrame(name, t - curSince, (a.fps || 12) * (FPS_MUL[api.mood] || 1));
+    drawIdx(idx);
     if (!still) requestAnimationFrame(tick);
   }
   api.spriteReact = function (k, ms) {
     var n = REACT_SPRITE[k]; if (!n || !SPRITE.actions[n]) return null;
     var a = SPRITE.actions[n];
-    reaction = n; reactUntil = (ms == null ? Date.now() : ms) + Math.max(1500, a.count / 12 * 1000 * (a.play === "pingpong" ? 2 : 1));
+    reaction = n; reactUntil = (ms == null ? Date.now() : ms) + Math.min(2600, Math.max(1500, a.count / (a.fps || 12) * 1000 * (a.play === "pingpong" ? 2 : 1)));
     if (still && sctx) tick();
     return n;
   };
@@ -126,7 +136,7 @@
       api.onMood = function () { if (still) tick(); };
       requestAnimationFrame(tick);
     };
-    atlas.src = "/za-cat-sprite.webp?v=1";
+    atlas.src = "/za-cat-sprite.webp?v=2";
   }
   var bubble = null, bubbleTimer = 0, clsTimer = 0;
   function setMood(m) {
@@ -165,6 +175,7 @@
   function show(r) {
     api.last = r.k;
     if (api.spriteReady) api.spriteReact(r.k);
+    if (api.roam && api.roam.react) api.roam.react(r.k);       // 走動版：停下來、跳一下、醒過來
     box.classList.remove("r-" + (api.lastCls || "x")); void box.offsetWidth;
     box.classList.add("r-" + r.k); api.lastCls = r.k;
     clearTimeout(clsTimer); clsTimer = setTimeout(function () { box.classList.remove("r-" + r.k); }, BUBBLE_MS);
@@ -243,7 +254,7 @@
   // 沒開「減少動態效果」才讓貓到處走（za-catroam.js）；開了就一直坐在標題列空位。
   var rm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)");
   if (!(rm && rm.matches) && !window.__zaNoRoam) {
-    var sc = document.createElement("script"); sc.src = "/za-catroam.js?v=1"; sc.defer = true;
+    var sc = document.createElement("script"); sc.src = "/za-catroam.js?v=2"; sc.defer = true;
     document.body.appendChild(sc);
   }
 })();
