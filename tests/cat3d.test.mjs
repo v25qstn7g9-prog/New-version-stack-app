@@ -14,7 +14,7 @@ test("the 3D cat and its three.js copy ship with the app (MIT licence kept)", ()
   assert.ok(fs.existsSync(new URL("../vendor/three.module.min.js", import.meta.url)));
   assert.match(read("vendor/LICENSE-three.txt"), /MIT License/);
   assert.match(read("vendor/three.module.min.js").slice(0, 300), /MIT/);
-  assert.match(html, /<script src="\/za-cat\.js\?v=4" defer><\/script>\s*<script src="\/clean-ui\.js[^"]*" defer><\/script>\s*<\/body>/);
+  assert.match(html, /<script src="\/za-cat\.js\?v=5" defer><\/script>\s*<script src="\/clean-ui\.js[^"]*" defer><\/script>\s*<\/body>/);
 });
 
 test("za-cat3d.js is DOM-only, never reads page text, cannot be tapped, sits below the tab bar", () => {
