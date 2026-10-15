@@ -92,6 +92,7 @@ import { onRequestGet as closesGetHandler } from "./functions/closes.js";
 import { onRequestPush as pushHandler, runPushRound } from "./functions/push.js";
 import { adminTokenMatches, bearerToken, writeAllowed } from "./functions/request-guard.js";
 import { isKnownSyncToken, isSiHubReadToken } from "./functions/portfolio-sync.js";
+import { handleOpenAiActions } from "./functions/openai-actions.js";
 import { handleAssetOAuth, verifyAssetAccessToken, readAssetMcpSyncToken } from "./functions/asset-mcp-oauth.js";
 import { runCalendarCheck } from "./functions/market-calendar.js";
 import {
@@ -146,6 +147,10 @@ const WRITE_PATHS = new Set(["/api/push/subscribe", "/api/push/unsubscribe", "/a
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+
+    // ChatGPT GPT Actions 的唯讀 REST 接口（x-api-key，見 functions/openai-actions.js）。
+    const openAiResponse = await handleOpenAiActions(request, env);
+    if (openAiResponse) return openAiResponse;
 
     const oauthResponse = await handleAssetOAuth(request, env);
     if (oauthResponse) return oauthResponse;
