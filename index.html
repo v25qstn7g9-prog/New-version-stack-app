@@ -3820,7 +3820,7 @@ function AssetTracker() {
                   <DividendsPanel dividends={dividends} setDividends={setDividends} holdings={showUsFields ? holdingsWithShares : holdingsWithShares.filter((h) => isTaiwanSymbol(h.symbol))} usLive={usAssetLive} />
                 );
               case "spider":
-                return <SpiderPanel />;
+                return <SpiderPanel ready={ready} token={zinfSyncToken} onGoSettings={() => goToTab("plan")} />;
               case "plan":
                 return (
                   <PlanPanel advanced={advanced} setAdvancedMode={setAdvancedMode} planItems={planItems} setPlanItems={setPlanItems}
@@ -10779,12 +10779,15 @@ function ThemeToggle({ showEnglish }) {
 }
 
 // 蜘蛛圖分頁：畫面全交給 /za-catweb.js（只讀 /api/spider，讀不到用示意資料，不寫資料）
-function SpiderPanel() {
+// token 用的是同一份 zinfSyncToken（跟 portfolio-sync 一樣，只放 Authorization header）；等 ready 才掛，避免還沒讀到 token 就先顯示「未設定」。
+function SpiderPanel({ ready, token, onGoSettings }) {
   const ref = useRef(null);
+  const goRef = useRef(onGoSettings);
+  goRef.current = onGoSettings;
   useEffect(() => {
-    if (!ref.current || !window.ZaSpider) return;
-    return window.ZaSpider.mount(ref.current);
-  }, []);
+    if (!ready || !ref.current || !window.ZaSpider) return;
+    return window.ZaSpider.mount(ref.current, { token, onGoSettings: () => goRef.current && goRef.current() });
+  }, [ready, token]);
   return <div className="premium-tab"><div ref={ref} /></div>;
 }
 

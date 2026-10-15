@@ -35,13 +35,19 @@
     return { asOf: j.asOf || null, axes: axes.slice(0, 8), mood: (j.mood === "up" || j.mood === "down") ? j.mood : "flat",
       mock: !!j.mock, holdings: j.holdings.filter(Boolean).map(function (h) { return { code: h.code || "—", name: h.name || "", raw: h.raw || {}, score: h.score || {} }; }) };
   }
-  // 只有網址帶 ?spiderMock=1 才用示意資料；其他任何失敗（401／404／500／斷線／ok 不是 true）都顯示「讀取失敗」，絕不拿假數字頂替。
-  function load() {
+  // 只有網址帶 ?spiderMock=1 才用示意資料；其他任何失敗都不拿假數字頂替。
+  // token 是 App 的同步 token（zinfSyncToken，跟 /api/portfolio-sync 同一份），只放 Authorization header，不放網址、不記錄。
+  // 沒 token：不呼叫 API，直接請使用者去設定；401／403 也一樣。其餘失敗顯示「讀取失敗」。
+  function load(token) {
     if (qp("spiderMock") === "1") return Promise.resolve(normalize(FIXTURE));
-    if (!window.fetch) return Promise.resolve({ error: true });
-    return fetch("/api/spider", { headers: { accept: "application/json" } })
-      .then(function (r) { if (!r.ok) throw 0; return r.json(); })
-      .then(function (j) { return normalize(j) || { error: true }; })
+    if (typeof token !== "string" || !token.trim()) return Promise.resolve({ error: "auth" });
+    if (typeof fetch !== "function") return Promise.resolve({ error: true });
+    return fetch("/api/spider", { cache: "no-store", headers: { accept: "application/json", authorization: "Bearer " + token.trim() } })
+      .then(function (r) {
+        if (r.status === 401 || r.status === 403) return { error: "auth" };
+        if (!r.ok) throw 0;
+        return r.json().then(function (j) { return normalize(j) || { error: true }; });
+      })
       .catch(function () { return { error: true }; });
   }
   function ensureCss() {
@@ -50,7 +56,8 @@
     document.head.appendChild(l);
   }
 
-  function mount(root) {
+  function mount(root, opts) {
+    opts = opts || {};
     ensureCss();
     var st = { data: null, sel: 0, axis: null, dead: false };
     root.className = "forma-spider";
@@ -58,7 +65,7 @@
     root.innerHTML = '<div class="forma-spider-loading">讀取中…</div>';
     function render() {
       if (st.dead || !st.data) return;
-      var d = st.data.error ? { error: true, asOf: null, axes: AXES, mood: "flat", holdings: [] } : st.data;
+      var d = st.data.error ? { error: st.data.error, asOf: null, axes: AXES, mood: "flat", holdings: [] } : st.data;
       var mood = qp("spiderMood") || d.mood;
       if (mood !== "up" && mood !== "down") mood = "flat";
       var h = d.holdings[st.sel] || null, n = d.axes.length;
@@ -82,7 +89,10 @@
       var chips = d.holdings.length ? d.holdings.map(function (x, i) {
         return '<button type="button" class="fs-chip' + (i === st.sel ? " is-on" : "") + '" data-sel="' + i + '" aria-pressed="' + (i === st.sel) + '">' +
           '<b>' + esc(x.code) + '</b> ' + esc(x.name) + '</button>';
-      }).join("") : d.error
+      }).join("") : d.error === "auth"
+        ? '<div class="fs-err" role="alert"><b>同步 token 無效或未設定，請到計畫設定重新設定</b>' +
+          (typeof opts.onGoSettings === "function" ? '<button type="button" class="fs-chip fs-retry" data-settings="1">前往計畫設定</button>' : '') + '</div>'
+        : d.error
         ? '<div class="fs-err" role="alert"><b>讀取失敗</b><span class="fs-muted">暫時拿不到蜘蛛圖資料，沒有顯示任何數字</span><button type="button" class="fs-chip fs-retry" data-retry="1">重新讀取</button></div>'
         : '<span class="fs-muted fs-empty">目前沒有持股資料</span>';
       var tip = "";
@@ -103,7 +113,8 @@
     }
     function onClick(e) {
       var t = e.target.closest ? e.target.closest("button") : null; if (!t || !root.contains(t)) return;
-      if (t.hasAttribute("data-retry")) { st.data = null; root.innerHTML = '<div class="forma-spider-loading">讀取中…</div>'; load().then(function (d) { st.data = d; render(); }); return; }
+      if (t.hasAttribute("data-retry")) { st.data = null; root.innerHTML = '<div class="forma-spider-loading">讀取中…</div>'; load(opts.token).then(function (d) { st.data = d; render(); }); return; }
+      if (t.hasAttribute("data-settings")) { if (typeof opts.onGoSettings === "function") opts.onGoSettings(); return; }
       if (t.hasAttribute("data-sel")) { st.sel = +t.getAttribute("data-sel"); render(); return; }
       if (t.hasAttribute("data-axis")) { var a = t.getAttribute("data-axis"); st.axis = st.axis === a ? null : a; render(); return; }
       if (t.classList.contains("fs-cat")) {
@@ -113,7 +124,7 @@
     }
     root.addEventListener("click", onClick);
     document.documentElement.classList.add("za-catweb-open");
-    load().then(function (d) { st.data = d; render(); });
+    load(opts.token).then(function (d) { st.data = d; render(); });
     return function () { st.dead = true; document.documentElement.classList.remove("za-catweb-open"); root.removeEventListener("click", onClick); root.innerHTML = ""; };
   }
   // 樣式一載入就掛上：分頁列在窄螢幕的字級修正也在這支 CSS 裡。
