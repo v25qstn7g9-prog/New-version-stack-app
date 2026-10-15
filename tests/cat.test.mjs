@@ -73,7 +73,7 @@ test("3000 frames: it sits, runs and rolls, always inside the play area (clear o
       assert.ok(x >= 34 && x <= 375 - 34, `x out of range: ${x}`);
       assert.ok(y >= 100 && y <= 700 - 96, `y out of range (header / tab bar): ${y}`);
     }
-    assert.ok(env.calls.ellipse > 20000 && env.calls.stroke > 20000, "body and limbs get drawn");
+    assert.ok(env.calls.stroke > 20000 && env.calls.fill > 20000, "outlines and fills get drawn");
   }
 });
 
