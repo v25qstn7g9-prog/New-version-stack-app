@@ -35,12 +35,14 @@
     return { asOf: j.asOf || null, axes: axes.slice(0, 8), mood: (j.mood === "up" || j.mood === "down") ? j.mood : "flat",
       mock: !!j.mock, holdings: j.holdings.filter(Boolean).map(function (h) { return { code: h.code || "—", name: h.name || "", raw: h.raw || {}, score: h.score || {} }; }) };
   }
+  // 只有網址帶 ?spiderMock=1 才用示意資料；其他任何失敗（401／404／500／斷線／ok 不是 true）都顯示「讀取失敗」，絕不拿假數字頂替。
   function load() {
-    if (qp("spiderMock") === "1" || !window.fetch) return Promise.resolve(normalize(FIXTURE));
+    if (qp("spiderMock") === "1") return Promise.resolve(normalize(FIXTURE));
+    if (!window.fetch) return Promise.resolve({ error: true });
     return fetch("/api/spider", { headers: { accept: "application/json" } })
       .then(function (r) { if (!r.ok) throw 0; return r.json(); })
-      .then(function (j) { return normalize(j) || normalize(FIXTURE); })
-      .catch(function () { return normalize(FIXTURE); });
+      .then(function (j) { return normalize(j) || { error: true }; })
+      .catch(function () { return { error: true }; });
   }
   function ensureCss() {
     if (document.getElementById("za-catweb-css")) return;
@@ -56,7 +58,8 @@
     root.innerHTML = '<div class="forma-spider-loading">讀取中…</div>';
     function render() {
       if (st.dead || !st.data) return;
-      var d = st.data, mood = qp("spiderMood") || d.mood;
+      var d = st.data.error ? { error: true, asOf: null, axes: AXES, mood: "flat", holdings: [] } : st.data;
+      var mood = qp("spiderMood") || d.mood;
       if (mood !== "up" && mood !== "down") mood = "flat";
       var h = d.holdings[st.sel] || null, n = d.axes.length;
       var nodes = d.axes.map(function (a, i) {
@@ -79,15 +82,17 @@
       var chips = d.holdings.length ? d.holdings.map(function (x, i) {
         return '<button type="button" class="fs-chip' + (i === st.sel ? " is-on" : "") + '" data-sel="' + i + '" aria-pressed="' + (i === st.sel) + '">' +
           '<b>' + esc(x.code) + '</b> ' + esc(x.name) + '</button>';
-      }).join("") : '<span class="fs-muted">沒有持股資料</span>';
+      }).join("") : d.error
+        ? '<div class="fs-err" role="alert"><b>讀取失敗</b><span class="fs-muted">暫時拿不到蜘蛛圖資料，沒有顯示任何數字</span><button type="button" class="fs-chip fs-retry" data-retry="1">重新讀取</button></div>'
+        : '<span class="fs-muted fs-empty">目前沒有持股資料</span>';
       var tip = "";
       if (st.axis && h) {
         tip = '<div class="fs-tip" role="status"><b>' + esc(LABEL[st.axis] || st.axis) + '</b><span class="fs-muted"> ' + esc(EN[st.axis] || "") + '</span>' +
           '<div>原始值 <b>' + fmtRaw(st.axis, h.raw[st.axis]) + '</b>　分數 <b>' + fmtScore(h.score[st.axis]) + '</b> / 100</div></div>';
-      } else tip = '<div class="fs-tip fs-muted">點參數看原始數字；點小貓摸摸頭</div>';
+      } else tip = h ? '<div class="fs-tip fs-muted">點參數看原始數字；點小貓摸摸頭</div>' : '';
       root.innerHTML =
         '<div class="fs-head"><div><div class="fs-title">持股蜘蛛圖</div><div class="fs-muted">資料時間 ' + fmtAsOf(d.asOf) + (d.mock ? '・示意資料' : '') + '</div></div>' +
-        '<span class="fs-mood fs-mood-' + mood + '">' + MOOD[mood] + '</span></div>' +
+        (h ? '<span class="fs-mood fs-mood-' + mood + '">' + MOOD[mood] + '</span>' : '') + '</div>' +
         '<div class="fs-chips" role="group" aria-label="選擇持股">' + chips + '</div>' +
         '<div class="fs-stage" data-mood="' + mood + '">' +
           '<svg class="fs-web" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">' + lines + '</svg>' +
@@ -98,6 +103,7 @@
     }
     function onClick(e) {
       var t = e.target.closest ? e.target.closest("button") : null; if (!t || !root.contains(t)) return;
+      if (t.hasAttribute("data-retry")) { st.data = null; root.innerHTML = '<div class="forma-spider-loading">讀取中…</div>'; load().then(function (d) { st.data = d; render(); }); return; }
       if (t.hasAttribute("data-sel")) { st.sel = +t.getAttribute("data-sel"); render(); return; }
       if (t.hasAttribute("data-axis")) { var a = t.getAttribute("data-axis"); st.axis = st.axis === a ? null : a; render(); return; }
       if (t.classList.contains("fs-cat")) {
@@ -110,5 +116,7 @@
     load().then(function (d) { st.data = d; render(); });
     return function () { st.dead = true; document.documentElement.classList.remove("za-catweb-open"); root.removeEventListener("click", onClick); root.innerHTML = ""; };
   }
+  // 樣式一載入就掛上：分頁列在窄螢幕的字級修正也在這支 CSS 裡。
+  try { ensureCss(); } catch (e) {}
   window.ZaSpider = { mount: mount, _normalize: normalize, _fixture: FIXTURE };
 })();

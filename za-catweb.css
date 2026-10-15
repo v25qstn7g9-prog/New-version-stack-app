@@ -41,7 +41,11 @@
 .fs-node.is-null .fs-dot{border-style:dashed;border-color:var(--fs-line);color:var(--fs-muted)}
 .fs-node.is-on .fs-dot{background:var(--fs-accent);color:var(--c-btn-ink,#fff)}
 .fs-lbl{font-size:11px;line-height:1.2;white-space:nowrap}
+.fs-err{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;width:100%}.fs-err b{color:var(--c-warn,#9c6c00)}.fs-retry{margin-left:auto}
+.fs-empty{padding:12px 2px}
 .fs-tip{margin-top:10px;padding:10px 12px;border-radius:14px;border:1px solid var(--fs-line);min-height:44px}
 @media (prefers-reduced-motion:reduce){.forma-spider *{animation:none!important;transition:none!important}.fs-stage[data-mood="down"] .fs-lid{transform:scaleY(.55)}}
 /* 蜘蛛圖分頁開著時，先把到處跑的裝飾小貓（za-cat3d / za-cat2d 的 canvas）藏起來，避免兩隻貓疊在一起。 */
 html.za-catweb-open body>canvas[style*="z-index: 20"]{visibility:hidden}
+/* 多了「蜘蛛圖」分頁後，320px 寬時四字標籤會黏在一起：只在 ≤340px 把分頁字縮小一點。 */
+@media (max-width:340px){html.za-clean .premium-tabbar button>span[class~="text-[8px]"],.premium-tabbar button>span:last-child{font-size:10px!important}}
