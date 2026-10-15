@@ -70,15 +70,17 @@
 
   // ── 真貓動作（影片去背的雪碧圖） ──
   // 影片 user-cat.mp4 約 3.7–4.4 秒那段：真的從地上跳上椅子（蹲低、起跳、空中、落地）＝ jump 六格。
-  var SPRITE = {"frame":[128,160],"actions":{"sit":{"start":0,"count":12,"play":"pingpong","fps":6},"look":{"start":12,"count":12,"play":"pingpong","fps":6},"walk":{"start":24,"count":18,"play":"loop","fps":12},"sad":{"start":42,"count":12,"play":"pingpong","fps":6},"happy":{"start":54,"count":12,"play":"once","fps":12},"loaf":{"start":66,"count":7,"play":"pingpong","fps":2.5},"jump":{"start":73,"count":6,"play":"once","fps":10}},"cols":12,"rows":7,"total":79};
+  // walk＝user-cat-2.mp4 約 3.0–3.5 秒的側面走路（12 格一個循環，頭尾接得起來）；rise＝同片 1.95–2.7 秒「從坐著站起來」；settle＝同片 12.3–13.5 秒「坐著低頭趴低」。
+  // dir:"r" 的影格是朝右拍的，畫的時候先鏡像成朝左，所有動作方向一致。
+  var SPRITE = {"frame":[112,140],"actions":{"sit":{"start":0,"count":12,"play":"pingpong","fps":6},"look":{"start":12,"count":12,"play":"pingpong","fps":6},"sad":{"start":24,"count":12,"play":"pingpong","fps":6},"happy":{"start":36,"count":12,"play":"once","fps":12},"loaf":{"start":48,"count":7,"play":"pingpong","fps":2.5},"jump":{"start":55,"count":6,"play":"once","fps":10},"walk":{"start":61,"count":12,"play":"loop","fps":12,"dir":"r"},"rise":{"start":73,"count":10,"play":"once","fps":12,"dir":"r"},"settle":{"start":83,"count":10,"play":"once","fps":8}},"cols":12,"rows":8,"total":93};
   var FPS_MUL = { happy: 1.2, relaxed: 1, sad: 0.7 };
   var REACT_SPRITE = { jump: "jump", wiggle: "happy", blink: "look", stretch: "happy", shrink: "sad", cling: "sad", pet: "loaf", hiss: "jump" };
   // 走動版的狀態 → 動作：sleep 睡覺（趴著）、sit/groom 坐著（理毛沒有真的影片，用坐著／盯著你交替）、walk/run 走／跑（跑＝走路影格加快，影片裡沒有跑步）、jump 真的跳
-  var MODE_ACTION = { walk: "walk", run: "walk", jump: "jump", sleep: "loaf", sit: "sit", groom: "look" };
+  var MODE_ACTION = { walk: "walk", run: "walk", jump: "jump", turn: "walk", sleep: "loaf", sit: "sit", groom: "look" };
   // 現在要播哪一段：你點／摸牠的反應優先，其次走動版的狀態，再來依心情休息（t 是秒）
   function spriteAction(mood, motion, reaction, nap, t) {
     if (reaction && SPRITE.actions[reaction]) return reaction;
-    if (motion === "walk" || motion === "run") return "walk";
+    if (motion === "walk" || motion === "run" || motion === "turn") return "walk";
     if (motion === "jump") return "jump";
     if (nap || motion === "sleep") return "loaf";
     if (mood === "sad") return Math.floor(t / 7) % 2 ? "loaf" : "sad";
@@ -95,11 +97,28 @@
   api.spriteAction = spriteAction; api.spriteFrame = spriteFrame; api.sprite = SPRITE;
   var spr = null, sctx = null, atlas = null, cur = null, curSince = 0, lastIdx = -1, reaction = null, reactUntil = 0, t0 = 0;
   var still = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
-  function drawIdx(i) {
-    if (!sctx || i === lastIdx) return;
-    lastIdx = i;
+  var prevIdx = -1, fadeFrom = -1, fadeT0 = 0, FADE_MS = 160;
+  function blit(i, alpha) {
     var fw = SPRITE.frame[0], fh = SPRITE.frame[1], c = i % SPRITE.cols, r = Math.floor(i / SPRITE.cols);
-    sctx.clearRect(0, 0, fw, fh); sctx.drawImage(atlas, c * fw, r * fh, fw, fh, 0, 0, fw, fh);
+    var right = false;
+    for (var k in SPRITE.actions) { var A = SPRITE.actions[k]; if (i >= A.start && i < A.start + A.count) { right = A.dir === "r"; break; } }
+    sctx.globalAlpha = alpha;
+    if (right) { sctx.save(); sctx.translate(fw, 0); sctx.scale(-1, 1); sctx.drawImage(atlas, c * fw, r * fh, fw, fh, 0, 0, fw, fh); sctx.restore(); }
+    else sctx.drawImage(atlas, c * fw, r * fh, fw, fh, 0, 0, fw, fh);
+    sctx.globalAlpha = 1;
+  }
+  // 換動作時（例如趴低→睡覺）短短淡入淡出，不會一格瞬間跳過去
+  function drawIdx(i, crossfade) {
+    if (!sctx) return;
+    var ms = Date.now();
+    if (crossfade && lastIdx >= 0 && i !== lastIdx && !still) { fadeFrom = lastIdx; fadeT0 = ms; }
+    var k = fadeFrom >= 0 ? Math.min(1, (ms - fadeT0) / FADE_MS) : 1;
+    if (k >= 1) fadeFrom = -1;
+    if (i === lastIdx && fadeFrom < 0 && prevIdx === i) return;
+    var fw = SPRITE.frame[0], fh = SPRITE.frame[1];
+    sctx.clearRect(0, 0, fw, fh);
+    if (fadeFrom >= 0) { blit(fadeFrom, 1 - k); blit(i, k); } else blit(i, 1);
+    prevIdx = lastIdx = i; api.fading = fadeFrom >= 0;
   }
   function tick() {
     if (!sctx) return;
@@ -107,13 +126,18 @@
     if (reaction && ms > reactUntil) reaction = null;
     var roam = api.roam && api.roam.core && api.roam.core.state;
     var name = spriteAction(api.mood, roam ? roam.mode : "rest", reaction, box.classList.contains("za-nap"), t - t0);
-    if (name !== cur) { cur = name; curSince = t; api.action = name; }
+    if (roam && roam.mode === "trans" && roam.clip && SPRITE.actions[roam.clip]) name = roam.clip;   // 姿勢轉換中：照轉換播（點牠時泡泡、跳一下照樣有）
+    var changed = name !== cur, prevName = cur;
+    if (changed) { cur = name; curSince = t; api.action = name; }
     var a = SPRITE.actions[name], idx;
     if (still) idx = a.start;
+    // 姿勢轉換：照進度播真的影格（rev＝倒著播）
+    else if (roam && roam.mode === "trans" && name === roam.clip && a.play === "once") { var f = Math.round(roam.clipP * (a.count - 1)); idx = a.start + (roam.clipRev ? a.count - 1 - f : f); }
     // 走／跑／跳時影格由走動版依「走了多遠」決定（腳步跟移動同步，不會滑步）
     else if (!reaction && roam && roam.frame != null && (name === "walk" || name === "jump")) idx = a.start + (Math.floor(roam.frame) % a.count + a.count) % a.count;
     else idx = spriteFrame(name, t - curSince, (a.fps || 12) * (FPS_MUL[api.mood] || 1));
-    drawIdx(idx);
+    // 同一段影片接下去（站起來→走、走→坐下）本來就是連續的，不淡入；其他換段才淡入淡出
+    drawIdx(idx, changed && !(prevName && /^(rise|walk|jump)$/.test(prevName) && /^(rise|walk|jump)$/.test(name)));
     if (!still) requestAnimationFrame(tick);
   }
   api.spriteReact = function (k, ms) {
@@ -136,7 +160,7 @@
       api.onMood = function () { if (still) tick(); };
       requestAnimationFrame(tick);
     };
-    atlas.src = "/za-cat-sprite.webp?v=2";
+    atlas.src = "/za-cat-sprite.webp?v=3";
   }
   var bubble = null, bubbleTimer = 0, clsTimer = 0;
   function setMood(m) {
@@ -254,7 +278,7 @@
   // 沒開「減少動態效果」才讓貓到處走（za-catroam.js）；開了就一直坐在標題列空位。
   var rm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)");
   if (!(rm && rm.matches) && !window.__zaNoRoam) {
-    var sc = document.createElement("script"); sc.src = "/za-catroam.js?v=2"; sc.defer = true;
+    var sc = document.createElement("script"); sc.src = "/za-catroam.js?v=3"; sc.defer = true;
     document.body.appendChild(sc);
   }
 })();
