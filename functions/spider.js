@@ -212,6 +212,7 @@ export async function onRequestGet({ request, env }, overrides = {}) {
     const { status, body } = await buildSpider(token, { ...defaultDeps(env), ...overrides });
     return json(body, status);
   } catch (e) {
-    return json({ ok: false, error: "spider unavailable", detail: String(e?.message || e).slice(0, 200) }, 500);
+    console.error("[api/spider] unhandled error:", e?.stack || e);
+    return json({ ok: false, error: "spider unavailable", detail: "internal error" }, 500);
   }
 }

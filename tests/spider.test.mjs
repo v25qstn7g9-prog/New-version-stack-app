@@ -118,3 +118,17 @@ test('worker wires GET /api/spider into routes and the method allow-list', () =>
   assert.match(w, /url\.pathname === "\/api\/spider" && request\.method === "GET"/);
   assert.ok(!/WRITE_PATHS = new Set\([^)]*\/api\/spider/.test(w));
 });
+
+test('500 does not leak internal error message in detail', async () => {
+  const secret = 'SECRET_KV_KEY_portfolio:abc123 at /internal/path.js';
+  const orig = console.error; const logged = []; console.error = (...a) => logged.push(a.join(' '));
+  try {
+    const req = new Request('https://x/api/spider', { headers: { Authorization: `Bearer ${token}` } });
+    const res = await onRequestGet({ request: req, env: {} }, { readPortfolio: async () => { throw new Error(secret); } });
+    assert.equal(res.status, 500);
+    const text = await res.text();
+    assert.ok(!text.includes('SECRET_KV_KEY'), 'body must not leak error');
+    assert.equal(JSON.parse(text).detail, 'internal error');
+    assert.ok(logged.some((l) => l.includes('SECRET_KV_KEY')), 'error logged server-side');
+  } finally { console.error = orig; }
+});
