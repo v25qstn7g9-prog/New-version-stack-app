@@ -2810,6 +2810,14 @@ function AssetTracker() {
   useEffect(() => { if (ready) saveKey("costBasis", costBasis); }, [costBasis, ready]);
   useEffect(() => { if (ready) saveKey("aiFallbackConfig", aiFallbackConfig); }, [aiFallbackConfig, ready]);
   useEffect(() => { if (ready) saveKey("zinfSyncToken", zinfSyncToken); }, [zinfSyncToken, ready]);
+  // 標題列小白貓（za-catphoto.js）要讀 /api/spider 的 mood：給它一個「問目前同步 token」的函式（不把 token 存成全域值），
+  // 讀到 token 後再發一次事件通知。小貓只把 token 放在 Authorization header。
+  const zinfSyncTokenRef = useRef(""); zinfSyncTokenRef.current = zinfSyncToken;
+  useEffect(() => {
+    if (!ready) return;
+    window.zaGetSyncToken = () => zinfSyncTokenRef.current || "";
+    window.dispatchEvent(new Event("za-sync-token"));
+  }, [ready, zinfSyncToken]);
   useEffect(() => { if (ready) saveKey("showUsFields", showUsFields); }, [showUsFields, ready]);
   useEffect(() => { if (ready) saveKey("advancedMode", advancedMode); }, [advancedMode, ready]);
   useEffect(() => { if (ready) saveKey("usBrokerCalibration", usBrokerCalibration); }, [usBrokerCalibration, ready]);
@@ -10839,7 +10847,7 @@ function defaultPlanSchedule() {
 ReactDOM.createRoot(document.getElementById('root')).render(<AssetTracker />);
 
   </script>
-  <script src="/za-cat.js?v=2" defer></script>
+  <script src="/za-cat.js?v=4" defer></script>
   <script src="/clean-ui.js?v=2" defer></script>
 </body>
 </html>
