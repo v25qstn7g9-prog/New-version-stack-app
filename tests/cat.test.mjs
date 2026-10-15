@@ -4,16 +4,16 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
-const code = fs.readFileSync(new URL("../za-cat.js", import.meta.url), "utf8");
+const code = fs.readFileSync(new URL("../za-cat2d.js", import.meta.url), "utf8"); // 手繪平面版（備用）
 const html = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
 
-test("loaded just before clean-ui.js (which must stay last), and the spider is gone", () => {
+test("loader loaded just before clean-ui.js (which must stay last), and the spider is gone", () => {
   assert.match(html, /<script src="\/za-cat\.js[^"]*" defer><\/script>\s*<script src="\/clean-ui\.js[^"]*" defer><\/script>\s*<\/body>/);
   assert.ok(!html.includes("za-spider"));
   assert.ok(!fs.existsSync(new URL("../za-spider.js", import.meta.url)));
 });
 
-test("za-cat.js is DOM-only and cannot be tapped", () => {
+test("za-cat2d.js (fallback) is DOM-only and cannot be tapped", () => {
   for (const bad of ["fetch(", "XMLHttpRequest", "localStorage", "sessionStorage", "indexedDB", "sendBeacon", "/mcp", "/api/", "innerHTML", "innerText"]) assert.ok(!code.includes(bad), bad);
   assert.match(code, /pointer-events:none/);
   assert.match(code, /aria-hidden/);
@@ -45,7 +45,7 @@ function makeEnv({ reduce = false, seed = 7, W = 375, H = 700 } = {}) {
   return { sandbox: { window: win, document: doc, Math: seededMath(seed), String }, calls, rafs, doc, win };
 }
 
-test("reduced motion: the cat never starts", () => {
+test("reduced motion: the 2D cat never starts", () => {
   const env = makeEnv({ reduce: true });
   vm.runInNewContext(code, env.sandbox);
   assert.equal(env.doc.appended, undefined);
