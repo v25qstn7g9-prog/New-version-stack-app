@@ -46,7 +46,11 @@
       .then(function (r) {
         if (r.status === 401 || r.status === 403) return { error: "auth" };
         if (!r.ok) throw 0;
-        return r.json().then(function (j) { return normalize(j) || { error: true }; });
+        return r.json().then(function (j) {
+          // token 認不得時後端回 200 + found:false：當成 token 問題，不畫空圖、不用示意資料。
+          if (j && j.found === false) return { error: "notfound" };
+          return normalize(j) || { error: true };
+        });
       })
       .catch(function () { return { error: true }; });
   }
@@ -67,6 +71,7 @@
       if (st.dead || !st.data) return;
       var d = st.data.error ? { error: st.data.error, asOf: null, axes: AXES, mood: "flat", holdings: [] } : st.data;
       var mood = qp("spiderMood") || d.mood;
+      var noChart = d.error === "notfound"; // 查無資料：只留小貓與提示，不畫空的蜘蛛圖
       if (mood !== "up" && mood !== "down") mood = "flat";
       var h = d.holdings[st.sel] || null, n = d.axes.length;
       var nodes = d.axes.map(function (a, i) {
@@ -89,8 +94,8 @@
       var chips = d.holdings.length ? d.holdings.map(function (x, i) {
         return '<button type="button" class="fs-chip' + (i === st.sel ? " is-on" : "") + '" data-sel="' + i + '" aria-pressed="' + (i === st.sel) + '">' +
           '<b>' + esc(x.code) + '</b> ' + esc(x.name) + '</button>';
-      }).join("") : d.error === "auth"
-        ? '<div class="fs-err" role="alert"><b>同步 token 無效或未設定，請到計畫設定重新設定</b>' +
+      }).join("") : (d.error === "auth" || d.error === "notfound")
+        ? '<div class="fs-err" role="alert"><b>' + (d.error === "notfound" ? '同步 token 無效或查無資料，請到計畫設定重新設定' : '同步 token 無效或未設定，請到計畫設定重新設定') + '</b>' +
           (typeof opts.onGoSettings === "function" ? '<button type="button" class="fs-chip fs-retry" data-settings="1">前往計畫設定</button>' : '') + '</div>'
         : d.error
         ? '<div class="fs-err" role="alert"><b>讀取失敗</b><span class="fs-muted">暫時拿不到蜘蛛圖資料，沒有顯示任何數字</span><button type="button" class="fs-chip fs-retry" data-retry="1">重新讀取</button></div>'
@@ -105,11 +110,11 @@
         (h ? '<span class="fs-mood fs-mood-' + mood + '">' + MOOD[mood] + '</span>' : '') + '</div>' +
         '<div class="fs-chips" role="group" aria-label="選擇持股">' + chips + '</div>' +
         '<div class="fs-stage" data-mood="' + mood + '">' +
-          '<svg class="fs-web" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">' + lines + '</svg>' +
+          (noChart ? '' : '<svg class="fs-web" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">' + lines + '</svg>') +
           '<button type="button" class="fs-cat" aria-label="小白貓（' + MOOD[mood] + '）">' +
             '<span class="fs-cat-body"><img src="/spider-cat.webp?v=1" alt="" width="400" height="503" draggable="false" decoding="async"/>' +
             '<i class="fs-lid fs-lid-l"></i><i class="fs-lid fs-lid-r"></i></span></button>' +
-          dots + '</div>' + tip;
+          (noChart ? '' : dots) + '</div>' + tip;
     }
     function onClick(e) {
       var t = e.target.closest ? e.target.closest("button") : null; if (!t || !root.contains(t)) return;

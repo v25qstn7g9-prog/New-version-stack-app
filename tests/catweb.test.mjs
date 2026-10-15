@@ -87,3 +87,17 @@ for (const status of [401, 403]) {
     assert.match(html2, AUTH); assert.doesNotMatch(html2, /讀取失敗/); assert.doesNotMatch(html2, MOCK_CODE); assert.doesNotMatch(html2, /fs-dot">\d/);
   });
 }
+
+test("200 + found:false -> token/查無資料 prompt + settings button, no chart, no numbers, no mock", async () => {
+  const html2 = await mountWith({ fetchImpl: () => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true, found: false, holdings: [] }) }) });
+  assert.match(html2, /同步 token 無效或查無資料，請到計畫設定重新設定/);
+  assert.match(html2, /data-settings/);
+  assert.doesNotMatch(html2, /fs-node|fs-web|fs-line/);                // 沒有空的蜘蛛圖
+  assert.doesNotMatch(html2, /fs-dot">\d|分數/);
+  assert.doesNotMatch(html2, MOCK_CODE);
+  assert.doesNotMatch(html2, /讀取失敗|目前沒有持股資料/);
+});
+test("found:false without ok also -> prompt (not 讀取失敗)", async () => {
+  const html2 = await mountWith({ fetchImpl: () => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ found: false }) }) });
+  assert.match(html2, /查無資料/); assert.doesNotMatch(html2, /fs-node/);
+});
