@@ -973,6 +973,7 @@ const ListOrdered = LR.ListOrdered || FallbackIcon;
 const Receipt = LR.Receipt || FallbackIcon;
 const Coins = LR.Coins || FallbackIcon;
 const Settings2 = LR.Settings2 || FallbackIcon;
+const CatIcon = LR.Cat || FallbackIcon;
 const X = LR.X || FallbackIcon;
 const Loader2 = LR.Loader2 || FallbackIcon;
 const Target = LR.Target || FallbackIcon;
@@ -1020,6 +1021,7 @@ const TABS = [
   { id: "trades", label: "交易紀錄", en: "Trades", icon: Receipt },
   { id: "dividends", label: "配息", en: "Dividends", icon: Coins },
   { id: "progress", label: "計畫進度", en: "Progress", icon: Target },
+  { id: "spider", label: "蜘蛛圖", en: "Spider", icon: CatIcon },
   { id: "plan", label: "計畫設定", en: "Settings", icon: Settings2 },
 ];
 
@@ -3817,6 +3819,8 @@ function AssetTracker() {
                 return (
                   <DividendsPanel dividends={dividends} setDividends={setDividends} holdings={showUsFields ? holdingsWithShares : holdingsWithShares.filter((h) => isTaiwanSymbol(h.symbol))} usLive={usAssetLive} />
                 );
+              case "spider":
+                return <SpiderPanel />;
               case "plan":
                 return (
                   <PlanPanel advanced={advanced} setAdvancedMode={setAdvancedMode} planItems={planItems} setPlanItems={setPlanItems}
@@ -10774,6 +10778,16 @@ function ThemeToggle({ showEnglish }) {
   );
 }
 
+// 蜘蛛圖分頁：畫面全交給 /za-catweb.js（只讀 /api/spider，讀不到用示意資料，不寫資料）
+function SpiderPanel() {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!ref.current || !window.ZaSpider) return;
+    return window.ZaSpider.mount(ref.current);
+  }, []);
+  return <div className="premium-tab"><div ref={ref} /></div>;
+}
+
 function TabBar({ tabs = TABS, tab, setTab, rootRef, showEnglish }) {
   return (
     <div ref={rootRef} className="fixed bottom-0 left-0 right-0 premium-tabbar"
@@ -10839,6 +10853,7 @@ function defaultPlanSchedule() {
 ReactDOM.createRoot(document.getElementById('root')).render(<AssetTracker />);
 
   </script>
+  <script src="/za-catweb.js?v=1" defer></script>
   <script src="/za-cat.js?v=2" defer></script>
   <script src="/clean-ui.js?v=2" defer></script>
 </body>
