@@ -6,8 +6,8 @@ import vm from "node:vm";
 const code = fs.readFileSync(new URL("../za-spider.js", import.meta.url), "utf8");
 const html = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
 
-test("loaded after clean-ui.js, and the old header spider is gone", () => {
-  assert.match(html, /<script src="\/clean-ui\.js[^"]*" defer><\/script>\s*<script src="\/za-spider\.js[^"]*" defer><\/script>\s*<\/body>/);
+test("loaded just before clean-ui.js (which must stay last), and the old header spider is gone", () => {
+  assert.match(html, /<script src="\/za-spider\.js[^"]*" defer><\/script>\s*<script src="\/clean-ui\.js[^"]*" defer><\/script>\s*<\/body>/);
   assert.ok(!html.includes("za-legs-a"));
 });
 
