@@ -14,7 +14,7 @@ test("the 3D cat and its three.js copy ship with the app (MIT licence kept)", ()
   assert.ok(fs.existsSync(new URL("../vendor/three.module.min.js", import.meta.url)));
   assert.match(read("vendor/LICENSE-three.txt"), /MIT License/);
   assert.match(read("vendor/three.module.min.js").slice(0, 300), /MIT/);
-  assert.match(html, /<script src="\/za-cat\.js\?v=2" defer><\/script>\s*<script src="\/clean-ui\.js[^"]*" defer><\/script>\s*<\/body>/);
+  assert.match(html, /<script src="\/za-cat\.js\?v=3" defer><\/script>\s*<script src="\/clean-ui\.js[^"]*" defer><\/script>\s*<\/body>/);
 });
 
 test("za-cat3d.js is DOM-only, never reads page text, cannot be tapped, sits below the tab bar", () => {
@@ -40,21 +40,18 @@ function loaderEnv({ reduce = false, webgl = true, importFails = false } = {}) {
 }
 const tick = () => new Promise((r) => setImmediate(r));
 
-test("loader: reduced motion starts nothing; no WebGL falls back to the 2D cat; a failed 3D load falls back too", async () => {
+test("loader: reduced motion starts nothing; otherwise loads only the photo cat (3D/2D no longer loaded)", async () => {
   let e = loaderEnv({ reduce: true });
   vm.runInNewContext(loader, e.sandbox);
   assert.equal(e.timers.length, 0); assert.equal(e.appended.length, 0);
-
-  e = loaderEnv({ webgl: false });
-  vm.runInNewContext(loader, e.sandbox);
-  e.timers.forEach((f) => f());
-  assert.equal(e.appended.length, 1); assert.match(e.appended[0].src, /za-cat2d\.js/);
-
-  e = loaderEnv({ importFails: true });
-  vm.runInNewContext(loader, e.sandbox);
-  e.timers.forEach((f) => f());
-  await tick(); await tick();
-  assert.equal(e.appended.length, 1); assert.match(e.appended[0].src, /za-cat2d\.js/);
+  for (const opts of [{}, { webgl: false }, { importFails: true }]) {
+    e = loaderEnv(opts);
+    vm.runInNewContext(loader, e.sandbox);
+    e.timers.forEach((f) => f());
+    await tick();
+    assert.equal(e.appended.length, 1); assert.match(e.appended[0].src, /za-catphoto\.js/);
+  }
+  assert.ok(!/za-cat3d|za-cat2d|import\(/.test(loader.replace(/^\/\/.*$/gm, "")));
 });
 
 function seededRandom(seed) {
