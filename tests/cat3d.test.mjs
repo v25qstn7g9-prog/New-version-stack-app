@@ -14,7 +14,7 @@ test("the 3D cat and its three.js copy ship with the app (MIT licence kept)", ()
   assert.ok(fs.existsSync(new URL("../vendor/three.module.min.js", import.meta.url)));
   assert.match(read("vendor/LICENSE-three.txt"), /MIT License/);
   assert.match(read("vendor/three.module.min.js").slice(0, 300), /MIT/);
-  assert.match(html, /<script src="\/za-cat\.js\?v=3" defer><\/script>\s*<script src="\/clean-ui\.js[^"]*" defer><\/script>\s*<\/body>/);
+  assert.match(html, /<script src="\/za-cat\.js\?v=4" defer><\/script>\s*<script src="\/clean-ui\.js[^"]*" defer><\/script>\s*<\/body>/);
 });
 
 test("za-cat3d.js is DOM-only, never reads page text, cannot be tapped, sits below the tab bar", () => {
@@ -40,12 +40,9 @@ function loaderEnv({ reduce = false, webgl = true, importFails = false } = {}) {
 }
 const tick = () => new Promise((r) => setImmediate(r));
 
-test("loader: reduced motion starts nothing; otherwise loads only the photo cat (3D/2D no longer loaded)", async () => {
-  let e = loaderEnv({ reduce: true });
-  vm.runInNewContext(loader, e.sandbox);
-  assert.equal(e.timers.length, 0); assert.equal(e.appended.length, 0);
-  for (const opts of [{}, { webgl: false }, { importFails: true }]) {
-    e = loaderEnv(opts);
+test("loader: always loads only the photo cat (reduced motion handled inside it by CSS); 3D/2D no longer loaded", async () => {
+  for (const opts of [{}, { reduce: true }, { webgl: false }, { importFails: true }]) {
+    const e = loaderEnv(opts);
     vm.runInNewContext(loader, e.sandbox);
     e.timers.forEach((f) => f());
     await tick();
