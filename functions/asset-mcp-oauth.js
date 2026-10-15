@@ -18,7 +18,10 @@ const ALLOWED_REDIRECTS = new Set([
   "https://claude.com/api/mcp/auth_callback",
   "https://grok.com/connectors-oauth-exchange-code/",
   "https://manus.im/api/webhook/mcp/callback",
+  "https://chatgpt.com/connector_platform_oauth_redirect",
 ]);
+// ChatGPT 新版連接器每個連接器有自己的回呼網址：/connector/oauth/<id>
+const CHATGPT_CALLBACK = /^https:\/\/chatgpt\.com\/connector\/oauth\/[A-Za-z0-9_-]+$/;
 
 const enc = new TextEncoder();
 
@@ -91,7 +94,7 @@ function isLoopback(uri) {
     return u.protocol === "http:" && (u.hostname === "localhost" || u.hostname === "127.0.0.1");
   } catch { return false; }
 }
-function redirectAllowed(uri) { return ALLOWED_REDIRECTS.has(uri) || isLoopback(uri); }
+function redirectAllowed(uri) { return ALLOWED_REDIRECTS.has(uri) || CHATGPT_CALLBACK.test(uri) || isLoopback(uri); }
 function redirectMatches(registered, requested) {
   if (registered.includes(requested)) return true;
   if (!isLoopback(requested)) return false;
