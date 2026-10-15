@@ -7,7 +7,6 @@
   if (mq && mq.matches) return;
   var api = window.__zaCat = { state: "sit" };
 
-  var OUT = "#b3bccb", FUR = "#ffffff", SHADE = "#eef1f7", PINK = "#ffa9c0", EYE = "#2b2e3b";
   var canvas = document.createElement("canvas");
   canvas.setAttribute("aria-hidden", "true");
   canvas.style.cssText = "position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:20";
@@ -73,107 +72,170 @@
     cat.x = Math.min(b.r, Math.max(b.l, cat.x)); cat.y = Math.min(b.b, Math.max(b.t, cat.y));
   }
 
-  // ── 繪圖：貓朝右畫（本地座標，腳底在 y=0），朝左時整個水平翻轉 ──
-  function stroke2(w, col, fn) { ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = col; ctx.lineWidth = w; ctx.beginPath(); fn(); ctx.stroke(); }
-  // 有外框的線條（腿、尾巴）：先畫粗的灰框，再畫細的白色
-  function limb(w, fn) { stroke2(w + 2.4, OUT, fn); stroke2(w, FUR, fn); }
-  function blob(x, y, rx, ry, rot, fill) {
-    ctx.beginPath(); ctx.ellipse(x, y, rx, ry, rot || 0, 0, 6.2832);
-    ctx.fillStyle = fill || FUR; ctx.fill(); ctx.lineWidth = 1.6; ctx.strokeStyle = OUT; ctx.stroke();
-  }
-  function ear(x, y, tilt) {
-    ctx.beginPath(); ctx.moveTo(x - 4.6, y + 2); ctx.lineTo(x + tilt, y - 8.2); ctx.lineTo(x + 4.8, y + 2.4); ctx.closePath();
-    ctx.fillStyle = FUR; ctx.fill(); ctx.lineWidth = 1.6; ctx.strokeStyle = OUT; ctx.lineJoin = "round"; ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(x - 2.2, y + 0.6); ctx.lineTo(x + tilt * 0.8, y - 5); ctx.lineTo(x + 2.6, y + 1); ctx.closePath();
-    ctx.fillStyle = PINK; ctx.fill();
-  }
-  function head(x, y, blinking, look) {
-    ear(x - 5.5, y - 7.4, -1.2); ear(x + 5.8, y - 7.4, 1.4);
-    blob(x, y, 10.4, 9.2, 0, FUR);
-    // 臉頰紅暈、眼睛、鼻子、嘴、鬍鬚
-    ctx.globalAlpha = 0.55; ctx.fillStyle = PINK;
-    ctx.beginPath(); ctx.arc(x - 6.2, y + 2.8, 2.1, 0, 6.2832); ctx.arc(x + 6.6, y + 2.8, 2.1, 0, 6.2832); ctx.fill(); ctx.globalAlpha = 1;
-    var ex1 = x - 3.8 + look, ex2 = x + 4.4 + look, ey = y - 0.6;
-    if (blinking) {
-      stroke2(1.4, EYE, function () { ctx.moveTo(ex1 - 1.8, ey); ctx.quadraticCurveTo(ex1, ey + 1.6, ex1 + 1.8, ey); ctx.moveTo(ex2 - 1.8, ey); ctx.quadraticCurveTo(ex2, ey + 1.6, ex2 + 1.8, ey); });
-    } else {
-      ctx.fillStyle = EYE; ctx.beginPath(); ctx.ellipse(ex1, ey, 1.9, 2.5, 0, 0, 6.2832); ctx.ellipse(ex2, ey, 1.9, 2.5, 0, 0, 6.2832); ctx.fill();
-      ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(ex1 + 0.6, ey - 0.9, 0.8, 0, 6.2832); ctx.arc(ex2 + 0.6, ey - 0.9, 0.8, 0, 6.2832); ctx.fill();
+  // ── 繪圖：手繪風。每條線都有一點點抖動、每 0.14 秒換一次（動畫常見的「線條沸騰」），顏色填在外框稍微偏一點點的位置，像彩色筆畫的。
+  // 貓朝右畫（本地座標，腳底在 y=0），朝左時整個水平翻轉。
+  var OUTLINE = "#4d4660", FUR2 = "#fffaf4", SHADE2 = "rgba(165,176,214,0.34)", PINK2 = "#ff9fba", EYE2 = "#2a2438";
+  var boil = 0, boilT = 0;
+  function nz(i, k) { var v = Math.sin((i + 1) * 12.9898 + (k + boil) * 78.233) * 43758.5453; return (v - Math.floor(v)) - 0.5; }
+  function jit(pts, k, amp) { return pts.map(function (p, i) { return [p[0] + nz(i, k) * amp, p[1] + nz(i, k + 57) * amp]; }); }
+  // Catmull-Rom 曲線通過每個點
+  function trace(P, closed) {
+    var n = P.length, i, g = function (j) { return closed ? P[(j + n) % n] : P[Math.max(0, Math.min(n - 1, j))]; };
+    ctx.beginPath(); ctx.moveTo(P[0][0], P[0][1]);
+    var last = closed ? n : n - 1;
+    for (i = 0; i < last; i++) {
+      var p0 = g(i - 1), p1 = g(i), p2 = g(i + 1), p3 = g(i + 2);
+      ctx.bezierCurveTo(p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6, p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6, p2[0], p2[1]);
     }
-    var nx = x + 0.4 + look * 0.6, ny = y + 2.6;
-    ctx.fillStyle = PINK; ctx.beginPath(); ctx.moveTo(nx - 1.5, ny - 0.6); ctx.lineTo(nx + 1.5, ny - 0.6); ctx.lineTo(nx, ny + 1); ctx.closePath(); ctx.fill();
-    stroke2(0.9, OUT, function () { ctx.moveTo(nx, ny + 1); ctx.lineTo(nx, ny + 2.2); ctx.moveTo(nx, ny + 2.2); ctx.quadraticCurveTo(nx - 1.6, ny + 3.6, nx - 3, ny + 2.4); ctx.moveTo(nx, ny + 2.2); ctx.quadraticCurveTo(nx + 1.6, ny + 3.6, nx + 3, ny + 2.4); });
-    stroke2(0.7, OUT, function () {
-      ctx.moveTo(x - 8, y + 2); ctx.lineTo(x - 15, y + 0.6); ctx.moveTo(x - 8, y + 3.4); ctx.lineTo(x - 14.6, y + 4.6);
-      ctx.moveTo(x + 8.6, y + 2); ctx.lineTo(x + 15.6, y + 0.6); ctx.moveTo(x + 8.6, y + 3.4); ctx.lineTo(x + 15.2, y + 4.6);
-    });
+    if (closed) ctx.closePath();
   }
-  function shadow(rx) {
-    ctx.fillStyle = "rgba(20,24,40,0.16)"; ctx.beginPath(); ctx.ellipse(0, 1.5, rx, 3.2, 0, 0, 6.2832); ctx.fill();
+  function inkW(w) { ctx.lineWidth = w; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = OUTLINE; }
+  // 封閉的形狀：顏色稍微錯位 + 抖動的外框
+  function shape(pts, fill, k, amp) {
+    var P = jit(pts, k, amp == null ? 0.7 : amp);
+    ctx.save(); ctx.translate(0.8, 0.6); trace(P, true); ctx.fillStyle = fill || FUR2; ctx.fill(); ctx.restore();
+    trace(P, true); inkW(1.7); ctx.stroke();
   }
-  function paw(x, y) { blob(x, y, 3.4, 2.4, 0, FUR); }
+  function tint(pts, k, col) { trace(jit(pts, k, 0.5), true); ctx.fillStyle = col || SHADE2; ctx.fill(); }
+  function ink(pts, k, w, amp) { trace(jit(pts, k, amp == null ? 0.5 : amp), false); inkW(w || 1.2); ctx.stroke(); }
+  // 腿／尾巴：先畫粗的墨線外框，再畫細的毛色
+  function limbPath(pts, w, k) {
+    var P = jit(pts, k, 0.6);
+    trace(P, false); inkW(w + 3.2); ctx.stroke();
+    trace(P, false); ctx.strokeStyle = FUR2; ctx.lineWidth = w; ctx.stroke();
+  }
+  function paw2(x, y, k) { shape([[x - 3.4, y - 1], [x - 1.2, y - 2.8], [x + 2.2, y - 2.6], [x + 3.8, y - 0.4], [x + 3, y + 1.4], [x - 2.8, y + 1.5]], FUR2, k, 0.3); }
+  function pawBall(x, y, k) { shape([[x - 2.6, y], [x, y - 2.8], [x + 2.6, y], [x, y + 2.8]], FUR2, k, 0.25); }
+  function eye(x, y, rx, ry, blink) {
+    if (blink) { ink([[x - rx, y], [x, y + 1.6], [x + rx, y]], 7, 1.3, 0.2); return; }
+    ctx.fillStyle = EYE2; ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, 6.2832); ctx.fill();
+    ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(x + rx * 0.3, y - ry * 0.35, rx * 0.42, 0, 6.2832); ctx.fill();
+    ctx.beginPath(); ctx.arc(x - rx * 0.35, y + ry * 0.45, rx * 0.2, 0, 6.2832); ctx.fill();
+  }
+  function blush(x, y) { ctx.globalAlpha = 0.5; ctx.fillStyle = PINK2; ctx.beginPath(); ctx.ellipse(x, y, 3.2, 2.1, 0, 0, 6.2832); ctx.fill(); ctx.globalAlpha = 1; }
+  function nose(x, y, s) {
+    s = s || 1;
+    shape([[x - 2 * s, y - 1 * s], [x + 2 * s, y - 1 * s], [x, y + 1.4 * s]], PINK2, 13, 0.1);
+  }
+  function mouth(x, y, s) {
+    s = s || 1;
+    ink([[x, y + 1.4 * s], [x, y + 3 * s]], 3, 1, 0.1);
+    ink([[x - 3.6 * s, y + 3.4 * s], [x - 1.6 * s, y + 5 * s], [x, y + 3 * s], [x + 1.6 * s, y + 5 * s], [x + 3.6 * s, y + 3.4 * s]], 4, 1, 0.1);
+  }
+  function whiskers(x, y, w, dir) {
+    for (var s = -1; s <= 1; s += 2) {
+      var sx = x + s * w * 0.55;
+      ink([[sx, y - 0.5], [sx + s * 6, y - 2.2], [sx + s * 12, y - 2.4]], 20 + s, 0.8, 0.2);
+      ink([[sx, y + 1.4], [sx + s * 6, y + 2.6], [sx + s * 11.5, y + 5]], 30 + s, 0.8, 0.2);
+    }
+  }
+  function earShape(base, tip, k, inner) {
+    shape([base[0], tip, base[1]], FUR2, k, 0.5);
+    var cx = (base[0][0] + base[1][0]) / 2, cy = (base[0][1] + base[1][1]) / 2;
+    ctx.fillStyle = PINK2; ctx.globalAlpha = 0.85; ctx.beginPath();
+    ctx.moveTo(cx * 0.9 + base[0][0] * 0.1 + (tip[0] - cx) * 0.05, cy + (tip[1] - cy) * 0.1);
+    ctx.lineTo(cx + (tip[0] - cx) * 0.62, cy + (tip[1] - cy) * 0.62);
+    ctx.lineTo(cx * 0.9 + base[1][0] * 0.1, cy + (tip[1] - cy) * 0.1);
+    ctx.closePath(); ctx.fill(); ctx.globalAlpha = 1;
+  }
+  function floorShadow(rx) { ctx.fillStyle = "rgba(40,36,60,0.13)"; ctx.beginPath(); ctx.ellipse(0, 1.4, rx, 3.6, 0, 0, 6.2832); ctx.fill(); }
+  function fur(x, y, dx, dy, k) { ink([[x, y], [x + dx * 0.5 + nz(k, 3) * 0.6, y + dy * 0.5], [x + dx, y + dy]], 40 + k, 0.9, 0.15); }
 
-  function drawRun() {
-    var p = cat.phase, bob = Math.abs(Math.sin(p)) * -2.2;
-    shadow(22);
-    ctx.save(); ctx.translate(0, bob);
-    // 尾巴：翹高、隨步伐甩
-    var sw = Math.sin(p * 0.5) * 4;
-    limb(4.2, function () { ctx.moveTo(-15, -17); ctx.bezierCurveTo(-27, -19 + sw, -31, -33 + sw, -24, -38 + sw * 0.5); });
-    // 後腿（先畫，在身體後面）與前腿
-    function leg(hx, off, back) {
-      var s = Math.sin(p + off), c = Math.cos(p + off);
-      var fx = hx + s * 9 * (back ? 1 : 1), fy = -2 - Math.max(0, c) * 6 - bob;
-      limb(4.6, function () { ctx.moveTo(hx, -11); ctx.lineTo(fx, fy); });
-      paw(fx + 1, fy);
-    }
-    leg(-11, Math.PI * 0.9, true); leg(11, 0.2, false);
-    blob(0, -17, 18, 10.5, 0, FUR);
-    ctx.globalAlpha = 0.7; ctx.fillStyle = SHADE; ctx.beginPath(); ctx.ellipse(-1, -12, 13, 4.2, 0, 0, 6.2832); ctx.fill(); ctx.globalAlpha = 1;
-    leg(-8, Math.PI * 1.1, true); leg(14, Math.PI * 0.05 + 0.2, false);
-    head(20, -23 - Math.abs(Math.sin(p)) * 0.6, false, 1.2);
+  // 坐著（正面，看著你）
+  function drawSit() {
+    var t = cat.t, blinking = (cat.blink < 0.14 && cat.blink > 0);
+    if (cat.blink < -0.1) cat.blink = rnd(1.8, 3.6);
+    var wag = Math.sin(cat.wag * 2.6) * 3.2, hy = Math.sin(t * 1.7) * 0.5;
+    floorShadow(19);
+    // 尾巴：從右側繞出來、尖端輕輕擺
+    limbPath([[10, -3], [19, -2], [27, -8], [28, -17 + wag * 0.4], [24, -25 + wag]], 5.2, 1);
+    // 後腿（身體兩側的大腿）
+    shape([[-17, -3], [-18, -9], [-15, -15], [-9, -15], [-6, -8], [-8, -2], [-13, 0]], FUR2, 2);
+    shape([[17, -3], [18, -9], [15, -15], [9, -15], [6, -8], [8, -2], [13, 0]], FUR2, 3);
+    // 身體（梨形）
+    shape([[-10, -1], [-12, -9], [-11, -19], [-8, -28], [0, -31], [8, -28], [11, -19], [12, -9], [10, -1], [0, 1.2]], FUR2, 4);
+    tint([[-5.5, -3], [-6.5, -12], [-4, -22], [0, -25], [4, -22], [6.5, -12], [5.5, -3], [0, -1.6]], 5);
+    fur(-8, -26, -2.2, 3, 1); fur(8, -26, 2.2, 3, 2); fur(-9, -20, -2.4, 2.5, 3); fur(9, -20, 2.4, 2.5, 4);
+    // 前腳（兩條，腳掌有小趾線）
+    limbPath([[-4.6, -17], [-4.4, -9], [-4.8, -2.4]], 5, 6); limbPath([[4.6, -17], [4.4, -9], [4.8, -2.4]], 5, 7);
+    paw2(-4.8, -1.2, 8); paw2(4.8, -1.2, 9);
+    ink([[-5.8, -0.4], [-5.8, 1]], 11, 0.7, 0.05); ink([[-3.6, -0.4], [-3.6, 1]], 12, 0.7, 0.05);
+    ink([[3.6, -0.4], [3.6, 1]], 13, 0.7, 0.05); ink([[5.8, -0.4], [5.8, 1]], 14, 0.7, 0.05);
+    // 頭
+    ctx.save(); ctx.translate(0, -39 + hy); ctx.rotate(Math.sin(t * 1.1) * 0.06);
+    earShape([[-12.5, -5.5], [-4, -9]], [-12.6, -17.5], 15);
+    earShape([[4, -9], [12.5, -5.5]], [12.6, -17.5], 16);
+    shape([[-13.5, -1], [-14.2, 4.5], [-10, 8.6], [-4, 10.4], [0, 10.7], [4, 10.4], [10, 8.6], [14.2, 4.5], [13.5, -1], [10.5, -6.5], [4, -9.6], [-4, -9.6], [-10.5, -6.5]], FUR2, 17, 0.6);
+    fur(-13, 5.5, -3, 1.6, 5); fur(13, 5.5, 3, 1.6, 6);
+    blush(-8.4, 3.6); blush(8.4, 3.6);
+    var look = Math.sin(t * 0.9) * 0.9;
+    eye(-5.4 + look, -0.8, 2.5, 3.1, blinking); eye(5.4 + look, -0.8, 2.5, 3.1, blinking);
+    nose(look * 0.6, 3.4, 1.05); mouth(look * 0.6, 3.6, 1.05); whiskers(look * 0.6, 4.4, 15, 1);
     ctx.restore();
   }
 
-  function drawSit() {
-    var t = cat.t, wag = Math.sin(cat.wag * 3.2) * 5;
-    var blinking = (cat.blink < 0.14 && cat.blink > 0);
-    if (cat.blink < -0.1) cat.blink = rnd(1.6, 3.4);
-    shadow(15);
-    // 尾巴貼著地捲在身旁，尖端輕輕擺
-    limb(4.2, function () { ctx.moveTo(-8, -3); ctx.bezierCurveTo(-26, -1, -30, -14 + wag * 0.4, -23, -19 + wag); });
-    // 後腿（坐著的大腿）與身體
-    blob(-4, -9.5, 12.5, 9.5, 0, FUR);
-    blob(5, -18, 9.6, 13.4, -0.12, FUR);
-    ctx.globalAlpha = 0.7; ctx.fillStyle = SHADE; ctx.beginPath(); ctx.ellipse(8, -14, 5, 9, -0.12, 0, 6.2832); ctx.fill(); ctx.globalAlpha = 1;
-    limb(4.6, function () { ctx.moveTo(9, -14); ctx.lineTo(10, -2.6); }); paw(11, -2);
-    limb(4.6, function () { ctx.moveTo(3, -14); ctx.lineTo(4, -2.6); }); paw(5, -2);
-    paw(-12, -2);
-    // 頭：偶爾歪一下
-    var tilt = Math.sin(t * 1.3) * 0.08;
-    ctx.save(); ctx.translate(8, -35); ctx.rotate(tilt); head(0, 0, blinking, Math.sin(t * 0.9) * 1.2); ctx.restore();
+  // 跑步（側面，四隻腳一前一後）
+  function drawRun() {
+    var p = cat.phase, bob = Math.abs(Math.sin(p)) * -2.4, sw = Math.sin(p * 0.5) * 4;
+    floorShadow(25);
+    ctx.save(); ctx.translate(0, bob);
+    // 尾巴：翹高、隨步伐甩
+    limbPath([[-18, -22], [-27, -25 + sw * 0.4], [-32, -35 + sw], [-27, -43 + sw * 0.6]], 5, 20);
+    // 遠側的兩隻腳（先畫，在身體後面）
+    function leg(hx, off, k) {
+      var s = Math.sin(p + off), c = Math.cos(p + off);
+      var fx = hx + s * 10, fy = -2.4 - Math.max(0, c) * 6.5 - bob * 0.5;
+      limbPath([[hx, -14], [(hx + fx) / 2 + 2.4, -8.5 - Math.max(0, c) * 3.2], [fx, fy]], 4.2, k);
+      paw2(fx + 1.2, fy + 0.8, k + 40);
+    }
+    leg(-12, Math.PI * 0.95, 21); leg(11, 0.25, 22);
+    // 身體
+    shape([[-21, -21], [-19, -28], [-9, -31.5], [4, -31], [14, -28.5], [19.5, -22.5], [18, -14.5], [10, -10], [-2, -9], [-12, -9.4], [-19.5, -13]], FUR2, 23);
+    tint([[-12, -11], [0, -10.4], [10, -11.4], [14, -15], [4, -14], [-8, -14]], 24);
+    fur(-19, -17, -3, 1.8, 7); fur(-17, -26, -2.6, -1.6, 8); fur(16, -25, 2.5, -1.2, 9);
+    leg(-7, Math.PI * 1.15, 25); leg(15, 0.05, 26);
+    // 頭（側面）＋兩隻耳朵
+    ctx.save(); ctx.translate(24.5, -28.5 - Math.abs(Math.sin(p)) * 0.8); ctx.rotate(0.05);
+    earShape([[-8, -7], [-1, -8.6]], [-6.4, -17], 27);
+    earShape([[1, -8.6], [8, -5.5]], [8.6, -15.8], 28);
+    shape([[-10, -2], [-10.5, 3.5], [-6, 8], [0, 9.6], [6, 9], [11.6, 5], [13, 0.4], [10, -5], [4, -8.6], [-4, -8.8]], FUR2, 29, 0.6);
+    fur(-9.5, 5, -3, 1.8, 10);
+    blush(-3.8, 4.4);
+    eye(3.6, -0.6, 2.2, 2.9, false); eye(-4.2, -0.8, 1.9, 2.6, false);
+    nose(11.8, 2.6, 0.9);
+    ink([[11.6, 3.6], [10, 5.8], [7.6, 5.4]], 31, 0.9, 0.1);
+    ink([[9, 2.2], [13.6, 0.6], [17.6, 0.8]], 32, 0.7, 0.15); ink([[9, 3.4], [14, 4.6], [17.4, 6.6]], 33, 0.7, 0.15);
+    ctx.restore();
+    ctx.restore();
   }
 
+  // 縮成一球打滾：整隻一起轉
   function drawRoll() {
-    shadow(15);
-    ctx.save(); ctx.translate(0, -13);
-    ctx.rotate(cat.ang);
-    // 縮成一球：尾巴繞一圈、四隻小腳、頭靠在前面，整隻一起轉
-    limb(4, function () { ctx.arc(0, 0, 11.5, 2.4, 5.1); });
-    blob(0, 0, 13, 12, 0, FUR);
-    ctx.globalAlpha = 0.7; ctx.fillStyle = SHADE; ctx.beginPath(); ctx.ellipse(-1.5, 4, 8, 5, 0, 0, 6.2832); ctx.fill(); ctx.globalAlpha = 1;
-    paw(-9, 9); paw(-3, 11.5); paw(5, 11); paw(10, 7);
-    head(10, -6.5, false, 0);
+    floorShadow(16);
+    ctx.save(); ctx.translate(0, -14.5); ctx.rotate(cat.ang);
+    limbPath([[-12.5, 4], [-14, -6], [-6, -13.5], [4, -14.5], [12, -10.5]], 4.6, 50);
+    shape([[-14, 0], [-12.5, -8.5], [-5, -13.8], [4, -14.2], [11.8, -9.5], [14.6, -0.5], [11.8, 9.5], [3, 14.2], [-6, 13.6], [-12, 8.2]], FUR2, 51);
+    tint([[-9, 4], [-3, 8], [4, 9], [10, 5], [4, 5], [-4, 4.5]], 52);
+    fur(-12, -4, -3, -1, 11); fur(-9, 10, -2.6, 2.6, 12);
+    pawBall(-9.5, 10, 53); pawBall(-2.5, 13, 54); pawBall(5.5, 12.4, 55); pawBall(11.6, 8, 56);
+    ctx.save(); ctx.translate(9.5, -5.5); ctx.scale(0.8, 0.8);
+    earShape([[-12.5, -5.5], [-4, -9]], [-12.6, -17.5], 57);
+    earShape([[4, -9], [12.5, -5.5]], [12.6, -17.5], 58);
+    shape([[-13.5, -1], [-14.2, 4.5], [-10, 8.6], [-4, 10.4], [0, 10.7], [4, 10.4], [10, 8.6], [14.2, 4.5], [13.5, -1], [10.5, -6.5], [4, -9.6], [-4, -9.6], [-10.5, -6.5]], FUR2, 59, 0.6);
+    blush(-8.4, 3.6); blush(8.4, 3.6);
+    eye(-5.4, -0.8, 2.5, 3.1, false); eye(5.4, -0.8, 2.5, 3.1, false);
+    nose(0, 3.4, 1.05); mouth(0, 3.6, 1.05);
+    ctx.restore();
     ctx.restore();
   }
 
   function draw() {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
-    var b = bounds(), depth = 0.88 + 0.28 * ((cat.y - b.t) / Math.max(1, b.b - b.t)); // 越靠下越大一點，有遠近感
+    var b = bounds(), depth = 0.9 + 0.26 * ((cat.y - b.t) / Math.max(1, b.b - b.t)); // 越靠下越大一點，有遠近感
     ctx.save();
     ctx.translate(cat.x, cat.y);
-    ctx.scale(cat.dir * depth * 1.15, depth * 1.15);
+    ctx.scale(cat.dir * depth * 1.12, depth * 1.12);
     if (cat.state === "run") drawRun(); else if (cat.state === "roll") drawRoll(); else drawSit();
     ctx.restore();
   }
@@ -186,6 +248,7 @@
     var dt = lastT ? Math.min(0.06, (ts - lastT) / 1000) : 0.033;
     lastT = ts;
     update(dt);
+    boilT += dt; if (boilT > 0.14) { boilT = 0; boil = (boil + 1) % 6; }
     draw();
   }
   function start() {
