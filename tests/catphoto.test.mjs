@@ -11,7 +11,7 @@ test("no storage / page-text reads, only one fetch (GET /api/spider), token head
   for (const bad of ["XMLHttpRequest", "localStorage", "sessionStorage", "indexedDB", "sendBeacon", "innerHTML", "innerText", "?token", "console."]) assert.ok(!body.includes(bad), bad);
   assert.equal((body.match(/fetch\(/g) || []).length, 1);
   assert.match(body, /fetch\("\/api\/spider", \{ cache: "no-store", headers: \{ accept: "application\/json", authorization: "Bearer " \+ tok \} \}\)/);
-  assert.ok(!/position:fixed/.test(body), "sits inside the header row, never floats over content");
+  assert.ok(!/position:fixed/.test(body), "header mode sits inside the header row (roaming lives in za-catroam.js)");
   assert.ok(!/setInterval/.test(body), "no polling");
   assert.ok(fs.statSync(new URL("../za-cat-photo.webp", import.meta.url)).size < 150000);
   // App 端只給「問 token」的函式，跟 portfolio-sync 同一份 zinfSyncToken
@@ -35,23 +35,24 @@ function mkEl(tag) {
     addEventListener(n, f) { (this.listeners[n] ||= []).push(f); }, contains(x) { return x === el; } };
   return el;
 }
-function env({ titleRight = 210, btnLeft = 300, token, fetchImpl } = {}) {
+function env({ titleRight = 210, btnLeft = 300, token, fetchImpl, reduce = false } = {}) {
   const rect = (l, r, t = 10, b = 46) => ({ left: l, right: r, top: t, bottom: b, width: r - l, height: b - t });
   const kids = [], wl = {}, timers = [];
   const title = { getBoundingClientRect: () => rect(16, titleRight) };
   const btns = { getBoundingClientRect: () => rect(btnLeft, 374) };
   const h1 = { firstElementChild: title, nextElementSibling: btns };
   const row = { style: {}, getBoundingClientRect: () => rect(16, 374), querySelector: () => h1, appendChild(c) { kids.push(c); c.parentNode = row; } };
-  const doc = { head: { appendChild() {} }, body: {}, createElement: mkEl, querySelector: () => row };
+  const scripts = [];
+  const doc = { head: { appendChild() {} }, body: { appendChild: (c) => scripts.push(c) }, createElement: mkEl, querySelector: () => row };
   const calls = [];
-  const win = { addEventListener(n, f) { (wl[n] ||= []).push(f); } };
+  const win = { addEventListener(n, f) { (wl[n] ||= []).push(f); }, matchMedia: () => ({ matches: reduce }) };
   if (token !== undefined) win.zaGetSyncToken = () => token;
   const vib = [];
   vm.runInNewContext(code, { window: win, document: doc, navigator: { vibrate: (p) => vib.push(p) },
     fetch: (u, init) => { calls.push({ u, init }); return fetchImpl ? fetchImpl(u, init) : Promise.reject(new Error("x")); },
     getComputedStyle: () => ({ position: "static" }), requestAnimationFrame: (f) => f(), setTimeout: (f, ms) => { timers.push({ f, ms }); return timers.length; }, clearTimeout() {},
     MutationObserver: function () { this.observe = () => {}; }, Date, Math, Promise, String });
-  const out = { api: win.__zaPhotoCat, box: kids[0], row, calls, wl, win, timers, vib, btnLeft, titleRight };
+  const out = { scripts, api: win.__zaPhotoCat, box: kids[0], row, calls, wl, win, timers, vib, btnLeft, titleRight };
   Object.defineProperty(out, "timers", { get: () => timers, set: (v) => { timers.length = 0; timers.push(...v); } });
   return out;
 }
@@ -198,4 +199,13 @@ test("typing a token in 計畫設定 (many events quickly) -> only the final tok
   const pend = e.timers.filter((x) => x.ms === 800); assert.equal(pend.length, 4);
   pend[pend.length - 1].f(); await flush();
   assert.equal(e.calls.length, 1); assert.equal(e.calls[0].init.headers.authorization, "Bearer abcd");
+});
+
+test("reduced motion -> roaming script never loaded (stays in header gap); otherwise za-catroam.js is loaded once", () => {
+  const r = env({ reduce: true }); assert.equal(r.scripts.length, 0); assert.equal(r.api.shown, true);
+  const n = env(); assert.equal(n.scripts.length, 1); assert.match(n.scripts[0].src, /za-catroam\.js/);
+});
+test("headerGap() gives the gap position for the roaming cat, or null when too small", () => {
+  const { api } = env({ titleRight: 169, btnLeft: 270 });
+  const g = api.headerGap(48); assert.ok(g.x >= 169 && g.x + 48 <= 270); assert.ok(api.headerGap(200) === null);
 });
