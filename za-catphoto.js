@@ -64,7 +64,7 @@
   var img = document.createElement("img");
   img.alt = ""; img.width = 400; img.height = 503; img.decoding = "async"; img.draggable = false;
   img.src = "/za-cat-photo.webp?v=1";
-  img.onerror = function () { if (box.parentNode) box.parentNode.removeChild(box); api.shown = false; api.failed = true; };
+  img.onerror = function () { if (api.externalSprite) return; if (box.parentNode) box.parentNode.removeChild(box); api.shown = false; api.failed = true; };
   var face = document.createElement("span"); face.className = "za-pc-face"; // 走路轉向時只翻轉照片，不翻轉泡泡文字
   face.appendChild(img); box.appendChild(face); api.box = box; api.face = face;
 
@@ -122,7 +122,7 @@
     prevIdx = lastIdx = i; api.fading = fadeFrom >= 0;
   }
   function tick() {
-    if (!sctx) return;
+    if (!sctx || api.externalSprite || document.hidden) return;
     var ms = Date.now(), t = ms / 1000; if (!t0) t0 = t;
     if (reaction && ms > reactUntil) reaction = null;
     var roam = api.roam && api.roam.core && api.roam.core.state;
@@ -141,6 +141,9 @@
     drawIdx(idx, changed && !(prevName && /^(rise|walk|jump)$/.test(prevName) && /^(rise|walk|jump)$/.test(name)));
     if (!still) requestAnimationFrame(tick);
   }
+  if (document.addEventListener) document.addEventListener("visibilitychange", function () {
+    if (!document.hidden && !api.externalSprite && sctx) requestAnimationFrame(tick);
+  });
   api.spriteReact = function (k, ms) {
     var n = REACT_SPRITE[k]; if (!n || !SPRITE.actions[n]) return null;
     var a = SPRITE.actions[n];
@@ -151,6 +154,7 @@
   if (typeof Image === "function") {
     atlas = new Image(); atlas.decoding = "async";
     atlas.onload = function () {
+      if (api.externalSprite) return;
       spr = document.createElement("canvas"); spr.className = "za-pc-sprite";
       spr.width = SPRITE.frame[0]; spr.height = SPRITE.frame[1];
       spr.setAttribute("aria-hidden", "true");
@@ -276,10 +280,9 @@
   }).observe(document.body, { childList: true, subtree: true, characterData: true });
   if (img.complete) place(); else img.addEventListener("load", place);
   place();
-  // 沒開「減少動態效果」才讓貓到處走（za-catroam.js）；開了就一直坐在標題列空位。
-  var rm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)");
-  if (!(rm && rm.matches) && !window.__zaNoRoam) {
-    var sc = document.createElement("script"); sc.src = "/za-catroam.js?v=4"; sc.defer = true;
+  // 兩隻貓共用保留的小天地；減少動態效果時仍顯示兩隻，停止動畫。
+  if (!window.__zaNoRoam) {
+    var sc = document.createElement("script"); sc.src = "/za-catpair.js?v=1"; sc.defer = true;
     document.body.appendChild(sc);
   }
 })();

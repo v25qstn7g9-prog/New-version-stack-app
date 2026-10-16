@@ -79,10 +79,11 @@ test("protected zones over 10 simulated minutes per mood (incl. zoomies/jumps): 
   } });
 });
 
-test("groom/stare have no own frames: existing frames + small CSS motion; reduced motion -> roaming never loaded (static)", () => {
+test("legacy roam stays archived and is not loaded by the live pair", () => {
   const photo = fs.readFileSync(new URL("../za-catphoto.js", import.meta.url), "utf8");
   assert.match(photo, /stare: "look"/);
-  assert.match(photo, /prefers-reduced-motion: reduce[\s\S]*if \(!\(rm && rm\.matches\)[\s\S]*za-catroam\.js\?v=4/);
+  assert.match(photo, /za-catpair\.js\?v=1/);
+  assert.doesNotMatch(photo, /sc.src = "\/za-catroam/);
   const e = env(); const st = e.core.state;
   st.mode = "groom"; st.t = 0.3; e.rafs[e.rafs.length - 1](16);
   assert.match(e.cat.face.style.transform, /rotate\(/);
