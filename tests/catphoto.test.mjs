@@ -201,9 +201,9 @@ test("typing a token in 計畫設定 (many events quickly) -> only the final tok
   assert.equal(e.calls.length, 1); assert.equal(e.calls[0].init.headers.authorization, "Bearer abcd");
 });
 
-test("reduced motion -> roaming script never loaded (stays in header gap); otherwise za-catroam.js is loaded once", () => {
-  const r = env({ reduce: true }); assert.equal(r.scripts.length, 0); assert.equal(r.api.shown, true);
-  const n = env(); assert.equal(n.scripts.length, 1); assert.match(n.scripts[0].src, /za-catroam\.js/);
+test("pair loads once in both motion modes; the pair owns reduced-motion behavior", () => {
+  const r = env({ reduce: true }); assert.equal(r.scripts.length, 1); assert.equal(r.api.shown, true);
+  const n = env(); assert.equal(n.scripts.length, 1); assert.match(n.scripts[0].src, /za-catpair\.js/);
 });
 test("headerGap() gives the gap position for the roaming cat, or null when too small", () => {
   const { api } = env({ titleRight: 169, btnLeft: 270 });

@@ -1,0 +1,13 @@
+// Offline, no-data demo using the exact production scripts and images.
+// Usage: node scripts/preview-cat-pair.mjs /tmp/cat-pair-preview.html
+import fs from 'node:fs';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+const read=name=>fs.readFileSync(path.join(root,name),'utf8');
+const data=name=>'data:image/webp;base64,'+fs.readFileSync(path.join(root,name)).toString('base64');
+let photo=read('za-catphoto.js').replace('/za-cat-photo.webp?v=1',data('za-cat-photo.webp')).replace('/za-cat-sprite.webp?v=3',data('za-cat-sprite.webp'));
+let pair=read('za-catpair.js').replace('/za-white-companion.webp?v=1',data('za-white-companion.webp')).replace('/za-tabby-companion.webp?v=1',data('za-tabby-companion.webp'));
+const html=`<!doctype html><html lang="zh-Hant"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>白貓和狸花 · 動態預覽</title><style>body{margin:0;background:#29385B;color:#fff;font-family:system-ui,sans-serif}main{max-width:440px;margin:24px auto;padding:16px}.premium-header{padding:16px;background:#33446b;border-radius:18px}.justify-between{display:flex;align-items:center;justify-content:space-between}h1{font-size:18px;margin:0}button{color:inherit;background:none;border:1px solid #8799b9;border-radius:12px;padding:8px;cursor:pointer}.preview-note{font-size:12px;line-height:1.7;color:#c8d2e7;padding:16px 4px}.sample{padding:20px;margin-top:16px;border:1px solid #52648b;border-radius:18px}.sample p{color:#c8d2e7;font-size:13px}.controls{display:flex;gap:12px;flex-wrap:wrap}a{color:#bed2ff}</style><main><div class="premium-header"><div class="justify-between"><h1><span>白貓和狸花</span></h1><div><button id="theme">切換底色</button></div></div></div><div class="sample"><b>互動動態預覽</b><p>兩隻小貓會碰面、玩耍、輪流追逐，再靠著一起睡。點貓咪可叫醒；也可以暫停。</p><div class="controls"><button id="sleep">看看一起睡</button><button id="play">看看追逐</button></div></div><p class="preview-note">此檔案是離線動畫預覽，不含你的資產或帳戶資料。使用 AI 生成寫實姿勢影格，並非真貓影片。正式 App 的其他功能不變。系統的「減少動態效果」會停止自動動作。</p></main><script>window.__zaNoRoam=true;</script><script>${photo}</script><script>${pair}</script><script>document.getElementById('theme').onclick=function(){document.body.style.background=document.body.style.background?'':'#f3f5f9';};document.getElementById('sleep').onclick=function(){var c=window.__zaCatPairCore,s=c.state;s.wakeFrom=null;s.phase='sleep';s.time=0;c.resize(s,s.width+.01);};document.getElementById('play').onclick=function(){var c=window.__zaCatPairCore,s=c.state;s.wakeFrom=null;s.phase='chaseRight';s.time=0;};</script></html>`;
+fs.writeFileSync(process.argv[2]||'/tmp/cat-pair-preview.html',html);
+console.log('Wrote self-contained preview');
