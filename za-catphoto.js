@@ -323,7 +323,7 @@
   place();
   // 先載入空間規劃；若新模組失敗，保留原本的雙貓顯示，不影響 App。
   if (!window.__zaNoRoam) {
-    function loadPair(){var sc=document.createElement("script");sc.src="/za-catpair.js?v=2";sc.defer=true;sc.onload=function(){var life=document.createElement("script");life.src="/za-catlife.js?v=1";life.defer=true;document.body.appendChild(life);};document.body.appendChild(sc);}
+    function loadPair(){var sc=document.createElement("script");sc.src="/za-catpair.js?v=4";sc.defer=true;sc.onload=function(){var life=document.createElement("script");life.src="/za-catlife.js?v=3";life.defer=true;document.body.appendChild(life);};document.body.appendChild(sc);}
     var spaceScript=document.createElement("script");spaceScript.src="/za-catspace.js?v=1";spaceScript.defer=true;spaceScript.onload=loadPair;spaceScript.onerror=loadPair;document.body.appendChild(spaceScript);
   }
 })();
