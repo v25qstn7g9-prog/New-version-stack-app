@@ -113,3 +113,12 @@ test("new real clips: 12-frame side-view walk loop (shot facing right), stand-up
   assert.equal(A.walk.count, 12); assert.equal(A.walk.play, "loop"); assert.equal(A.walk.dir, "r");
   assert.equal(A.rise.play, "once"); assert.ok(A.rise.count >= 8); assert.ok(A.settle.count >= 8);
 });
+
+test("mood change while resting crossfades to the new clip (no instant switch); sleeping cat stays asleep", async () => {
+  const e = load(); await flush(); e.runRaf();
+  assert.equal(e.api.action, "sit");
+  e.api.setMood("sad"); e.advance(16); e.runRaf();
+  assert.equal(e.api.action, "sad"); assert.equal(e.api.fading, true, "crossfade, not a hard cut");
+  e.advance(400); e.runRaf(); assert.equal(e.api.fading, false);
+  assert.equal(e.api.spriteAction("happy", "sleep", null, true, 0), "loaf", "sleeping: mood updates without waking");
+});

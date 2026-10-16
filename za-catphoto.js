@@ -1,7 +1,7 @@
 // Z∞ Assets 小白貓（真貓照片版，只管畫面：不碰儲存、不寫任何資料）。
 // 用 Johnny 家那隻白貓的去背照片，坐在標題列「存股資產追蹤」跟右上角按鈕之間的空位上，跟著標題列一起捲動，
 // 所以不會蓋到任何數字或資產曲線；空位放不下 36px 的可點範圍就先不顯示（不會擋到標題或右上角按鈕）。
-// 心情來自 GET /api/spider 的 mood（up→開心、flat→悠閒、down→難過），只在載入時讀一次、只記在記憶體；
+// 心情來自 GET /api/spider 的 mood（up→開心、flat→悠閒、down→難過），載入時讀一次、台股盤中每 5 分鐘再讀，只記在記憶體；
 // token 跟 portfolio-sync 同一份（index.html 提供 window.zaGetSyncToken），只放 Authorization header。
 // 沒 token、401／403、found:false、任何失敗 → 固定「悠閒」，絕不用假資料。
 // 摸摸：點一下依心情隨機反應；2 秒內點超過 4 下會哈氣、冷靜 3 秒；長按約 0.6 秒會呼嚕、冒愛心。
@@ -177,22 +177,63 @@
   setMood("relaxed");
   api.setMood = setMood;
 
-  // ── 心情：讀一次 /api/spider（只記在記憶體） ──
-  // 每個 token 只讀一次：token 還沒讀到（空的）就先悠閒、不上鎖；之後 token 出現或在計畫設定換掉時，
-  // App 會再發 za-sync-token 事件，這時才讀（同一個 token 不重讀；沒有定時輪詢）。
-  var lastTok = null, seq = 0;
+  // ── 心情：讀 /api/spider（只記在記憶體） ──
+  // 每個 token 先讀一次：token 還沒讀到（空的）就先悠閒、不上鎖；之後 token 出現或在計畫設定換掉時，
+  // App 會再發 za-sync-token 事件，這時才讀（同一個 token 不重讀）。
+  // 台股盤中（台北時間週一～五 09:00–13:30，用 Intl 算，不看手機時區）每 5 分鐘再讀一次；分頁在背景就不讀，
+  // 回到前景時如果上次讀已超過 5 分鐘就補讀一次。同時只會有一個請求。重讀失敗就維持目前心情（不會一下悠閒一下難過）。
+  var REFRESH_MS = 5 * 60 * 1000;
+  var lastTok = null, seq = 0, inflight = false, lastFetchAt = 0, pollTimer = 0;
+  var tpeFmt = null;
+  try { tpeFmt = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }); } catch (e) {}
+  // ms 時間點是不是台股盤中（台北時間）；國定假日不知道，照平日算
+  function marketOpen(ms) {
+    if (!tpeFmt) return false;
+    var parts = tpeFmt.formatToParts(ms), o = {};
+    for (var i = 0; i < parts.length; i++) o[parts[i].type] = parts[i].value;
+    if (o.weekday === "Sat" || o.weekday === "Sun") return false;
+    var m = (+o.hour % 24) * 60 + (+o.minute);
+    return m >= 540 && m <= 810;
+  }
+  api.marketOpen = marketOpen;
+  var FETCH_TIMEOUT_MS = 10000;                          // 10 秒沒回應就放棄（當成讀取失敗）
+  function fetchMood(tok, refresh) {
+    var my = ++seq;                                       // 換 token 時，舊的回應作廢
+    inflight = true; lastFetchAt = Date.now();
+    var ctl = typeof AbortController === "function" ? new AbortController() : null;
+    var killer = ctl ? setTimeout(function () { ctl.abort(); }, FETCH_TIMEOUT_MS) : 0;
+    var init = { cache: "no-store", headers: { accept: "application/json", authorization: "Bearer " + tok } };
+    if (ctl) init.signal = ctl.signal;
+    var done = function () { clearTimeout(killer); if (my === seq) inflight = false; };
+    api.moodPromise = fetch("/api/spider", init)
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) {
+        done();
+        if (my !== seq) return;
+        if (refresh && (!j || j.ok !== true || j.found !== true)) return;   // 重讀失敗：維持目前心情
+        setMood(moodFrom(j));
+      }, function () { done(); if (my !== seq) return; if (!refresh) setMood("relaxed"); });   // 逾時／網路錯誤
+  }
   function loadMood() {
     var get = window.zaGetSyncToken;
     if (typeof get !== "function") return;               // App 還沒讀到 token，等 za-sync-token 事件
     var tok = String(get() || "").trim();
     if (tok === lastTok) return;                          // 同一個 token：不重讀
     lastTok = tok;
-    var my = ++seq;                                       // 換 token 時，舊的回應作廢
-    if (!tok || typeof fetch !== "function") { setMood("relaxed"); return; }
-    api.moodPromise = fetch("/api/spider", { cache: "no-store", headers: { accept: "application/json", authorization: "Bearer " + tok } })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (j) { if (my === seq) setMood(moodFrom(j)); }, function () { if (my === seq) setMood("relaxed"); });
+    if (!tok || typeof fetch !== "function") { ++seq; inflight = false; setMood("relaxed"); return; }
+    fetchMood(tok, false);
   }
+  function hidden() { return typeof document !== "undefined" && !!document.hidden; }
+  function refresh() {
+    if (!lastTok || inflight || hidden() || typeof fetch !== "function" || !marketOpen(Date.now())) return false;
+    fetchMood(lastTok, true); return true;
+  }
+  api.refreshMood = refresh;
+  function poll() { pollTimer = setTimeout(function () { refresh(); poll(); }, REFRESH_MS); }
+  poll();
+  if (typeof document !== "undefined" && document.addEventListener) document.addEventListener("visibilitychange", function () {
+    if (!hidden() && Date.now() - lastFetchAt >= REFRESH_MS) refresh();   // 回到前景：太久沒讀就補一次
+  });
   // 在計畫設定打字時 token 每個字都會變：等停手 0.8 秒再讀，避免一路打一路送。
   var tokTimer = 0;
   window.addEventListener("za-sync-token", function () { clearTimeout(tokTimer); tokTimer = setTimeout(loadMood, 800); });
