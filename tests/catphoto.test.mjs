@@ -10,7 +10,8 @@ const body = code.replace(/^\s*\/\/.*$/gm, "");
 test("no storage / page-text reads, only one fetch (GET /api/spider), token header-only, never fixed-position", () => {
   for (const bad of ["XMLHttpRequest", "localStorage", "sessionStorage", "indexedDB", "sendBeacon", "innerHTML", "innerText", "?token", "console."]) assert.ok(!body.includes(bad), bad);
   assert.equal((body.match(/fetch\(/g) || []).length, 1);
-  assert.match(body, /fetch\("\/api\/spider", \{ cache: "no-store", headers: \{ accept: "application\/json", authorization: "Bearer " \+ tok \} \}\)/);
+  assert.match(body, /var init = \{ cache: "no-store", headers: \{ accept: "application\/json", authorization: "Bearer " \+ tok \} \};/);
+  assert.match(body, /fetch\("\/api\/spider", init\)/);
   assert.ok(!/position:fixed/.test(body), "header mode sits inside the header row (roaming lives in za-catroam.js)");
   assert.ok(!/setInterval/.test(body), "no polling");
   assert.ok(fs.statSync(new URL("../za-cat-photo.webp", import.meta.url)).size < 150000);
@@ -35,7 +36,7 @@ function mkEl(tag) {
     addEventListener(n, f) { (this.listeners[n] ||= []).push(f); }, contains(x) { return x === el; } };
   return el;
 }
-function env({ titleRight = 210, btnLeft = 300, token, fetchImpl, reduce = false } = {}) {
+function env({ titleRight = 210, btnLeft = 300, token, fetchImpl, reduce = false, clock = null } = {}) {
   const rect = (l, r, t = 10, b = 46) => ({ left: l, right: r, top: t, bottom: b, width: r - l, height: b - t });
   const kids = [], wl = {}, timers = [];
   const title = { getBoundingClientRect: () => rect(16, titleRight) };
@@ -43,7 +44,8 @@ function env({ titleRight = 210, btnLeft = 300, token, fetchImpl, reduce = false
   const h1 = { firstElementChild: title, nextElementSibling: btns };
   const row = { style: {}, getBoundingClientRect: () => rect(16, 374), querySelector: () => h1, appendChild(c) { kids.push(c); c.parentNode = row; } };
   const scripts = [];
-  const doc = { head: { appendChild() {} }, body: { appendChild: (c) => scripts.push(c) }, createElement: mkEl, querySelector: () => row };
+  const dl = {};
+  const doc = { hidden: false, head: { appendChild() {} }, body: { appendChild: (c) => scripts.push(c) }, createElement: mkEl, querySelector: () => row, addEventListener(n, f) { (dl[n] ||= []).push(f); } };
   const calls = [];
   const win = { addEventListener(n, f) { (wl[n] ||= []).push(f); }, matchMedia: () => ({ matches: reduce }) };
   if (token !== undefined) win.zaGetSyncToken = () => token;
@@ -51,8 +53,8 @@ function env({ titleRight = 210, btnLeft = 300, token, fetchImpl, reduce = false
   vm.runInNewContext(code, { window: win, document: doc, navigator: { vibrate: (p) => vib.push(p) },
     fetch: (u, init) => { calls.push({ u, init }); return fetchImpl ? fetchImpl(u, init) : Promise.reject(new Error("x")); },
     getComputedStyle: () => ({ position: "static" }), requestAnimationFrame: (f) => f(), setTimeout: (f, ms) => { timers.push({ f, ms }); return timers.length; }, clearTimeout() {},
-    MutationObserver: function () { this.observe = () => {}; }, Date, Math, Promise, String });
-  const out = { scripts, api: win.__zaPhotoCat, box: kids[0], row, calls, wl, win, timers, vib, btnLeft, titleRight };
+    MutationObserver: function () { this.observe = () => {}; }, Date: clock ? { now: () => clock.t } : Date, AbortController, Math, Promise, String });
+  const out = { doc, dl, scripts, api: win.__zaPhotoCat, box: kids[0], row, calls, wl, win, timers, vib, btnLeft, titleRight };
   Object.defineProperty(out, "timers", { get: () => timers, set: (v) => { timers.length = 0; timers.push(...v); } });
   return out;
 }
@@ -208,4 +210,86 @@ test("pair loads once in both motion modes; the pair owns reduced-motion behavio
 test("headerGap() gives the gap position for the roaming cat, or null when too small", () => {
   const { api } = env({ titleRight: 169, btnLeft: 270 });
   const g = api.headerGap(48); assert.ok(g.x >= 169 && g.x + 48 <= 270); assert.ok(api.headerGap(200) === null);
+});
+
+// ── 盤中每 5 分鐘重讀心情 ──
+const TPE = (iso) => Date.parse(iso + "+08:00");          // 台北時間
+const ok = (mood) => () => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true, found: true, mood }) });
+const pollTimers = (e) => e.timers.filter((x) => x.ms === 5 * 60 * 1000);
+async function tickPoll(e, clock, ms = 5 * 60 * 1000) { clock.t += ms; const t = pollTimers(e).pop(); e.timers = e.timers.filter((x) => x !== t); t.f(); await flush(); }
+
+test("market hours are computed in Asia/Taipei, Mon-Fri 09:00-13:30, regardless of device time zone", () => {
+  const { api } = env({ token: "" });
+  assert.equal(api.marketOpen(TPE("2026-10-16T09:00:00")), true, "Fri 09:00");
+  assert.equal(api.marketOpen(TPE("2026-10-16T13:30:00")), true, "Fri 13:30");
+  assert.equal(api.marketOpen(TPE("2026-10-16T13:31:00")), false);
+  assert.equal(api.marketOpen(TPE("2026-10-16T08:59:00")), false);
+  assert.equal(api.marketOpen(TPE("2026-10-17T10:00:00")), false, "Saturday");
+  assert.equal(api.marketOpen(TPE("2026-10-18T10:00:00")), false, "Sunday");
+  assert.equal(api.marketOpen(Date.parse("2026-10-16T02:00:00Z")), true, "02:00 UTC = 10:00 Taipei");
+});
+
+test("during market hours: refetches every 5 min with the Bearer header (never in the URL) and applies mood changes", async () => {
+  const clock = { t: TPE("2026-10-16T10:00:00") }; let mood = "flat";
+  const e = env({ token: "tok-1", clock, fetchImpl: () => ok(mood)() }); await flush();
+  assert.equal(e.calls.length, 1); assert.equal(e.api.mood, "relaxed");
+  mood = "down"; await tickPoll(e, clock);
+  assert.equal(e.calls.length, 2); assert.equal(e.api.mood, "sad");
+  for (const c of e.calls) { assert.equal(c.u, "/api/spider"); assert.equal(c.init.headers.authorization, "Bearer tok-1"); assert.ok(!c.u.includes("tok")); }
+  mood = "up"; await tickPoll(e, clock); assert.equal(e.api.mood, "happy"); assert.equal(e.calls.length, 3);
+});
+
+test("outside market hours and on weekends: no refetch (timer keeps checking cheaply)", async () => {
+  for (const iso of ["2026-10-16T14:00:00", "2026-10-16T07:00:00", "2026-10-17T10:00:00", "2026-10-18T11:00:00"]) {
+    const clock = { t: TPE(iso) };
+    const e = env({ token: "tok", clock, fetchImpl: ok("flat") }); await flush();
+    for (let i = 0; i < 6; i++) await tickPoll(e, clock, 1000);   // 不跨過盤中
+    assert.equal(e.calls.length, 1, iso + ": only the initial load");
+  }
+});
+
+test("hidden tab: no refetch; back to visible after >5 min -> exactly one catch-up fetch; soon after -> none", async () => {
+  const clock = { t: TPE("2026-10-16T10:00:00") };
+  const e = env({ token: "tok", clock, fetchImpl: ok("flat") }); await flush();
+  e.doc.hidden = true; await tickPoll(e, clock); await tickPoll(e, clock);
+  assert.equal(e.calls.length, 1, "paused while hidden");
+  e.doc.hidden = false; e.dl.visibilitychange.forEach((f) => f()); await flush();
+  assert.equal(e.calls.length, 2, "stale -> one catch-up");
+  clock.t += 60 * 1000; e.doc.hidden = true; e.dl.visibilitychange.forEach((f) => f()); e.doc.hidden = false; e.dl.visibilitychange.forEach((f) => f()); await flush();
+  assert.equal(e.calls.length, 2, "fresh -> no extra fetch");
+});
+
+test("no overlapping requests: a slow response blocks the next poll", async () => {
+  const clock = { t: TPE("2026-10-16T10:00:00") }; let release;
+  const e = env({ token: "tok", clock, fetchImpl: () => new Promise((r) => { release = () => r({ ok: true, json: () => Promise.resolve({ ok: true, found: true, mood: "up" }) }); }) });
+  await tickPoll(e, clock); await tickPoll(e, clock);
+  assert.equal(e.calls.length, 1, "still waiting on the first one");
+  release(); await flush(); assert.equal(e.api.mood, "happy");
+  await tickPoll(e, clock); assert.equal(e.calls.length, 2);
+});
+
+test("refresh failure keeps the current mood (no flapping); first-load failure is still relaxed", async () => {
+  const clock = { t: TPE("2026-10-16T10:00:00") }; let mode = "down";
+  const e = env({ token: "tok", clock, fetchImpl: () => mode === "down" ? ok("down")() : mode === "500" ? Promise.resolve({ ok: false, status: 500 }) : mode === "nf" ? Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, found: false }) }) : Promise.reject(new Error("net")) });
+  await flush(); assert.equal(e.api.mood, "sad");
+  for (mode of ["500", "net", "nf"]) { await tickPoll(e, clock); assert.equal(e.api.mood, "sad", mode); }
+  const f = env({ token: "tok", clock: { t: clock.t }, fetchImpl: () => Promise.reject(new Error("x")) }); await flush();
+  assert.equal(f.api.mood, "relaxed");
+});
+
+test("hanging fetch is aborted after 10s -> treated as refresh failure (mood kept), and the next poll still runs", async () => {
+  const clock = { t: TPE("2026-10-16T10:00:00") }; let n = 0, aborted = 0;
+  const e = env({ token: "tok", clock, fetchImpl: (u, init) => {
+    n++;
+    if (n === 1) return ok("down")();
+    return new Promise((res, rej) => init.signal.addEventListener("abort", () => { aborted++; rej(new Error("AbortError")); }));
+  } });
+  await flush(); assert.equal(e.api.mood, "sad");
+  await tickPoll(e, clock);
+  assert.equal(e.calls.length, 2); assert.ok(e.calls[1].init.signal, "request carries an AbortSignal");
+  await tickPoll(e, clock); assert.equal(e.calls.length, 2, "no overlap while hanging");
+  const k = e.timers.filter((x) => x.ms === 10000); assert.ok(k.length >= 1, "10s abort timer armed");
+  k.forEach((x) => x.f()); await flush();
+  assert.ok(aborted >= 1); assert.equal(e.api.mood, "sad", "failure path keeps the current mood");
+  await tickPoll(e, clock); assert.equal(e.calls.length, 3, "next poll runs after the abort (inflight reset)");
 });
