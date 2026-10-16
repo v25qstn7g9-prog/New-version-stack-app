@@ -203,7 +203,7 @@ test("typing a token in 計畫設定 (many events quickly) -> only the final tok
 
 test("pair loads once in both motion modes; the pair owns reduced-motion behavior", () => {
   const r = env({ reduce: true }); assert.equal(r.scripts.length, 1); assert.equal(r.api.shown, true);
-  const n = env(); assert.equal(n.scripts.length, 1); assert.match(n.scripts[0].src, /za-catpair\.js/);
+  const n = env(); assert.equal(n.scripts.length, 1); assert.match(n.scripts[0].src, /za-catspace\.js/);
 });
 test("headerGap() gives the gap position for the roaming cat, or null when too small", () => {
   const { api } = env({ titleRight: 169, btnLeft: 270 });
