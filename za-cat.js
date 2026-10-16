@@ -7,7 +7,7 @@
   window.__zaCatLoader = true;
   function go() {
     var s = document.createElement("script");
-    s.src = "/za-catphoto.js?v=6"; s.defer = true;
+    s.src = "/za-catphoto.js?v=7"; s.defer = true;
     document.body.appendChild(s);
   }
   function later() { setTimeout(go, 1200); }

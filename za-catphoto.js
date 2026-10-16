@@ -76,7 +76,7 @@
   var FPS_MUL = { happy: 1.2, relaxed: 1, sad: 0.7 };
   var REACT_SPRITE = { jump: "jump", wiggle: "happy", blink: "look", stretch: "happy", shrink: "sad", cling: "sad", pet: "loaf", hiss: "jump" };
   // 走動版的狀態 → 動作：sleep 睡覺（趴著）、sit/groom 坐著（理毛沒有真的影片，用坐著／盯著你交替）、walk/run 走／跑（跑＝走路影格加快，影片裡沒有跑步）、jump 真的跳
-  var MODE_ACTION = { walk: "walk", run: "walk", jump: "jump", turn: "walk", sleep: "loaf", sit: "sit", groom: "look" };
+  var MODE_ACTION = { walk: "walk", run: "walk", jump: "jump", turn: "walk", sleep: "loaf", sit: "sit", groom: "look", stare: "look" };
   // 現在要播哪一段：你點／摸牠的反應優先，其次走動版的狀態，再來依心情休息（t 是秒）
   function spriteAction(mood, motion, reaction, nap, t) {
     if (reaction && SPRITE.actions[reaction]) return reaction;
@@ -84,6 +84,7 @@
     if (motion === "jump") return "jump";
     if (nap || motion === "sleep") return "loaf";
     if (mood === "sad") return Math.floor(t / 7) % 2 ? "loaf" : "sad";
+    if (motion === "stare") return "look";                              // 盯著某處（沒有專屬影格：用 look＋小幅前傾）
     if (motion === "groom") return Math.floor(t / 4) % 2 ? "look" : "sit";
     return Math.floor(t / 6) % 3 === 2 ? "look" : "sit";
   }
@@ -278,7 +279,7 @@
   // 沒開「減少動態效果」才讓貓到處走（za-catroam.js）；開了就一直坐在標題列空位。
   var rm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)");
   if (!(rm && rm.matches) && !window.__zaNoRoam) {
-    var sc = document.createElement("script"); sc.src = "/za-catroam.js?v=3"; sc.defer = true;
+    var sc = document.createElement("script"); sc.src = "/za-catroam.js?v=4"; sc.defer = true;
     document.body.appendChild(sc);
   }
 })();

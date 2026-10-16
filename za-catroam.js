@@ -9,6 +9,10 @@
 // - 不會瞬間換姿勢：站→坐（真的「站起來」影格倒著播）→ 低頭趴下（真的影格）→ 淡入睡覺；
 //   醒來：抬頭（倒著播）→ 伸懶腰（合成：拉長壓扁）→ 站起來（真的影格）→ 才開始走。
 // - 轉身：先減速停下，原地用約 0.4 秒把身體「壓扁再翻過去」，不會走路中瞬間鏡像。
+// - v3：範圍＝整個可見畫面（position:fixed，捲動後重新量）；目的地用加權隨機，偏好邊緣／角落
+//   （卡片邊緣、標題列下緣、畫面四邊），並有「空間記憶」：最近去過的格子權重大降，不會一直回同一處。
+// - v3 行為（加權隨機、沒有固定循環）：多半原地休息（睡／發呆／理毛／盯著某處），偶爾巡邏到新地點（可能連走幾段），
+//   偶爾突然暴衝（zoomies：連跑幾段），偶爾跳上卡片邊緣；理毛、盯著看沒有專屬影格，用既有影格＋小幅 CSS 動作。
 // - 點牠：停下來、原地跳一下（睡著會被叫醒、慢慢坐起來）。
 // - 只用 CSS transform + requestAnimationFrame；版面位置只在捲動／縮放／畫面重畫時（有節流）重新量，每一幀不量版面；分頁切到背景就暫停。
 (function () {
@@ -20,15 +24,18 @@
   var SPEED = { happy: 52, relaxed: 40, sad: 28 }, RUN = 150;
   // 一個走路循環（18 格）前進的距離＝貓寬的倍數：影格跟距離綁在一起，腳不會滑
   var STRIDE = 0.8, RUN_STRIDE = 1.9, WALK_FRAMES = 12;
-  var DUR = { sleep: [40, 90], sit: [10, 25], groom: [10, 25] };
-  // 休息時做什麼的機率（sleep / sit / groom）
-  var REST_MIX = { happy: [0.25, 0.5, 0.25], relaxed: [0.45, 0.3, 0.25], sad: [0.65, 0.35, 0] };
+  var DUR = { sleep: [40, 90], sit: [10, 25], groom: [10, 25], stare: [10, 25] };
+  // 休息時做什麼的機率（sleep / sit 發呆 / groom 理毛 / stare 盯著某處）
+  var REST_MIX = { happy: [0.25, 0.35, 0.2, 0.2], relaxed: [0.45, 0.25, 0.15, 0.15], sad: [0.65, 0.3, 0, 0.05] }, REST_K = ["sleep", "sit", "groom", "stare"];
   var RUN_P = { happy: 0.45, relaxed: 0.15, sad: 0 }, JUMP_P = { happy: 0.7, relaxed: 0.5, sad: 0 };
   var JUMP = { crouch: 0.28, air: 0.5, land: 0.3, maxD: 200, minDy: 36 };
   var ACCEL = 0.7, BRAKE = 0.9;
   // 姿勢轉換（秒）。rise/settle 是影片裡真的影格；stretch 是合成的（沒有伸懶腰的影片）
   var TRANS = { rise: 0.85, settle: 1.25, stretch: 1.1, fade: 0.35 }, TURN = 0.42;   // 起步加速、停下減速各大約幾秒
   var SAD_NEAR = 220;
+  // v3：醒來後做什麼（stay 原地換姿勢／patrol 巡邏／zoom 暴衝／jump 跳上卡片邊）
+  var BEHAVE = { happy: [0.30, 0.35, 0.15, 0.20], relaxed: [0.46, 0.36, 0.07, 0.11], sad: [0.68, 0.32, 0, 0] }, BEHAVE_K = ["stay", "patrol", "zoom", "jump"];
+  var CELL = 48, MEM_N = 10, MEM_PEN = 0.18, EDGE_NEAR = 14;
 
   // ── 純計算（測試直接呼叫） ──
   function hit(a, b, m) { m = m || 0; return a.x < b.x + b.w + m && a.x + a.w + m > b.x && a.y < b.y + b.h + m && a.y + a.h + m > b.y; }
@@ -43,19 +50,60 @@
     }
     return out;
   }
-  function pick(L, cur, mood, rnd) {
-    rnd = rnd || Math.random;
+  // 格子（給空間記憶與統計用）：以貓腳下中心點算
+  function cellOf(s) { return Math.floor((s.x + W / 2) / CELL) + "," + Math.floor((s.y + H) / CELL); }
+  // 邊緣分數：靠畫面左右邊、活動範圍上下緣、卡片（含標題列）四邊；角落（兩種以上邊）再加成。0＝不是邊緣
+  function edgeScore(L, s) {
+    var n = 0, i, c, b = s.y + H, r = s.x + W, E = EDGE_NEAR + GRID;
+    if (s.x <= M + E || r >= L.vw - M - E) n++;
+    if (s.y <= L.top + E || b >= L.floor - E) n++;
+    var cards = L.cards || [];
+    for (i = 0; i < cards.length; i++) {
+      c = cards[i];
+      var hx = s.x < c.x + c.w && r > c.x, vy = s.y < c.y + c.h && b > c.y;
+      if (hx && (Math.abs(b - c.y) <= E || Math.abs(b - (c.y + c.h)) <= E)) { n++; break; }
+      if (vy && (Math.abs(r - c.x) <= E || Math.abs(s.x - (c.x + c.w)) <= E)) { n++; break; }
+    }
+    return n;
+  }
+  // 記憶懲罰：最近去過的格子（越近期罰越重；相鄰格子輕罰）
+  function memPenalty(mem, s) {
+    if (!mem || !mem.length) return 1;
+    var k = cellOf(s).split(","), cx = +k[0], cy = +k[1], w = 1, i;
+    for (i = 0; i < mem.length; i++) {
+      var m = mem[i].split(","), dx = Math.abs(+m[0] - cx), dy = Math.abs(+m[1] - cy);
+      if (!dx && !dy) w *= MEM_PEN; else if (dx <= 1 && dy <= 1) w *= 0.6;
+    }
+    return w;
+  }
+  function spotWeight(L, s, cur, mood, mem) {
+    var e = edgeScore(L, s), w = e ? 1 + 2.2 * e * e : 0.35;
+    w *= memPenalty(mem, s);
+    if (cur && mood !== "happy") w /= 1 + Math.hypot(s.x - cur.x, s.y - cur.y) / (mood === "sad" ? 120 : 420);
+    return w;
+  }
+  function wpick(list, ws, rnd) {
+    var t = 0, i; for (i = 0; i < ws.length; i++) t += ws[i];
+    if (!(t > 0)) return list[Math.floor(rnd() * list.length) % list.length];
+    var u = rnd() * t; for (i = 0; i < ws.length; i++) { u -= ws[i]; if (u <= 0) return list[i]; }
+    return list[list.length - 1];
+  }
+  // opts.jump：只挑跳得到（高低差夠、距離不遠）的點；opts.far：暴衝時偏好遠一點
+  function pick(L, cur, mood, rnd, mem, opts) {
+    rnd = rnd || Math.random; opts = opts || {};
     var spots = findSpots(L), home = L.home;
     if (mood === "sad" && home) spots = spots.filter(function (s) { return Math.hypot(s.x - home.x, s.y - home.y) <= SAD_NEAR; });
-    if (cur && mood !== "happy") {                                       // 悠閒／難過：不跑太遠
-      var near = spots.filter(function (s) { var d = Math.hypot(s.x - cur.x, s.y - cur.y); return d > 30 && d < (mood === "sad" ? 120 : 260); });
+    if (cur) { var cc = cellOf(cur);                                     // 不原地（也不在同一格）；難過：不跑太遠（其他心情改用權重，範圍＝整個畫面）
+      var near = spots.filter(function (s) { var d = Math.hypot(s.x - cur.x, s.y - cur.y); return d > 30 && cellOf(s) !== cc && (mood !== "sad" || d < 120); });
       if (near.length) spots = near;
+      if (opts.jump) { var js = spots.filter(function (s) { var dy = Math.abs(s.y - cur.y); return dy >= JUMP.minDy && Math.hypot(s.x - cur.x, s.y - cur.y) <= JUMP.maxD; }); if (!js.length) return null; spots = js; }
     }
     var homeOk = home && validSpot(L, home);
-    if (homeOk && (!spots.length || rnd() < (mood === "sad" ? 0.45 : 0.12))) return { x: home.x, y: home.y, home: true };
+    if (homeOk && !opts.jump && (!spots.length || rnd() < (mood === "sad" ? 0.45 : 0.12) * memPenalty(mem, home))) return { x: home.x, y: home.y, home: true };
     if (!spots.length) return null;
-    var s = spots[Math.floor(rnd() * spots.length) % spots.length];
-    return { x: s.x, y: s.y };
+    var ws = spots.map(function (s) { var w = spotWeight(L, s, cur, mood, mem); if (opts.far && cur) w *= 1 + Math.hypot(s.x - cur.x, s.y - cur.y) / 150; return w; });
+    var s = wpick(spots, ws, rnd);
+    return { x: s.x, y: s.y, edge: edgeScore(L, s) > 0 };
   }
   // 休息點還是空的嗎？（標題列空位是特例：本來就算好在標題與按鈕之間）
   function validSpot(L, s) {
@@ -71,9 +119,11 @@
   // 休息：要做什麼、做多久
   function planRest(mood, rnd) {
     rnd = rnd || Math.random;
-    var mix = REST_MIX[mood] || REST_MIX.relaxed, u = rnd(), kind = u < mix[0] ? "sleep" : u < mix[0] + mix[1] ? "sit" : "groom";
+    var mix = REST_MIX[mood] || REST_MIX.relaxed, kind = wpick(REST_K, mix, rnd);
     return { mode: kind, wait: rand(DUR[kind], rnd) };
   }
+  // 醒來後要做什麼（加權隨機，不是固定循環）
+  function planNext(mood, rnd) { return wpick(BEHAVE_K, BEHAVE[mood] || BEHAVE.relaxed, rnd || Math.random); }
   // 移動：走、跑、還是跳（dx, dy 是到目的地的距離）
   function planTravel(mood, dx, dy, urgent, rnd) {
     rnd = rnd || Math.random;
@@ -116,7 +166,7 @@
   // 走路上下起伏跟著影格（一個循環兩次，前後腳各一次），振幅很小
   function bobFor(frame, amp) { return -Math.abs(Math.sin(frame / WALK_FRAMES * 2 * Math.PI)) * amp; }
   var core = { W: W, TRANS: TRANS, TURN: TURN, transition: transition, turnAt: turnAt, bobFor: bobFor, WALK_FRAMES: WALK_FRAMES, H: H, sizeFor: sizeFor, hit: hit, findSpots: findSpots, pick: pick, validSpot: validSpot, SPEED: SPEED, RUN: RUN, DUR: DUR, JUMP: JUMP,
-    planRest: planRest, planTravel: planTravel, easedSpeed: easedSpeed, framesFor: framesFor, jumpAt: jumpAt };
+    planRest: planRest, planNext: planNext, edgeScore: edgeScore, cellOf: cellOf, memPenalty: memPenalty, spotWeight: spotWeight, CELL: CELL, MEM_N: MEM_N, BEHAVE: BEHAVE, REST_MIX: REST_MIX, planTravel: planTravel, easedSpeed: easedSpeed, framesFor: framesFor, jumpAt: jumpAt };
   window.__zaCatRoamCore = core;
 
   var cat = window.__zaPhotoCat;
@@ -133,6 +183,7 @@
 
   // ── 量版面（有節流，不是每一幀） ──
   var PROTECT_SEL = "svg,canvas,img,input,select,textarea,button,a,[role=button],.recharts-wrapper,video,iframe";
+  var CARD_SEL = ".premium-header,[class*=rounded-xl],[class*=rounded-2xl],[class*=rounded-3xl]";   // 卡片（只用來找邊緣，不是禁區）
   var L = null;
   function rectOf(r) { return { x: r.left, y: r.top, w: r.width, h: r.height }; }
   function measure() {
@@ -152,14 +203,16 @@
       rg.selectNodeContents(n); rs = rg.getClientRects();
       for (i = 0; i < rs.length; i++) { q = rs[i]; if (q.width && q.bottom > 0 && q.top < vh) protect.push(rectOf(q)); }
     }
-    var els = document.querySelectorAll(PROTECT_SEL);
+    var els = document.querySelectorAll(PROTECT_SEL + "," + CARD_SEL), cards = [], el, isCard;   // 一次查詢：禁區＋卡片
     for (i = 0; i < els.length; i++) {
-      if (box.contains(els[i])) continue;
-      q = els[i].getBoundingClientRect(); if (q.width && q.height && q.bottom > 0 && q.top < vh && q.right > 0 && q.left < vw) protect.push(rectOf(q));
+      el = els[i]; if (box.contains(el)) continue;
+      isCard = !!(el.matches && el.matches(CARD_SEL) && !el.matches(PROTECT_SEL));
+      q = el.getBoundingClientRect(); if (!(q.width && q.height && q.bottom > 0 && q.top < vh && q.right > 0 && q.left < vw)) continue;
+      if (isCard) { if (q.width >= 120 && q.height >= 32) cards.push(rectOf(q)); } else protect.push(rectOf(q));
     }
     var hg = cat.headerGap && cat.headerGap(W);
     var top = Math.max(0, hg ? hg.y : 0);
-    L = { vw: vw, vh: vh, top: top, floor: floor, protect: protect, forbid: forbid, home: hg ? { x: hg.x, y: hg.y, home: true } : null };
+    L = { vw: vw, vh: vh, top: top, floor: floor, protect: protect, forbid: forbid, cards: cards, home: hg ? { x: hg.x, y: hg.y, home: true } : null };
     core.last = L;
     return L;
   }
@@ -172,7 +225,9 @@
     faceS: 1, sy: 1, sx2: 1, seq: [], after: null, clip: null, clipP: 0, clipRev: false, turnFrom: 1, turnTo: 1 };
   core.state = st;
   function setNap(on) { if (on) box.classList.add("za-nap"); else box.classList.remove("za-nap"); }
-  function isRest(m) { return m === "sit" || m === "groom" || m === "sleep"; }
+  function isRest(m) { return m === "sit" || m === "groom" || m === "sleep" || m === "stare"; }
+  var mem = []; core.memory = mem;
+  function remember(s) { mem.push(cellOf(s)); while (mem.length > MEM_N) mem.shift(); }
   core.isRest = isRest;
   // 依序播轉換步驟，播完進入 after（"travel" 或休息狀態）
   function runSeq(steps, after) {
@@ -186,18 +241,33 @@
     else if (a) { st.mode = a.mode; st.wait = a.wait; setNap(a.mode === "sleep"); }
   }
   function go(urgent) {
-    var mood = cat.mood || "relaxed", s = pick(L, st.spot ? { x: st.x, y: st.y } : null, mood);
+    var mood = cat.mood || "relaxed", cur = st.spot ? { x: st.x, y: st.y } : null, b = urgent ? "patrol" : planNext(mood), s = null;
+    if (b === "stay" && st.spot) { stay(mood); return; }
+    if (b === "jump" && cur) s = pick(L, cur, mood, null, mem, { jump: true });
+    if (!s) { if (b === "jump") b = "patrol"; s = pick(L, cur, mood, null, mem, { far: b === "zoom" }); }
     if (!s) { hideCat(true); return; }
+    st.behave = b; st.chain = b === "zoom" ? 1 + Math.floor(Math.random() * 3) : b === "patrol" && Math.random() < 0.3 ? 1 : 0;
+    st.forceTravel = b === "zoom" ? "run" : b === "jump" ? "jump" : null;
     hideCat(false);
     st.target = s; st.urgent = !!urgent;
     setNap(false);
     if (urgent) { startTravel(); return; }                         // 腳下變成內容：直接走開
     runSeq(transition(st.mode, "stand"), "travel");
   }
+  // 原地換個休息姿勢（一定跟現在不同；有時先伸個懶腰）
+  function stay(mood) {
+    var r = planRest(mood), n = 0;
+    while (r.mode === st.mode && n++ < 8) r = planRest(mood);
+    if (r.mode === st.mode) r = { mode: st.mode === "sit" ? "stare" : "sit", wait: rand(DUR.sit) };
+    var seq = transition(st.mode, r.mode);
+    if (st.mode !== "sleep" && r.mode !== "sleep" && Math.random() < 0.35) seq.unshift({ clip: "stretch", dur: TRANS.stretch, synth: true });
+    setNap(false); st.behave = "stay";
+    runSeq(seq, { mode: r.mode, wait: r.wait });
+  }
   function startTravel() {
     var s = st.target, mood = cat.mood || "relaxed";
     st.from = { x: st.x, y: st.y }; st.t = 0; st.frame = 0; st.clip = null;
-    st.travel = planTravel(mood, s.x - st.x, s.y - st.y, st.urgent);
+    st.travel = st.forceTravel || planTravel(mood, s.x - st.x, s.y - st.y, st.urgent);
     var want = Math.abs(s.x - st.x) > 2 ? (s.x > st.x ? -1 : 1) : st.faceS;
     if (Math.abs(s.x - st.x) > 2) box.classList.toggle("za-face-r", s.x > st.x);   // 面向前進方向
     if (want !== (st.faceS > 0 ? 1 : -1) && !st.urgent) { st.mode = "turn"; st.turnFrom = st.faceS; st.turnTo = want; return; }
@@ -206,6 +276,12 @@
   function arrive() {
     var r = planRest(cat.mood || "relaxed");
     st.x = st.target.x; st.y = st.target.y; st.spot = st.target; st.lift = 0; st.frame = null;
+    remember(st.spot); if (core.onLand) core.onLand(st.spot, st.behave);
+    if (st.chain > 0) {                                               // 巡邏／暴衝：不停下，接著去下一個點
+      st.chain--; var nx = pick(L, { x: st.x, y: st.y }, cat.mood || "relaxed", null, mem, { far: st.behave === "zoom" });
+      if (nx) { st.target = nx; startTravel(); return; }
+    }
+    st.forceTravel = null;
     runSeq(transition("stand", r.mode), { mode: r.mode, wait: r.wait });
   }
   function hideCat(h) { if (st.hidden === h) return; st.hidden = h; box.style.visibility = h ? "hidden" : ""; }
@@ -259,7 +335,11 @@
     if (st.hop > 0) { var q = 1 - st.hop / 0.45; bob -= Math.sin(Math.PI * q) * 16; }
     var sc = (st.sx2 !== 1 || st.sy !== 1) ? " scale(" + st.sx2.toFixed(3) + "," + st.sy.toFixed(3) + ")" : "";
     box.style.transform = "translate3d(" + st.x.toFixed(1) + "px," + (st.y - st.lift + bob).toFixed(1) + "px,0)" + sc;
-    if (face && face.style) face.style.transform = "scaleX(" + st.faceS.toFixed(3) + ")";
+    // 理毛／盯著看沒有專屬影格：既有影格＋小幅動作（理毛＝頭輕輕左右擺；盯著＝微微前傾不動）
+    var extra = "";
+    if (st.mode === "groom") extra = " rotate(" + (Math.sin(st.t * 5.2) * 3.5).toFixed(2) + "deg)";
+    else if (st.mode === "stare") extra = " rotate(" + (-2 * Math.min(1, st.t / 0.6)).toFixed(2) + "deg)";
+    if (face && face.style) face.style.transform = "scaleX(" + st.faceS.toFixed(3) + ")" + extra;
   }
 
   // ── 接手位置 ──
