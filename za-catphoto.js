@@ -276,13 +276,13 @@
   window.addEventListener("resize", soon);
   // 畫面是 React 畫的：標題文字（中／英切換）或標題列重畫時重新找位置（自己的泡泡、愛心變動不算）。
   new MutationObserver(function (list) {
-    for (var i = 0; i < list.length; i++) if (!box.contains(list[i].target)) { soon(); return; }
+    for (var i = 0; i < list.length; i++) if (!box.contains(list[i].target) && !(api.roam && api.roam.ignoreMutation && api.roam.ignoreMutation(list[i].target))) { soon(); return; }
   }).observe(document.body, { childList: true, subtree: true, characterData: true });
   if (img.complete) place(); else img.addEventListener("load", place);
   place();
-  // 兩隻貓共用保留的小天地；減少動態效果時仍顯示兩隻，停止動畫。
+  // 先載入空間規劃；若新模組失敗，保留原本的雙貓顯示，不影響 App。
   if (!window.__zaNoRoam) {
-    var sc = document.createElement("script"); sc.src = "/za-catpair.js?v=1"; sc.defer = true;
-    document.body.appendChild(sc);
+    function loadPair(){var sc=document.createElement("script");sc.src="/za-catpair.js?v=2";sc.defer=true;sc.onload=function(){var life=document.createElement("script");life.src="/za-catlife.js?v=1";life.defer=true;document.body.appendChild(life);};document.body.appendChild(sc);}
+    var spaceScript=document.createElement("script");spaceScript.src="/za-catspace.js?v=1";spaceScript.defer=true;spaceScript.onload=loadPair;spaceScript.onerror=loadPair;document.body.appendChild(spaceScript);
   }
 })();

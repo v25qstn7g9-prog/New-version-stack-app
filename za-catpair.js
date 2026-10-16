@@ -81,6 +81,7 @@
   cat.face.appendChild(wc);tabby.appendChild(tc);
   var wctx=wc.getContext('2d'),tctx=tc.getContext('2d');
   var state=create(320), manualPause=false, raf=0,last=0,visible=true;
+  var runtime=core.runtime={external:false,host:host,arena:arena,white:white,tabby:tabby,pause:pause,bar:bar,label:label,state:state,isPaused:function(){return manualPause;}};
   core.state=state;
   var rm=window.matchMedia('(prefers-reduced-motion: reduce)');reduce(state,rm.matches);
     // Reuse existing pet/click semantics and mood label, without jumping or deforming the whole photograph.
@@ -94,13 +95,16 @@
   function load(name,url) {
     var im=new Image();im.decoding='async';im.onload=function(){assets[name]=im;
       if(name==='white'){if(white.parentNode!==arena)arena.appendChild(white);cat.externalSprite=true;Array.prototype.forEach.call(cat.face.children,function(el){if(el!==wc)el.style.display='none';});wc.style.display='block';}
-      render();resume();
-    };im.onerror=function(){if(name==='white')wc.style.display='none';else{tabby.style.display='none';label.textContent='白貓 · 狸花素材暫時載不到';}};im.src=url;
+      render();resume();if(runtime.onAssetsReady)runtime.onAssetsReady();
+    };im.onerror=function(){if(name==='white')wc.style.display='none';else if(name==='tabby'){tabby.style.display='none';label.textContent='白貓 · 狸花素材暫時載不到';}assets[name]=false;if(runtime.onAssetError)runtime.onAssetError(name);};im.src=url;
   }
   wc.style.display='none';
   load('white','/za-white-companion.webp?v=1');load('tabby','/za-tabby-companion.webp?v=1');
   function frameFor(c,tabbyCat) {
-    if(c.mode==='walk')return Math.floor(c.frame)%8;
+    if(c.mode==='walk'||c.mode==='run'||c.mode==='hop')return Math.floor(c.frame)%8;
+    if(c.mode==='invite')return state.time%1.6<.8?14:15;
+    if(c.mode==='respond')return state.time%2.1<1.2?12:14;
+    if(c.mode==='observe')return 12;
     if(c.mode==='sleep')return 11;
     if(c.mode==='settle')return c.progress<.92?9:10;
     if(c.mode==='wake')return c.progress<.35?10:c.progress<.7?9:8;
@@ -108,32 +112,34 @@
     if(state.phase==='turn')return state.time<.75?8:9;
     return 8;
   }
-  function paint(ctx,im,c,isTabby) {
+  function paint(ctx,im,c,isTabby,rows) {
     if(!ctx||!im)return;
-    var n=frameFor(c,isTabby),cw=im.width/4,ch=im.height/4;
+    var n=frameFor(c,isTabby),cw=im.width/4,ch=im.height/(rows||4);
     ctx.clearRect(0,0,160,160);ctx.save();
     if(c.facing===-1){ctx.translate(160,0);ctx.scale(-1,1);}
     ctx.drawImage(im,(n%4)*cw,Math.floor(n/4)*ch,cw,ch,0,0,160,160);ctx.restore();
   }
   var lastLabel='';
   function render() {
-    [[white,state.white],[tabby,state.tabby]].forEach(function(p){p[0].style.width=state.size+'px';p[0].style.height=state.size+'px';p[0].style.transform='translate3d('+p[1].x.toFixed(2)+'px,0,0)';});
-    paint(wctx,assets.white,state.white,false);paint(tctx,assets.tabby,state.tabby,true);
+    [[white,state.white],[tabby,state.tabby]].forEach(function(p){p[0].style.width=state.size+'px';p[0].style.height=state.size+'px';p[0].style.transform='translate3d('+p[1].x.toFixed(2)+'px,'+(p[1].y||0).toFixed(2)+'px,0)';});
+    function drawCat(ctx,c,name,isTabby){paint(ctx,assets[name],c,isTabby,4);}
+    drawCat(wctx,state.white,'white',false);drawCat(tctx,state.tabby,'tabby',true);
     var text=state.phase==='sleep'?'白貓和狸花 · 一起睡覺':state.phase==='play'?'白貓和狸花 · 陪你玩':/^chase/.test(state.phase)?'白貓和狸花 · 你追我跑':'白貓和狸花 · 一起陪你';
-    if(text!==lastLabel&&assets.tabby){label.textContent=text;lastLabel=text;}
+    if(!runtime.external&&text!==lastLabel&&assets.tabby){label.textContent=text;lastLabel=text;}
   }
-  function canRun(){return !document.hidden&&!manualPause&&!state.reduced&&visible&&host.isConnected;}
+  function canRun(){return !runtime.external&&!document.hidden&&!manualPause&&!state.reduced&&visible&&host.isConnected;}
   function stop(){if(raf)cancelAnimationFrame(raf);raf=0;last=0;}
   function tick(ts){raf=0;if(!canRun())return;if(!last||ts-last>=1000/30){step(state,last?(ts-last)/1000:0);last=ts;render();}raf=requestAnimationFrame(tick);}
   function resume(){if(canRun()&&!raf){last=0;raf=requestAnimationFrame(tick);}else if(!canRun())stop();}
-  function mount(){var header=document.querySelector('.premium-header');if(!header)return;if(host.parentNode!==header)header.appendChild(host);resize(state,arena.clientWidth||320);white.style.display='';render();resume();}
-  pause.addEventListener('click',function(){manualPause=!manualPause;pause.textContent=manualPause?'繼續小貓':'暫停小貓';pause.setAttribute('aria-pressed',String(manualPause));resume();});
+  function mount(){if(runtime.external){if(runtime.onLayout)runtime.onLayout();return;}var header=document.querySelector('.premium-header');if(!header)return;if(host.parentNode!==header)header.appendChild(host);resize(state,arena.clientWidth||320);white.style.display='';render();resume();}
+  pause.addEventListener('click',function(){manualPause=!manualPause;pause.textContent=manualPause?'繼續小貓':'暫停小貓';pause.setAttribute('aria-pressed',String(manualPause));resume();if(runtime.onControl)runtime.onControl();});
   tabby.addEventListener('click',function(){wake(state);render();resume();});
-  function motion(){reduce(state,rm.matches);render();resume();}
+  function motion(){if(runtime.external){if(runtime.onMotion)runtime.onMotion(rm.matches);return;}reduce(state,rm.matches);render();resume();}
   if(rm.addEventListener)rm.addEventListener('change',motion);else if(rm.addListener)rm.addListener(motion);
   document.addEventListener('visibilitychange',function(){if(document.hidden)stop();else resume();});
   window.addEventListener('resize',mount,{passive:true});
-  if(typeof ResizeObserver==='function')new ResizeObserver(function(){resize(state,arena.clientWidth||320);render();}).observe(arena);
+  if(typeof ResizeObserver==='function')new ResizeObserver(function(){if(!runtime.external){resize(state,arena.clientWidth||320);render();}}).observe(arena);
   if(typeof IntersectionObserver==='function')new IntersectionObserver(function(entries){visible=entries[0].isIntersecting;resume();}).observe(host);
+  runtime.stop=stop;runtime.render=render;runtime.assets=assets;runtime.loadAsset=load;
   mount();render();resume();
 })();
