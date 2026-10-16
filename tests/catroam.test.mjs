@@ -259,7 +259,7 @@ test("foot sync: walk frame advance is exactly distance / stride; bob is tied to
   for (let i = 0; i < 90; i++) e.core.step(1 / 30);
   const dist = st.x - x0;
   assert.ok(dist > 10);
-  assert.ok(Math.abs(st.frame - dist / (W * 0.8) * e.core.WALK_FRAMES) < 1e-6, "frames = distance / stride");
-  assert.equal(e.core.bobFor(0, 2), -0); assert.ok(e.core.bobFor(3, 2) < -1.9, "peak bob at quarter cycle");
-  assert.ok(Math.abs(e.core.bobFor(6, 2)) < 1e-9, "two bobs per cycle");
+  assert.ok(Math.abs(st.frame - dist / (W * e.core.STRIDE) * e.core.WALK_FRAMES) < 1e-6, "frames = distance / stride");
+  assert.equal(e.core.bobFor(0, 2), -0); assert.ok(e.core.bobFor(e.core.WALK_FRAMES / 4, 2) < -1.9, "peak bob at quarter cycle");
+  assert.ok(Math.abs(e.core.bobFor(e.core.WALK_FRAMES / 2, 2)) < 1e-9, "two bobs per cycle");
 });

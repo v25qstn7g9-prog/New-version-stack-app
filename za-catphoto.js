@@ -70,9 +70,9 @@
 
   // ── 真貓動作（影片去背的雪碧圖） ──
   // 影片 user-cat.mp4 約 3.7–4.4 秒那段：真的從地上跳上椅子（蹲低、起跳、空中、落地）＝ jump 六格。
-  // walk＝user-cat-2.mp4 約 3.0–3.5 秒的側面走路（12 格一個循環，頭尾接得起來）；rise＝同片 1.95–2.7 秒「從坐著站起來」；settle＝同片 12.3–13.5 秒「坐著低頭趴低」。
+  // walk＝user-cat-2.mp4 約 3.0–3.5 秒的側面走路（原本 12 格，最後一格跟第一格輪廓差 27%；v4 在接縫補兩格光流過渡＝14 格一個循環，並清掉去背邊緣的灰白殘邊，見 scripts/cat-sprite-realism.py）；rise＝同片 1.95–2.7 秒「從坐著站起來」；settle＝同片 12.3–13.5 秒「坐著低頭趴低」。
   // dir:"r" 的影格是朝右拍的，畫的時候先鏡像成朝左，所有動作方向一致。
-  var SPRITE = {"frame":[112,140],"actions":{"sit":{"start":0,"count":12,"play":"pingpong","fps":6},"look":{"start":12,"count":12,"play":"pingpong","fps":6},"sad":{"start":24,"count":12,"play":"pingpong","fps":6},"happy":{"start":36,"count":12,"play":"once","fps":12},"loaf":{"start":48,"count":7,"play":"pingpong","fps":2.5},"jump":{"start":55,"count":6,"play":"once","fps":10},"walk":{"start":61,"count":12,"play":"loop","fps":12,"dir":"r"},"rise":{"start":73,"count":10,"play":"once","fps":12,"dir":"r"},"settle":{"start":83,"count":10,"play":"once","fps":8}},"cols":12,"rows":8,"total":93};
+  var SPRITE = {"frame":[112,140],"actions":{"sit":{"start":0,"count":12,"play":"pingpong","fps":6},"look":{"start":12,"count":12,"play":"pingpong","fps":6},"sad":{"start":24,"count":12,"play":"pingpong","fps":6},"happy":{"start":36,"count":12,"play":"once","fps":12},"loaf":{"start":48,"count":7,"play":"pingpong","fps":2.5},"jump":{"start":55,"count":6,"play":"once","fps":10},"walk":{"start":61,"count":14,"play":"loop","fps":14,"dir":"r"},"rise":{"start":75,"count":10,"play":"once","fps":12,"dir":"r"},"settle":{"start":85,"count":10,"play":"once","fps":8}},"cols":12,"rows":8,"total":95};
   var FPS_MUL = { happy: 1.2, relaxed: 1, sad: 0.7 };
   var REACT_SPRITE = { jump: "jump", wiggle: "happy", blink: "look", stretch: "happy", shrink: "sad", cling: "sad", pet: "loaf", hiss: "jump" };
   // 走動版的狀態 → 動作：sleep 睡覺（趴著）、sit/groom 坐著（理毛沒有真的影片，用坐著／盯著你交替）、walk/run 走／跑（跑＝走路影格加快，影片裡沒有跑步）、jump 真的跳
@@ -165,7 +165,7 @@
       api.onMood = function () { if (still) tick(); };
       requestAnimationFrame(tick);
     };
-    atlas.src = "/za-cat-sprite.webp?v=3";
+    atlas.src = "/za-cat-sprite.webp?v=5";
   }
   var bubble = null, bubbleTimer = 0, clsTimer = 0;
   function setMood(m) {

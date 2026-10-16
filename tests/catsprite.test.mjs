@@ -108,8 +108,8 @@ test("roaming states map to clips: sleep->loaf, run uses walk frames, jump uses 
   assert.ok(api.sprite.actions.loaf.fps < api.sprite.actions.walk.fps, "sleep breathes slowly");
 });
 
-test("new real clips: 12-frame side-view walk loop (shot facing right), stand-up and settle-down transitions", () => {
+test("new real clips: 14-frame side-view walk loop (v4: 12 real + 2 seam tweens) (shot facing right), stand-up and settle-down transitions", () => {
   const { api } = load(); const A = api.sprite.actions;
-  assert.equal(A.walk.count, 12); assert.equal(A.walk.play, "loop"); assert.equal(A.walk.dir, "r");
+  assert.equal(A.walk.count, 14); assert.equal(A.walk.play, "loop"); assert.equal(A.walk.dir, "r");
   assert.equal(A.rise.play, "once"); assert.ok(A.rise.count >= 8); assert.ok(A.settle.count >= 8);
 });

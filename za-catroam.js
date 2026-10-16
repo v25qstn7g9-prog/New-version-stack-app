@@ -22,8 +22,9 @@
   var W = sizeFor(typeof window !== "undefined" && window.innerWidth), H = Math.round(W * RATIO);
   // 走路速度（px/秒，最快時）；跑步只在不難過時偶爾出現
   var SPEED = { happy: 52, relaxed: 40, sad: 28 }, RUN = 150;
-  // 一個走路循環（18 格）前進的距離＝貓寬的倍數：影格跟距離綁在一起，腳不會滑
-  var STRIDE = 0.8, RUN_STRIDE = 1.9, WALK_FRAMES = 12;
+  // 一個走路循環前進的距離＝貓寬的倍數：影格跟距離綁在一起，腳不會滑
+  // v4：走路影格 12→14（接縫補了兩格光流過渡），每格前進距離不變，所以一個循環的步幅跟著放大 14/12
+  var WALK_FRAMES = 14, STRIDE = 0.8 * WALK_FRAMES / 12, RUN_STRIDE = 1.9 * WALK_FRAMES / 12;
   var DUR = { sleep: [40, 90], sit: [10, 25], groom: [10, 25], stare: [10, 25] };
   // 休息時做什麼的機率（sleep / sit 發呆 / groom 理毛 / stare 盯著某處）
   var REST_MIX = { happy: [0.25, 0.35, 0.2, 0.2], relaxed: [0.45, 0.25, 0.15, 0.15], sad: [0.65, 0.3, 0, 0.05] }, REST_K = ["sleep", "sit", "groom", "stare"];
@@ -136,8 +137,24 @@
   function easedSpeed(vmax, t, left) {
     var up = Math.min(1, t / ACCEL), down = Math.min(1, left / Math.max(1, vmax * BRAKE * 0.5));
     up = up * up * (3 - 2 * up);
-    return Math.max(vmax * 0.12, vmax * Math.min(up, Math.sqrt(down)));
+    down = 1 - (1 - down) * (1 - down);                              // v4：停下改成 ease-out（越接近越慢，不會一下煞住）
+    return Math.max(vmax * 0.06, vmax * Math.min(up, down));
   }
+  // v4 真實感（全部是整張圖的 transform：平面雪碧圖沒辦法單獨動尾巴，所以用身體微擺代替）
+  // 落地：0..1 進度 → 壓扁再回彈（sx 變寬、sy 變矮，最後小小回彈一次）
+  var LAND = 0.38, SETTLE = 0.7;
+  function landAt(q) {
+    q = Math.max(0, Math.min(1, q)); if (q >= 1) return { sx: 1, sy: 1 };
+    var k = Math.exp(-4 * q) * Math.cos(Math.PI * 1.5 * q) * (1 - q);
+    return { sx: 1 + 0.09 * k, sy: 1 - 0.13 * k };
+  }
+  // 停下／轉身後：身體前後微微晃一下再定住（衰減振盪，度）
+  function settleAt(t, amp) {
+    if (!(t >= 0) || t >= SETTLE) return 0;
+    return amp * Math.exp(-5 * t / SETTLE) * Math.sin(2 * Math.PI * 1.6 * t / SETTLE + 0.4) * (1 - t / SETTLE);
+  }
+  // 走路時身體跟著步伐微微左右擺（±0.9 度，一個循環一次）：代替尾巴擺動
+  function swayFor(frame, amp) { return Math.sin(frame / WALK_FRAMES * 2 * Math.PI) * amp; }
   // 腳步：走 dist 像素前進幾格
   function framesFor(dist, w, run) { return dist / (w * (run ? RUN_STRIDE : STRIDE)) * WALK_FRAMES; }
   // 跳：0..1 進度 → 位移比例、離地高度比例、影格（6 格：蹲 0-1、起跳 2、空中 3、落地 4-5）
@@ -165,7 +182,7 @@
   }
   // 走路上下起伏跟著影格（一個循環兩次，前後腳各一次），振幅很小
   function bobFor(frame, amp) { return -Math.abs(Math.sin(frame / WALK_FRAMES * 2 * Math.PI)) * amp; }
-  var core = { W: W, TRANS: TRANS, TURN: TURN, transition: transition, turnAt: turnAt, bobFor: bobFor, WALK_FRAMES: WALK_FRAMES, H: H, sizeFor: sizeFor, hit: hit, findSpots: findSpots, pick: pick, validSpot: validSpot, SPEED: SPEED, RUN: RUN, DUR: DUR, JUMP: JUMP,
+  var core = { W: W, STRIDE: STRIDE, LAND: LAND, SETTLE: SETTLE, landAt: landAt, settleAt: settleAt, swayFor: swayFor, TRANS: TRANS, TURN: TURN, transition: transition, turnAt: turnAt, bobFor: bobFor, WALK_FRAMES: WALK_FRAMES, H: H, sizeFor: sizeFor, hit: hit, findSpots: findSpots, pick: pick, validSpot: validSpot, SPEED: SPEED, RUN: RUN, DUR: DUR, JUMP: JUMP,
     planRest: planRest, planNext: planNext, edgeScore: edgeScore, cellOf: cellOf, memPenalty: memPenalty, spotWeight: spotWeight, CELL: CELL, MEM_N: MEM_N, BEHAVE: BEHAVE, REST_MIX: REST_MIX, planTravel: planTravel, easedSpeed: easedSpeed, framesFor: framesFor, jumpAt: jumpAt };
   window.__zaCatRoamCore = core;
 
@@ -222,7 +239,7 @@
   // ── 走路狀態 ──
   // faceS：+1 朝左（影格原本的方向）、-1 朝右；clip/clipP/clipRev：姿勢轉換時播哪段、播到哪
   var st = { x: 0, y: 0, mode: "sit", t: 0, wait: 1, target: null, from: null, phase: 0, frame: null, spot: null, hidden: false, lift: 0, hop: 0, pause: 0,
-    faceS: 1, sy: 1, sx2: 1, seq: [], after: null, clip: null, clipP: 0, clipRev: false, turnFrom: 1, turnTo: 1 };
+    faceS: 1, sy: 1, sx2: 1, land: -1, settle: -1, settleAmp: 0, seq: [], after: null, clip: null, clipP: 0, clipRev: false, turnFrom: 1, turnTo: 1 };
   core.state = st;
   function setNap(on) { if (on) box.classList.add("za-nap"); else box.classList.remove("za-nap"); }
   function isRest(m) { return m === "sit" || m === "groom" || m === "sleep" || m === "stare"; }
@@ -275,6 +292,8 @@
   }
   function arrive() {
     var r = planRest(cat.mood || "relaxed");
+    if (st.mode === "jump") st.land = 0;                             // 落地：壓扁回彈
+    if (st.mode === "walk" || st.mode === "run" || st.mode === "jump") { st.settle = 0; st.settleAmp = st.mode === "walk" ? -1.6 : -3; }  // 停下：往前晃一下再定住
     st.x = st.target.x; st.y = st.target.y; st.spot = st.target; st.lift = 0; st.frame = null;
     remember(st.spot); if (core.onLand) core.onLand(st.spot, st.behave);
     if (st.chain > 0) {                                               // 巡邏／暴衝：不停下，接著去下一個點
@@ -288,6 +307,8 @@
   function step(dt) {
     var mood = cat.mood || "relaxed";
     if (st.hop > 0) st.hop = Math.max(0, st.hop - dt);
+    if (st.land >= 0) { st.land += dt; if (st.land >= LAND) st.land = -1; }
+    if (st.settle >= 0) { st.settle += dt; if (st.settle >= SETTLE) st.settle = -1; }
     if (st.pause > 0) { st.pause = Math.max(0, st.pause - dt); return; }     // 被點了：停一下
     if (isRest(st.mode)) {
       st.t += dt;
@@ -305,7 +326,7 @@
     }
     if (st.mode === "turn") {
       var tr = turnAt(st.t / TURN, st.turnFrom, st.turnTo); st.faceS = tr.sx; st.sy = tr.sy;
-      if (st.t >= TURN) { st.faceS = st.turnTo; st.sy = 1; st.mode = st.travel; st.t = 0; }
+      if (st.t >= TURN) { st.faceS = st.turnTo; st.sy = 1; st.mode = st.travel; st.t = 0; st.settle = 0; st.settleAmp = 1.2; }  // 轉完：身體輕輕回正
       return;
     }
     if (st.mode === "jump") {
@@ -333,12 +354,18 @@
     if (st.mode === "walk" && !st.pause && st.frame != null) bob = bobFor(st.frame, W * 0.02);
     if (st.mode === "run" && !st.pause && st.frame != null) bob = bobFor(st.frame, W * 0.05);
     if (st.hop > 0) { var q = 1 - st.hop / 0.45; bob -= Math.sin(Math.PI * q) * 16; }
-    var sc = (st.sx2 !== 1 || st.sy !== 1) ? " scale(" + st.sx2.toFixed(3) + "," + st.sy.toFixed(3) + ")" : "";
+    var sx2 = st.sx2, sy2 = st.sy;
+    if (st.land >= 0) { var la = landAt(st.land / LAND); sx2 *= la.sx; sy2 *= la.sy; }
+    var sc = (sx2 !== 1 || sy2 !== 1) ? " scale(" + sx2.toFixed(3) + "," + sy2.toFixed(3) + ")" : "";
     box.style.transform = "translate3d(" + st.x.toFixed(1) + "px," + (st.y - st.lift + bob).toFixed(1) + "px,0)" + sc;
     // 理毛／盯著看沒有專屬影格：既有影格＋小幅動作（理毛＝頭輕輕左右擺；盯著＝微微前傾不動）
     var extra = "";
     if (st.mode === "groom") extra = " rotate(" + (Math.sin(st.t * 5.2) * 3.5).toFixed(2) + "deg)";
     else if (st.mode === "stare") extra = " rotate(" + (-2 * Math.min(1, st.t / 0.6)).toFixed(2) + "deg)";
+    var rot = 0;
+    if ((st.mode === "walk" || st.mode === "run") && !st.pause && st.frame != null) rot += swayFor(st.frame, st.mode === "run" ? 1.4 : 0.9);
+    if (st.settle >= 0) rot += settleAt(st.settle, st.settleAmp);
+    if (rot) extra += " rotate(" + rot.toFixed(2) + "deg)";
     if (face && face.style) face.style.transform = "scaleX(" + st.faceS.toFixed(3) + ")" + extra;
   }
 
