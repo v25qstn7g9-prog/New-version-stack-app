@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { readAppSource } from './_app-source.mjs';
 
 // 交易紀錄頁的成本追蹤：目前累積成本＝台股＋美股持有成本（跟持股進度同一個數字），
 // 起始成本由它倒推。
-const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const html = readAppSource();
 const block = html.match(/\/\/ <cost-tracking>([\s\S]*?)\/\/ <\/cost-tracking>/)?.[1];
 assert.ok(block, 'cost-tracking block must exist');
 const ctx = {};

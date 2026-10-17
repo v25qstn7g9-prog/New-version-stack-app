@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { readAppSource } from './_app-source.mjs';
 
 // 持股進度：台股、美股第一張卡都是「持股進度」；美股市值校準放在持股清單下面，
 // 不再把美股頁頂部擠成跟台股不同的排版。
-const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const html = readAppSource();
 
 test('the US calibration card is no longer rendered above the holdings panel', () => {
   const ws = html.slice(html.indexOf('function HoldingsWorkspace('), html.indexOf('function HoldingsPanel('));

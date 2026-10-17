@@ -1,5 +1,6 @@
 // 雙貓互動 v4：靠近減速 → 停下互看 → 依心情加權決定（玩／理毛／走開／靠著睡）；不同步、不重疊、可以靠著睡。全部固定 seed。
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import vm from 'node:vm';
+import { readAppSource } from './_app-source.mjs';
 function make(){const window={};const c=vm.createContext({window,Math});for(const f of ['za-catspace.js','za-catlife.js'])vm.runInContext(fs.readFileSync(new URL('../'+f,import.meta.url),'utf8'),c);return window.__zaCatLifeCore;}
 function rng(seed=123){return()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296;};}
 const layout={width:390,height:844,safeTop:30,safeBottom:85,footprint:{w:44,h:44},protect:[{x:100,y:390,w:190,h:24}],forbid:[]};
@@ -58,6 +59,6 @@ test('runtime reads the white cat data-mood attribute only; no fetch/innerHTML/e
  for(const code of [life,pair])for(const bad of ['fetch(','innerHTML','eval(','new Function','localStorage'])assert.ok(!code.includes(bad),bad);
  assert.match(photo,/za-catpair\.js\?v=4/);assert.match(photo,/za-catlife\.js\?v=3/);
  assert.match(fs.readFileSync(new URL('../za-cat.js',import.meta.url),'utf8'),/za-catphoto\.js\?v=11/);
- assert.match(fs.readFileSync(new URL('../index.html',import.meta.url),'utf8'),/za-cat\.js\?v=11/);
+ assert.match(readAppSource(),/za-cat\.js\?v=11/);
  assert.match(photo,/authorization: "Bearer " \+ tok/);
 });

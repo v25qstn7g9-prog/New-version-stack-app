@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-const html=fs.readFileSync(new URL('../index.html',import.meta.url),'utf8');
+import { readAppSource } from './_app-source.mjs';
+const html=readAppSource();
 test('Trend Radar model constants exist before the component renders',()=>{
  const start=html.indexOf('function TrendRadar(');
  const defs=html.slice(0,start).match(/const TREND_(?:RADAR|MODEL)_VERSION\s*=\s*[^;]+;/g)||[];

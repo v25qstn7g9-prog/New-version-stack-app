@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { readAppSource } from './_app-source.mjs';
 
 // 10/14 回報：改了持股成本後，在「每日紀錄」按「重新抓報價」，成本欄還是舊的（只重抓了市值），要重開 App 才更新。
-const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const html = readAppSource();
 const panel = html.slice(html.indexOf('function DailyPanel('), html.indexOf('<UiLabel zh="重新抓報價" inline />'));
 
 test('the refresh button also re-reads both costs from the holdings page', () => {

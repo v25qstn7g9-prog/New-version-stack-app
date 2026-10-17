@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { readAppSource } from './_app-source.mjs';
 
 // 收盤提醒與自動記錄預設勾選。但通知權限瀏覽器規定要使用者自己同意，
 // 所以「勾選」＝想開；真正開了才顯示「已開啟」，還沒開就請她按一下允許。
-const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const html = readAppSource();
 const block = html.match(/\/\/ <closing-reminder>([\s\S]*?)\/\/ <\/closing-reminder>/)?.[1];
 assert.ok(block, 'closing-reminder block must exist');
 const ctx = {};

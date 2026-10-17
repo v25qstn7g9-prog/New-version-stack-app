@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { readAppSource } from './_app-source.mjs';
 
-const html = fs.readFileSync('index.html','utf8');
+const html = readAppSource();
 
 test('dashboard live quote refresh keeps a stable vertical footprint', () => {
   assert.match(html, /.premium-dashboard{gap:.46rem;--label-muted:#8390a6;overflow-anchor:none}/);

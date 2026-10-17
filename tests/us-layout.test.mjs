@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
-const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
+import { readAppSource } from './_app-source.mjs';
+const html=readAppSource();
 function select(props){
  const start=html.indexOf('function HoldingsWorkspace(');
  assert.ok(start>=0,'holdings workspace must select the visible market');

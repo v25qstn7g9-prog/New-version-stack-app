@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { readAppSource } from './_app-source.mjs';
 
 // 進階使用：預設關閉；有目標／定期定額／本金計畫的人（含舊使用者）自動視為進階；
 // 沒進階就隱藏「計畫進度」頁和所有跟目標有關的畫面。
-const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const html = readAppSource();
 const block = html.match(/\/\/ <advanced-mode>([\s\S]*?)\/\/ <\/advanced-mode>/)?.[1];
 assert.ok(block, 'advanced-mode block must exist');
 const ctx = {};

@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { readAppSource } from './_app-source.mjs';
 
 // 對照組：盤中模型 vs「跟著目前漲跌猜」，以及只看波動的影子機率模型（只記錄，不影響預測）。
-const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const html = readAppSource();
 const block = html.match(/\/\/ <baseline-compare>([\s\S]*?)\/\/ <\/baseline-compare>/)?.[1];
 assert.ok(block);
 const ctx = {}; vm.createContext(ctx);

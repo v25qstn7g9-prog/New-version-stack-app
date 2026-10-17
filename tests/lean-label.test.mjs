@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { readAppSource } from './_app-source.mjs';
 
 // 明日預測：46–54% 以前一律寫「方向不明」，微弱傾向被藏起來。改成顯示「略偏漲／跌（不確定）」，
 // 但只改顯示，不動 pred.direction（命中率與校準的口徑不變）。
-const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const html = readAppSource();
 const block = html.match(/\/\/ <lean-label>([\s\S]*?)\/\/ <\/lean-label>/)?.[1];
 assert.ok(block);
 const ctx = {}; vm.createContext(ctx);

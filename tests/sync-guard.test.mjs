@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { readAppSource } from './_app-source.mjs';
 import {
   onRequestGet, onRequestPost, snapshotSize, isEmptySnapshotSize, shrinkReason,
 } from '../functions/portfolio-sync.js';
@@ -182,7 +183,7 @@ test('a failing KV read refuses syncing without writing over unverified data', a
 // ── 前端 ───────────────────────────────────────────────
 
 test('client: zinfLocalDataIsEmpty is true only when there are no holdings, trades or daily records', () => {
-  const html = fs.readFileSync('index.html', 'utf8');
+  const html = readAppSource();
   const fn = html.match(/function zinfLocalDataIsEmpty\([\s\S]*?\n}\n/)[0];
   const ctx = { Array };
   vm.createContext(ctx);
@@ -196,7 +197,7 @@ test('client: zinfLocalDataIsEmpty is true only when there are no holdings, trad
 });
 
 test('client: runZinfSync checks for empty data before uploading and does not retry a 409', () => {
-  const html = fs.readFileSync('index.html', 'utf8');
+  const html = readAppSource();
   const run = html.slice(html.indexOf('const runZinfSync'), html.indexOf('// 資料有任何實質變更：debounce 2 秒後推最新完整快照'));
   const emptyAt = run.indexOf('zinfLocalDataIsEmpty(syncSummary)');
   const fetchAt = run.indexOf('fetch("/api/portfolio-sync"');

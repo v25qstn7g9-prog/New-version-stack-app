@@ -2,11 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { prevDayBreadth, onRequestGet } from '../functions/market-breadth.js';
+import { readAppSource } from './_app-source.mjs';
 
 // 當天的全市場廣度（TWSE MI_INDEX）收盤後才公布，上午與 13:25 的快照永遠拿不到 → 因子回測 n=0。
 // 改記「開盤前已定案」的前一交易日廣度（研究用，不進模型）。
 globalThis.caches = { default: { match: async () => null, put: async () => {} } };
-const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const html = readAppSource();
 
 test('prevDayBreadth: most recent trading day strictly before the date, skipping weekends and holidays', async () => {
   const asked = [];

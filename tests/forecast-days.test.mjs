@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { readAppSource } from './_app-source.mjs';
 
 // 趨勢雷達的預測標籤要寫出是哪個交易日：週末／休市日／開盤前，
 // 「今日」欄位其實是上個交易日的資料，不能只寫「今日」。
-const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const html = readAppSource();
 const block = html.match(/\/\/ <forecast-days>([\s\S]*?)\/\/ <\/forecast-days>/)?.[1];
 assert.ok(block, 'forecast-days block must exist in index.html');
 

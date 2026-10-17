@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { readAppSource } from './_app-source.mjs';
 
 // 融資融券是「只記錄、不計入機率」的因子（shadow mode）：
 // 先存進歷史紀錄、讓因子回測去量它有沒有用，確認有效前不得影響分數。
-const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const html = readAppSource();
 const block = html.match(/\/\/ <margin-helpers>([\s\S]*?)\/\/ <\/margin-helpers>/)?.[1];
 assert.ok(block, 'margin-helpers block must exist in index.html');
 const ctx = {};

@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { readAppSource } from './_app-source.mjs';
 
-const html = fs.readFileSync('index.html','utf8');
+const html = readAppSource();
 
 const slice = (name) => {
   const a = html.indexOf(`function ${name}(`);

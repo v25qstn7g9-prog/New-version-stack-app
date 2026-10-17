@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { readAppSource } from './_app-source.mjs';
 
-const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const html = readAppSource();
 
 // 休市日提醒曾在 10/05 美股改版時被拿掉；這個測試防止再次消失。
 test('live quotes show a market-holiday notice (weekend / national holiday / make-up day) and pause wording', () => {

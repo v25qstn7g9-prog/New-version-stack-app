@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-const html = fs.readFileSync('index.html', 'utf8');
+import { readAppSource } from './_app-source.mjs';
+const html = readAppSource();
 function reportHarness(closed, marketPct) {
   const writes = [];
   const start=html.indexOf('function DailyClosingAiReport(');

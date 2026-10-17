@@ -2,7 +2,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-const html = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
+import { readAppSource } from './_app-source.mjs';
+const html = readAppSource();
 const css = fs.readFileSync(new URL("../clean.css", import.meta.url), "utf8");
 const js = fs.readFileSync(new URL("../clean-ui.js", import.meta.url), "utf8");
 test("clean.css loads after the inline style block and clean-ui.js before </body>", () => {

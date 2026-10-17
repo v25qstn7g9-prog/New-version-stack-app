@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { readAppSource } from './_app-source.mjs';
 
 // 即時股價面板：每檔要看得到「昨收」與漲跌價差；大盤要看得到昨收點數與漲跌點數。
 // quote.js 抓不到真正的前收時會把 prevClose 設成現價並加 warning，那個值不能當昨收顯示。
-const html = fs.readFileSync('index.html', 'utf8');
+const html = readAppSource();
 
 test('each holding card shows previous close and the converted TWD price difference', () => {
   assert.match(html, /NT\$ \{r\.prevCloseOk \? formatNtdPrice\(quoteNtd\(r, r\.prevClose\), 1\) : "—"\}/);

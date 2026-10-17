@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { readAppSource } from './_app-source.mjs';
 
 // 因子回測的樣本來自 trendRadarHistory。法人／融資／日KD 是背景慢慢載入的，
 // 第一筆快照常常比它們先寫，必須在載入完成後補進同一筆，否則樣本永遠是 0／空。
-const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const html = readAppSource();
 const hist = html.slice(html.indexOf('const instNow=instDays.length>0;'), html.indexOf('records=records.slice(-1500);'));
 
 test('slow prior-day fields are filled into an existing snapshot once they load', () => {

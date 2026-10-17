@@ -23,3 +23,7 @@ docs/
 
 # git 紀錄不能當成靜態檔公開
 .git/
+
+# 前端原始碼（JSX）只用來編譯成 app.js；npm 安裝的開發工具也不公開
+src/
+node_modules/
