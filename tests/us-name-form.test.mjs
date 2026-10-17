@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
-const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+import { readAppSource } from './_app-source.mjs';
+const html = readAppSource();
 const start = html.indexOf('function HoldingsPanel(');
 const code = html.slice(start, html.indexOf('  // 持股進度頁不另外打報價', start)) + '\n}';
 function harness() {

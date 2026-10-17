@@ -4,8 +4,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
+import { readAppSource } from './_app-source.mjs';
 const code = fs.readFileSync(new URL("../za-cat2d.js", import.meta.url), "utf8"); // 手繪平面版（備用）
-const html = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
+const html = readAppSource();
 
 test("loader loaded just before clean-ui.js (which must stay last), and the spider is gone", () => {
   assert.match(html, /<script src="\/za-cat\.js[^"]*" defer><\/script>\s*<script src="\/clean-ui\.js[^"]*" defer><\/script>\s*<\/body>/);

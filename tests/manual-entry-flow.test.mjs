@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { readAppSource } from './_app-source.mjs';
 
 // 手動輸入流程：每日紀錄在自己的分頁自動帶入、各頁不再有分散的「帶入」按鈕、
 // 新增表單會說還差哪幾格、交易紀錄先放每天要用的「新增交易」。
-const html = fs.readFileSync('index.html', 'utf8');
+const html = readAppSource();
 const slice = (name) => {
   const a = html.indexOf(`function ${name}(`);
   assert.ok(a > 0, `${name} exists`);

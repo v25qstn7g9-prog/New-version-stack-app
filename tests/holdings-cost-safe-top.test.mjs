@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { readAppSource } from './_app-source.mjs';
 
-const html = fs.readFileSync('index.html', 'utf8');
+const html = readAppSource();
 
 test('holding cost card keeps total and per-share average on one mobile row', () => {
   const start = html.indexOf('className="holding-cost-summary text-xs mono mt-2"');

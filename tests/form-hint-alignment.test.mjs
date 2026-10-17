@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { readAppSource } from './_app-source.mjs';
 
 // 表單格子是「底部對齊」(align-items:end)：把提示文字放在某一欄裡面，會把同一排的另一欄頂下去。
 // 提示要放在格子外面（獨立一行）。
-const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const html = readAppSource();
 
 test('dividend schedule hint is its own row, not inside the 代號 field', () => {
   const form = html.slice(html.indexOf('<Panel title="新增配息">'), html.indexOf('<DividendHistoryChart'));

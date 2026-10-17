@@ -6,6 +6,7 @@ import worker from '../worker.js';
 import { holidayStatusFromRows } from '../functions/twse-holiday.js';
 import { handlePreparedAssetMcp, describeSync } from '../functions/ai-connector-prepared.js';
 import { onRequestGet as syncGet, onRequestPost as syncPost } from '../functions/portfolio-sync.js';
+import { readAppSource } from './_app-source.mjs';
 
 // 休市判斷、同步時間回報、同步 token header、寫入限流、健康檢查保護、OAuth 硬化，以及
 // Claude 的完整 /mcp + OAuth 流程（DCR → authorize → token(PKCE) → tools/list → refresh）。
@@ -296,7 +297,7 @@ test('setting ASSET_MCP_PASSWORD later keeps Claude tokens signed with ZINF_TOOL
 // ── 前端：資料沒變就不重傳 ─────────────────────────────
 
 test('client skips an upload only when the content hash is unchanged and the last upload is < 6h old', async () => {
-  const html = fs.readFileSync('index.html', 'utf8');
+  const html = readAppSource();
   const pick = (name) => html.match(new RegExp(`(?:async )?function ${name}\\([\\s\\S]*?\\n}\\n`))[0];
   const ctx = { Date, Number, String, TextEncoder, crypto: globalThis.crypto, globalThis: {}, Array };
   ctx.globalThis = ctx;

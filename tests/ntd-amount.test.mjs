@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { readAppSource } from './_app-source.mjs';
 
 // 即時股價表：市值、損益一律整數；放進窄欄位不換行（≥1億改用「億」，≥1千萬縮小字）。
-const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const html = readAppSource();
 const block = html.match(/\/\/ <ntd-amount>([\s\S]*?)\/\/ <\/ntd-amount>/)?.[1];
 assert.ok(block, 'ntd-amount block must exist');
 const ctx = {};

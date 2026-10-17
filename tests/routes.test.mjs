@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { onRequestGet as taifexTxHandler } from '../functions/taifex-tx.js';
+import { readAppSource } from './_app-source.mjs';
 
 // 迴歸測試：這個 App 從舊式 Pages Functions（資料夾自動路由）搬到 worker.js 手動路由之後，
 // functions/taifex-tx.js 被漏掉，沒有掛上 /taifex-tx。
@@ -17,7 +18,7 @@ test('worker.js routes /taifex-tx to functions/taifex-tx.js', () => {
 
 test('every functions/*.js file that index.html actually fetches is wired into worker.js', () => {
   const worker = fs.readFileSync('worker.js', 'utf8');
-  const html = fs.readFileSync('index.html', 'utf8');
+  const html = readAppSource();
   // 前端會打的頂層（非 /api/）路徑；/api/* 由各自的 API 測試涵蓋。
   const topLevelRoutes = ['/quote', '/news', '/ask', '/dividend-schedule', '/daily-history', '/holiday-schedule', '/taifex-tx', '/stock-name'];
   for (const route of topLevelRoutes) {

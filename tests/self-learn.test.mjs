@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { readAppSource } from './_app-source.mjs';
 
 // 自主學習：從已驗證紀錄學，從手調模型出發做小幅修正；依日期往前走驗證；樣本外贏了才啟用。
-const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const html = readAppSource();
 const block = html.match(/\/\/ <self-learn>([\s\S]*?)\/\/ <\/self-learn>/)?.[1];
 assert.ok(block, 'self-learn block must exist');
 const ctx = {}; vm.createContext(ctx);

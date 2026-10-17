@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { readAppSource } from './_app-source.mjs';
 
-const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const html = readAppSource();
 
 // 取出 parseAiBlocks（純顯示用的整理函式）單獨執行
 function loadParser() {

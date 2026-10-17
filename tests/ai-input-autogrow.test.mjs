@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { readAppSource } from './_app-source.mjs';
 
 // AI 助手輸入框：字多時要自動長高（最多約 5 行），不能固定一行把字切掉。
-const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const html = readAppSource();
 
 test('the chat textarea auto-grows with its content and is capped', () => {
   assert.ok(html.includes('<textarea ref={inputRef} value={input}'));

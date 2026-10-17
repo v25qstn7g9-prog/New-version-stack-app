@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { readAppSource } from './_app-source.mjs';
 
 const ctx = { self: {} };
 ctx.globalThis = ctx;
@@ -58,7 +59,7 @@ test('weekday-gap check avoids network when nothing can be missing (e.g. Friday 
 });
 
 test('index.html, sw.js and worker wiring are all in place', () => {
-  const html = fs.readFileSync('index.html', 'utf8');
+  const html = readAppSource();
   const sw = fs.readFileSync('sw.js', 'utf8');
   assert.match(html, /<script src="\/bg-core\.js\?v=3"><\/script>/);
   assert.match(html, /register\("\/sw\.js"\)/);

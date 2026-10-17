@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { readAppSource } from './_app-source.mjs';
 
 // App 收在背景時，伺服器代收分 K；打開 App 後補回錯過的上午 / 收盤前因子樣本。
-const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const html = readAppSource();
 const block = html.match(/\/\/ <server-bars-import>([\s\S]*?)\/\/ <\/server-bars-import>/)?.[1];
 assert.ok(block, 'server-bars-import block must exist');
 const baselineBlock = html.match(/\/\/ <baseline-compare>([\s\S]*?)\/\/ <\/baseline-compare>/)?.[1];

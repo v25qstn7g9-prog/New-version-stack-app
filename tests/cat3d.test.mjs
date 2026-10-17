@@ -6,9 +6,10 @@ import fs from "node:fs";
 import vm from "node:vm";
 import * as THREE from "../vendor/three.module.min.js";
 import { start } from "../za-cat3d.js";
+import { readAppSource } from './_app-source.mjs';
 
 const read = (f) => fs.readFileSync(new URL("../" + f, import.meta.url), "utf8");
-const loader = read("za-cat.js"), cat3d = read("za-cat3d.js"), html = read("index.html");
+const loader = read("za-cat.js"), cat3d = read("za-cat3d.js"), html = readAppSource();
 
 test("the 3D cat and its three.js copy ship with the app (MIT licence kept)", () => {
   assert.ok(fs.existsSync(new URL("../vendor/three.module.min.js", import.meta.url)));

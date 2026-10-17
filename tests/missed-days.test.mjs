@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { readAppSource } from './_app-source.mjs';
 
 // 自動補記做不到的缺漏日（期間有買賣等）：請使用者按一下，用「當天持股 × 當天收盤價」補。
-const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const html = readAppSource();
 const block = html.match(/\/\/ <missed-days>([\s\S]*?)\/\/ <\/missed-days>/)?.[1];
 assert.ok(block, 'missed-days block must exist');
 const ctx = {};

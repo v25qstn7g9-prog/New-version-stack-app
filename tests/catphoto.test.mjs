@@ -3,8 +3,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
+import { readAppSource } from './_app-source.mjs';
 const code = fs.readFileSync(new URL("../za-catphoto.js", import.meta.url), "utf8");
-const html = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
+const html = readAppSource();
 const body = code.replace(/^\s*\/\/.*$/gm, "");
 
 test("no storage / page-text reads, only one fetch (GET /api/spider), token header-only, never fixed-position", () => {

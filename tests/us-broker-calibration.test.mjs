@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { readAppSource } from './_app-source.mjs';
 
-const html = fs.readFileSync('index.html','utf8');
+const html = readAppSource();
 
 test('US broker calibration stores a factor tied to the current symbol/share composition', () => {
   assert.match(html, /function usHoldingsCalibrationKey\(holdings\)/);

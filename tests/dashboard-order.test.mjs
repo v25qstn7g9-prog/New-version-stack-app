@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { readAppSource } from './_app-source.mjs';
 
 // 總覽採付費理財 App 的順序：
 // ①總資產＋今日損益＋累積報酬＋目標進度＋走勢圖（含台股/美股、高點回撤）
 // ②大盤＋持股行情（依市值排序、含佔比）③今日分析（雷達、快訊、收盤報告）④進階績效。
-const html = fs.readFileSync('index.html', 'utf8');
+const html = readAppSource();
 const dashStart = html.indexOf('function Dashboard({ totalToday');
 const body = html.slice(dashStart, html.indexOf('\n}\n', dashStart));
 

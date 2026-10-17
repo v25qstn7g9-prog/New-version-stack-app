@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import '../forecast-core.js';
+import { readAppSource } from './_app-source.mjs';
 
 // 因子回測全面盤查（10/14）：資料明明有抓，卻沒進紀錄的因子。
 const F = globalThis.ZinfForecast;
-const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const html = readAppSource();
 
 test('RVOL / VWAP: Yahoo Taiwan minute data is 20 minutes behind, so the 3-minute model gate rejects it all session', () => {
   const now = new Date('2026-10-14T01:30:00Z'); // 09:30 台北
