@@ -11,6 +11,11 @@
     "binding": "AI"
   },
 
+  // 訓練 App（atlas-lab）：Cue 等外部 AI 用訓練 App 產生的金鑰讀資產時，由它驗證金鑰（functions/openai-actions.js）
+  "services": [
+    { "binding": "ATLAS", "service": "atlas-lab" }
+  ],
+
   // ============================================
   // 靜態資源 (Workers with Static Assets)
   // ============================================

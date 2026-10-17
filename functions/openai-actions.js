@@ -1,6 +1,8 @@
 // ChatGPT GPT Actions 用的唯讀 REST 接口：把資產 MCP 的唯讀工具原樣轉成 OpenAPI。
 //   GET  /openai/openapi.json        公開的 OpenAPI 說明檔（貼進 GPT 的 Actions 設定）
-//   POST /openai/tools/<工具名稱>     帶 x-api-key 標頭；金鑰存在 env.OPENAI_ACTION_KEY
+//   POST /openai/tools/<工具名稱>     帶 x-api-key 標頭；金鑰存在 env.OPENAI_ACTION_KEY，
+//                                    或是訓練 App「外部 AI 連線」產生的金鑰（atl_…，Cue 等），由訓練 App 驗證，
+//                                    而且那把金鑰要在訓練 App 打開「也讓它讀資產」才可以。
 // 資產 MCP 的每個工具本來就全部唯讀；這裡不新增任何寫入路徑。
 import { PREPARED_ASSET_TOOLS, handlePreparedAssetMcp } from "./ai-connector-prepared.js";
 
@@ -18,6 +20,23 @@ function openAiSameSecret(a, b) {
   let diff = x.length ^ y.length;
   for (let i = 0; i < Math.max(x.length, y.length); i++) diff |= (x[i] || 0) ^ (y[i] || 0);
   return diff === 0;
+}
+
+// 訓練 App（atlas-lab）產生的外部 AI 金鑰：走 Service Binding（ATLAS）問訓練 App 有效與否；
+// 同帳號的 workers.dev 之間直接 fetch 會被擋，所以優先用 binding，沒有才用網址。
+const ATLAS_FALLBACK_URL = "https://atlas-lab.9n94fh64jr.workers.dev";
+export async function verifyAtlasAgentKey(env, key) {
+  try {
+    const init = { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key }) };
+    const res = env.ATLAS && typeof env.ATLAS.fetch === "function"
+      ? await env.ATLAS.fetch(new Request("https://atlas/agent-keys/verify", init))
+      : await fetch(String(env.ATLAS_URL || ATLAS_FALLBACK_URL).replace(/\/+$/, "") + "/agent-keys/verify", init);
+    if (!res.ok) return null;
+    const d = await res.json();
+    return d && d.ok ? { scope: String(d.scope || ""), name: d.name || "" } : null;
+  } catch {
+    return null;
+  }
 }
 
 const openAiReadOnlyTools = () => PREPARED_ASSET_TOOLS.filter((t) => t.annotations?.readOnlyHint === true);
@@ -55,9 +74,16 @@ export async function handleOpenAiActions(request, env) {
   if (!m) return openAiJson({ error: "Not found" }, 404);
   if (request.method !== "POST") return openAiJson({ error: "Method Not Allowed" }, 405, { allow: "POST" });
 
-  const key = String(env.OPENAI_ACTION_KEY || "").trim();
-  if (!key) return openAiJson({ error: "尚未設定 OPENAI_ACTION_KEY，OpenAI Action 未開放。" }, 503);
-  if (!openAiSameSecret(request.headers.get("x-api-key") || "", key)) return openAiJson({ error: "Unauthorized" }, 401);
+  const supplied = String(request.headers.get("x-api-key") || (request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "")).trim();
+  if (supplied.startsWith("atl_")) {
+    const agent = await verifyAtlasAgentKey(env, supplied);
+    if (!agent) return openAiJson({ error: "Unauthorized" }, 401);
+    if (agent.scope !== "all-read") return openAiJson({ error: "這把金鑰還不能讀資產：請到訓練 App「外部 AI 連線」，在這把金鑰按「也讓它讀資產」。" }, 403);
+  } else {
+    const key = String(env.OPENAI_ACTION_KEY || "").trim();
+    if (!key) return openAiJson({ error: "尚未設定 OPENAI_ACTION_KEY，OpenAI Action 未開放。" }, 503);
+    if (!openAiSameSecret(supplied, key)) return openAiJson({ error: "Unauthorized" }, 401);
+  }
 
   const tool = openAiReadOnlyTools().find((t) => t.name === m[1]);
   if (!tool) return openAiJson({ error: "Unknown tool" }, 404);

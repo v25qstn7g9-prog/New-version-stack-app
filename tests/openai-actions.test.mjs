@@ -29,3 +29,17 @@ test('沒有唯讀同步金鑰時回 503，不去讀資產', async () => {
   const res = await call('/openai/tools/asset_summary', { key: 'k-test', body: '{}', env: { OPENAI_ACTION_KEY: 'k-test' } });
   assert.equal(res.status, 503);
 });
+
+test('訓練 App 產生的外部 AI 金鑰（atl_）：要打開讀資產才可以；驗證走 ATLAS binding', async () => {
+  const atlas = (scope) => ({ fetch: async (req) => {
+    const { key } = await req.json();
+    return key === 'atl_goodgoodgoodgoodgood' ? Response.json({ ok: true, scope, name: 'Cue' }) : Response.json({ ok: false }, { status: 401 });
+  } });
+  const env = (scope) => ({ ATLAS: atlas(scope) });   // 沒有 OPENAI_ACTION_KEY 也可以用 atl_ 金鑰
+  assert.equal((await call('/openai/tools/asset_summary', { key: 'atl_badbadbadbadbadbad', body: '{}', env: env('all-read') })).status, 401);
+  const blocked = await call('/openai/tools/asset_summary', { key: 'atl_goodgoodgoodgoodgood', body: '{}', env: env('training-read') });
+  assert.equal(blocked.status, 403);
+  assert.match((await blocked.json()).error, /也讓它讀資產/);
+  // 權限對：過了金鑰這關，接著才檢查唯讀同步金鑰（測試環境沒設 → 503，代表金鑰已通過）
+  assert.equal((await call('/openai/tools/asset_summary', { key: 'atl_goodgoodgoodgoodgood', body: '{}', env: env('all-read') })).status, 503);
+});
