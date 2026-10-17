@@ -473,6 +473,8 @@
     /* v2.47.5 — full-page compact rhythm normalization.
        Keep iOS inputs readable while reducing visual drift between sections. */
     .premium-main{padding-top:8px!important;padding-bottom:calc(124px + env(safe-area-inset-bottom,0px))!important}
+    /* FAB clearance: on phones the fixed chat launcher (bottom-right) must not sit over the last card's 展開 button at scroll end. */
+    @media(max-width:640px){.premium-main{padding-bottom:calc(164px + env(safe-area-inset-bottom,0px))!important}}
     .premium-tab{line-height:1.48}
     .premium-tab .space-y-2>:not([hidden])~:not([hidden]){margin-top:6px!important}
     .premium-tab .space-y-3>:not([hidden])~:not([hidden]){margin-top:8px!important}
