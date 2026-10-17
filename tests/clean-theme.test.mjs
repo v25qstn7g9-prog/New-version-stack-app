@@ -17,7 +17,7 @@ test("clean-ui.js is DOM-only", () => {
 });
 test("Forma navy permits one asset hero gradient while other cards stay flat", () => {
   const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, "");
-  assert.match(withoutComments, /--forma-hero-gradient:linear-gradient\(180deg,#384b70 0%,#526584 100%\)/);
+  assert.match(withoutComments, /--forma-hero-gradient:linear-gradient\(180deg,#384b70 0%,#2e3e60 100%\)/);
   assert.match(withoutComments, /\.premium-dashboard>\.premium-asset-hero\{[^}]*background-image:var\(--forma-hero-gradient\)!important/);
   assert.match(withoutComments, /html\.za-clean :is\(div,section,header,span,p,button\):not\(/);
   assert.equal((withoutComments.match(/linear-gradient\(180deg/g) || []).length, 1);

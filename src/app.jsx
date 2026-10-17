@@ -119,6 +119,8 @@ const UI_EN = {
   "進階績效分析": "Advanced Performance Analysis",
   "展開": "Expand",
   "收合": "Collapse",
+  "收起": "Collapse",
+  "收起全文": "Collapse",
   "今日盤勢分析": "Today Market Analysis",
   "明日台股展望": "Tomorrow TW Market Outlook",
   "14:00 後每日自動更新一次": "Auto-updates once daily after 14:00",
@@ -287,6 +289,7 @@ const UI_EN = {
   "累積中": "Accumulating",
   "展開判斷明細": "Show Details",
   "收合判斷明細": "Hide Details",
+  "收起判斷明細": "Hide Details",
   "方向不明": "Unclear",
   "稍偏漲": "Slightly Bullish",
   "稍偏跌": "Slightly Bearish",
@@ -570,6 +573,16 @@ function uiText(zh) {
 }
 function UiLabel({ zh, className = "", style = null, inline = false }) {
   return <span className={className} style={style}>{uiText(zh)}</span>;
+}
+// 展開／收起共用的箭頭（只管外觀）：全 App 同一個 chevron，展開時旋轉 180°；▲▼ 只留給漲跌。
+function ExpandChevron({ open, size = 14 }) {
+  return (
+    <svg className="forma-chevron" viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+      style={{ flex: "none", transform: open ? "rotate(180deg)" : "none" }}>
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  );
 }
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -2821,7 +2834,7 @@ function AssetTracker() {
 
       <main
         ref={setMainEl}
-        className="premium-main relative px-0 pt-4 pb-24 max-w-none mx-auto overflow-x-hidden"
+        className="premium-main relative px-4 pt-4 pb-24 max-w-none mx-auto overflow-x-hidden"
         style={{ touchAction: "pan-y", ...(mainMinHeight != null ? { minHeight: `${mainMinHeight}px` } : {}) }}
       >
         {(() => {
@@ -3041,7 +3054,7 @@ function Header({ goal, totalToday, goalDate, backupOverdue, backupAgeDays, show
           <div className="flex items-center gap-2 flex-shrink-0">
           <ThemeToggle showEnglish={showEnglish} />
           <button onClick={onToggleBilingual}
-            className="rounded-full px-2.5 py-1 text-[9px] font-bold leading-none flex-shrink-0"
+            className="za-lang-toggle rounded-full px-2.5 py-1 text-[9px] font-bold leading-none flex-shrink-0"
             title={showEnglish ? "切換中文介面" : "Switch to English"}
             style={{ color: COLORS.gold, border: "1px solid rgba(47,91,234,0.45)", background: "transparent" }}>
             {showEnglish ? "EN / 中" : "中 / EN"}
@@ -3049,7 +3062,7 @@ function Header({ goal, totalToday, goalDate, backupOverdue, backupAgeDays, show
           </div>
         </div>
         {backupOverdue && (
-          <div className="mt-2 rounded-lg px-2.5 py-1.5 text-[10px] font-bold"
+          <div className="forma-note mt-2 rounded-lg px-2.5 py-1.5 text-[10px] font-bold"
             style={{ color: COLORS.gold, background: COLORS.panel, border: `1px solid ${COLORS.gold}` }}>
             {showEnglish
               ? <>🔐 Backup Reminder: {backupAgeDays == null ? "No JSON backup recorded yet" : `Last backup was ${backupAgeDays} days ago`}. We recommend exporting one from "Settings".</>
@@ -3566,7 +3579,7 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
         <button
           onClick={() => { fetchAllLive(true); usLive?.refresh?.(); }}
           disabled={liveStatus === "loading" || usLive?.state?.status === "loading" || !activeHoldings.length}
-          className="live-refresh-btn relative text-xs font-bold px-3 py-1.5 rounded-lg flex items-center justify-center flex-shrink-0"
+          className="forma-tap live-refresh-btn relative text-xs font-bold px-3 py-1.5 rounded-lg flex items-center justify-center flex-shrink-0"
           style={{ background: COLORS.gold, color: COLORS.bg, opacity: !activeHoldings.length ? 0.5 : 1 }}
           aria-label={uiText("抓取即時股價")}
         >
@@ -5338,7 +5351,7 @@ function TrendRadar({ holdings, embedded = false }) {
   return (
     <div className="trend-radar-shell rounded-2xl p-4" style={{background:COLORS.panel,border:"1px solid "+COLORS.panelBorder,boxShadow:"none"}}>
       <div className="trend-radar-head flex items-center justify-between mb-2">
-        <div className="min-w-0">{!embedded&&<div className="text-xs font-bold" style={{color:COLORS.gold}}><UiLabel zh="AI 今日／明日趨勢雷達" /></div>}<div className={"text-[9px] "+(embedded?"truncate":"mt-0.5")} style={{color:COLORS.sub}}>{UI_SHOW_ENGLISH ? `Learning v${TREND_RADAR_VERSION} · Time-Adaptive Weights · OHLC+KD+Institutional+TX Front Month+Overnight+Auto-Validated` : `學習版 v${TREND_RADAR_VERSION} · 時間自適應權重 · OHLC＋KD＋法人＋台指近月＋隔夜訊號＋自動驗證`}</div></div>
+        <div className="min-w-0">{!embedded&&<div className="text-xs font-bold" style={{color:COLORS.gold}}><UiLabel zh="AI 今日／明日趨勢雷達" /></div>}<div className="forma-note text-[9px] mt-0.5" style={{color:COLORS.sub}}>{UI_SHOW_ENGLISH ? `Learning v${TREND_RADAR_VERSION} · Time-Adaptive Weights · OHLC+KD+Institutional+TX Front Month+Overnight+Auto-Validated` : `學習版 v${TREND_RADAR_VERSION} · 時間自適應權重 · OHLC＋KD＋法人＋台指近月＋隔夜訊號＋自動驗證`}</div></div>
         {asOf&&<div className="text-[9px] mono" style={{color:COLORS.sub}}>{asOf.toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit",hour12:false})}</div>}
       </div>
       <div className="space-y-2">
@@ -5360,7 +5373,7 @@ function TrendRadar({ holdings, embedded = false }) {
           const marketTone=marketRow.direction.includes("漲")?COLORS.gain:marketRow.direction.includes("跌")?COLORS.loss:COLORS.sub;
           const next=tomorrowMap.TAIEX;
           const nextTone=next?leanLabel(next).includes("漲")?COLORS.gain:leanLabel(next).includes("跌")?COLORS.loss:COLORS.sub:COLORS.sub;
-          return <div className={"trend-radar-card trend-radar-market rounded-xl "+(detailsOpen?"is-open":"")} style={{background:COLORS.bg,border:"1px solid "+COLORS.gold}}>
+          return <div className={"trend-radar-card trend-radar-market rounded-xl "+(detailsOpen?"is-open":"")} style={{background:COLORS.bg,border:"1px solid "+COLORS.panelBorder}}>
             <div className="trend-radar-card-head">
               <div className="min-w-0">
                 <div className="text-xs font-bold mono">TAIEX <span className="font-normal" style={{color:COLORS.sub}}><UiLabel zh="加權指數" /></span></div>
@@ -5386,7 +5399,7 @@ function TrendRadar({ holdings, embedded = false }) {
                 <span className="font-black mono" style={{color:nextTone}}>{next?<><UiLabel zh={leanLabel(next)} inline />{" "+next.probability.toFixed(0)+"%"}</>:<UiLabel zh="資料累積中" inline />}</span>
               </div>
             </div>
-            <div className="trend-radar-band text-[9px] mono" style={{color:COLORS.gold}}>
+            <div className="trend-radar-band text-[9px] mono" style={{color:COLORS.text}}>
               <div>{todayBandLabel}：{marketRow.priceBand?bandText(marketRow.priceBand):"—"}</div>
               <div>{targetLabel(next)}：{next?.priceBand?bandText(next.priceBand):"—"}</div>
             </div>
@@ -5416,7 +5429,7 @@ function TrendRadar({ holdings, embedded = false }) {
               </div>
             </div>
             <div className="trend-radar-watch text-[9px]" style={{color:COLORS.sub}}><UiLabel zh="觀察" inline />：{uiText(easy.watch)}</div>
-            <div className="trend-radar-key text-[9px] font-bold" style={{color:COLORS.gold}}><UiLabel zh="關鍵價位" inline />：{keyText||"—"}</div>
+            <div className="trend-radar-key text-[9px] font-bold" style={{color:COLORS.text}}><UiLabel zh="關鍵價位" inline />：{keyText||"—"}</div>
             <div className="trend-radar-predictions">
               <div className="trend-radar-pred-row">
                 <span style={{color:COLORS.sub}}>{todayCloseLabel}</span>
@@ -5427,7 +5440,7 @@ function TrendRadar({ holdings, embedded = false }) {
                 <span className="font-black mono" style={{color:tomorrowMap[r.symbol]?leanLabel(tomorrowMap[r.symbol]).includes("漲")?COLORS.gain:leanLabel(tomorrowMap[r.symbol]).includes("跌")?COLORS.loss:COLORS.sub:COLORS.sub}}>{tomorrowMap[r.symbol]?<><UiLabel zh={leanLabel(tomorrowMap[r.symbol])} inline />{" "+tomorrowMap[r.symbol].probability.toFixed(0)+"%"}</>:<UiLabel zh="資料累積中" inline />}</span>
               </div>
             </div>
-            <div className="trend-radar-band text-[9px] mono" style={{color:COLORS.gold}}>
+            <div className="trend-radar-band text-[9px] mono" style={{color:COLORS.text}}>
               <div>{todayBandLabel}：{r.priceBand?bandText(r.priceBand):"—"}</div>
               <div>{targetLabel(tomorrowMap[r.symbol])}：{tomorrowMap[r.symbol]?.priceBand?bandText(tomorrowMap[r.symbol].priceBand):"—"}</div>
             </div>
@@ -5462,10 +5475,10 @@ function TrendRadar({ holdings, embedded = false }) {
           </div>;
         })}
       </div>
-      <button onClick={()=>setDetailsOpen(v=>!v)} className="w-full mt-2 rounded-lg py-1.5 text-[10px] font-bold" style={{background:COLORS.bg,color:COLORS.gold,border:"1px solid "+COLORS.panelBorder}}>
-        <UiLabel zh={detailsOpen?"收起判斷明細 ▲":"展開判斷明細 ▼"} />
+      <button onClick={()=>setDetailsOpen(v=>!v)} aria-expanded={detailsOpen} className="forma-tap forma-expand-btn w-full mt-2 rounded-lg py-1.5 text-[10px] font-bold flex items-center justify-center gap-1.5" style={{background:COLORS.bg,color:COLORS.gold,border:"1px solid "+COLORS.panelBorder}}>
+        <UiLabel zh={detailsOpen?"收起判斷明細":"展開判斷明細"} /><ExpandChevron open={detailsOpen} />
       </button>
-      <div className="text-[9px] mt-2" style={{color:COLORS.sub}}>{UI_SHOW_ENGLISH?"Percentages are trend scores until calibrated; ranges are historical volatility references.":"百分比為趨勢分數，樣本足夠才校準；價格區間為歷史波動參考。"}</div>
+      <div className="forma-note text-[9px] mt-2" style={{color:COLORS.sub}}>{UI_SHOW_ENGLISH?"Percentages are trend scores until calibrated; ranges are historical volatility references.":"百分比為趨勢分數，樣本足夠才校準；價格區間為歷史波動參考。"}</div>
       {accuracy&&<div className="text-[9px] mt-2 mono" style={{color:COLORS.gold}}>{UI_SHOW_ENGLISH ? `Last ${accuracy.n} validated "morning" forecasts: ${((accuracy.hits/accuracy.n)*100).toFixed(1)}% hit rate (excludes unclear direction; stats only, not a guarantee)` : `近 ${accuracy.n} 次已驗證「上午」預測：方向命中 ${((accuracy.hits/accuracy.n)*100).toFixed(1)}%（已排除方向不明，僅統計，不代表未來）`}</div>}
       <BaselineLine stats={baseline?.morning} />
       {closeLockAccuracy&&<div className="text-[9px] mt-1 mono" style={{color:COLORS.gold}}>{UI_SHOW_ENGLISH ? `Last ${closeLockAccuracy.n} validated "pre-close lock" forecasts: ${((closeLockAccuracy.hits/closeLockAccuracy.n)*100).toFixed(1)}% hit rate (locked at 13:25, far easier than morning — kept separate above)` : `近 ${closeLockAccuracy.n} 次已驗證「收盤前鎖定」預測：方向命中 ${((closeLockAccuracy.hits/closeLockAccuracy.n)*100).toFixed(1)}%（13:25 才鎖定，難度遠低於上午，跟上面分開看）`}</div>}
@@ -5625,9 +5638,9 @@ function FactorBacktest() {
 
   return (
     <div className="rounded-2xl p-4" style={{ background: COLORS.panel, border: "1px solid " + COLORS.panelBorder }}>
-      <button onClick={() => setOpen((v) => !v)} className="w-full flex items-center justify-between text-xs font-bold" style={{ color: COLORS.gold }}>
+      <button onClick={() => setOpen((v) => !v)} aria-expanded={open} className="forma-tap forma-expand-row w-full flex items-center justify-between text-xs font-bold" style={{ color: COLORS.gold }}>
         <span><UiLabel zh="因子回測（研究用）" /></span>
-        <span><UiLabel zh={open ? "收起 ▲" : "展開 ▼"} /></span>
+        <span className="flex items-center gap-1" style={{ color: COLORS.sub }}><UiLabel zh={open ? "收起" : "展開"} /><ExpandChevron open={open} /></span>
       </button>
       {open && (
         <div className="mt-3">
@@ -5898,7 +5911,7 @@ function PortfolioPerformanceCard({
   const mini = (label, value, color = COLORS.text, sub = null) => (
     <div className="rounded-xl p-3 min-w-0" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
       <div className="text-[11px] leading-tight" style={{ color: COLORS.sub }}><UiLabel zh={label} /></div>
-      <div className="text-base font-black mono mt-1 truncate" style={{ color }}>{value}</div>
+      <div className="text-base font-black mono mt-1" style={{ color }}>{value}</div>
       {sub && <div className="text-[10px] mt-1 leading-tight" style={{ color: COLORS.sub }}><UiLabel zh={sub} /></div>}
     </div>
   );
@@ -6006,7 +6019,7 @@ function PortfolioPerformanceCard({
             <button
               onClick={askAiRiskComment}
               disabled={aiRiskLoading || !Number.isFinite(m.volatility)}
-              className="rounded-lg px-2.5 py-1 text-[10px] font-bold"
+              className="forma-tap rounded-lg px-2.5 py-1 text-[10px] font-bold"
               style={{
                 color: COLORS.gold,
                 border: `1px solid ${COLORS.gold}`,
@@ -6312,9 +6325,10 @@ function DailyClosingAiReport({ holdings, dailyRecords }) {
               setExpanded(next);
               localStorage.setItem(expandedKeyFor(report.day), next ? "1" : "0");
             }}
-            className="mt-2 w-full rounded-lg py-2 text-[11px] font-bold"
+            aria-expanded={expanded}
+            className="forma-tap forma-expand-btn mt-2 w-full rounded-lg py-2 text-[11px] font-bold flex items-center justify-center gap-1.5"
             style={{ color: COLORS.gold, border: `1px solid ${COLORS.panelBorder}`, background: COLORS.bg }}>
-            <UiLabel zh={expanded ? "收合" : "展開全文"} /> {expanded ? "▲" : "▼"}
+            <UiLabel zh={expanded ? "收起全文" : "展開全文"} /><ExpandChevron open={expanded} />
           </button>
         </>
       )}
@@ -6337,14 +6351,15 @@ function DashboardCollapsibleSection({ storageKey, title, subtitle, children, de
     <div>
       <button
         onClick={toggle}
-        className="w-full rounded-2xl px-4 py-3 flex items-center justify-between gap-3 text-left"
+        aria-expanded={open}
+        className="forma-expand-card w-full rounded-2xl px-4 py-3 flex items-center justify-between gap-3 text-left"
         style={{ background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`, boxShadow:"none" }}>
         <div className="min-w-0">
           <div className="text-xs font-bold" style={{ color: COLORS.gold }}><UiLabel zh={title} /></div>
-          {subtitle && <div className="text-[10px] mt-0.5 truncate" style={{ color: COLORS.sub }}><UiLabel zh={subtitle} /></div>}
+          {subtitle && <div className="forma-note text-[10px] mt-0.5" style={{ color: COLORS.sub }}><UiLabel zh={subtitle} /></div>}
         </div>
-        <div className="text-[11px] font-bold whitespace-nowrap" style={{ color: COLORS.sub }}>
-          <UiLabel zh={open ? "收合" : "展開"} /> {open ? "▲" : "▼"}
+        <div className="text-[11px] font-bold whitespace-nowrap flex items-center gap-1" style={{ color: COLORS.sub }}>
+          <UiLabel zh={open ? "收起" : "展開"} /><ExpandChevron open={open} />
         </div>
       </button>
       {open && <div className="mt-2">{children}</div>}
@@ -6481,7 +6496,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
                   const active = chartRangeId === r.id;
                   return (
                     <button key={r.id} onClick={() => setChartRangeId(r.id)} role="tab" aria-selected={active}
-                      className="rounded-md px-2 py-1 text-[10px] font-bold whitespace-nowrap"
+                      className="forma-tap rounded-md px-2 py-1 text-[10px] font-bold whitespace-nowrap"
                       style={{
                         background: "transparent",
                         color: active ? COLORS.gold : COLORS.sub,
@@ -6904,7 +6919,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
     <div className="space-y-2">
       {/* 今天的紀錄：打開就自動填好，確認後按一次儲存；要補記其他天再改日期。 */}
       <Panel title="今天的紀錄">
-        <label className="mb-2 flex items-center gap-2 text-[11px] cursor-pointer" style={{ color: COLORS.sub }}>
+        <label className="forma-check-row mb-2 flex items-center gap-2 text-[11px] cursor-pointer" style={{ color: COLORS.sub }}>
           <input type="checkbox" checked={showUsFields} onChange={(e) => setShowUsFields?.(e.target.checked)} />
           {UI_SHOW_ENGLISH ? "Include US stocks" : "包含美股"}
         </label>
@@ -6935,7 +6950,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
           </Field>
           {isToday && (activeTw.length > 0 || activeUs.length > 0) && (
             <button onClick={() => { setForm((f) => ({ ...f, twValue: "", usValue: "", twCost: "", usCost: "" })); setAutoFrom((a) => ({ ...a, twValue: "wantQuote", usValue: "wantQuote", twCost: "wantHoldings", usCost: "wantHoldings" })); loadAutoTw(true); loadAutoUs(true); }}
-              className="text-[11px] font-bold rounded-lg px-3 py-2 whitespace-nowrap"
+              className="forma-tap text-[11px] font-bold rounded-lg px-3 py-2 whitespace-nowrap"
               style={{ border: `1px solid ${COLORS.gold}`, color: COLORS.gold }}>
               <UiLabel zh="重新抓報價" inline />
             </button>
@@ -7020,11 +7035,11 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
               {M("* For weeks with incomplete cost data, market return and new contributions can't be precisely split — figures are estimates", "* 成本資料不完整的週份，市場報酬與新增投入無法精準拆分，數字為粗估")}
             </div>
           )}
-          <div className="space-y-1.5 max-h-64 overflow-y-auto">
+          <div className="space-y-1.5">
             {[...weekKeys].reverse().map((wk) => {
               const stat = weeklyStats[wk];
               return (
-                <div key={wk} className="rounded-lg px-3 py-2 text-xs mono"
+                <div key={wk} className="forma-subcard rounded-lg px-3 py-2 text-xs mono"
                   style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
                   <div className="flex justify-between items-baseline">
                     <span style={{ color: COLORS.sub }}>{weekLabel(wk)}{stat?.approximate ? " *" : ""}</span>
@@ -7037,7 +7052,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
                     )}
                   </div>
                   {stat && stat.contribution != null && stat.contribution !== 0 && (
-                    <div className="text-right mt-0.5" style={{ color: COLORS.gold }}>
+                    <div className="text-right mt-0.5" style={{ color: COLORS.sub }}>
                       {M("New contribution", "新增投入")} {stat.contribution >= 0 ? "+" : ""}NT$ {nf(stat.contribution)}
                     </div>
                   )}
@@ -7055,11 +7070,11 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
               {M("* For months with incomplete cost data, market return and new contributions can't be precisely split — figures are estimates", "* 成本資料不完整的月份，市場報酬與新增投入無法精準拆分，數字為粗估")}
             </div>
           )}
-          <div className="space-y-1.5 max-h-64 overflow-y-auto">
+          <div className="space-y-1.5">
             {[...monthKeys].reverse().map((mk) => {
               const stat = monthlyStats[mk];
               return (
-                <div key={mk} className="rounded-lg px-3 py-2 text-xs mono"
+                <div key={mk} className="forma-subcard rounded-lg px-3 py-2 text-xs mono"
                   style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
                   <div className="flex justify-between items-baseline">
                     <span style={{ color: COLORS.sub }}>{mk}{stat?.approximate ? " *" : ""}</span>
@@ -7072,7 +7087,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
                     )}
                   </div>
                   {stat && stat.contribution != null && stat.contribution !== 0 && (
-                    <div className="text-right mt-0.5" style={{ color: COLORS.gold }}>
+                    <div className="text-right mt-0.5" style={{ color: COLORS.sub }}>
                       {M("New contribution", "新增投入")} {stat.contribution >= 0 ? "+" : ""}NT$ {nf(stat.contribution)}
                     </div>
                   )}
@@ -7090,11 +7105,11 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
               {M("* For years with incomplete cost data, market return and new contributions can't be precisely split — figures are estimates", "* 成本資料不完整的年份，市場報酬與新增投入無法精準拆分，數字為粗估")}
             </div>
           )}
-          <div className="space-y-1.5 max-h-64 overflow-y-auto">
+          <div className="space-y-1.5">
             {[...yearKeys].reverse().map((yk) => {
               const stat = yearlyStats[yk];
               return (
-                <div key={yk} className="rounded-lg px-3 py-2 text-xs mono"
+                <div key={yk} className="forma-subcard rounded-lg px-3 py-2 text-xs mono"
                   style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
                   <div className="flex justify-between items-baseline">
                     <span style={{ color: COLORS.sub }}>{yk}{stat?.approximate ? " *" : ""}</span>
@@ -7107,7 +7122,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
                     )}
                   </div>
                   {stat && stat.contribution != null && stat.contribution !== 0 && (
-                    <div className="text-right mt-0.5" style={{ color: COLORS.gold }}>
+                    <div className="text-right mt-0.5" style={{ color: COLORS.sub }}>
                       {M("New contribution", "新增投入")} {stat.contribution >= 0 ? "+" : ""}NT$ {nf(stat.contribution)}
                     </div>
                   )}
@@ -7138,7 +7153,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
                     <div className="pt-3 pb-1.5 text-[11px] font-bold mono"
                       style={{ borderTop: i > 0 ? `1px solid ${COLORS.panelBorder}` : "none", marginTop: i > 0 ? "0.25rem" : 0 }}>
                       <div className="flex justify-between items-baseline">
-                        <span style={{ color: COLORS.gold }}>{mk}{stat?.approximate ? " *" : ""}</span>
+                        <span style={{ color: COLORS.text }}>{mk}{stat?.approximate ? " *" : ""}</span>
                         {stat ? (
                           <span style={{ color: stat.marketReturn >= 0 ? COLORS.gain : COLORS.loss }}>
                             {M("Market", "市場")} {stat.marketReturn >= 0 ? "+" : ""}NT$ {nf(stat.marketReturn)}（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）
@@ -7148,7 +7163,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
                         )}
                       </div>
                       {stat && stat.contribution != null && stat.contribution !== 0 && (
-                        <div className="text-right font-normal" style={{ color: COLORS.gold }}>
+                        <div className="text-right font-normal" style={{ color: COLORS.sub }}>
                           {M("New contribution", "新增投入")} {stat.contribution >= 0 ? "+" : ""}NT$ {nf(stat.contribution)}
                         </div>
                       )}
@@ -7156,7 +7171,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
                   )}
                   <Row onDelete={() => remove(r.id)}>
                     <div className="flex-1">
-                      <div className="text-sm mono">{r.date}{r.source === "auto" && <span className="ml-1.5 text-[10px]" style={{ color: COLORS.gold }}>🤖 <UiLabel zh="自動" inline /></span>}</div>
+                      <div className="text-sm mono">{r.date}{r.source === "auto" && <span className="ml-1.5 text-[10px]" style={{ color: COLORS.sub }}>🤖 <UiLabel zh="自動" inline /></span>}</div>
                       <div className="text-[11px]" style={{ color: COLORS.sub }}>
                         {showUsFields ? M(`TW ${nf(r.twValue)} / US ${nf(r.usValue)}`, `台 ${nf(r.twValue)} ／ 美 ${nf(r.usValue)}`) : M(`TW ${nf(r.twValue)}`, `台 ${nf(r.twValue)}`)}
                       </div>
@@ -7488,11 +7503,11 @@ function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldi
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    <button onClick={cancelEdit} className="rounded-lg py-2 text-xs font-bold"
+                    <button onClick={cancelEdit} className="forma-tap rounded-lg py-2 text-xs font-bold"
                       style={{ background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`, color: COLORS.sub }}>
                       <UiLabel zh="取消" />
                     </button>
-                    <button onClick={saveEdit} className="rounded-lg py-2 text-xs font-bold"
+                    <button onClick={saveEdit} className="forma-tap rounded-lg py-2 text-xs font-bold"
                       style={{ background: COLORS.gold, color: COLORS.bg }}>
                       <UiLabel zh="儲存" />
                     </button>
@@ -7505,7 +7520,7 @@ function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldi
                       <span className="font-bold mono">{h.symbol}</span>
                       <span className="holding-name text-[11px]" style={{ color: COLORS.sub }}>{h.name}</span>
                     </div>
-                    <div className="flex items-center gap-1 shrink-0">
+                    <div className="holding-actions flex items-center shrink-0" style={{ gap: 16 }}>
                       <button className="holding-action" aria-label={M(`Edit ${h.symbol}`, `編輯 ${h.symbol}`)} onClick={() => startEdit(h)} style={{ color: COLORS.sub }}><PencilIcon size={15} /></button>
                       <button className="holding-action" aria-label={M(`Delete ${h.symbol}`, `刪除 ${h.symbol}`)} onClick={() => remove(h.id)} style={{ color: COLORS.sub }}><TrashIcon size={15} /></button>
                     </div>
@@ -7514,11 +7529,11 @@ function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldi
                     <div className="holding-cost-primary grid grid-cols-2 gap-2">
                       <div className="min-w-0">
                         <div style={{ color: COLORS.sub }}><UiLabel zh="總持有成本" inline /></div>
-                        <div className="font-bold mt-0.5 truncate" style={{ color: COLORS.gold }}>{h.estCostBasis != null ? `NT$ ${nf(h.estCostBasis)}` : "-"}</div>
+                        <div className="font-bold mt-0.5" style={{ color: COLORS.gold }}>{h.estCostBasis != null ? `NT$ ${nf(h.estCostBasis)}` : "-"}</div>
                       </div>
                       <div className="min-w-0 text-right">
                         <div style={{ color: COLORS.sub }}><UiLabel zh="每股平均成本" inline /></div>
-                        <div className="mt-0.5 truncate" style={{ color: COLORS.text }}>{h.avgCost != null ? `NT$ ${formatNtdPrice(h.avgCost)}／股` : "-"}
+                        <div className="mt-0.5" style={{ color: COLORS.text }}>{h.avgCost != null ? `NT$ ${formatNtdPrice(h.avgCost)}／股` : "-"}
                           {h.isManualAvgCost && <span style={{ color: COLORS.gold }}> <UiLabel zh="(手動)" inline /></span>}
                         </div>
                       </div>
@@ -7961,7 +7976,7 @@ function DividendHistoryChart({ dividends }) {
           const active = filter === s;
           return (
             <button key={s} onClick={() => setFilter(s)}
-              className="rounded-lg px-2 py-1 text-[11px] font-bold"
+              className="forma-tap rounded-lg px-2 py-1 text-[11px] font-bold"
               style={{
                 background: COLORS.bg,
                 color: active ? COLORS.gold : COLORS.sub,
@@ -8128,7 +8143,7 @@ function DividendsPanel({ dividends, setDividends, holdings, usLive }) {
       <DividendHistoryChart dividends={dividends} />
 
       <Panel title={M(`Cumulative Dividends: NT$ ${nf(total)}`, `累積股息：NT$ ${nf(total)}`)}>
-        <div className="space-y-2 max-h-96 overflow-y-auto">
+        <div className="space-y-2">
           {sorted.map((d) => (
             <Row key={d.id} onDelete={() => remove(d.id)}>
               <div className="flex-1">
@@ -8234,11 +8249,11 @@ function PlanPanel({ advanced = false, setAdvancedMode, planItems, setPlanItems,
   return (
     <div className="space-y-2">
       <Panel title="進階使用">
-        <label className="flex items-start gap-2 text-[12px] cursor-pointer" style={{ color: COLORS.text }}>
+        <label className="forma-check-row flex items-start gap-2 text-[12px] cursor-pointer" style={{ color: COLORS.text }}>
           <input type="checkbox" checked={advanced} onChange={(e) => setAdvancedMode?.(e.target.checked)} style={{ marginTop: 2 }} />
           <span>
             <span className="font-bold"><UiLabel zh="啟用進階功能（目標與投資計畫）" inline /></span>
-            <span className="block text-[11px] leading-5" style={{ color: COLORS.sub }}>
+            <span className="forma-note block text-[11px] leading-5" style={{ color: COLORS.sub }}>
               <UiLabel zh="開啟後會顯示退休目標、每月定期定額和「計畫進度」頁。關閉只是隱藏，已設定的資料都會保留。" />
             </span>
           </span>
@@ -8319,13 +8334,13 @@ function PlanPanel({ advanced = false, setAdvancedMode, planItems, setPlanItems,
 
       <Panel title="AI 雙層備援（自動）">
         <button type="button" onClick={() => setAiFallbackExpanded((v) => !v)}
-          className="w-full flex items-center justify-between rounded-xl px-3 py-2.5 text-left"
+          className="forma-tap w-full flex items-center justify-between rounded-xl px-3 py-2.5 text-left"
           style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
           <div>
-            <div className="text-[11px] font-bold" style={{ color: COLORS.text }}>{aiFallbackExpanded ? "收合備援設定" : "展開備援設定"}</div>
+            <div className="text-[11px] font-bold" style={{ color: COLORS.text }}>{aiFallbackExpanded ? "收起備援設定" : "展開備援設定"}</div>
             {!aiFallbackExpanded && <div className="mt-1 text-[10px]" style={{ color: COLORS.sub }}>Cloudflare AI → Gemini 3.6 Flash</div>}
           </div>
-          <span className="text-sm" style={{ color: COLORS.gold, transform: aiFallbackExpanded ? "rotate(180deg)" : "none", transition: "transform .2s" }}>⌄</span>
+          <span className="flex items-center" style={{ color: COLORS.sub }}><ExpandChevron open={aiFallbackExpanded} /></span>
         </button>
         {aiFallbackExpanded && <div className="mt-3">
         <div className="text-[11px] leading-5" style={{ color: COLORS.sub }}>
@@ -8339,7 +8354,7 @@ function PlanPanel({ advanced = false, setAdvancedMode, planItems, setPlanItems,
           <div><span style={{ color: COLORS.gain }}>②</span> {M("Gemini 3.6 Flash (server-side Worker)", "Gemini 3.6 Flash（Worker 伺服器端）")}</div>
           <div><span style={{ color: COLORS.sub }}>{M("↓ Only shows a real error if Gemini also fails — never pretends to succeed", "↓ 如果 Gemini 也失敗，才顯示真正錯誤，不會假裝成功")}</span></div>
         </div>
-        <label className="mt-3 flex items-start gap-2 text-[11px] leading-5" style={{ color: COLORS.sub }}>
+        <label className="forma-check-row mt-3 flex items-start gap-2 text-[11px] leading-5" style={{ color: COLORS.sub }}>
           <input type="checkbox" checked={aiFallbackConfig?.allowPrivate === true}
             onChange={(e) => setAiFallbackConfig({ ...aiFallbackConfig, allowPrivate: e.target.checked })}
             style={{ marginTop: 3 }} />
@@ -8400,13 +8415,13 @@ function PlanPanel({ advanced = false, setAdvancedMode, planItems, setPlanItems,
 
       {isOwner && <Panel title="Z∞ 同步">
         <button type="button" onClick={() => setZinfExpanded((v) => !v)}
-          className="w-full flex items-center justify-between rounded-xl px-3 py-2.5 text-left"
+          className="forma-tap w-full flex items-center justify-between rounded-xl px-3 py-2.5 text-left"
           style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
           <div>
-            <div className="text-[11px] font-bold" style={{ color: COLORS.text }}>{zinfExpanded ? "收合同步設定" : "展開同步設定"}</div>
+            <div className="text-[11px] font-bold" style={{ color: COLORS.text }}>{zinfExpanded ? "收起同步設定" : "展開同步設定"}</div>
             {!zinfExpanded && zinfSyncStatus && <div className="mt-1 text-[10px]" style={{ color: COLORS.sub }}>{zinfSyncStatus}</div>}
           </div>
-          <span className="text-sm" style={{ color: COLORS.gold, transform: zinfExpanded ? "rotate(180deg)" : "none", transition: "transform .2s" }}>⌄</span>
+          <span className="flex items-center" style={{ color: COLORS.sub }}><ExpandChevron open={zinfExpanded} /></span>
         </button>
         {zinfExpanded && <div className="mt-3">
         <div className="text-[11px] leading-5" style={{ color: COLORS.sub }}>
@@ -8454,13 +8469,13 @@ function PlanPanel({ advanced = false, setAdvancedMode, planItems, setPlanItems,
             </div>
             <span className="rounded-full text-[10px] font-bold leading-none whitespace-nowrap flex-shrink-0"
               style={{ padding: "6px 10px", ...(backupOverdue
-                ? { color: COLORS.bg, background: COLORS.gold }
+                ? { color: "var(--c-warn, #9c6c00)", background: "transparent", border: "1px solid var(--c-line-2, #cdd6e3)" }
                 : { color: COLORS.sub, background: "transparent", border: `1px solid ${COLORS.panelBorder}` }) }}>
               {backupOverdue ? M("Backup due", "建議備份") : M("Up to date", "已備份")}
             </span>
           </div>
           <div className="text-[11px] leading-5" style={{ marginTop: 10, paddingTop: 10, color: COLORS.sub, borderTop: `1px solid ${COLORS.panelBorder}` }}>
-            <UiLabel zh="JSON 用來完整備份／還原 App；Excel 用來保存、檢視與分析投資歷史。重要修改後建議兩種都留一份。" />
+            <UiLabel className="forma-note block" zh="JSON 用來完整備份／還原 App；Excel 用來保存、檢視與分析投資歷史。重要修改後建議兩種都留一份。" />
           </div>
         </div>
         <div className="grid grid-cols-3 gap-2 mt-3">
@@ -8809,7 +8824,7 @@ function PushReminderPanel() {
       <div className="text-[11px] leading-5" style={{ color: COLORS.sub }}>
         開盤日 13:45 提醒你記帳；14:00 還沒記錄的話，手機會在背景用收盤價幫你記好（美股沿用上一筆），你之後手動改就以手動為準。伺服器只記得「要通知哪支手機」，不會收到你的持股或金額。
       </div>
-      <label className="mt-3 flex items-center gap-2 text-[12px] cursor-pointer" style={{ color: COLORS.text }}>
+      <label className="forma-check-row mt-3 flex items-center gap-2 text-[12px] cursor-pointer" style={{ color: COLORS.text }}>
         <input type="checkbox" checked={r.wanted} onChange={(e) => onToggle(e.target.checked)} />
         <span className="font-bold"><UiLabel zh="開啟收盤提醒與自動記錄" inline /></span>
       </label>
@@ -8835,17 +8850,17 @@ function MissedDaysBanner({ days, busy, msg, onFill, onLater }) {
   return (
     <div className="mx-4 mb-3 rounded-xl p-3" data-missed-days-banner style={{ background: COLORS.panel, border: `1px solid ${COLORS.gold}` }}>
       {days.length > 0 && (<>
-        <div className="text-[11px] font-bold" style={{ color: COLORS.gold }}>
+        <div className="forma-note-title text-[11px] font-bold" style={{ color: COLORS.gold }}>
           {UI_SHOW_ENGLISH ? `📅 No daily record for ${shown}` : `📅 ${shown} 沒有每日紀錄`}
         </div>
-        <div className="mt-1 text-[11px] leading-5" style={{ color: COLORS.sub }}>
+        <div className="forma-note mt-1 text-[11px] leading-5" style={{ color: COLORS.sub }}>
           {UI_SHOW_ENGLISH ? "Fill them with each day's closing price and the shares you held that day." : "用那天的收盤價和當天的持股股數補記，補完可以在「每日紀錄」查看或修改。"}
         </div>
         <div className="mt-2 grid grid-cols-3 gap-2">
-          <button onClick={onFill} disabled={busy} className="col-span-2 rounded-lg py-1.5 text-[11px] font-bold" style={{ background: COLORS.gold, color: COLORS.bg, opacity: busy ? 0.6 : 1 }}>
+          <button onClick={onFill} disabled={busy} className="forma-tap col-span-2 rounded-lg py-1.5 text-[11px] font-bold" style={{ background: COLORS.gold, color: COLORS.bg, opacity: busy ? 0.6 : 1 }}>
             {busy ? (UI_SHOW_ENGLISH ? "Filling…" : "補記中…") : (UI_SHOW_ENGLISH ? "Fill with closing prices" : "用收盤價補記")}
           </button>
-          <button onClick={onLater} className="rounded-lg py-1.5 text-[11px] font-bold" style={{ background: COLORS.bg, color: COLORS.sub, border: `1px solid ${COLORS.panelBorder}` }}>{UI_SHOW_ENGLISH ? "Later" : "稍後"}</button>
+          <button onClick={onLater} className="forma-tap forma-secondary-btn rounded-lg py-1.5 text-[11px] font-bold" style={{ background: COLORS.bg, color: COLORS.sub, border: `1px solid ${COLORS.panelBorder}` }}>{UI_SHOW_ENGLISH ? "Later" : "稍後"}</button>
         </div>
       </>)}
       {msg && <div className="mt-1 text-[11px]" style={{ color: COLORS.sub }}>{msg}</div>}
@@ -8861,17 +8876,17 @@ function ClosingReminderBanner() {
   const later = () => { try { localStorage.setItem("closingReminderBannerHidden", today); } catch {} setHiddenDay(today); };
   return (
     <div className="mx-4 mb-3 rounded-xl p-3" data-closing-reminder-banner style={{ background: COLORS.panel, border: `1px solid ${COLORS.gold}` }}>
-      <div className="text-[11px] font-bold" style={{ color: COLORS.gold }}>
+      <div className="forma-note-title text-[11px] font-bold" style={{ color: COLORS.gold }}>
         {UI_SHOW_ENGLISH ? "🔔 Turn on the 13:45 reminder and 14:00 auto-record" : "🔔 開啟收盤提醒與自動記錄"}
       </div>
-      <div className="mt-1 text-[11px] leading-5" style={{ color: COLORS.sub }}>
+      <div className="forma-note mt-1 text-[11px] leading-5" style={{ color: COLORS.sub }}>
         {UI_SHOW_ENGLISH ? "Your browser needs you to tap Allow once." : "13:45 提醒你記帳，14:00 沒記的話手機會自動幫你記。瀏覽器規定要你按一下「允許」。"}
       </div>
       <div className="mt-2 grid grid-cols-3 gap-2">
-        <button onClick={() => r.enable()} className="col-span-2 rounded-lg py-1.5 text-[11px] font-bold" style={{ background: COLORS.gold, color: COLORS.bg }}>{UI_SHOW_ENGLISH ? "Allow notifications" : "允許通知"}</button>
-        <button onClick={later} className="rounded-lg py-1.5 text-[11px] font-bold" style={{ background: COLORS.bg, color: COLORS.sub, border: `1px solid ${COLORS.panelBorder}` }}>{UI_SHOW_ENGLISH ? "Later" : "稍後"}</button>
+        <button onClick={() => r.enable()} className="forma-tap col-span-2 rounded-lg py-1.5 text-[11px] font-bold" style={{ background: COLORS.gold, color: COLORS.bg }}>{UI_SHOW_ENGLISH ? "Allow notifications" : "允許通知"}</button>
+        <button onClick={later} className="forma-tap forma-secondary-btn rounded-lg py-1.5 text-[11px] font-bold" style={{ background: COLORS.bg, color: COLORS.sub, border: `1px solid ${COLORS.panelBorder}` }}>{UI_SHOW_ENGLISH ? "Later" : "稍後"}</button>
       </div>
-      <button onClick={() => r.setWanted(false)} className="mt-2 text-[10px] underline" style={{ color: COLORS.sub }}>{UI_SHOW_ENGLISH ? "Don't ask again" : "不用了，不要再提醒"}</button>
+      <button onClick={() => r.setWanted(false)} className="forma-tap mt-2 text-[10px] underline" style={{ color: COLORS.sub }}>{UI_SHOW_ENGLISH ? "Don't ask again" : "不用了，不要再提醒"}</button>
       {r.pushMsg && <div className="mt-1 text-[10px]" style={{ color: COLORS.sub }}>{r.pushMsg}</div>}
     </div>
   );
@@ -9662,8 +9677,6 @@ function AiChatWidget({ advancedUse = true, holdings, goal, totalToday, totalInv
           right: 14, bottom: "calc(64px + env(safe-area-inset-bottom, 4px))",
           width: 46, height: 46, background: COLORS.gold, color: "#FFFFFF",
           border: `1.5px solid ${COLORS.gold}`,
-          backdropFilter: "blur(14px) saturate(140%)",
-          WebkitBackdropFilter: "blur(14px) saturate(140%)",
           boxShadow: "0 6px 18px rgba(0,0,0,0.28)",
         }}>
         <MessageCircle size={22} />
@@ -9694,7 +9707,9 @@ function AiChatWidget({ advancedUse = true, holdings, goal, totalToday, totalInv
                   );
                 })()}
               </div>
-              <button onClick={() => setOpen(false)} style={{ color: COLORS.sub }}><X size={20} /></button>
+              <button onClick={() => setOpen(false)} aria-label={UI_SHOW_ENGLISH ? "Close" : "關閉"}
+                className="forma-icon-btn rounded-full flex items-center justify-center"
+                style={{ color: COLORS.sub, width: 44, height: 44, minWidth: 44, flex: "none" }}><X size={20} /></button>
             </div>
 
             <div ref={scrollRef}
@@ -9793,8 +9808,9 @@ function AiChatWidget({ advancedUse = true, holdings, goal, totalToday, totalInv
                   boxSizing: "border-box"
                 }} />
               <button onClick={send} disabled={sending || !input.trim()}
-                className="rounded-xl px-3 py-2.5 flex items-center justify-center"
-                style={{ background: COLORS.gold, color: COLORS.bg, opacity: (sending || !input.trim()) ? 0.5 : 1 }}>
+                aria-label={UI_SHOW_ENGLISH ? "Send" : "送出"}
+                className="rounded-xl flex items-center justify-center"
+                style={{ background: COLORS.gold, color: COLORS.bg, opacity: (sending || !input.trim()) ? 0.5 : 1, width: 44, height: 44, minWidth: 44, flex: "none" }}>
                 <Send size={18} />
               </button>
             </div>

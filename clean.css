@@ -104,7 +104,7 @@ html.za-clean input[type=date]{-webkit-appearance:none;appearance:none}
 html.za-clean .premium-tabbar{background:var(--c-tabbar)!important;border-top:1px solid var(--c-line)!important;box-shadow:none!important}
 html.za-clean .premium-tabbar button>span:first-child,
 html.za-clean .premium-tabbar button[data-active="true"]>span:first-child{background:transparent!important;border-color:transparent!important;box-shadow:none!important}
-html.za-clean .premium-tabbar button[data-active="false"]{opacity:1;color:#8a94a6!important}
+html.za-clean .premium-tabbar button[data-active="false"]{opacity:1;color:var(--c-muted)!important}
 html.za-clean .premium-tabbar svg{stroke-width:1.5}
 html.za-clean .premium-tabbar button[data-active="true"] svg{stroke-width:1.9}
 
@@ -151,7 +151,7 @@ html.za-clean :is(div,h2,h3,p):is(.font-bold,.font-black):is(.text-xs,.text-sm,.
 html.za-clean[data-theme="navy"]{
     --c-bg:#29385b;--c-card:#303f60;--c-ink:#ffffff;--c-ink-2:#ffffff;--c-muted:#ffffff;
     --c-line:rgba(255,255,255,.08);--c-line-2:rgba(255,255,255,.16);--c-accent:#a8c2ff;--c-accent-press:#e6ecfa;--c-btn:#ffffff;--c-btn-ink:#1f2b4d;
-    --c-good:#00d26a;--c-warn:#f5c26b;--c-bad:#ff5c5c;--c-disabled-bg:rgba(255,255,255,.08);--c-disabled-ink:#8592b5;
+    --c-good:#00d26a;--c-warn:#f5c26b;--c-bad:#ff5c5c;--c-disabled-bg:rgba(255,255,255,.08);--c-disabled-ink:#a9b4d0;
     --c-tabbar:rgba(41,56,91,.97);--c-placeholder:#ffffff;--c-tick:#ffffff;--c-solid-card:#354668;
     color-scheme:dark;
   }
@@ -169,7 +169,7 @@ html.za-clean[data-theme="navy"]{
   html.za-clean:not([data-theme]){
     --c-bg:#29385b;--c-card:#303f60;--c-ink:#ffffff;--c-ink-2:#ffffff;--c-muted:#ffffff;
     --c-line:rgba(255,255,255,.08);--c-line-2:rgba(255,255,255,.16);--c-accent:#a8c2ff;--c-accent-press:#e6ecfa;--c-btn:#ffffff;--c-btn-ink:#1f2b4d;
-    --c-good:#00d26a;--c-warn:#f5c26b;--c-bad:#ff5c5c;--c-disabled-bg:rgba(255,255,255,.08);--c-disabled-ink:#8592b5;
+    --c-good:#00d26a;--c-warn:#f5c26b;--c-bad:#ff5c5c;--c-disabled-bg:rgba(255,255,255,.08);--c-disabled-ink:#a9b4d0;
     --c-tabbar:rgba(41,56,91,.97);--c-placeholder:#ffffff;--c-tick:#ffffff;--c-solid-card:#354668;
     color-scheme:dark;
   }
@@ -198,7 +198,9 @@ html.za-clean .premium-main :is([class~="text-[12px]"],.text-sm){font-size:15px!
 html.za-clean .premium-main .text-base{font-size:17px!important;line-height:1.5!important}
 html.za-clean .premium-main :is(.leading-5,.leading-relaxed,.leading-tight,.leading-snug){line-height:1.55!important}
 /* 次要資訊淡一點；主要數字（粗體）維持清楚 */
-html.za-clean{--c-muted-2:color-mix(in srgb,var(--c-muted) 82%,var(--c-card))}
+/* 淺色：次要字直接用 --c-muted（#5b6780，對白卡 5.7:1）；深藍維持原本略淡的混色。 */
+html.za-clean{--c-muted-2:var(--c-muted)}
+html.za-clean[data-theme="navy"],html.za-clean:not([data-theme]){--c-muted-2:color-mix(in srgb,var(--c-muted) 82%,var(--c-card))}
 html.za-clean .premium-main [style*="color: var(--z-sub"]:not(.font-bold):not(.font-black):not(.font-semibold){color:var(--c-muted-2)!important}
 /* 列距 */
 html.za-clean .premium-main :is(.space-y-1,.space-y-1\.5,.space-y-2)>:not([hidden])~:not([hidden]){margin-top:10px!important}
@@ -250,7 +252,8 @@ html.za-clean[data-theme="navy"]{
   --forma-background:#29385b;
   --forma-surface:#303f60;
   --forma-surface-elevated:#354668;
-  --forma-hero-gradient:linear-gradient(180deg,#384b70 0%,#526584 100%);
+  /* 終點壓暗（原 #526584）：紅 #ff5c5c／綠 #00d26a 在終點對比 3.51／5.28、白字 10.64（見下方說明） */
+  --forma-hero-gradient:linear-gradient(180deg,#384b70 0%,#2e3e60 100%);
   --forma-text:#ffffff;
   --forma-muted:#ffffff;
   --forma-border:#576787;
@@ -278,7 +281,7 @@ html.za-clean[data-theme="navy"]{
 html.za-clean[data-theme="navy"] :is(.premium-tabbar button[data-active="false"],.premium-field-label,.premium-panel-title,.live-quote-heading){
   color:#ffffff!important;
 }
-html.za-clean[data-theme="navy"] :is(input,select,textarea)::placeholder{color:#ffffff!important;opacity:.88}
+html.za-clean[data-theme="navy"] :is(input,select,textarea)::placeholder{color:#ffffff!important;opacity:.62}
 html.za-clean[data-theme="navy"] .recharts-cartesian-axis-tick text{fill:#ffffff!important}
 
 /* Mobile quote layout: keep high / low / previous close on one line without
@@ -300,3 +303,52 @@ html.za-clean .premium-tab-trades select.input{
   background-repeat:no-repeat!important;
   padding-right:12px!important;
 }
+
+/* ════ Forma 外觀整理 2026-10-17（只改外觀；不碰資料、計算、API）════ */
+/* 1. 觸控：可點範圍至少 44px（外觀維持原本大小的就用 ::before 畫出原本的小膠囊／小圓） */
+html.za-clean .forma-tap{min-height:44px!important}
+html.za-clean .forma-tap[role="tab"]{min-width:44px}
+html.za-clean .forma-check-row{min-height:44px}
+html.za-clean .premium-header :is(#themeToggle,.za-lang-toggle),
+html.za-clean .premium-header .za-cat-pair-bar :is(button.za-pair-pause,button.za-cat-control){
+  position:relative!important;isolation:isolate;min-height:44px!important;
+  background:transparent!important;border-color:transparent!important;--forma-pill-h:30px;
+  --forma-pill-line:color-mix(in srgb,var(--c-accent) 45%,transparent);--forma-pill-bg:transparent}
+html.za-clean .premium-header #themeToggle.za-theme-toggle{width:44px!important;min-width:44px!important;max-width:44px!important;height:44px!important}
+html.za-clean .premium-header .za-lang-toggle{--forma-pill-h:32px}
+html.za-clean .premium-header .za-cat-pair-bar :is(button.za-pair-pause,button.za-cat-control){--forma-pill-line:currentColor;min-width:44px!important;padding:0 10px!important}
+html.za-clean .premium-header .za-cat-pair-bar button.za-cat-control{--forma-pill-h:34px}
+html.za-clean .premium-header :is(#themeToggle,.za-lang-toggle)::before,
+html.za-clean .premium-header .za-cat-pair-bar :is(button.za-pair-pause,button.za-cat-control)::before{
+  content:"";position:absolute;left:0;right:0;top:50%;height:var(--forma-pill-h);transform:translateY(-50%);
+  border:1px solid var(--forma-pill-line);border-radius:999px;background:var(--forma-pill-bg);z-index:-1;pointer-events:none}
+html.za-clean .premium-header #themeToggle::before{left:7px;right:7px}
+html.za-clean[data-theme="navy"] .premium-header :is(#themeToggle,.za-lang-toggle),
+html.za-clean[data-theme="navy"] .premium-header .za-cat-pair-bar :is(button.za-pair-pause,button.za-cat-control){--forma-pill-line:transparent;--forma-pill-bg:rgba(255,255,255,.12)}
+/* 小貓列：說明字可以換行，三顆按鈕固定同一行（320px 標題區不再多出第 3 行） */
+html.za-clean .premium-header .za-cat-pair-bar{flex-wrap:nowrap!important;gap:6px!important}
+html.za-clean .premium-header .za-cat-pair-bar>span{flex:1 1 auto;min-width:0;white-space:normal;line-height:1.35;text-wrap:balance}
+html.za-clean .premium-header .za-cat-pair-bar>button{flex:none}
+/* 底部導覽 320px：標籤縮到 11px、拿掉左右內距，不再互相重疊 */
+@media(max-width:359px){
+  html.za-clean .premium-tabbar button{padding-left:0!important;padding-right:0!important}
+  html.za-clean .premium-tabbar button>span:last-child{font-size:11px!important;letter-spacing:-.02em!important}
+}
+
+/* 6. 一套卡片：大卡圓角淺色 18px／深色 24px、內距 14px；卡片內小卡 12px */
+html.za-clean .premium-main :is(.premium-panel,.premium-asset-hero,.trend-radar-shell,.forma-expand-card,div.rounded-2xl,.premium-dashboard>.rounded-xl){border-radius:18px!important}
+html.za-clean[data-theme="navy"] .premium-main :is(.premium-panel,.premium-asset-hero,.trend-radar-shell,.forma-expand-card,div.rounded-2xl,.premium-dashboard>.rounded-xl){border-radius:24px!important}
+html.za-clean .premium-main :is(.premium-panel,.premium-asset-hero,.trend-radar-shell,div.rounded-2xl,.premium-dashboard>.rounded-xl){padding:14px!important}
+html.za-clean .premium-main :is(.premium-row,.forma-subcard,[data-backup-card],.trend-radar-card,.premium-tab-holdings .space-y-3>div.rounded-xl){border-radius:12px!important}
+
+/* 7. 按鈕：淺色一般按鈕圓角 12px、高 44px；深色維持膠囊，次要鈕（稍後）也是膠囊 */
+html.za-clean[data-theme="grey"] :is(.premium-main,[data-missed-days-banner],[data-closing-reminder-banner]) button:is(.rounded-lg,.rounded-md,.rounded-xl,.premium-add-button,.live-refresh-btn):not([role="tab"]){border-radius:12px!important;min-height:44px}
+html.za-clean:not([data-theme="grey"]) .forma-secondary-btn{border-radius:999px!important}
+
+/* 9. 展開／收起：同一個 chevron，展開時轉 180° */
+.forma-chevron{display:block}
+@media (prefers-reduced-motion:no-preference){.forma-chevron{transition:transform .2s ease}}
+
+/* 10. 說明、提醒文字：避免最後一行只剩一兩個字 */
+.forma-note{text-wrap:pretty}
+.forma-note-title{text-wrap:balance}
