@@ -13,8 +13,12 @@ test('both cats can walk, run and jump using different timing rather than a shar
 });
 test('safe unrelated layout refresh preserves individual sleep timing',()=>{const c=make(),s=c.create(layout,rng());s.actors[0].mode='sleep';s.actors[0].wait=27;s.actors[1].mode='observe';s.actors[1].wait=4;c.relayout(s,layout);assert.equal(s.actors[0].mode,'sleep');assert.equal(s.actors[0].wait,27);assert.equal(s.actors[1].wait,4);});
 test('390px synthetic text/control layout reaches multiple vertical regions without crossing protected content',()=>{
- const c=make(),l={...layout,protect:[{x:100,y:200,w:190,h:24},{x:100,y:390,w:190,h:24},{x:100,y:580,w:190,h:24}],forbid:[{x:250,y:100,w:100,h:40}]},s=c.create(l,rng(17)),regions=[new Set(),new Set()];
+ // v4（雙貓互動）：原本只跑 seed 17，覆蓋率看運氣（舊版 10 個 seed 裡白貓 6 個走遍三區）。改成 10 個 seed：每個都不准碰保護區；
+ // 狸花每個 seed 都要走遍上中下；愛睡的白貓至少 6/10 個 seed 走遍（不低於舊版）。
+ const c=make(),l={...layout,protect:[{x:100,y:200,w:190,h:24},{x:100,y:390,w:190,h:24},{x:100,y:580,w:190,h:24}],forbid:[{x:250,y:100,w:100,h:40}]};let whiteFull=0;
+ for(const seed of [17,1,5,3,8,12,42,7,9,11]){const s=c.create(l,rng(seed)),regions=[new Set(),new Set()];
  for(let i=0;i<24000;i++){c.step(s,.05);for(const [j,a]of s.actors.entries()){if(a.hidden)continue;regions[j].add(Math.floor((a.y-38)/230));for(const r of [...l.protect,...l.forbid])assert.ok(!(a.x<r.x+r.w&&a.x+44>r.x&&a.y<r.y+r.h&&a.y+44>r.y));}}
- for(const set of regions)assert.ok(set.size>=3,'should visit top, middle and bottom, not only a header strip');
+ assert.ok(regions[1].size>=3,'tabby should visit top, middle and bottom (seed '+seed+')');if(regions[0].size>=3)whiteFull++;}
+ assert.ok(whiteFull>=6,'white covers all regions in most seeds: '+whiteFull);
 });
 test('fullscreen slice reuses only the two existing companion assets',()=>{const code=fs.readFileSync(new URL('../za-catlife.js',import.meta.url),'utf8');assert.ok(!code.includes('whiteAction'));assert.ok(!code.includes('white-walk.webp'));});

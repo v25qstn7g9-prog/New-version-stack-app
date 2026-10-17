@@ -82,7 +82,7 @@ test("protected zones over 10 simulated minutes per mood (incl. zoomies/jumps): 
 test("legacy roam stays archived and is not loaded by the live pair", () => {
   const photo = fs.readFileSync(new URL("../za-catphoto.js", import.meta.url), "utf8");
   assert.match(photo, /stare: "look"/);
-  assert.match(photo, /za-catpair\.js\?v=2/);
+  assert.match(photo, /za-catpair\.js\?v=4/);
   assert.doesNotMatch(photo, /sc.src = "\/za-catroam/);
   const e = env(); const st = e.core.state;
   st.mode = "groom"; st.t = 0.3; e.rafs[e.rafs.length - 1](16);

@@ -104,6 +104,8 @@
     if(c.mode==='walk'||c.mode==='run'||c.mode==='hop')return Math.floor(c.frame)%8;
     if(c.mode==='invite')return state.time%1.6<.8?14:15;
     if(c.mode==='respond')return state.time%2.1<1.2?12:14;
+    if(c.mode==='pounce')return state.time%.9<.45?14:15;
+    if(c.mode==='groom')return state.time%1.4<.9?9:8;
     if(c.mode==='observe')return 12;
     if(c.mode==='sleep')return 11;
     if(c.mode==='settle')return c.progress<.92?9:10;
