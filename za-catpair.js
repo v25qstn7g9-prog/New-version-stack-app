@@ -53,7 +53,32 @@
   }
   function wake(s) { if(s.reduced)return;s.wakeFrom=[s.white.x,s.tabby.x];s.phase='wake';s.time=0;pose(s); }
   function reduce(s,on) { s.reduced=on;s.wakeFrom=null;s.approachFrom=null;s.phase=on?'sleep':'wake';s.time=0;pose(s); }
-  var core=window.__zaCatPairCore={create:create,resize:resize,step:step,wake:wake,reduce:reduce};
+  // The atlas uses separate, grounded clips: walk, run, jump, idle, groom,
+  // settle, wake and paw-play. Sampling is pure, so the renderer and tests
+  // agree on which anatomy is visible at each point in an action.
+  function samplePose(c,time,frozen) {
+    var clock=frozen?0:Math.max(0,Number(c.clock)||0),p=Math.max(0,Math.min(1,Number(c.progress)||0));
+    var offset=(c.index||0)*2.17,frame=24,mode=c.mode,breath=0,tail=0;
+    if(mode==='walk')frame=((Math.floor(c.frame||0)%8)+8)%8;
+    else if(mode==='run')frame=8+((Math.floor(c.frame||0)%8)+8)%8;
+    else if(mode==='hop')frame=16+(p<.12?Math.min(2,Math.floor(p/.12*3)):p<.25?3:p<.78?(p<.5?4:5):p<.92?6:7);
+    else if(mode==='groom') {var g=Math.floor(clock*4)%14;frame=32+(g<8?g:14-g);}
+    else if(mode==='settle')frame=40+Math.min(7,Math.floor(p*8));
+    else if(mode==='wake')frame=48+Math.min(7,Math.floor(p*8));
+    else if(mode==='sleep')frame=47;
+    else if(mode==='turn')frame=30;
+    else if(mode==='pounce'||mode==='respond'||mode==='invite'||mode==='play')frame=56+Math.min(7,Math.floor(clock/1.6*8));
+    else {
+      var blink=(clock+offset)%6.7,look=(clock+offset)%17;
+      frame=blink>2.82&&blink<2.96?26:blink>2.7&&blink<3.08?25:look>11&&look<11.6?28:look>12&&look<13.5?30:24;
+    }
+    if(!frozen&&['sleep','observe','sit','groom'].indexOf(mode)>=0){
+      breath=Math.sin((clock+offset)*Math.PI*2/(mode==='sleep'?4.3:3.5))*.45;
+      if(mode!=='sleep')tail=Math.sin((clock+offset)*1.2)*.7;
+    }
+    return {frame:frame,breath:breath,tail:tail};
+  }
+  var core=window.__zaCatPairCore={create:create,resize:resize,step:step,wake:wake,reduce:reduce,samplePose:samplePose};
   if(typeof document==='undefined')return;
   var cat=window.__zaPhotoCat;
   if(!cat||!cat.box)return;
@@ -100,6 +125,9 @@
   }
   wc.style.display='none';
   load('white','/za-white-companion.webp?v=1');load('tabby','/za-tabby-companion.webp?v=1');
+  // Enhanced clips are optional: a failed download keeps the existing atlas.
+  function loadActions(name,url){var im=new Image();im.decoding='async';im.onload=function(){assets[name+'Actions']=im;render();if(runtime.onAssetsReady)runtime.onAssetsReady();};im.src=url;}
+  loadActions('white','/za-white-actions.webp?v=1');loadActions('tabby','/za-tabby-actions.webp?v=1');
   function frameFor(c,tabbyCat) {
     if(c.mode==='walk'||c.mode==='run'||c.mode==='hop')return Math.floor(c.frame)%8;
     if(c.mode==='invite')return state.time%1.6<.8?14:15;
@@ -114,17 +142,34 @@
     if(state.phase==='turn')return state.time<.75?8:9;
     return 8;
   }
-  function paint(ctx,im,c,isTabby,rows) {
+  var previous=[null,null];
+  function paint(ctx,im,c,isTabby,enhanced) {
     if(!ctx||!im)return;
-    var n=frameFor(c,isTabby),cw=im.width/4,ch=im.height/(rows||4);
+    var frozen=manualPause||state.reduced,pose=samplePose(c,state.time,frozen);
+    var n=enhanced?pose.frame:frameFor(c,isTabby),cols=enhanced?8:4,cw=im.width/cols,ch=im.height/cols;
+    var index=isTabby?1:0,prev=previous[index],now=state.time,blendable=enhanced&&['walk','run','hop'].indexOf(c.mode)<0;
+    if(!prev||prev.im!==im||!blendable)prev={im:im,frame:n,from:n,changed:now};
+    else if(prev.frame!==n){prev.from=prev.frame;prev.frame=n;prev.changed=now;}
+    previous[index]=prev;
+    function frame(num,dx,dy){ctx.drawImage(im,(num%cols)*cw,Math.floor(num/cols)*ch,cw,ch,dx||0,dy||0,160,160);}
     ctx.clearRect(0,0,160,160);ctx.save();
     if(c.facing===-1){ctx.translate(160,0);ctx.scale(-1,1);}
-    ctx.drawImage(im,(n%4)*cw,Math.floor(n/4)*ch,cw,ch,0,0,160,160);ctx.restore();
+    var mix=frozen?1:Math.max(0,Math.min(1,(now-prev.changed)/.1));
+    if(blendable&&mix<1&&prev.from!==n){ctx.globalAlpha=1-mix;frame(prev.from);ctx.globalAlpha=mix;frame(n);ctx.globalAlpha=1;}else frame(n);
+    // Only a small chest/tail patch moves. Paws and the ground baseline never
+    // scale or bounce with breathing; walking and flying have no idle warp.
+    if(enhanced&&!frozen&&ctx.ellipse&&Math.abs(pose.breath)>.01){
+      ctx.save();ctx.beginPath();ctx.ellipse(76,c.mode==='sleep'?122:103,28,19,0,0,Math.PI*2);ctx.clip();ctx.clearRect(0,0,160,160);frame(n,pose.breath,0);ctx.restore();
+    }
+    if(enhanced&&!frozen&&ctx.ellipse&&Math.abs(pose.tail)>.01){
+      ctx.save();ctx.beginPath();ctx.ellipse(125,143,18,8,0,0,Math.PI*2);ctx.clip();ctx.clearRect(0,0,160,160);frame(n,0,pose.tail);ctx.restore();
+    }
+    ctx.restore();
   }
   var lastLabel='';
   function render() {
     [[white,state.white],[tabby,state.tabby]].forEach(function(p){p[0].style.width=state.size+'px';p[0].style.height=state.size+'px';p[0].style.transform='translate3d('+p[1].x.toFixed(2)+'px,'+(p[1].y||0).toFixed(2)+'px,0)';});
-    function drawCat(ctx,c,name,isTabby){paint(ctx,assets[name],c,isTabby,4);}
+    function drawCat(ctx,c,name,isTabby){paint(ctx,assets[name+'Actions']||assets[name],c,isTabby,!!assets[name+'Actions']);}
     drawCat(wctx,state.white,'white',false);drawCat(tctx,state.tabby,'tabby',true);
     var text=state.phase==='sleep'?'白貓和狸花 · 一起睡覺':state.phase==='play'?'白貓和狸花 · 陪你玩':/^chase/.test(state.phase)?'白貓和狸花 · 你追我跑':'白貓和狸花 · 一起陪你';
     if(!runtime.external&&text!==lastLabel&&assets.tabby){label.textContent=text;lastLabel=text;}

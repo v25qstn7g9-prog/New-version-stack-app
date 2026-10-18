@@ -136,7 +136,9 @@
   function sampleRoute(route,elapsed) {
     if(!route?.ok||!route.segments?.length)return null;
     let t=clamp(finite(elapsed),0,route.duration),s=route.segments[route.segments.length-1];
-    for(const candidate of route.segments){s=candidate;if(t<=s.duration)break;t-=s.duration;}
+    // A rounded sum can exceed the last duration by a fraction of a pixel's
+    // travel time. Never subtract the final segment and jump back to its start.
+    for(const candidate of route.segments){s=candidate;if(t<=s.duration||candidate===route.segments[route.segments.length-1])break;t-=s.duration;}
     const progress=clamp(t/s.duration,0,1);
     const phase=s.kind==='hop'?(progress<.12?'crouch':progress<.25?'takeoff':progress<.78?'air':'landing'):s.kind;
     const u=eased(s.kind==='hop'?clamp((progress-.12)/.76,0,1):progress);
