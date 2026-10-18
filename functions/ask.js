@@ -57,10 +57,19 @@ function bearerToken(request) {
   return /^Bearer\s+/i.test(auth) ? auth.replace(/^Bearer\s+/i, "").trim() : "";
 }
 
+// 固定時間比對，避免從回應時間猜出 token。
+function sameSecret(a, b) {
+  const x = new TextEncoder().encode(String(a ?? ""));
+  const y = new TextEncoder().encode(String(b ?? ""));
+  let diff = x.length ^ y.length;
+  for (let i = 0; i < Math.max(x.length, y.length); i++) diff |= (x[i] ?? 0) ^ (y[i] ?? 0);
+  return diff === 0;
+}
+
 function isOwnerAsk(request, env) {
   const supplied = bearerToken(request);
   const owner = String(env?.LINE_REMINDER_SYNC_TOKEN || "").trim();
-  return Boolean(supplied && owner && supplied === owner);
+  return Boolean(supplied && owner && sameSecret(supplied, owner));
 }
 
 async function quotaDeviceTag(deviceId, clientIp) {

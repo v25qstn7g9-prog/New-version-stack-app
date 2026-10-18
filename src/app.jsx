@@ -106,6 +106,22 @@ const COLORS = {
 };
 
 const UI_EN = {
+  // 2026-10-18 複查補上的英文
+  "台股持股市值": "TW Holdings Value",
+  "美股持股市值": "US Holdings Value",
+  "· 金額待公告": "· Amount TBA",
+  "開啟收盤提醒與自動記錄": "Turn on closing reminder & auto-record",
+  "成交價（新台幣）": "Trade Price (NT$)",
+  "手續費（新台幣）": "Fee (NT$)",
+  "交易稅（新台幣，賣出）": "Transaction Tax (NT$, sell)",
+  "預扣稅（新台幣，選填）": "Withholding Tax (NT$, optional)",
+  "系統管理": "System Admin",
+  "Z∞ 同步": "Z∞ Sync",
+  "收盤提醒與自動記錄": "Closing Reminder & Auto-Record",
+  "合計市值": "Total Market Value",
+  "全市場上漲廣度": "Market-Wide Advance Breadth",
+  "總資產合計": "Total Assets",
+  "每股配息（新台幣）": "Dividend / Share (NT$)",
   "即時股價": "Live Quotes",
   "投資體質": "Portfolio Health",
   "XIRR 年化報酬": "XIRR Annualized Return",
@@ -6337,17 +6353,17 @@ function DailyClosingAiReport({ holdings, dailyRecords }) {
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-sm font-bold" style={{ color: COLORS.gold }}>
-            📊 今日程式收盤報告
+            📊 {UI_SHOW_ENGLISH ? "Today's Closing Report" : "今日程式收盤報告"}
           </div>
           <div className="text-[10px] mt-0.5" style={{ color: COLORS.sub }}>
-            14:00 後依收盤資料自動產生・不使用 AI 額度
+            {UI_SHOW_ENGLISH ? "Built from closing data after 14:00 · uses no AI quota" : "14:00 後依收盤資料自動產生・不使用 AI 額度"}
           </div>
         </div>
         {afterClose && (
           <button onClick={() => buildAndAsk(true)} disabled={status === "loading"}
             className="rounded-lg px-2.5 py-1 text-[10px] font-bold"
             style={{ color: COLORS.gold, border: `1px solid ${COLORS.gold}`, opacity: status === "loading" ? 0.55 : 1 }}>
-            {status === "loading" ? "分析中…" : "重新計算"}
+            {status === "loading" ? (UI_SHOW_ENGLISH ? "Analyzing…" : "分析中…") : (UI_SHOW_ENGLISH ? "Recalculate" : "重新計算")}
           </button>
         )}
       </div>
@@ -6436,6 +6452,12 @@ function DashboardCollapsibleSection({ storageKey, title, subtitle, children, de
   );
 }
 
+// 總覽「今日變化」的比較日標籤：交易日回傳 null（顯示「今日」）；休市日回傳「M/D」（今天之前最近一筆紀錄）。
+function changeLabelDate(dailyRecords, today, nonTradingDay) {
+  if (!nonTradingDay) return null;
+  const prev = (dailyRecords || []).reduce((m, r) => (r?.date && r.date < today && r.date > m ? r.date : m), "");
+  return prev ? `${Number(prev.slice(5, 7))}/${Number(prev.slice(8, 10))}` : null;
+}
 // 交易日收盤（13:30）後、今天還沒有每日紀錄時才提醒；盤前、盤中、休市日都不打擾。
 function needsTodayRecord(dailyRecords, now = new Date(), afterMinute = 13 * 60 + 30) {
   const today = todayStr();
@@ -6512,13 +6534,10 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
   highPoint, drawdown, ytdGain, ytdPct, chartData, goal, goalDate, totalInvested, holdings,
   dailyRecords, dividends, yesterdayTwValue, yesterdayUsValue, onFillDailyTw, onFillDailyUs, usHoldings = [], usLive, onGoUsSettings, onGoDaily, firstRun = false, onAddHolding, onOpenBackup }) {
   const up = dailyChange >= 0;
-  // dailyChange compares the two most recent daily records. Until today's
-  // record is saved, that is the previous session's change, so label it with
-  // its date rather than "今日" (it would otherwise contradict the live
-  // 今/昨日盈虧 shown further down the same page).
-  const latestRecordDate = (dailyRecords || []).reduce((m, r) => (r?.date > m ? r.date : m), "");
-  const changeIsToday = !latestRecordDate || latestRecordDate === todayStr();
-  const changeDateLabel = changeIsToday ? null : `${Number(latestRecordDate.slice(5, 7))}/${Number(latestRecordDate.slice(8, 10))}`;
+  // dailyChange = 現在的總資產（即時）減「今天之前最近一筆紀錄」（見 App 的 yesterdayRecord）。
+  // 交易日它就是今天的變化，標「今日」（和即時股價卡的「較昨日」同一個數字）；
+  // 週末／休市日沒有今天的行情，標「較 M/D」說清楚是跟哪一天比。
+  const changeDateLabel = changeLabelDate(dailyRecords, todayStr(), isNonTradingDay());
   // Defaults to "1年" rather than "全部": with 3+ sparse years plotted
   // proportionally to real time (see pickEvenTimeTicks above), the last
   // few months of daily-tracked detail — the part most people check day to
@@ -6562,8 +6581,8 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
           style={{ color: up ? COLORS.gain : COLORS.loss, background: "transparent" }}>
           {up ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
           {UI_SHOW_ENGLISH
-            ? <>{pf(dailyChangePct)} NT$ {nf(dailyChange)} {changeDateLabel ? `(${changeDateLabel} record)` : "Today"}</>
-            : <>NT$ {nf(dailyChange)}（{pf(dailyChangePct)}）{changeDateLabel ? `${changeDateLabel} 紀錄` : "今日"}</>}
+            ? <>{pf(dailyChangePct)} NT$ {nf(dailyChange)} {changeDateLabel ? `vs ${changeDateLabel}` : "Today"}</>
+            : <>NT$ {nf(dailyChange)}（{pf(dailyChangePct)}）{changeDateLabel ? `較 ${changeDateLabel}` : "今日"}</>}
         </div>
         {Number.isFinite(Number(totalReturn)) && (
           <div className="mt-1.5 text-[11px] mono" style={{ color: COLORS.sub }}>
@@ -7640,14 +7659,14 @@ function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldi
                       </div>
                       <div className="min-w-0 text-right">
                         <div style={{ color: COLORS.sub }}><UiLabel zh="每股平均成本" inline /></div>
-                        <div className="mt-0.5" style={{ color: COLORS.text }}>{h.avgCost != null ? `NT$ ${formatNtdPrice(h.avgCost)}／股` : "-"}
+                        <div className="mt-0.5" style={{ color: COLORS.text }}>{h.avgCost != null ? `NT$ ${formatNtdPrice(h.avgCost)}${M(" / sh", "／股")}` : "-"}
                           {h.isManualAvgCost && <span style={{ color: COLORS.gold }}> <UiLabel zh="(手動)" inline /></span>}
                         </div>
                       </div>
                     </div>
                     <div className="holding-trade-average flex items-baseline justify-between gap-3">
                       <span style={{ color: COLORS.sub }}><UiLabel zh="成交均價（不含手續費）" inline /></span>
-                      <span className="text-right shrink-0" style={{ color: COLORS.gold }}>{h.avgTradePrice != null ? `NT$ ${formatNtdPrice(h.avgTradePrice)}／股` : M("— (no trade records)", "—（尚無交易紀錄）")}</span>
+                      <span className="text-right shrink-0" style={{ color: COLORS.gold }}>{h.avgTradePrice != null ? `NT$ ${formatNtdPrice(h.avgTradePrice)}${M(" / sh", "／股")}` : M("— (no trade records)", "—（尚無交易紀錄）")}</span>
                     </div>
                   </div>
                   <div className="flex justify-between text-xs mono mt-2">
@@ -8444,7 +8463,7 @@ function PlanPanel({ advanced = false, setAdvancedMode, planItems, setPlanItems,
           className="forma-tap w-full flex items-center justify-between rounded-xl px-3 py-2.5 text-left"
           style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
           <div>
-            <div className="text-[11px] font-bold" style={{ color: COLORS.text }}>{aiFallbackExpanded ? "收起備援設定" : "展開備援設定"}</div>
+            <div className="text-[11px] font-bold" style={{ color: COLORS.text }}>{aiFallbackExpanded ? M("Hide fallback settings", "收起備援設定") : M("Show fallback settings", "展開備援設定")}</div>
             {!aiFallbackExpanded && <div className="mt-1 text-[10px]" style={{ color: COLORS.sub }}>Cloudflare AI → Gemini 3.6 Flash</div>}
           </div>
           <span className="flex items-center" style={{ color: COLORS.sub }}><ExpandChevron open={aiFallbackExpanded} /></span>
@@ -8882,9 +8901,9 @@ function useClosingReminder() {
     setPushMsg("");
     try {
       const standalone = window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone === true;
-      if (/iPad|iPhone|iPod/.test(navigator.userAgent) && !standalone) { setPushMsg("iPhone 要先用 Safari「分享 → 加入主畫面」，從主畫面打開 App 再開啟提醒。"); return false; }
+      if (/iPad|iPhone|iPod/.test(navigator.userAgent) && !standalone) { setPushMsg(UI_SHOW_ENGLISH ? "On iPhone, first use Safari Share → Add to Home Screen, then open the app from there to turn this on." : "iPhone 要先用 Safari「分享 → 加入主畫面」，從主畫面打開 App 再開啟提醒。"); return false; }
       const perm = await Notification.requestPermission();
-      if (perm !== "granted") { setPushMsg("通知權限沒有開啟，請到手機設定允許通知。"); return false; }
+      if (perm !== "granted") { setPushMsg(UI_SHOW_ENGLISH ? "Notification permission is off. Allow notifications in your phone settings." : "通知權限沒有開啟，請到手機設定允許通知。"); return false; }
       const reg = await navigator.serviceWorker.register("/sw.js");
       await navigator.serviceWorker.ready;
       const keyRes = await fetchWithTimeout("/api/push/key", { cache: "no-store" }, 8000);
@@ -8893,10 +8912,10 @@ function useClosingReminder() {
       const res = await fetchWithTimeout("/api/push/subscribe", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ endpoint: sub.endpoint }) }, 8000);
       if (!res.ok) throw new Error("訂閱失敗");
       setPushState("on");
-      setPushMsg("已開啟。開盤日 13:45 提醒、14:00 自動記錄。");
+      setPushMsg(UI_SHOW_ENGLISH ? "On. Reminder at 13:45 and auto-record at 14:00 on trading days." : "已開啟。開盤日 13:45 提醒、14:00 自動記錄。");
       return true;
     } catch (e) {
-      setPushMsg("開啟失敗：" + (e?.message || "請稍後再試"));
+      setPushMsg((UI_SHOW_ENGLISH ? "Could not turn on: " : "開啟失敗：") + (e?.message || (UI_SHOW_ENGLISH ? "please try again later" : "請稍後再試")));
       return false;
     }
   };
@@ -8909,9 +8928,9 @@ function useClosingReminder() {
         await sub.unsubscribe();
       }
       setPushState("off");
-      setPushMsg("已關閉。");
+      setPushMsg(UI_SHOW_ENGLISH ? "Off." : "已關閉。");
     } catch (e) {
-      setPushMsg("關閉失敗：" + (e?.message || ""));
+      setPushMsg((UI_SHOW_ENGLISH ? "Could not turn off: " : "關閉失敗：") + (e?.message || ""));
     }
   };
   const ios = /iPad|iPhone|iPod/.test(navigator.userAgent);
@@ -8929,22 +8948,22 @@ function PushReminderPanel() {
   return (
     <Panel title="收盤提醒與自動記錄">
       <div className="text-[11px] leading-5" style={{ color: COLORS.sub }}>
-        開盤日 13:45 提醒你記帳；14:00 還沒記錄的話，手機會在背景用收盤價幫你記好（美股沿用上一筆），你之後手動改就以手動為準。伺服器只記得「要通知哪支手機」，不會收到你的持股或金額。
+        {UI_SHOW_ENGLISH ? "On trading days you get a reminder at 13:45; if nothing is recorded by 14:00, your phone records the day in the background with closing prices (US holdings reuse the last record). Editing it by hand later always wins. The server only knows which phone to notify; it never receives your holdings or amounts." : <>開盤日 13:45 提醒你記帳；14:00 還沒記錄的話，手機會在背景用收盤價幫你記好（美股沿用上一筆），你之後手動改就以手動為準。伺服器只記得「要通知哪支手機」，不會收到你的持股或金額。</>}
       </div>
       <label className="forma-check-row mt-3 flex items-center gap-2 text-[12px] cursor-pointer" style={{ color: COLORS.text }}>
         <input type="checkbox" checked={r.wanted} onChange={(e) => onToggle(e.target.checked)} />
         <span className="font-bold"><UiLabel zh="開啟收盤提醒與自動記錄" inline /></span>
       </label>
-      {r.status === "on" && <div className="mt-2 text-[11px]" style={{ color: COLORS.gold }}>已開啟 ✓</div>}
+      {r.status === "on" && <div className="mt-2 text-[11px]" style={{ color: COLORS.gold }}>{UI_SHOW_ENGLISH ? "On ✓" : "已開啟 ✓"}</div>}
       {r.status === "needs_allow" && (
         <div className="mt-2">
-          <div className="text-[11px] leading-5" style={{ color: COLORS.sub }}>瀏覽器規定要你自己按同意才能開通知，按下面的按鈕就完成了。</div>
-          <button onClick={() => r.enable()} className="mt-2 w-full rounded-lg py-2 text-[11px] font-bold" style={{ background: COLORS.gold, color: COLORS.bg }}>允許通知</button>
+          <div className="text-[11px] leading-5" style={{ color: COLORS.sub }}>{UI_SHOW_ENGLISH ? "Your browser needs you to allow notifications yourself; tap the button below." : "瀏覽器規定要你自己按同意才能開通知，按下面的按鈕就完成了。"}</div>
+          <button onClick={() => r.enable()} className="mt-2 w-full rounded-lg py-2 text-[11px] font-bold" style={{ background: COLORS.gold, color: COLORS.bg }}>{UI_SHOW_ENGLISH ? "Allow notifications" : "允許通知"}</button>
         </div>
       )}
-      {r.status === "blocked" && <div className="mt-2 text-[11px] leading-5" style={{ color: "#b45309" }}>通知被手機擋住了，請到手機「設定」裡允許這個 App 的通知，再回來勾選。</div>}
-      {r.status === "needs_install" && <div className="mt-2 text-[11px] leading-5" style={{ color: "#b45309" }}>iPhone 要先用 Safari「分享 → 加入主畫面」，從主畫面打開 App 才能開通知（iOS 16.4 以上）。</div>}
-      {r.status === "unsupported" && <div className="mt-2 text-[11px] leading-5" style={{ color: "#b45309" }}>這個瀏覽器不支援背景通知。iPhone 請用 Safari「加入主畫面」後從主畫面打開（iOS 16.4 以上）。</div>}
+      {r.status === "blocked" && <div className="mt-2 text-[11px] leading-5" style={{ color: "#b45309" }}>{UI_SHOW_ENGLISH ? "Notifications are blocked. Allow them for this app in your phone's Settings, then tick the box again." : "通知被手機擋住了，請到手機「設定」裡允許這個 App 的通知，再回來勾選。"}</div>}
+      {r.status === "needs_install" && <div className="mt-2 text-[11px] leading-5" style={{ color: "#b45309" }}>{UI_SHOW_ENGLISH ? "On iPhone, first use Safari Share → Add to Home Screen and open the app from there (iOS 16.4+)." : "iPhone 要先用 Safari「分享 → 加入主畫面」，從主畫面打開 App 才能開通知（iOS 16.4 以上）。"}</div>}
+      {r.status === "unsupported" && <div className="mt-2 text-[11px] leading-5" style={{ color: "#b45309" }}>{UI_SHOW_ENGLISH ? "This browser doesn't support background notifications. On iPhone, add the app to the Home Screen from Safari and open it there (iOS 16.4+)." : "這個瀏覽器不支援背景通知。iPhone 請用 Safari「加入主畫面」後從主畫面打開（iOS 16.4 以上）。"}</div>}
       {r.pushMsg && <div className="mt-2 text-[11px]" style={{ color: COLORS.sub }}>{r.pushMsg}</div>}
     </Panel>
   );
