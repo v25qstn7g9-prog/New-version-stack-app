@@ -39,7 +39,7 @@ test('scattered 帶入 buttons are gone; dashboard shows a one-line reminder aft
   assert.doesNotMatch(html, /帶入「每日紀錄」台股市值/);
   assert.doesNotMatch(html, /帶入「每日紀錄」台股成本/);
   assert.doesNotMatch(html, /onFillDailyCost=\{/);
-  assert.match(slice('Dashboard'), /onGoDaily && needsTodayRecord\(dailyRecords\)/);
+  assert.match(slice('Dashboard'), /onGoDaily && !firstRun && needsTodayRecord\(dailyRecords\)/);
 });
 
 test('needsTodayRecord only nags on trading days after 13:30 when today is missing', () => {
