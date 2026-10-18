@@ -52,3 +52,7 @@ These are generated photographic poses, not filmed cats or skeletal animation. T
 An endpoint-rounding regression in `za-catspace.js` was also fixed: subtraction of the last segment could reset an actor to that segment's start. Exact and overdue route completion now hold the landing endpoint.
 
 `node scripts/preview-cat-pair.mjs <output.html>` creates a self-contained, offline preview with natural-life mode and action demonstration buttons. Demonstration mode enlarges the two cats on separate rows for inspection; normal application size and roaming remain unchanged. The preview uses the actual sampler and renderer. Browser checks use Chromium mobile viewports; this is not physical iPhone/Safari verification. The approved natural-motion changes use the repository's normal automatic deployment workflow.
+
+## Motion-state review — 2026-10-18
+
+The fullscreen controller now synchronizes the renderer's reduced-motion state on each draw, so starting with reduced motion and later disabling it restores idle and grooming animation as well as movement. Frozen sampling preserves each actor's stored clock instead of resetting the visible pose. The standalone lane supplies actor clocks and indices, preserving blinking and paw-play when fullscreen modules are unavailable. Regression tests cover all three cases.
