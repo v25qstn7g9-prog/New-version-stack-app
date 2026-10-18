@@ -112,11 +112,11 @@
  var hide=document.createElement('button');hide.type='button';hide.className='za-cat-control';hide.textContent='收起小貓';hide.setAttribute('aria-pressed','false');rt.bar.appendChild(hide);
  var pet=document.createElement('button');pet.type='button';pet.className='za-cat-control';pet.textContent='叫醒／逗貓';rt.bar.appendChild(pet);
  var safe=document.createElement('i');safe.className='za-cat-safe';document.body.appendChild(safe);
- var life=null,raf=0,last=0,userHidden=false,timer=0,dirty=true,assetError=false,layoutKey='';
+ var life=null,raf=0,last=0,userHidden=false,timer=0,dirty=true,assetError=false,layoutKey='',settling=false,fadeTimer=0;
  var media=window.matchMedia('(prefers-reduced-motion: reduce)');
  function rect(r){return{x:r.left,y:r.top,w:r.width,h:r.height};}
  function measured(){
-  var vp=window.visualViewport,w=vp?vp.width:window.innerWidth,h=vp?vp.height:window.innerHeight;var ox=vp?(vp.offsetLeft||0):0,oy=vp?(vp.offsetTop||0):0;rt.arena.style.left=ox+'px';rt.arena.style.top=oy+'px';rt.arena.style.width=w+'px';rt.arena.style.height=h+'px';function localRect(r){return{x:r.left-ox,y:r.top-oy,w:r.width,h:r.height};}function visible(r){return r.width&&r.height&&r.bottom>oy&&r.top<oy+h&&r.right>ox&&r.left<ox+w;}
+  var vp=window.visualViewport,w=vp?vp.width:window.innerWidth,h=vp?vp.height:window.innerHeight;var ox=vp?(vp.offsetLeft||0):0,oy=vp?(vp.offsetTop||0):0;function localRect(r){return{x:r.left-ox,y:r.top-oy,w:r.width,h:r.height};}function visible(r){return r.width&&r.height&&r.bottom>oy&&r.top<oy+h&&r.right>ox&&r.left<ox+w;}
   var insets=getComputedStyle(safe),protect=[],forbid=[],size=w<600?53:67;
   var els=document.querySelectorAll('button,a,input,select,textarea,[role=button],[role=dialog],.premium-tabbar,.premium-ai-launcher,svg,canvas,img,video,iframe');
   for(var el of els){if(rt.arena.contains(el)||rt.host.contains(el)||el===safe)continue;var r=el.getBoundingClientRect();if(visible(r)){(el.matches('button,a,input,select,textarea,[role=button],[role=dialog],.premium-tabbar,.premium-ai-launcher')?forbid:protect).push(localRect(r));}}
@@ -125,7 +125,7 @@
   var walker=document.createTreeWalker(document.body,4),node,range=document.createRange();
   while((node=walker.nextNode())){if(!node.nodeValue||!node.nodeValue.trim()||rt.arena.contains(node)||rt.host.contains(node))continue;var parent=node.parentElement;if(!parent||parent.closest('script,style,noscript'))continue;range.selectNodeContents(node);for(var r of range.getClientRects())if(visible(r))protect.push(localRect(r));}
   var hr=rt.host.getBoundingClientRect();if(hr.width&&hr.height)forbid.push(localRect(hr));
-  return {width:w,height:h,allowTextTransit:true,footprint:{w:size,h:size},safeTop:parseFloat(insets.paddingTop)||0,safeBottom:parseFloat(insets.paddingBottom)||0,safeLeft:parseFloat(insets.paddingLeft)||0,safeRight:parseFloat(insets.paddingRight)||0,protect:protect,forbid:forbid};
+  return {width:w,height:h,viewportLeft:ox,viewportTop:oy,allowTextTransit:true,footprint:{w:size,h:size},safeTop:parseFloat(insets.paddingTop)||0,safeBottom:parseFloat(insets.paddingBottom)||0,safeLeft:parseFloat(insets.paddingLeft)||0,safeRight:parseFloat(insets.paddingRight)||0,protect:protect,forbid:forbid};
  }
  function assetsReady(){return ['white','tabby'].every(function(n){return !!rt.assets[n];});}
  function draw(){if(!life)return;setMood(life,rt.white.getAttribute&&rt.white.getAttribute('data-mood'));pair.state.size=life.layout.footprint.w;pair.state.time=life.elapsed;pair.state.reduced=life.reduced;
@@ -138,17 +138,45 @@
  function stop(){if(raf)cancelAnimationFrame(raf);raf=0;last=0;}
  function tick(ts){raf=0;if(!running())return;if(!last||ts-last>=1000/30){step(life,last?(ts-last)/1000:0);last=ts;draw();}raf=requestAnimationFrame(tick);}
  function resume(){if(running()&&!raf){last=0;raf=requestAnimationFrame(tick);}else if(!running())stop();}
- function remeasure(){timer=0;var header=document.querySelector('.premium-header');if(header&&rt.host.parentNode!==header)header.appendChild(rt.host);var l=measured();var key=JSON.stringify(l);if(life){if(key!==layoutKey)relayout(life,l);}else life=create(l,safeRandom);layoutKey=key;core.state=life;if(life.reduced!==media.matches)reduce(life,media.matches);dirty=false;rt.arena.style.visibility=userHidden||!assetsReady()||assetError?'hidden':'';draw();resume();}
+ function applyLayout(l,key){
+  rt.arena.style.left=l.viewportLeft+'px';rt.arena.style.top=l.viewportTop+'px';rt.arena.style.width=l.width+'px';rt.arena.style.height=l.height+'px';
+  if(life){if(key!==layoutKey)relayout(life,l);}else life=create(l,safeRandom);
+  layoutKey=key;core.state=life;if(life.reduced!==media.matches)reduce(life,media.matches);
+  settling=false;dirty=false;rt.arena.style.visibility=userHidden||!assetsReady()||assetError?'hidden':'';draw();resume();
+ }
+ function needsReposition(l){
+  if(l.viewportLeft!==parseFloat(rt.arena.style.left)||l.viewportTop!==parseFloat(rt.arena.style.top))return true;
+  var next=Object.assign({},life,{layout:space.normalizeLayout(l)});
+  return life.actors.some(function(a){var local=actorLayout(next,a);
+   return a.hidden||!(a.route&&space.validateRoute(local,a.route)?space.isLegalTransitPosition(local,a):space.isLegalPosition(local,a));
+  });
+ }
+ function remeasure(smooth){
+  timer=0;var header=document.querySelector('.premium-header');if(header&&rt.host.parentNode!==header)header.appendChild(rt.host);
+  var l=measured(),key=JSON.stringify(l);
+  if(smooth&&life&&key!==layoutKey&&needsReposition(l)&&!userHidden&&assetsReady()&&!assetError){
+   // Only relocate while fully transparent; never show a teleport after scrolling.
+   rt.arena.style.transition=media.matches?'none':'opacity 120ms ease';rt.arena.style.opacity='0';
+   fadeTimer=setTimeout(function(){fadeTimer=0;var latest=measured();applyLayout(latest,JSON.stringify(latest));rt.arena.style.transition=media.matches?'none':'opacity 160ms ease';rt.arena.style.opacity='1';},140);
+  }else applyLayout(l,key);
+ }
  function safeRandom(){return Math.random();}
  // Routine React text/style updates must not blank or restart the animation.
- function invalidate(critical){if(critical===true){dirty=true;stop();}if(!timer)timer=setTimeout(remeasure,32);}
+ function invalidate(critical){if(critical===true){dirty=true;stop();}if(!settling&&!timer)timer=setTimeout(remeasure,32);}
+ // Scroll and mobile browser chrome can emit many geometry events. Freeze the
+ // exact pose until 180ms after the last event, including nested scroll areas.
+ function invalidateViewport(){
+  settling=true;dirty=true;stop();if(timer)clearTimeout(timer);if(fadeTimer){clearTimeout(fadeTimer);fadeTimer=0;}
+  rt.arena.style.transition='none';rt.arena.style.opacity='1';
+  timer=setTimeout(function(){remeasure(true);},180);
+ }
  window.__zaPhotoCat.roam.ignoreMutation=function(target){return rt.host.contains(target)||rt.arena.contains(target)||target===safe;};
  rt.onLayout=invalidate;rt.onControl=resume;rt.onMotion=function(on){if(life){reduce(life,on);draw();resume();}};rt.onAssetError=function(){assetError=true;rt.arena.style.visibility='hidden';stop();draw();};
  hide.addEventListener('click',function(){userHidden=!userHidden;hide.textContent=userHidden?'顯示小貓':'收起小貓';hide.setAttribute('aria-pressed',String(userHidden));rt.arena.style.visibility=userHidden||!assetsReady()||assetError?'hidden':'';if(!userHidden)invalidate(true);draw();resume();});
  pet.addEventListener('click',function(){if(life){wake(life,life.rng()<.7?1:0);draw();resume();}});
  document.addEventListener('visibilitychange',function(){if(document.hidden)stop();else invalidate(true);});
- window.addEventListener('scroll',function(){invalidate(true);},{passive:true,capture:true});window.addEventListener('resize',function(){invalidate(true);},{passive:true});
- if(window.visualViewport){window.visualViewport.addEventListener('resize',function(){invalidate(true);},{passive:true});window.visualViewport.addEventListener('scroll',function(){invalidate(true);},{passive:true});}
+ window.addEventListener('scroll',invalidateViewport,{passive:true,capture:true});window.addEventListener('resize',invalidateViewport,{passive:true});
+ if(window.visualViewport){window.visualViewport.addEventListener('resize',invalidateViewport,{passive:true});window.visualViewport.addEventListener('scroll',invalidateViewport,{passive:true});}
  if(typeof MutationObserver!=='undefined'){new MutationObserver(function(records){if(records.some(function(r){return !window.__zaPhotoCat.roam.ignoreMutation(r.target);}))invalidate();}).observe(document.body,{subtree:true,attributes:true,attributeFilter:['class','style','hidden','open']});}
  // Asset completions are rare. A separate callback does not poll or start extra RAFs.
  rt.onAssetsReady=function(){if(life&&!dirty){rt.arena.style.visibility=userHidden||!assetsReady()||assetError?'hidden':'';draw();}resume();};
