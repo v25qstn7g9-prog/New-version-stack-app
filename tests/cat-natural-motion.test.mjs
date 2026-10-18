@@ -75,3 +75,21 @@ test('both enhanced atlases contain 64 alpha cells and stay within a 600KB downl
  }
  assert.ok(total<600000,`${total} bytes`);
 });
+
+
+test('a frozen pose preserves the current grooming or blink frame rather than resetting its clock',()=>{
+ const {pair}=cores();
+ for(const c of [{mode:'groom',clock:1.5,index:0},{mode:'observe',clock:2.9,index:0},{mode:'play',clock:1.2,index:1}]){
+  assert.equal(pair.samplePose(c,10,true).frame,pair.samplePose(c,10,false).frame,'pause must hold the visible pose');
+  assert.equal(pair.samplePose(c,99,true).frame,pair.samplePose(c,10,true).frame,'background/layout callbacks must not advance the held pose');
+ }
+});
+
+test('standalone pair keeps blinking and paw-play animated when fullscreen modules are unavailable',()=>{
+ const {pair}=cores(),s=pair.create(358);
+ while(s.phase==='greet'&&s.time<2.85)pair.step(s,.05);
+ assert.equal(pair.samplePose(s.white,s.time,false).frame,26,'fallback still blinks');
+ while(s.phase!=='play')pair.step(s,.05);
+ const frames=new Set();for(let i=0;i<30;i++){pair.step(s,.05);frames.add(pair.samplePose(s.white,s.time,false).frame);}
+ assert.ok(frames.size>=4,'fallback paw-play must advance through its poses');
+});

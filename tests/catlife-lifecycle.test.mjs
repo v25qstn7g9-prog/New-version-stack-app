@@ -16,7 +16,7 @@ function harness({reduced=false,viewport=null,delayedAssets=false,obstacles=[]}=
   body.appendChild(header);header.appendChild(host);host.appendChild(bar);bar.appendChild(label);host.appendChild(arena);arena.appendChild(white);arena.appendChild(tabby);
   const media={matches:reduced,addEventListener(k,f){mediaEvents.push(f);}};
   let paused=false;
-  const state={white:{},tabby:{}};
+  const state={white:{},tabby:{},reduced};
   const rt={host,arena,bar,white,tabby,label,assets:delayedAssets?{}:{white:true,tabby:true},stop(){},isPaused:()=>paused,render(){},loadAsset(name){if(!delayedAssets)this.assets[name]=true;}};
   const document={body,head:el('head'),hidden:false,createElement:el,querySelector:()=>header,querySelectorAll:()=>obstacles.map(r=>({getBoundingClientRect:()=>r,matches:()=>true})),createTreeWalker:()=>({nextNode:()=>null}),createRange:()=>({}),addEventListener(k,f){(events[k]??=[]).push(f);}};
   const window={__zaPhotoCat:{roam:{}},__zaCatPairCore:{runtime:rt,state},innerWidth:390,innerHeight:844,visualViewport:viewport&&{...viewport,addEventListener(){}},matchMedia:()=>media,addEventListener(k,f){(windowEvents[k]??=[]).push(f);}};
@@ -103,4 +103,12 @@ test('desktop resize and repeated scroll retain visible cats, coalesce measureme
  h.resize(240,400);h.flush();const space=h.window.__zaCatSpaceCore;
  for(const a of h.life.actors)if(!a.hidden)assert.ok(space.isLegalTransitPosition(h.life.layout,a));
  assert.equal(h.rafs.size,1);assert.equal(h.rt.arena.style.visibility,'');
+});
+
+
+test('renderer follows reduced-motion changes in both directions after life takes over',()=>{
+ const h=harness({reduced:true}),renderer=h.window.__zaCatPairCore.state;
+ assert.equal(renderer.reduced,true);
+ h.motion(false);assert.equal(h.life.reduced,false);assert.equal(renderer.reduced,false,'renderer must resume its idle/action animation clock');
+ h.motion(true);assert.equal(h.life.reduced,true);assert.equal(renderer.reduced,true);
 });

@@ -128,7 +128,7 @@
   return {width:w,height:h,allowTextTransit:true,footprint:{w:size,h:size},safeTop:parseFloat(insets.paddingTop)||0,safeBottom:parseFloat(insets.paddingBottom)||0,safeLeft:parseFloat(insets.paddingLeft)||0,safeRight:parseFloat(insets.paddingRight)||0,protect:protect,forbid:forbid};
  }
  function assetsReady(){return ['white','tabby'].every(function(n){return !!rt.assets[n];});}
- function draw(){if(!life)return;setMood(life,rt.white.getAttribute&&rt.white.getAttribute('data-mood'));pair.state.size=life.layout.footprint.w;pair.state.time=life.elapsed;
+ function draw(){if(!life)return;setMood(life,rt.white.getAttribute&&rt.white.getAttribute('data-mood'));pair.state.size=life.layout.footprint.w;pair.state.time=life.elapsed;pair.state.reduced=life.reduced;
   life.actors.forEach(function(a,i){var p=i?pair.state.tabby:pair.state.white;p.x=a.x;p.y=a.y;p.mode=a.mode;p.frame=a.gait;p.progress=a.progress;p.facing=a.facing;p.clock=a.clock;p.index=i;p.jumpPhase=a.jumpPhase;(i?rt.tabby:rt.white).style.visibility=a.hidden?'hidden':'';});
   pair.state.phase=life.actors.every(function(a){return a.mode==='sleep';})?'sleep':life.social?'play':'roaming';rt.render();
   var label=assetError?'部分動作素材載入失敗，活動已暫停':userHidden?'小貓已收起':life.actors.every(function(a){return a.hidden;})?'暫時沒有安全空位':life.social?'小貓正在互相陪伴':'白貓悠閒 · 狸花好奇';

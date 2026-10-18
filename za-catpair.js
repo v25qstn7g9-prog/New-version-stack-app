@@ -35,6 +35,7 @@
       a.x=x;b.x=x+gap;if(s.phase==='wake'&&s.wakeFrom){a.x=s.wakeFrom[0];b.x=s.wakeFrom[1];}
     }
     a.y=b.y=0; a.mode=b.mode=mode;
+    a.clock=b.clock=s.time;a.index=0;b.index=1;
     if(s.phase==='approach') { a.facing=-1;b.facing=1;distance=Math.abs(a.x-left); }
     else if(s.phase==='chaseRight'||s.phase==='settle') a.facing=b.facing=-1;
     else if(s.phase==='chaseLeft') a.facing=b.facing=1;
@@ -57,7 +58,7 @@
   // settle, wake and paw-play. Sampling is pure, so the renderer and tests
   // agree on which anatomy is visible at each point in an action.
   function samplePose(c,time,frozen) {
-    var clock=frozen?0:Math.max(0,Number(c.clock)||0),p=Math.max(0,Math.min(1,Number(c.progress)||0));
+    var clock=Math.max(0,Number(c.clock)||0),p=Math.max(0,Math.min(1,Number(c.progress)||0));
     var offset=(c.index||0)*2.17,frame=24,mode=c.mode,breath=0,tail=0;
     if(mode==='walk')frame=((Math.floor(c.frame||0)%8)+8)%8;
     else if(mode==='run')frame=8+((Math.floor(c.frame||0)%8)+8)%8;
