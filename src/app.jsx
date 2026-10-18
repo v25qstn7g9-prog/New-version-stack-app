@@ -2824,7 +2824,7 @@ function AssetTracker() {
       )}
 
       <div ref={headerRef}>
-        <Header goal={goal} totalToday={totalToday} goalDate={goalDate} backupOverdue={backupOverdue} backupAgeDays={backupAgeDays} showEnglish={showEnglish} onToggleBilingual={toggleBilingual} />
+        <Header goal={goal} totalToday={totalToday} goalDate={goalDate} backupOverdue={backupOverdue} backupAgeDays={backupAgeDays} showEnglish={showEnglish} onToggleBilingual={toggleBilingual} onOpenBackup={() => { setTab("plan"); setTimeout(() => { const el = document.querySelector("[data-backup-card]"); if (el) el.scrollIntoView({ behavior: "smooth", block: "center" }); }, 350); }} />
         <ClosingReminderBanner />
         <MissedDaysBanner days={missedHiddenDay === todayStr() ? [] : missedDays} busy={missedBusy} msg={missedMsg} onFill={fillMissedDays} onLater={hideMissedToday} />
         {pendingTrades.length > 0 && (
@@ -3033,7 +3033,7 @@ function PendingTradesBanner({ trades, onApply, onDismiss, showEnglish }) {
 }
 
 // ---------------- Header ----------------
-function Header({ goal, totalToday, goalDate, backupOverdue, backupAgeDays, showEnglish, onToggleBilingual }) {
+function Header({ goal, totalToday, goalDate, backupOverdue, backupAgeDays, showEnglish, onToggleBilingual, onOpenBackup }) {
   return (
     <div
       className="premium-header px-4 pb-3"
@@ -3062,12 +3062,14 @@ function Header({ goal, totalToday, goalDate, backupOverdue, backupAgeDays, show
           </div>
         </div>
         {backupOverdue && (
-          <div className="forma-note mt-2 rounded-lg px-2.5 py-1.5 text-[10px] font-bold"
+          // 整塊可點：直接跳到「計畫設定」的備份卡（只做導覽，不會自動備份）
+          <button type="button" onClick={onOpenBackup} className="forma-note forma-tap mt-2 w-full text-left rounded-lg px-2.5 py-1.5 text-[10px] font-bold flex items-center justify-between gap-2"
             style={{ color: COLORS.gold, background: COLORS.panel, border: `1px solid ${COLORS.gold}` }}>
-            {showEnglish
-              ? <>🔐 Backup Reminder: {backupAgeDays == null ? "No JSON backup recorded yet" : `Last backup was ${backupAgeDays} days ago`}. We recommend exporting one from "Settings".</>
-              : <>🔐 備份提醒：{backupAgeDays == null ? "尚未記錄 JSON 備份" : `上次備份已 ${backupAgeDays} 天前`}，建議到「計畫設定」匯出一份。</>}
-          </div>
+            <span>{showEnglish
+              ? <>🔐 Backup Reminder: {backupAgeDays == null ? "No JSON backup recorded yet" : `Last backup was ${backupAgeDays} days ago`}. Tap to back up now.</>
+              : <>🔐 備份提醒：{backupAgeDays == null ? "尚未記錄 JSON 備份" : `上次備份已 ${backupAgeDays} 天前`}，點這裡去備份。</>}</span>
+            <span aria-hidden="true" style={{ flex: "none" }}>›</span>
+          </button>
         )}
       </div>
     </div>
@@ -7799,7 +7801,7 @@ function TradesPanel({ trades, setTrades, holdings, setHoldings, usLive, costBas
             <Row key={t.id} onDelete={() => remove(t.id)}>
               <div className="flex-1">
                 <div className="text-sm mono">
-                  {t.date} <span style={{ color: t.action === "buy" ? COLORS.gain : COLORS.loss }}>
+                  {t.date} <span style={{ color: COLORS.text, fontWeight: 700 }}>
                     {uiText(t.action === "buy" ? "買" : "賣")}
                   </span> {t.symbol}
                 </div>
