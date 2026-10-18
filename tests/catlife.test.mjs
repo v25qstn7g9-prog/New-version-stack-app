@@ -22,3 +22,8 @@ test('390px synthetic text/control layout reaches multiple vertical regions with
  assert.ok(whiteFull>=6,'white covers all regions in most seeds: '+whiteFull);
 });
 test('fullscreen slice reuses only the two existing companion assets',()=>{const code=fs.readFileSync(new URL('../za-catlife.js',import.meta.url),'utf8');assert.ok(!code.includes('whiteAction'));assert.ok(!code.includes('white-walk.webp'));});
+test('larger cats cross text bands to explore the full phone viewport while controls stay protected',()=>{
+ const c=make(),l={...layout,footprint:{w:53,h:53},allowTextTransit:true,protect:[{x:0,y:250,w:390,h:22},{x:0,y:490,w:390,h:22}],forbid:[{x:270,y:660,w:100,h:40}]},s=c.create(l,rng(17)),regions=[new Set(),new Set()];
+ for(let i=0;i<3600;i++){c.step(s,.05);for(const [j,a]of s.actors.entries()){if(a.hidden)continue;regions[j].add(Math.floor((a.y-38)/230));assert.ok(a.x>=8&&a.x+53<=382&&a.y>=38&&a.y+53<=751);assert.ok(!c.overlap(s.actors[0],s.actors[1],53,4));for(const r of a.route?l.forbid:[...l.protect,...l.forbid])assert.ok(!(a.x<r.x+r.w&&a.x+53>r.x&&a.y<r.y+r.h&&a.y+53>r.y),'rest/control protection');}}
+ for(const set of regions)assert.ok(set.size>=3,'each cat visits top, middle and bottom');
+});

@@ -29,6 +29,8 @@ function harness({reduced=false,viewport=null,delayedAssets=false,obstacles=[]}=
     flush(){const callbacks=[...timers.values()];timers.clear();callbacks.forEach(f=>f());},
     frame(ts){const callbacks=[...rafs.values()];rafs.clear();callbacks.forEach(f=>f(ts));},
     pause(on){paused=on;rt.onControl();},
+    resize(width,height){window.innerWidth=width;window.innerHeight=height;(windowEvents.resize||[]).forEach(f=>f());},
+    scroll(){(windowEvents.scroll||[]).forEach(f=>f());},
     motion(on){media.matches=on;rt.onMotion(on);}};
 }
 
@@ -75,7 +77,7 @@ test('arena remains hidden until every required asset has loaded',()=>{
 test('attribute observer invalidates external geometry but ignores its own render mutations',()=>{
   const h=harness(),o=h.observers.find(o=>o.options.attributes);assert.ok(o);assert.ok(o.options.attributeFilter.includes('style'));assert.ok(o.options.attributeFilter.includes('class'));
   o.fn([{target:h.rt.white},{target:h.rt.arena},{target:h.rt.bar}]);assert.equal(h.timers.size,0);assert.equal(h.rafs.size,1);
-  o.fn([{target:h.document.body}]);assert.equal(h.timers.size,1);assert.equal(h.rafs.size,0);assert.equal(h.rt.arena.style.visibility,'hidden');h.flush();assert.equal(h.rafs.size,1);
+  o.fn([{target:h.document.body}]);assert.equal(h.timers.size,1);assert.equal(h.rafs.size,1);assert.equal(h.rt.arena.style.visibility,'');h.flush();assert.equal(h.rafs.size,1);
 });
 test('enabling reduced motion mid-hop settles at a legal route endpoint before freezing',()=>{
   const h=harness(),space=h.window.__zaCatSpaceCore,a=h.life.actors[0];
@@ -85,4 +87,20 @@ test('enabling reduced motion mid-hop settles at a legal route endpoint before f
   h.motion(true);assert.equal(h.rafs.size,0);assert.equal(a.route,null);assert.equal(a.mode,'sleep');assert.equal(a.hidden,false);
   assert.ok((a.x===route.from.x&&a.y===route.from.y)||(a.x===route.to.x&&a.y===route.to.y));assert.ok(space.isLegalPosition(h.life.layout,a));
   const before=JSON.stringify(h.life.actors);h.window.__zaCatLifeCore.step(h.life,.05);assert.equal(JSON.stringify(h.life.actors),before);
+});
+
+test('frequent unrelated text/style updates never blank the arena or starve animation',()=>{
+ const h=harness(),o=h.observers.find(o=>o.options.attributes);let last=0;
+ for(let i=1;i<=30;i++){o.fn([{target:h.document.body}]);h.rt.onLayout();assert.equal(h.rt.arena.style.visibility,'','routine update must not flash hidden');h.frame(i*50);h.flush();last=h.life.elapsed;}
+ assert.ok(last>.5,'unrelated update stream must not continually reset frame timing');assert.equal(h.rafs.size,1);
+});
+test('cat footprint grows 20 percent while arena remains the full visual viewport',()=>{const h=harness();assert.equal(h.life.layout.footprint.w,53);assert.equal(h.life.layout.width,390);assert.equal(h.life.layout.height,844);assert.equal(h.rt.arena.style.width,'390px');});
+
+test('desktop resize and repeated scroll retain visible cats, coalesce measurement and resume one loop',()=>{
+ const h=harness();h.resize(1200,800);for(let i=0;i<10;i++)h.scroll();
+ assert.equal(h.rt.arena.style.visibility,'');assert.equal(h.timers.size,1);assert.equal(h.rafs.size,0);h.flush();
+ assert.equal(h.life.layout.footprint.w,67);assert.equal(h.life.layout.width,1200);assert.equal(h.life.layout.height,800);assert.equal(h.rafs.size,1);
+ h.resize(240,400);h.flush();const space=h.window.__zaCatSpaceCore;
+ for(const a of h.life.actors)if(!a.hidden)assert.ok(space.isLegalTransitPosition(h.life.layout,a));
+ assert.equal(h.rafs.size,1);assert.equal(h.rt.arena.style.visibility,'');
 });

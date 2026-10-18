@@ -15,25 +15,28 @@
  function overlap(a,b,size,pad){if(a.hidden||b.hidden)return false;pad=pad||0;return a.x<b.x+size+pad&&a.x+size+pad>b.x&&a.y<b.y+size+pad&&a.y+size+pad>b.y;}
  function create(layout,rng){var s={layout:space.normalizeLayout(layout),rng:rng||Math.random,reduced:false,elapsed:0,social:null,socialWait:14,mood:'relaxed',events:[],actors:[]};
   s.actors=['white','tabby'].map(function(name,i){return{name:name,index:i,x:0,y:0,hidden:true,mode:'observe',clock:0,wait:i?2:7,route:null,routeTime:0,gait:i?3.5:0,facing:i?1:-1,progress:0,history:[],speed:i?1.08:.76,hold:0};});relayout(s,layout);return s;}
- function actorLayout(s,a){var other=s.actors[1-a.index],l=s.layout;var forbid=l.forbid.slice();if(!other.hidden)forbid.push({x:other.x-5,y:other.y-5,w:l.footprint.w+10,h:l.footprint.h+10});return space.normalizeLayout({width:l.width,height:l.height,safeLeft:l.minX-8,safeTop:l.minY-8,safeRight:l.width-l.maxX-l.footprint.w-8,safeBottom:l.height-l.maxY-l.footprint.h-8,footprint:l.footprint,runThreshold:(a.index?l.runThreshold:l.runThreshold*1.6)*moodOf(s).run,protect:l.protect,forbid:forbid});}
+ function actorLayout(s,a){var other=s.actors[1-a.index],l=s.layout;var forbid=l.forbid.slice();if(!other.hidden)forbid.push({x:other.x-5,y:other.y-5,w:l.footprint.w+10,h:l.footprint.h+10});return space.normalizeLayout({width:l.width,height:l.height,safeLeft:l.minX-8,safeTop:l.minY-8,safeRight:l.width-l.maxX-l.footprint.w-8,safeBottom:l.height-l.maxY-l.footprint.h-8,footprint:l.footprint,runThreshold:(a.index?l.runThreshold:l.runThreshold*1.6)*moodOf(s).run,allowTextTransit:l.allowTextTransit,protect:l.protect,forbid:forbid});}
  function relayout(s,raw){s.layout=space.normalizeLayout(raw);var size=s.layout.footprint.w;
-  s.actors.forEach(function(a){var l=actorLayout(s,a),changed=false;if(a.route&&!space.validateRoute(l,a.route)){a.route=null;changed=true;endSocial(s);}if(a.hidden||!space.isLegalPosition(l,a)){changed=true;endSocial(s);a.route=null;a.hidden=true;var targets=space.findTargets(l);var p=targets.find(function(p){return !overlap(p,s.actors[1-a.index],size,6);});if(p){a.x=p.x;a.y=p.y;a.hidden=false;}}if(changed){a.hold=0;a.mode=s.reduced?'sleep':'observe';a.wait=2+s.rng()*5;a.clock=0;}});}
+  s.actors.forEach(function(a){var l=actorLayout(s,a),changed=false;if(a.route&&!space.validateRoute(l,a.route)){a.route=null;changed=true;endSocial(s);}if(a.hidden||!(a.route?space.isLegalTransitPosition(l,a):space.isLegalPosition(l,a))){changed=true;endSocial(s);a.route=null;a.hidden=true;var targets=space.findTargets(l);var p=targets.find(function(p){return !overlap(p,s.actors[1-a.index],size,6);});if(p){a.x=p.x;a.y=p.y;a.hidden=false;}}if(changed){a.hold=0;a.mode=s.reduced?'sleep':'observe';a.wait=2+s.rng()*5;a.clock=0;if(a.pendingWake&&!a.hidden&&!s.reduced)wake(s,a.index);else a.pendingWake=false;}});}
  function begin(s,a,target,directOnly){var l=actorLayout(s,a),r=space.planRoute(l,a,target,{maxNodes:24,directOnly:!!directOnly});if(!r.ok)return false;
   var resting=['observe','groom','sleep','settle'].indexOf(a.mode)>=0;
   a.departure=resting?{elapsed:0,duration:a.mode==='sleep'?2.3:.7,start:a.mode==='sleep'?0:.35}:null;
-  a.route=r;a.routeTime=0;a.clock=0;a.slow=1;a.history.push({x:target.x,y:target.y});if(a.history.length>8)a.history.shift();return true;}
- function roam(s,a,forced,far){if(a.hidden)return false;if(forced&&begin(s,a,forced))return true;var l=actorLayout(s,a),row=!far&&space.findRowTargets?space.findRowTargets(l,a.y):[];var candidates=s.rng()<moodOf(s).row&&row.length?row:space.findTargets(l);var short=!far&&s.rng()<(a.index?.32:.58),ideal=short?55+s.rng()*65:Math.max(l.width,l.height)*.65;
+  if(Math.abs(target.y-a.y)>s.layout.height*.25)a.lastExcursion=s.elapsed;a.route=r;a.routeTime=0;a.clock=0;a.slow=1;a.history.push({x:target.x,y:target.y});if(a.history.length>8)a.history.shift();return true;}
+ function roam(s,a,forced,far){if(a.hidden)return false;if(forced&&begin(s,a,forced))return true;var l=actorLayout(s,a);if(s.elapsed-(a.lastExcursion||0)>(a.index?25:50))far=true;var row=!far&&space.findRowTargets?space.findRowTargets(l,a.y):[];var candidates=s.rng()<moodOf(s).row&&row.length?row:space.findTargets(l);if(far){var distant=candidates.filter(function(p){return Math.abs(p.y-a.y)>l.height*.25;});if(distant.length)candidates=distant;}var short=!far&&s.rng()<(a.index?.32:.58),ideal=short?55+s.rng()*65:Math.max(l.width,l.height)*.65;
   candidates.sort(function(p,q){function score(p){var d=Math.hypot(p.x-a.x,p.y-a.y),nov=a.history.length?Math.min.apply(null,a.history.map(function(h){return Math.hypot(p.x-h.x,p.y-h.y);})):200;return -Math.abs(d-ideal)+nov*.15;}return score(q)-score(p);});
   for(var i=0;i<Math.min(20,candidates.length);i++){var p=candidates[i];if(Math.hypot(p.x-a.x,p.y-a.y)<25)continue;if(begin(s,a,p,true))return true;}
   // A partner can temporarily block a corridor. Try a bounded detour rather
   // than retrying the same impossible straight line at every decision.
   for(var j=0;j<Math.min(2,candidates.length);j++)if(Math.hypot(candidates[j].x-a.x,candidates[j].y-a.y)>=25&&begin(s,a,candidates[j],false))return true;
   a.mode='observe';a.wait=6+s.rng()*7;return false;}
- function idle(s,a,mode,wait){a.mode=mode;a.clock=0;a.wait=wait;a.route=null;a.departure=null;a.turn=null;a.progress=0;if(mode!=='sleep')a.curl=false;}
+ function idle(s,a,mode,wait){a.mode=mode;a.clock=0;a.wait=wait;a.route=null;a.departure=null;a.turn=null;a.pendingWake=false;a.progress=0;if(mode!=='sleep')a.curl=false;}
  // 不同步：另一隻剛開始同一個動作（<0.8 秒）就先坐著看一下再做，不會兩隻同時起同一個動作。
  function act(s,a,mode,wait){var o=s.actors[1-a.index];if(mode!=='sleep'&&!o.hidden&&o.mode===mode&&o.clock<.8){idle(s,a,'observe',.8-o.clock+.3+s.rng()*.6);a.next=mode;a.nextWait=wait;return;}idle(s,a,mode,wait);}
- function wake(s,index){var a=s.actors[index];if(s.reduced||!a||a.hidden)return;endSocial(s);idle(s,a,'wake',1.7+a.index*.3);a.hold=0;}
- function reduce(s,on){s.reduced=on;endSocial(s);s.actors.forEach(function(a){if(on&&a.route){var l=actorLayout(s,a),ends=[a.route.from,a.route.to].sort(function(p,q){return Math.hypot(p.x-a.x,p.y-a.y)-Math.hypot(q.x-a.x,q.y-a.y);}),ground=ends.find(function(p){return space.isLegalPosition(l,p);});if(ground){a.x=ground.x;a.y=ground.y;}else a.hidden=true;}a.route=null;a.hold=0;idle(s,a,on?'sleep':'wake',on?999:1.7+a.index*.6);});}
+ function wake(s,index){var a=s.actors[index];if(s.reduced||!a||a.hidden)return;endSocial(s);if(a.route){a.pendingWake=true;return;}idle(s,a,'wake',1.7+a.index*.3);a.hold=0;}
+ // An interrupted crossing cannot rest over soft content. Use the same safe
+ // endpoint policy as reduced motion, including hiding if both ends are blocked.
+ function landRoute(s,a){if(!a.route)return;var l=actorLayout(s,a),ends=[a.route.from,a.route.to].sort(function(p,q){return Math.hypot(p.x-a.x,p.y-a.y)-Math.hypot(q.x-a.x,q.y-a.y);}),ground=ends.find(function(p){return space.isLegalPosition(l,p);});if(ground){a.x=ground.x;a.y=ground.y;}else a.hidden=true;}
+ function reduce(s,on){s.reduced=on;endSocial(s);s.actors.forEach(function(a){if(on&&a.route)landRoute(s,a);a.route=null;a.hold=0;idle(s,a,on?'sleep':'wake',on?999:1.7+a.index*.6);});}
  // 靠近夥伴時慢下來：距離 3.5 個身長以內線性減速，最慢 0.3 倍（不會停住）。
  function slowFor(a,o,fw){return Math.max(.3,Math.min(1,(Math.hypot(o.x-a.x,o.y-a.y)-fw)/(2.5*fw)));}
  function endSocial(s){if(!s.social)return;s.actors.forEach(function(a){a.hold=0;if(a.purpose==='social'){a.purpose=null;}if(a.wait>20&&a.mode!=='sleep')a.wait=1+s.rng()*3;if(a.nextWait>20)a.nextWait=1+s.rng()*3;});s.social=null;}
@@ -44,6 +47,7 @@
  }
  // 靠近後先停下互看（look），再依心情加權決定：玩（撲／回撲→追）、理毛／聞（輪流）、走開、靠著睡。
  function arrived(s,a){a.route=null;a.routeTime=0;a.clock=0;a.slow=1;
+  if(a.pendingWake){wake(s,a.index);return;}
   if(a.purpose==='social'&&s.social){a.purpose=null;var b=s.actors[1-a.index];a.facing=a.x<b.x?-1:1;b.facing=-a.facing;
    s.social.stage='look';s.social.time=0;s.social.look=1.2+s.rng()*1.1;idle(s,a,'observe',99);idle(s,b,'observe',99);a.hold=b.hold=99;log(s,'look');
   }else idle(s,a,'observe',((a.index?1:4)+s.rng()*(a.index?4:9))*moodOf(s).wait);
@@ -81,7 +85,7 @@
      a.routeTime=old;if(!a.turn){a.turn={elapsed:0,facing:-p.facing};a.clock=0;}a.turn.elapsed+=dt;a.mode='turn';
      if(a.turn.elapsed>=.28){a.facing=a.turn.facing;a.turn=null;}continue;
     }
-    if(overlap(p,other,s.layout.footprint.w,5)){a.routeTime=old;a.blocked=(a.blocked||0)+dt;if(a.blocked>1.2){endSocial(s);idle(s,a,'observe',2+s.rng()*4);}continue;}
+    if(overlap(p,other,s.layout.footprint.w,5)){a.routeTime=old;a.blocked=(a.blocked||0)+dt;if(a.blocked>1.2){endSocial(s);if(!space.isLegalPosition(actorLayout(s,a),a))landRoute(s,a);var waking=a.pendingWake;idle(s,a,waking?'wake':'observe',waking?1.7+a.index*.3:2+s.rng()*4);}continue;}
     a.blocked=0;if(p.kind!=='hop')a.gait+=Math.hypot(p.x-a.x,p.y-a.y)/(s.layout.footprint.w*(p.kind==='run'?1.15:.72))*8;a.x=p.x;a.y=p.y;a.mode=p.kind==='run'&&a.slow<.7?'walk':p.kind;a.progress=p.progress;a.jumpPhase=p.phase;a.facing=-p.facing;
     if(a.routeTime>=a.route.duration)arrived(s,a);
    }else{a.progress=Math.min(1,a.clock/(a.mode==='settle'?1.6:a.mode==='wake'?1.8:3));a.wait-=dt;if(a.wait<=0&&!a.hold)next(s,a);}
@@ -108,19 +112,20 @@
  var hide=document.createElement('button');hide.type='button';hide.className='za-cat-control';hide.textContent='收起小貓';hide.setAttribute('aria-pressed','false');rt.bar.appendChild(hide);
  var pet=document.createElement('button');pet.type='button';pet.className='za-cat-control';pet.textContent='叫醒／逗貓';rt.bar.appendChild(pet);
  var safe=document.createElement('i');safe.className='za-cat-safe';document.body.appendChild(safe);
- var life=null,raf=0,last=0,userHidden=false,timer=0,dirty=true,assetError=false;
+ var life=null,raf=0,last=0,userHidden=false,timer=0,dirty=true,assetError=false,layoutKey='';
  var media=window.matchMedia('(prefers-reduced-motion: reduce)');
  function rect(r){return{x:r.left,y:r.top,w:r.width,h:r.height};}
  function measured(){
   var vp=window.visualViewport,w=vp?vp.width:window.innerWidth,h=vp?vp.height:window.innerHeight;var ox=vp?(vp.offsetLeft||0):0,oy=vp?(vp.offsetTop||0):0;rt.arena.style.left=ox+'px';rt.arena.style.top=oy+'px';rt.arena.style.width=w+'px';rt.arena.style.height=h+'px';function localRect(r){return{x:r.left-ox,y:r.top-oy,w:r.width,h:r.height};}function visible(r){return r.width&&r.height&&r.bottom>oy&&r.top<oy+h&&r.right>ox&&r.left<ox+w;}
-  var insets=getComputedStyle(safe),protect=[],forbid=[],size=w<600?44:56;
+  var insets=getComputedStyle(safe),protect=[],forbid=[],size=w<600?53:67;
   var els=document.querySelectorAll('button,a,input,select,textarea,[role=button],[role=dialog],.premium-tabbar,.premium-ai-launcher,svg,canvas,img,video,iframe');
   for(var el of els){if(rt.arena.contains(el)||rt.host.contains(el)||el===safe)continue;var r=el.getBoundingClientRect();if(visible(r)){(el.matches('button,a,input,select,textarea,[role=button],[role=dialog],.premium-tabbar,.premium-ai-launcher')?forbid:protect).push(localRect(r));}}
-  // Visible text bounds protect the numbers as well as charts. Never read their values.
+  // Text and media protect resting places; brief click-through transit can cross them.
+  // Controls stay hard barriers. Never read the displayed values.
   var walker=document.createTreeWalker(document.body,4),node,range=document.createRange();
   while((node=walker.nextNode())){if(!node.nodeValue||!node.nodeValue.trim()||rt.arena.contains(node)||rt.host.contains(node))continue;var parent=node.parentElement;if(!parent||parent.closest('script,style,noscript'))continue;range.selectNodeContents(node);for(var r of range.getClientRects())if(visible(r))protect.push(localRect(r));}
   var hr=rt.host.getBoundingClientRect();if(hr.width&&hr.height)forbid.push(localRect(hr));
-  return {width:w,height:h,footprint:{w:size,h:size},safeTop:parseFloat(insets.paddingTop)||0,safeBottom:parseFloat(insets.paddingBottom)||0,safeLeft:parseFloat(insets.paddingLeft)||0,safeRight:parseFloat(insets.paddingRight)||0,protect:protect,forbid:forbid};
+  return {width:w,height:h,allowTextTransit:true,footprint:{w:size,h:size},safeTop:parseFloat(insets.paddingTop)||0,safeBottom:parseFloat(insets.paddingBottom)||0,safeLeft:parseFloat(insets.paddingLeft)||0,safeRight:parseFloat(insets.paddingRight)||0,protect:protect,forbid:forbid};
  }
  function assetsReady(){return ['white','tabby'].every(function(n){return !!rt.assets[n];});}
  function draw(){if(!life)return;setMood(life,rt.white.getAttribute&&rt.white.getAttribute('data-mood'));pair.state.size=life.layout.footprint.w;pair.state.time=life.elapsed;
@@ -133,16 +138,17 @@
  function stop(){if(raf)cancelAnimationFrame(raf);raf=0;last=0;}
  function tick(ts){raf=0;if(!running())return;if(!last||ts-last>=1000/30){step(life,last?(ts-last)/1000:0);last=ts;draw();}raf=requestAnimationFrame(tick);}
  function resume(){if(running()&&!raf){last=0;raf=requestAnimationFrame(tick);}else if(!running())stop();}
- function remeasure(){timer=0;var header=document.querySelector('.premium-header');if(header&&rt.host.parentNode!==header)header.appendChild(rt.host);var l=measured();if(life)relayout(life,l);else life=create(l,safeRandom);core.state=life;if(life.reduced!==media.matches)reduce(life,media.matches);dirty=false;rt.arena.style.visibility=userHidden||!assetsReady()||assetError?'hidden':'';draw();resume();}
+ function remeasure(){timer=0;var header=document.querySelector('.premium-header');if(header&&rt.host.parentNode!==header)header.appendChild(rt.host);var l=measured();var key=JSON.stringify(l);if(life){if(key!==layoutKey)relayout(life,l);}else life=create(l,safeRandom);layoutKey=key;core.state=life;if(life.reduced!==media.matches)reduce(life,media.matches);dirty=false;rt.arena.style.visibility=userHidden||!assetsReady()||assetError?'hidden':'';draw();resume();}
  function safeRandom(){return Math.random();}
- function invalidate(){dirty=true;stop();rt.arena.style.visibility='hidden';if(!timer)timer=setTimeout(remeasure,120);}
+ // Routine React text/style updates must not blank or restart the animation.
+ function invalidate(critical){if(critical===true){dirty=true;stop();}if(!timer)timer=setTimeout(remeasure,32);}
  window.__zaPhotoCat.roam.ignoreMutation=function(target){return rt.host.contains(target)||rt.arena.contains(target)||target===safe;};
  rt.onLayout=invalidate;rt.onControl=resume;rt.onMotion=function(on){if(life){reduce(life,on);draw();resume();}};rt.onAssetError=function(){assetError=true;rt.arena.style.visibility='hidden';stop();draw();};
- hide.addEventListener('click',function(){userHidden=!userHidden;hide.textContent=userHidden?'顯示小貓':'收起小貓';hide.setAttribute('aria-pressed',String(userHidden));rt.arena.style.visibility=userHidden||!assetsReady()||assetError?'hidden':'';if(!userHidden)invalidate();draw();resume();});
+ hide.addEventListener('click',function(){userHidden=!userHidden;hide.textContent=userHidden?'顯示小貓':'收起小貓';hide.setAttribute('aria-pressed',String(userHidden));rt.arena.style.visibility=userHidden||!assetsReady()||assetError?'hidden':'';if(!userHidden)invalidate(true);draw();resume();});
  pet.addEventListener('click',function(){if(life){wake(life,life.rng()<.7?1:0);draw();resume();}});
- document.addEventListener('visibilitychange',function(){if(document.hidden)stop();else invalidate();});
- window.addEventListener('scroll',invalidate,{passive:true,capture:true});window.addEventListener('resize',invalidate,{passive:true});
- if(window.visualViewport){window.visualViewport.addEventListener('resize',invalidate,{passive:true});window.visualViewport.addEventListener('scroll',invalidate,{passive:true});}
+ document.addEventListener('visibilitychange',function(){if(document.hidden)stop();else invalidate(true);});
+ window.addEventListener('scroll',function(){invalidate(true);},{passive:true,capture:true});window.addEventListener('resize',function(){invalidate(true);},{passive:true});
+ if(window.visualViewport){window.visualViewport.addEventListener('resize',function(){invalidate(true);},{passive:true});window.visualViewport.addEventListener('scroll',function(){invalidate(true);},{passive:true});}
  if(typeof MutationObserver!=='undefined'){new MutationObserver(function(records){if(records.some(function(r){return !window.__zaPhotoCat.roam.ignoreMutation(r.target);}))invalidate();}).observe(document.body,{subtree:true,attributes:true,attributeFilter:['class','style','hidden','open']});}
  // Asset completions are rare. A separate callback does not poll or start extra RAFs.
  rt.onAssetsReady=function(){if(life&&!dirty){rt.arena.style.visibility=userHidden||!assetsReady()||assetError?'hidden':'';draw();}resume();};

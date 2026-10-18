@@ -15,7 +15,7 @@ test("the 3D cat and its three.js copy ship with the app (MIT licence kept)", ()
   assert.ok(fs.existsSync(new URL("../vendor/three.module.min.js", import.meta.url)));
   assert.match(read("vendor/LICENSE-three.txt"), /MIT License/);
   assert.match(read("vendor/three.module.min.js").slice(0, 300), /MIT/);
-  assert.match(html, /<script src="\/za-cat\.js\?v=12" defer><\/script>\s*<script src="\/clean-ui\.js[^"]*" defer><\/script>\s*<\/body>/);
+  assert.match(html, /<script src="\/za-cat\.js\?v=13" defer><\/script>\s*<script src="\/clean-ui\.js[^"]*" defer><\/script>\s*<\/body>/);
 });
 
 test("za-cat3d.js is DOM-only, never reads page text, cannot be tapped, sits below the tab bar", () => {
@@ -47,7 +47,7 @@ test("loader: always loads only the photo cat (reduced motion handled inside it 
     vm.runInNewContext(loader, e.sandbox);
     e.timers.forEach((f) => f());
     await tick();
-    assert.equal(e.appended.length, 1); assert.match(e.appended[0].src, /za-catphoto\.js\?v=12/);
+    assert.equal(e.appended.length, 1); assert.match(e.appended[0].src, /za-catphoto\.js\?v=13/);
   }
   assert.ok(!/za-cat3d|za-cat2d|import\(/.test(loader.replace(/^\/\/.*$/gm, "")));
 });
