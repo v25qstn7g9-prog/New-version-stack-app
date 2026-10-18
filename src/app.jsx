@@ -2353,6 +2353,11 @@ function AssetTracker() {
     ? Math.max(0, Math.floor((Date.now() - Date.parse(lastBackupAt)) / 86400000))
     : null;
   const backupOverdue = backupAgeDays == null || backupAgeDays >= 7;
+  // 空帳戶沒有東西可備份：頂部備份提醒先不出現，等有資料再提醒（計畫設定的備份卡照常顯示）。
+  const hasUserData = holdings.length > 0 || dailyRecords.length > 0 || trades.length > 0 || dividends.length > 0 || planItems.length > 0;
+  const showBackupBanner = backupOverdue && hasUserData;
+  // 首次使用：還沒有持股、也沒有任何每日紀錄 → 首頁放「新增第一筆持股」引導。
+  const firstRun = holdings.length === 0 && dailyRecords.length === 0;
 
   // ---- 每日資產自動記帳（App 端）----
   // ① 伺服器 14:00 用收盤價算好的自動紀錄（有設 Z∞ 同步 token 才有）：App 打開時把「還沒有紀錄的日期」收進來。
@@ -2787,7 +2792,7 @@ function AssetTracker() {
       if (ro) ro.disconnect();
       window.removeEventListener("resize", measure);
     };
-  }, [backupOverdue]);
+  }, [showBackupBanner]);
 
   if (!ready) {
     return (
@@ -2824,7 +2829,7 @@ function AssetTracker() {
       )}
 
       <div ref={headerRef}>
-        <Header goal={goal} totalToday={totalToday} goalDate={goalDate} backupOverdue={backupOverdue} backupAgeDays={backupAgeDays} showEnglish={showEnglish} onToggleBilingual={toggleBilingual} onOpenBackup={() => { setTab("plan"); setTimeout(() => { const el = document.querySelector("[data-backup-card]"); if (el) el.scrollIntoView({ behavior: "smooth", block: "center" }); }, 350); }} />
+        <Header goal={goal} totalToday={totalToday} goalDate={goalDate} backupOverdue={showBackupBanner} backupAgeDays={backupAgeDays} showEnglish={showEnglish} onToggleBilingual={toggleBilingual} onOpenBackup={() => { setTab("plan"); setTimeout(() => { const el = document.querySelector("[data-backup-card]"); if (el) el.scrollIntoView({ behavior: "smooth", block: "center" }); }, 350); }} />
         <ClosingReminderBanner />
         <MissedDaysBanner days={missedHiddenDay === todayStr() ? [] : missedDays} busy={missedBusy} msg={missedMsg} onFill={fillMissedDays} onLater={hideMissedToday} />
         {pendingTrades.length > 0 && (
@@ -2859,6 +2864,18 @@ function AssetTracker() {
                     onFillDailyTw={(value) => { setDailyPrefill({ twValue: value, ...(usAssetLive.totalNtd != null ? { usValue: usAssetLive.totalNtd } : {}) }); goToTab("daily"); }}
                     onFillDailyUs={(value) => { setDailyPrefill({ usValue: value }); goToTab("daily"); }}
                     onGoDaily={() => goToTab("daily")}
+                    firstRun={firstRun}
+                    onAddHolding={() => {
+                      setHoldingsMarket("tw"); goToTab("holdings");
+                      // 換頁動畫結束後捲到「新增持股標的」並把游標放進代號欄
+                      setTimeout(() => {
+                        const el = document.querySelector("[data-add-holding-symbol]");
+                        if (!el) return;
+                        el.scrollIntoView({ behavior: "smooth", block: "center" });
+                        try { el.focus({ preventScroll: true }); } catch (e) {}
+                      }, 450);
+                    }}
+                    onOpenBackup={() => { setTab("plan"); setTimeout(() => { const el = document.querySelector("[data-backup-card]"); if (el) el.scrollIntoView({ behavior: "smooth", block: "center" }); }, 350); }}
                   />
                 );
               case "daily":
@@ -4277,7 +4294,54 @@ function trendRadarMethodNote(showEnglish = false) {
     : "判斷會綜合法人、量價、趨勢與海外市場訊號；資料不足時會自動降低該項權重。預測結果會在收盤後核對，僅供趨勢參考。";
 }
 
-function TrendRadar({ holdings, embedded = false }) {
+// 趨勢雷達還沒有內容時，說清楚缺哪些資料（而不是一片空白）。
+function trendRadarMissing(holdings) {
+  const tw = (holdings || []).filter((h) => isTaiwanSymbol(h.symbol));
+  const active = tw.filter((h) => Number(h.current || 0) > 0);
+  if (!tw.length) return { reason: "no-holdings", count: 0 };
+  if (!active.length) return { reason: "no-shares", count: tw.length };
+  return { reason: "loading", count: active.length };
+}
+function TrendRadarEmpty({ holdings, onAddHolding }) {
+  const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
+  const { reason, count } = trendRadarMissing(holdings);
+  const loading = reason === "loading";
+  const items = [
+    { ok: loading, label: M("Taiwan holdings with shares", "台股持股＋股數"),
+      note: reason === "no-holdings" ? M("None yet — add one first", "尚未新增，需要先新增")
+        : reason === "no-shares" ? M(`${count} added, but shares are 0`, `已有 ${count} 檔，但股數是 0`)
+        : M(`${count} ready`, `${count} 檔就緒`) },
+    { ok: false, label: M("Live quotes", "即時報價"), note: loading ? M("Fetching…", "抓取中…") : M("Fetched automatically after adding", "新增後自動抓") },
+    { ok: false, label: M("Daily K history (for KD)", "日 K 歷史（算 KD 用）"), note: loading ? M("Downloading…", "下載中…") : M("Downloaded automatically", "自動下載") },
+    { ok: false, label: M("Institutional flows", "法人買賣超"), note: M("Updated after each close", "每天收盤後更新") },
+  ];
+  return (
+    <div className="rounded-2xl p-4" data-trend-radar-empty style={{ background: COLORS.panel, border: "1px solid " + COLORS.panelBorder }}>
+      <div className="text-[12px] font-bold" style={{ color: COLORS.text }}>
+        {loading ? M("Calculating — fetching data for your holdings…", "計算中：正在抓持股資料，幾秒後顯示…") : M("The radar needs this data first:", "趨勢雷達需要以下資料才能計算：")}
+      </div>
+      <ul className="mt-2 space-y-1.5">
+        {items.map((it) => (
+          <li key={it.label} className="flex items-center justify-between gap-2 text-[11px]">
+            <span className="flex items-center gap-1.5" style={{ color: COLORS.text }}>
+              <span aria-hidden="true" style={{ color: it.ok ? COLORS.gold : COLORS.sub, width: 14, textAlign: "center" }}>{it.ok ? "✓" : "○"}</span>
+              {it.label}
+            </span>
+            <span className="text-right" style={{ color: COLORS.sub }}>{it.note}</span>
+          </li>
+        ))}
+      </ul>
+      {!loading && onAddHolding && (
+        <button type="button" onClick={onAddHolding} className="forma-tap mt-3 w-full rounded-xl text-[12px] font-bold"
+          style={{ minHeight: 40, background: COLORS.bg, color: COLORS.gold, border: `1px solid ${COLORS.gold}` }}>
+          {reason === "no-shares" ? M("Enter share counts ›", "去填股數 ›") : M("+ Add Taiwan Holding", "＋ 新增台股持股")}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function TrendRadar({ holdings, embedded = false, onAddHolding = null }) {
   const [rows, setRows] = useState([]);
   const [asOf, setAsOf] = useState(null);
   const [instStatus, setInstStatus] = useState("loading");
@@ -5349,7 +5413,10 @@ function TrendRadar({ holdings, embedded = false }) {
     if(agree) return `個股目前${stockWordZh} ${pctTxt}，加上${listZh}同方向，綜合判斷「${callTxt}」。`;
     return `個股目前${stockWordZh} ${pctTxt}，${listZh}，綜合判斷「${callTxt}」。`;
   };
-  if(!rows.length)return null;
+  if(!rows.length){
+    if(!embedded) return null;
+    return <TrendRadarEmpty holdings={holdings} onAddHolding={onAddHolding} />;
+  }
   return (
     <div className="trend-radar-shell rounded-2xl p-4" style={{background:COLORS.panel,border:"1px solid "+COLORS.panelBorder,boxShadow:"none"}}>
       <div className="trend-radar-head flex items-center justify-between mb-2">
@@ -6403,10 +6470,47 @@ function GoalProgressCard({ goal, totalToday, goalDate }) {
   );
 }
 
+// 首次使用引導：空帳戶時放在首頁最上面，一個按鈕直接去新增第一筆持股。
+function FirstRunGuide({ onAddHolding, onOpenBackup }) {
+  const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
+  const steps = [
+    M("Add a holding: ticker + shares", "新增持股：輸入代號＋股數"),
+    M("Live prices and total assets update automatically", "自動抓即時股價、算出總資產"),
+    M("Daily assets are recorded after the close", "收盤後自動記錄每日資產"),
+  ];
+  return (
+    <div className="rounded-2xl p-4" data-first-run-guide
+      style={{ background: COLORS.panel, border: `1px solid ${COLORS.gold}`, boxShadow: "none" }}>
+      <div className="text-sm font-black" style={{ color: COLORS.text }}>{M("Welcome — start with your first holding", "👋 歡迎！先新增第一筆持股")}</div>
+      <div className="text-[11px] mt-1" style={{ color: COLORS.sub }}>{M("Only the ticker and share count are needed; everything else is automatic.", "只要代號和股數，其他都自動完成。")}</div>
+      <ol className="mt-3 space-y-1.5">
+        {steps.map((t, i) => (
+          <li key={i} className="flex items-center gap-2 text-[12px]" style={{ color: COLORS.text }}>
+            <span className="mono text-[10px] font-bold flex items-center justify-center rounded-full"
+              style={{ width: 18, height: 18, flex: "none", color: COLORS.gold, border: `1px solid ${COLORS.gold}` }}>{i + 1}</span>
+            <span>{t}</span>
+          </li>
+        ))}
+      </ol>
+      <button type="button" onClick={onAddHolding} data-first-holding-btn
+        className="forma-tap mt-3 w-full rounded-xl text-[13px] font-bold"
+        style={{ minHeight: 44, background: COLORS.gold, color: COLORS.bg }}>
+        {M("+ Add First Holding", "＋ 新增第一筆持股")}
+      </button>
+      {onOpenBackup && (
+        <button type="button" onClick={onOpenBackup} className="forma-tap mt-2 w-full text-center text-[11px] font-bold py-1"
+          style={{ color: COLORS.sub, background: "transparent" }}>
+          {M("Have a backup? Restore from JSON ›", "已有備份？從 JSON 還原 ›")}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, dailyChangePct, capitalGain, totalDividends,
   totalReturn, totalReturnPct, twTotalReturn, twTotalReturnPct, usTotalReturn, usTotalReturnPct, hasUsAssets, showUsFields = false, showGoal = false,
   highPoint, drawdown, ytdGain, ytdPct, chartData, goal, goalDate, totalInvested, holdings,
-  dailyRecords, dividends, yesterdayTwValue, yesterdayUsValue, onFillDailyTw, onFillDailyUs, usHoldings = [], usLive, onGoUsSettings, onGoDaily }) {
+  dailyRecords, dividends, yesterdayTwValue, yesterdayUsValue, onFillDailyTw, onFillDailyUs, usHoldings = [], usLive, onGoUsSettings, onGoDaily, firstRun = false, onAddHolding, onOpenBackup }) {
   const up = dailyChange >= 0;
   // dailyChange compares the two most recent daily records. Until today's
   // record is saved, that is the previous session's change, so label it with
@@ -6434,6 +6538,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
   }, [chartData, chartRangeId]);
   return (
     <div className="space-y-2 premium-dashboard">
+      {firstRun && onAddHolding && <FirstRunGuide onAddHolding={onAddHolding} onOpenBackup={onOpenBackup} />}
       {/* 總覽採付費理財 App 的順序：①總資產＋今日損益＋走勢圖（含高點回撤）②大盤＋持股行情（依市值、含佔比）③今日分析（雷達、收盤報告；持股快訊依使用者要求放在最上面）④目標進度與進階績效。 */}
       {/* 持股快訊放最上面（使用者指定）：一行輪播，不佔版面 */}
       <NewsCarousel holdings={holdings} />
@@ -6565,7 +6670,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
       </div>
 
       {/* 收盤後還沒記今天：一行提醒，點了直接到「每日紀錄」（那裡會自動帶入數字） */}
-      {onGoDaily && needsTodayRecord(dailyRecords) && (
+      {onGoDaily && !firstRun && needsTodayRecord(dailyRecords) && (
         <button onClick={onGoDaily} className="w-full rounded-xl px-3 py-2 flex items-center justify-between text-[12px] font-bold"
           style={{ background: COLORS.panel, border: `1px solid ${COLORS.gold}`, color: COLORS.gold }}>
           <span><UiLabel zh="⏳ 今天還沒記錄每日資產" inline /></span>
@@ -6581,7 +6686,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
         title="今日趨勢雷達"
         subtitle="盤中訊號、KD、法人與明日方向"
         defaultOpen={false}>
-        <TrendRadar holdings={holdings.filter((h) => isTaiwanSymbol(h.symbol))} embedded />
+        <TrendRadar holdings={holdings.filter((h) => isTaiwanSymbol(h.symbol))} embedded onAddHolding={onAddHolding} />
       </DashboardCollapsibleSection>
 
 
@@ -7617,7 +7722,7 @@ function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldi
       <Panel title="新增持股標的">
         {/* 名稱查詢提示放在格子外面（原因同配息表單）：避免把代號欄頂下去。 */}
         <div className="grid grid-cols-2 gap-2">
-          <Field label="代號"><input value={form.symbol}
+          <Field label="代號"><input value={form.symbol} data-add-holding-symbol
             onChange={(e) => setForm({ ...form, symbol: normalizeStockSymbol(e.target.value) })}
             placeholder={market === "us" ? "AAPL" : "0056"} className="input" /></Field>
           <Field label="名稱"><input value={form.name}
