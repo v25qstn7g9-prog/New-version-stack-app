@@ -2801,7 +2801,7 @@ function AssetTracker() {
 
   return (
     <div style={{ background: COLORS.bg, color: COLORS.text }}
-      className="min-h-screen font-sans premium-app-shell">
+      className="min-h-screen font-sans premium-app-shell" data-forma-theme="portfolio">
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
@@ -6442,14 +6442,14 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
         background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`,
         boxShadow:"none",
       }}>
-        <div className="flex items-center gap-2">
+        <div className="forma-asset-heading flex items-center gap-2">
           <div className="text-xs" style={{ color: COLORS.sub }}><UiLabel zh="目前總資產" /></div>
           <div className="text-[10px]" style={{ color: COLORS.sub, opacity: 0.85 }}>
             <UiLabel zh={showUsFields && hasUsAssets ? "台股＋美股合計" : "總資產合計"} />
           </div>
         </div>
-        <div className="text-3xl font-black mono mt-1"><AnimatedNumber value={totalToday} prefix="NT$ " /></div>
-        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] mono" style={{ color: COLORS.sub }}>
+        <div className="forma-asset-total text-3xl font-black mono mt-1"><AnimatedNumber value={totalToday} prefix="NT$ " /></div>
+        <div className="forma-asset-breakdown mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] mono" style={{ color: COLORS.sub }}>
           <span><UiLabel zh="台股資產" inline /> <span style={{ color: COLORS.text }}>NT$ {nf(currentTwValue)}</span></span>
           {showUsFields && <span><UiLabel zh="美股資產" inline /> <span style={{ color: COLORS.text }}>NT$ {nf(currentUsValue)}</span>{usLive?.brokerCalibrationActive && <span className="ml-1" style={{ color: COLORS.gold }}>· <UiLabel zh="已自動校準" inline /></span>}</span>}
         </div>
