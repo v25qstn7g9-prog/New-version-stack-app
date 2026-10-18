@@ -126,3 +126,12 @@ test('dense layouts keep target collision work bounded instead of crossing every
   assert.ok(targets.length>0&&targets.length<=192);
   for(const p of targets)assert.ok(c.isLegalPosition(l,p));
 });
+test('opt-in text transit opens disconnected screen regions without resting over text or crossing controls',()=>{
+ const c=core(),raw={width:390,height:844,footprint:{w:53,h:53},protect:[{x:0,y:320,w:390,h:32}]},from={x:20,y:100},to={x:300,y:650};
+ assert.equal(c.planRoute(raw,from,to,{directOnly:true}).ok,false);
+ const l=c.normalizeLayout({...raw,allowTextTransit:true}),r=c.planRoute(l,from,to,{directOnly:true});
+ assert.equal(r.ok,true);assert.equal(c.validateRoute(l,r),true);
+ assert.equal(c.isLegalPosition(l,{x:20,y:320}),false);
+ for(let i=0;i<=200;i++)assert.equal(c.isLegalTransitPosition(l,c.sampleRoute(r,r.duration*i/200)),true);
+ assert.equal(c.planRoute({...raw,allowTextTransit:true,forbid:raw.protect},from,to,{directOnly:true}).ok,false);
+});

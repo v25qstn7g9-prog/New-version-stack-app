@@ -1,6 +1,6 @@
 /* Pure, bounded full-viewport pair planner. CSS pixels; points are footprint top-left.
  * No DOM reads, storage or timers. Runtime must re-plan when layout/obstacles change.
- * Protect and forbid are both hard obstacles. Failure never permits unsafe travel. */
+ * Resting protects text and controls. Explicit text-transit mode keeps controls hard. */
 (function (root) {
   'use strict';
   const clamp = (n,a,b) => Math.max(a,Math.min(b,n));
@@ -17,16 +17,20 @@
     const rects = list => (Array.isArray(list)?list:[]).map(r=>({x:finite(r.x,finite(r.left)),y:finite(r.y,finite(r.top)),w:Math.max(0,finite(r.w,finite(r.width))),h:Math.max(0,finite(r.h,finite(r.height)))})).filter(r=>r.w>0&&r.h>0);
     const protect=rects(raw.protect),forbid=rects(raw.forbid);
     const runThreshold=Math.max(0,finite(raw.runThreshold,Math.max(90,footprint.w*3)));
-    return {width,height,footprint,runThreshold,minX,minY,maxX,maxY,protect,forbid,obstacles:protect.concat(forbid),normalized:true};
+    return {width,height,footprint,runThreshold,minX,minY,maxX,maxY,protect,forbid,obstacles:protect.concat(forbid),allowTextTransit:raw.allowTextTransit===true,normalized:true};
   }
   const layout = l => l?.normalized ? l : normalizeLayout(l);
   const overlaps = (a,b) => a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y;
-  function legalBox(l,b) {
-    return b.x>=l.minX-1e-7 && b.y>=l.minY-1e-7 && b.x+b.w<=l.maxX+l.footprint.w+1e-7 && b.y+b.h<=l.maxY+l.footprint.h+1e-7 && !l.obstacles.some(r=>overlaps(b,r));
+  function legalBox(l,b,transit=false) {
+    return b.x>=l.minX-1e-7 && b.y>=l.minY-1e-7 && b.x+b.w<=l.maxX+l.footprint.w+1e-7 && b.y+b.h<=l.maxY+l.footprint.h+1e-7 && !(transit&&l.allowTextTransit?l.forbid:l.obstacles).some(r=>overlaps(b,r));
   }
   function isLegalPosition(raw,p) {
     const l=layout(raw);
     return !!p && Number.isFinite(p.x) && Number.isFinite(p.y) && legalBox(l,{x:p.x,y:p.y,...l.footprint});
+  }
+  function isLegalTransitPosition(raw,p) {
+    const l=layout(raw);
+    return !!p && Number.isFinite(p.x) && Number.isFinite(p.y) && legalBox(l,{x:p.x,y:p.y,...l.footprint},true);
   }
   function findTargets(raw) {
     const l=layout(raw); if(l.maxX<l.minX||l.maxY<l.minY)return [];
@@ -83,7 +87,7 @@
     if(!isLegalPosition(l,s.from)||!isLegalPosition(l,s.to))return false;
     const bounds=swept(l,s,0,1);
     if(bounds.x<l.minX-1e-7||bounds.y<l.minY-1e-7||bounds.x+bounds.w>l.maxX+l.footprint.w+1e-7||bounds.y+bounds.h>l.maxY+l.footprint.h+1e-7)return false;
-    const nearby=l.obstacles.filter(r=>overlaps(bounds,r));
+    const nearby=(l.allowTextTransit?l.forbid:l.obstacles).filter(r=>overlaps(bounds,r));
     if(!nearby.length)return true;
     // A horizontal swept box is exact, so a hit cannot be escaped between samples.
     if(s.arc===0&&s.from.y===s.to.y)return false;
@@ -152,5 +156,5 @@
     }
     return true;
   }
-  root.__zaCatSpaceCore=Object.freeze({normalizeLayout,isLegalPosition,findTargets,findRowTargets,chooseTarget,planRoute,sampleRoute,validateRoute});
+  root.__zaCatSpaceCore=Object.freeze({normalizeLayout,isLegalPosition,isLegalTransitPosition,findTargets,findRowTargets,chooseTarget,planRoute,sampleRoute,validateRoute});
 })(typeof window==='undefined'?globalThis:window);

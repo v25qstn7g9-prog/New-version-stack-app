@@ -155,7 +155,12 @@
     ctx.clearRect(0,0,160,160);ctx.save();
     if(c.facing===-1){ctx.translate(160,0);ctx.scale(-1,1);}
     var mix=frozen?1:Math.max(0,Math.min(1,(now-prev.changed)/.1));
-    if(blendable&&mix<1&&prev.from!==n){ctx.globalAlpha=1-mix;frame(prev.from);ctx.globalAlpha=mix;frame(n);ctx.globalAlpha=1;}else frame(n);
+    if(blendable&&mix<1&&prev.from!==n){
+      // Add weighted premultiplied pixels: source-over would dim shared opaque
+      // body pixels to 75% alpha halfway through every transparent-sprite fade.
+      ctx.globalAlpha=1-mix;frame(prev.from);ctx.globalCompositeOperation='lighter';
+      ctx.globalAlpha=mix;frame(n);ctx.globalCompositeOperation='source-over';ctx.globalAlpha=1;
+    }else frame(n);
     // Only a small chest/tail patch moves. Paws and the ground baseline never
     // scale or bounce with breathing; walking and flying have no idle warp.
     if(enhanced&&!frozen&&ctx.ellipse&&Math.abs(pose.breath)>.01){
