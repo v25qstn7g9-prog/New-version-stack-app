@@ -365,3 +365,83 @@ html.za-clean .premium-main :is(.premium-panel,.premium-asset-hero,.trend-radar-
 html.za-clean[data-theme="navy"] .premium-main :is(.premium-panel,.premium-asset-hero,.trend-radar-shell,.forma-expand-card,div.rounded-2xl,.premium-dashboard>.rounded-xl){border-radius:18px!important}
 html.za-clean[data-theme="navy"] :is(.premium-panel,.premium-asset-hero,.premium-dashboard>.rounded-xl,.premium-tab>.space-y-2>div.rounded-2xl,.premium-tab>.space-y-3>div.rounded-2xl,.trend-radar-shell){border-color:rgba(255,255,255,.06)!important}
 html.za-clean .premium-tabbar{box-shadow:0 -1px 2px rgba(20,40,30,.03),0 -8px 24px rgba(20,40,30,.04)}
+
+/* Portfolio layout — scoped presentation only; reuse the existing theme tokens.
+   Keep dense financial rows at the approved 11px / 17px rhythm. */
+html.za-clean [data-forma-theme="portfolio"] .premium-main{
+  max-width:960px;margin-inline:auto;padding:16px 16px calc(124px + env(safe-area-inset-bottom,0px))!important;
+}
+html.za-clean [data-forma-theme="portfolio"] .premium-header>div{max-width:928px;margin-inline:auto}
+html.za-clean [data-forma-theme="portfolio"] .premium-header h1{font-size:18px;line-height:1.4}
+html.za-clean [data-forma-theme="portfolio"] .premium-header h1 [class~="text-[10px]"]{font-size:11px!important;font-weight:500}
+html.za-clean [data-forma-theme="portfolio"] .premium-dashboard{gap:12px!important}
+html.za-clean [data-forma-theme="portfolio"] .premium-tab>:is(.space-y-2,.space-y-3)>
+:not([hidden])~:not([hidden]){margin-top:12px!important}
+html.za-clean [data-forma-theme="portfolio"] .premium-dashboard>*{margin-top:0!important;min-width:0}
+html.za-clean [data-forma-theme="portfolio"] .premium-main :is(.premium-panel,.trend-radar-shell,.premium-dashboard>.rounded-xl){padding:16px!important}
+html.za-clean [data-forma-theme="portfolio"] .premium-panel>.premium-panel-title{
+  margin-bottom:12px!important;font-size:15px!important;line-height:1.5!important;letter-spacing:.01em;
+}
+
+/* Give the total one clear visual priority; supporting figures stay quiet. */
+html.za-clean [data-forma-theme="portfolio"] .premium-dashboard>.premium-asset-hero{padding:20px!important}
+html.za-clean [data-forma-theme="portfolio"] .forma-asset-heading{flex-wrap:wrap;gap:4px 8px}
+html.za-clean [data-forma-theme="portfolio"] .forma-asset-heading>div{font-size:12px!important;line-height:18px!important}
+html.za-clean [data-forma-theme="portfolio"] .forma-asset-total{
+  font-size:clamp(28px,8.5vw,36px)!important;line-height:1.25!important;letter-spacing:-.04em;
+  margin-top:8px!important;overflow-wrap:anywhere;word-break:normal;
+}
+html.za-clean [data-forma-theme="portfolio"] .forma-asset-breakdown,
+html.za-clean [data-forma-theme="portfolio"] .forma-asset-breakdown span{font-size:11px!important;line-height:17px!important}
+html.za-clean [data-forma-theme="portfolio"] .forma-asset-breakdown{margin-top:12px!important;gap:4px 16px}
+
+/* Stable table columns: currency and numbers stay together. */
+html.za-clean [data-forma-theme="portfolio"] .live-quote-grid{
+  grid-template-columns:minmax(36px,.55fr) minmax(0,1.2fr) minmax(0,1fr) minmax(0,1.2fr)!important;
+  gap:8px!important;align-items:start;font-size:11px!important;line-height:17px!important;
+}
+html.za-clean [data-forma-theme="portfolio"] .live-quote-heading{
+  font-size:11px!important;line-height:17px!important;padding:8px 0!important;align-items:end;
+}
+html.za-clean [data-forma-theme="portfolio"] .live-quote-row{padding:12px 0!important}
+html.za-clean [data-forma-theme="portfolio"] .live-quote-grid:not(.live-quote-heading)>:is(:nth-child(3),:nth-child(4)){
+  white-space:nowrap;font-variant-numeric:tabular-nums;
+}
+html.za-clean [data-forma-theme="portfolio"] .live-quote-grid [data-live-amount]{font-size:11px!important;line-height:17px!important}
+html.za-clean [data-forma-theme="portfolio"] .live-quote-stats>div{font-size:11px!important;line-height:17px!important;letter-spacing:-.25px}
+
+/* Costs use the same baseline and alignment on every holding. */
+html.za-clean [data-forma-theme="portfolio"] .holding-header{align-items:center;gap:8px!important;flex-wrap:nowrap}
+html.za-clean [data-forma-theme="portfolio"] .holding-actions{gap:4px!important}
+html.za-clean [data-forma-theme="portfolio"] .holding-action{min-width:44px;min-height:44px}
+html.za-clean [data-forma-theme="portfolio"] :is(.holding-cost-summary,.holding-trade-average){font-size:11px!important;line-height:17px!important}
+html.za-clean [data-forma-theme="portfolio"] .holding-cost-primary{gap:12px!important;align-items:start}
+html.za-clean [data-forma-theme="portfolio"] .holding-cost-primary>div>div{line-height:17px!important}
+html.za-clean [data-forma-theme="portfolio"] .holding-cost-primary .mt-0\.5{margin-top:4px!important}
+html.za-clean [data-forma-theme="portfolio"] .holding-trade-average{gap:4px 12px!important;align-items:baseline}
+
+/* Forms: consistent labels and spacing, retain readable iPhone inputs. */
+html.za-clean [data-forma-theme="portfolio"] .premium-field-label{font-size:12px!important;line-height:18px!important;margin-bottom:4px!important}
+html.za-clean [data-forma-theme="portfolio"] .grid:has(>.premium-field){column-gap:12px!important;row-gap:12px!important}
+html.za-clean [data-forma-theme="portfolio"] .premium-main :is(input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]),select,textarea){font-size:17px!important;min-height:44px}
+html.za-clean [data-forma-theme="portfolio"] .premium-add-button{margin-top:12px!important;min-height:44px}
+
+/* Keep every tab accessible above the home indicator; accent marks location. */
+html.za-clean [data-forma-theme="portfolio"] .premium-tabbar>div{max-width:960px;margin-inline:auto}
+html.za-clean [data-forma-theme="portfolio"] .premium-tabbar button{min-height:56px!important;position:relative;gap:4px!important}
+html.za-clean [data-forma-theme="portfolio"] .premium-tabbar button>span:last-child{font-size:11px!important;line-height:16px!important}
+html.za-clean [data-forma-theme="portfolio"] .premium-tabbar button[data-active="true"]::before{
+  content:"";position:absolute;top:0;left:28%;right:28%;height:3px;border-radius:0 0 3px 3px;background:var(--c-accent);
+}
+html.za-clean [data-forma-theme="portfolio"] .premium-ai-launcher{bottom:calc(76px + env(safe-area-inset-bottom,0px))!important}
+@media(max-width:359px){
+  html.za-clean [data-forma-theme="portfolio"] .premium-main{padding-inline:12px!important}
+  html.za-clean [data-forma-theme="portfolio"] .premium-dashboard>.premium-asset-hero{padding:16px!important}
+  html.za-clean [data-forma-theme="portfolio"] .premium-header h1{font-size:16px}
+  html.za-clean [data-forma-theme="portfolio"] .live-quote-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px 16px!important}
+  html.za-clean [data-forma-theme="portfolio"] .live-quote-grid>:nth-child(1){grid-area:1 / 1}
+  html.za-clean [data-forma-theme="portfolio"] .live-quote-grid>:nth-child(4){grid-area:1 / 2}
+  html.za-clean [data-forma-theme="portfolio"] .live-quote-grid>:nth-child(2){grid-area:2 / 1}
+  html.za-clean [data-forma-theme="portfolio"] .live-quote-grid>:nth-child(3){grid-area:2 / 2}
+  html.za-clean [data-forma-theme="portfolio"] .premium-tabbar button>span:last-child{font-size:10px!important}
+}
