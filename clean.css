@@ -4,14 +4,14 @@
    （主要按鈕實心、次要按鈕白底外框、停用＝平的灰色）、
    不用漸層／底色色塊／彩色左邊框／實心徽章（顏色只出現在文字與小圓點）、
    數字等寬、輸入框 17px（iPhone 不會放大畫面）、最後一張卡片不被分頁列蓋住。
-   台股慣例：紅＝漲、綠＝跌（只用在文字顏色），用一般看盤軟體的正紅／正綠：淺色 #e0201b／#00843d、深色 #ff9999／#00d26a（深色紅 2026-10-18 由 #ff5c5c 調亮：卡片 5.1:1、實心卡 4.6:1）。
+   台股慣例：紅＝漲、綠＝跌（只用在文字顏色），用一般看盤軟體的正紅／正綠：淺色 #cf1d19／#007a38、深色 #ff9999／#00d26a（深色紅 2026-10-18 由 #ff5c5c 調亮：卡片 5.1:1、實心卡 4.6:1）。
    ════════════════════════════════════════════════════════════════════ */
 html.za-clean{
   /* 淺色主題（切換鈕的另一個選項，key 仍叫 grey）：Forma portfolio-light「霧藍白」（forma-design-system@ebb5155，色票 FM-146）。
-     淡藍灰頁面＋白卡片、霧藍重點色；紅漲綠跌只用在文字。對比：文字 15.6:1、次要字 5.7:1、重點色 5.0:1、紅 4.8:1、綠 4.8:1（WCAG AA）；紅綠用一般看盤軟體的正紅／正綠 */
-  --c-bg:#f3f5f9;--c-card:#ffffff;--c-ink:#19233d;--c-ink-2:#2e3a55;--c-muted:#5b6780;
-  --c-line:#e3e8f0;--c-line-2:#cdd6e3;--c-accent:#44749d;--c-accent-press:#19233d;
-  --c-good:#00843d;--c-warn:#9c6c00;--c-bad:#e0201b;--c-disabled-bg:#eef2f7;--c-disabled-ink:#5b6780;
+     暖白頁面 #f1f0ec（SI hub）＋白卡片、霧藍重點色；紅漲綠跌只用在文字。對比（直接在 #f1f0ec 頁面上／白卡上，2026-10-18 重算）：文字 13.7／15.6:1、次要字 5.0／5.7:1、重點色 #3f6b91 4.95／5.64:1、紅 #cf1d19 4.79／5.46:1、綠 #007a38 4.79／5.47:1、警示 #8f6300 4.66／5.31:1（皆 ≥4.5，WCAG AA）；紅綠用一般看盤軟體的正紅／正綠 */
+  --c-bg:#f1f0ec;--c-card:#ffffff;--c-ink:#19233d;--c-ink-2:#2e3a55;--c-muted:#5b6780;
+  --c-line:#e4e7e2;--c-line-2:#d6dcd5;--c-accent:#3f6b91;--c-accent-press:#19233d;
+  --c-good:#007a38;--c-warn:#8f6300;--c-bad:#cf1d19;--c-disabled-bg:#eef2f7;--c-disabled-ink:#5b6780;
   /* 舊的 premium 變數改成淺色，沿用它們的規則會自動變成淺色 */
   --premium-bg:var(--c-bg);--premium-panel:var(--c-card);--premium-panel-soft:var(--c-card);
   --premium-line:var(--c-line);--premium-line-focus:var(--c-line-2);--premium-muted:var(--c-muted);
@@ -149,10 +149,10 @@ html.za-clean :is(div,h2,h3,p):is(.font-bold,.font-black):is(.text-xs,.text-sm,.
    主要按鈕用較深的藍＋白字；紅漲綠跌只用在文字。 */
 /* 由右上角切換鈕決定：<html data-theme="navy">（預設）或 grey */
 html.za-clean[data-theme="navy"]{
-    --c-bg:#29385b;--c-card:#303f60;--c-ink:#ffffff;--c-ink-2:#ffffff;--c-muted:#ffffff;
+    --c-bg:#171717;--c-card:#232323;--c-ink:#ffffff;--c-ink-2:#ffffff;--c-muted:#ffffff;
     --c-line:rgba(255,255,255,.08);--c-line-2:rgba(255,255,255,.16);--c-accent:#a8c2ff;--c-accent-press:#e6ecfa;--c-btn:#ffffff;--c-btn-ink:#1f2b4d;
-    --c-good:#00d26a;--c-warn:#f5c26b;--c-bad:#ff9999;--c-disabled-bg:rgba(255,255,255,.08);--c-disabled-ink:#a9b4d0;
-    --c-tabbar:rgba(41,56,91,.97);--c-placeholder:#ffffff;--c-tick:#ffffff;--c-solid-card:#354668;
+    --c-good:#00d26a;--c-warn:#f5c26b;--c-bad:#ff9999;--c-disabled-bg:rgba(255,255,255,.08);--c-disabled-ink:#9a9f9c;
+    --c-tabbar:rgba(23,23,23,.97);--c-placeholder:#ffffff;--c-tick:#ffffff;--c-solid-card:#2a2a2a;
     color-scheme:dark;
   }
   html.za-clean[data-theme="navy"] :is(input,select,textarea):focus,html.za-clean[data-theme="navy"] .premium-tab .input:focus{box-shadow:0 0 0 3px rgba(168,194,255,.3)!important}
@@ -167,10 +167,10 @@ html.za-clean[data-theme="navy"]{
 /* 萬一 <head> 的小程式沒跑到：一樣用深色（預設） */
 @media all{
   html.za-clean:not([data-theme]){
-    --c-bg:#29385b;--c-card:#303f60;--c-ink:#ffffff;--c-ink-2:#ffffff;--c-muted:#ffffff;
+    --c-bg:#171717;--c-card:#232323;--c-ink:#ffffff;--c-ink-2:#ffffff;--c-muted:#ffffff;
     --c-line:rgba(255,255,255,.08);--c-line-2:rgba(255,255,255,.16);--c-accent:#a8c2ff;--c-accent-press:#e6ecfa;--c-btn:#ffffff;--c-btn-ink:#1f2b4d;
-    --c-good:#00d26a;--c-warn:#f5c26b;--c-bad:#ff9999;--c-disabled-bg:rgba(255,255,255,.08);--c-disabled-ink:#a9b4d0;
-    --c-tabbar:rgba(41,56,91,.97);--c-placeholder:#ffffff;--c-tick:#ffffff;--c-solid-card:#354668;
+    --c-good:#00d26a;--c-warn:#f5c26b;--c-bad:#ff9999;--c-disabled-bg:rgba(255,255,255,.08);--c-disabled-ink:#9a9f9c;
+    --c-tabbar:rgba(23,23,23,.97);--c-placeholder:#ffffff;--c-tick:#ffffff;--c-solid-card:#2a2a2a;
     color-scheme:dark;
   }
   html.za-clean:not([data-theme]) :is(input,select,textarea):focus,html.za-clean:not([data-theme]) .premium-tab .input:focus{box-shadow:0 0 0 3px rgba(168,194,255,.3)!important}
@@ -224,7 +224,7 @@ html.za-clean[data-theme="navy"] button[style*="background: var(--z-gold"]{borde
 html.za-clean[data-theme="navy"] .premium-ai-launcher{background:#ffffff!important;color:#1f2b4d!important}
 html.za-clean[data-theme="navy"] :is(.za-theme-toggle,.premium-header button){background:rgba(255,255,255,.12)!important;border-color:transparent!important;color:#ffffff!important}
 html.za-clean[data-theme="navy"] .premium-tabbar{border-top-color:rgba(255,255,255,.08)!important}
-html.za-clean[data-theme="navy"] .premium-tabbar button[data-active="false"]{color:#a9b4d0!important}
+html.za-clean[data-theme="navy"] .premium-tabbar button[data-active="false"]{color:#a3aca6!important}
 html.za-clean[data-theme="navy"] .premium-tabbar button[data-active="true"]{color:#ffffff!important}
 /* 目前所在的分頁一眼看得出來：亮藍膠囊底＋頂端亮線＋粗體白字；沒選的維持柔和灰藍（對比 5.6:1）。 */
 html.za-clean[data-theme="navy"] .premium-tabbar button{position:relative}
@@ -233,7 +233,7 @@ html.za-clean[data-theme="navy"] .premium-tabbar button[data-active="true"]::bef
 @media (prefers-reduced-motion:no-preference){html.za-clean[data-theme="navy"] .premium-tabbar button>span:first-child{transition:background-color .18s ease,box-shadow .18s ease}}
 html.za-clean[data-theme="navy"] .ai-panel-h,html.za-clean[data-theme="navy"] .recharts-default-tooltip{background:var(--c-solid-card)!important}
 html.za-clean[data-theme="navy"] :is(input:not([type=checkbox]):not([type=radio]),select,textarea,.input){background-color:rgba(255,255,255,.06)!important}
-html.za-clean[data-theme="navy"] select option{background:#3a4a75;color:#fff}
+html.za-clean[data-theme="navy"] select option{background:#2a2a2a;color:#fff}
 
 /* ── 即時股價表與其他寫死小字的區塊：也放大到 14px 以上 ── */
 html.za-clean .live-quote-grid,html.za-clean .live-quote-heading{font-size:14px!important;line-height:1.5!important}
@@ -249,18 +249,18 @@ html.za-clean :is(.holding-cost-summary,.holding-trade-average){background:trans
    Scope: navy only. Do not change grey theme, typography, table density, app logic.
    Palette comes from forma-design-system/tokens.css. */
 html.za-clean[data-theme="navy"]{
-  --forma-background:#29385b;
-  --forma-surface:#303f60;
-  --forma-surface-elevated:#354668;
+  --forma-background:#171717;
+  --forma-surface:#232323;
+  --forma-surface-elevated:#2a2a2a;
   /* 終點壓暗（原 #526584）：紅 #ff5c5c／綠 #00d26a 在終點對比 3.51／5.28、白字 10.64（見下方說明） */
-  --forma-hero-gradient:linear-gradient(180deg,#384b70 0%,#2e3e60 100%);
+  --forma-hero-gradient:linear-gradient(180deg,#2e2e2e 0%,#262626 100%);
   --forma-text:#ffffff;
   --forma-muted:#ffffff;
-  --forma-border:#576787;
+  --forma-border:#3a3a3a;
 }
 /* Hero is the sole gradient emphasis; all financial rows remain flat and compact. */
 html.za-clean[data-theme="navy"] .premium-dashboard>.premium-asset-hero{
-  background:#405374!important;
+  background:#2a2a2a!important;
   background-image:var(--forma-hero-gradient)!important;
   border-color:rgba(255,255,255,.10)!important;
 }
@@ -269,7 +269,7 @@ html.za-clean[data-theme="navy"] .premium-asset-hero:after{display:none!importan
 /* Preserve standard financial rise/fall colors and all existing font/line-height rules. */
 
 /* Refined navy: keep the hero gradient as a subdued accent, not a full-page wash. */
-html.za-clean[data-theme="navy"] .premium-dashboard>.premium-asset-hero{background-color:#405374!important}
+html.za-clean[data-theme="navy"] .premium-dashboard>.premium-asset-hero{background-color:#2a2a2a!important}
 
 /* Forma Portfolio: white informational text on navy.
    Keep gains/losses, active/inactive state and chart strokes untouched. */
@@ -352,3 +352,16 @@ html.za-clean:not([data-theme="grey"]) .forma-secondary-btn{border-radius:999px!
 /* 10. 說明、提醒文字：避免最後一行只剩一兩個字 */
 .forma-note{text-wrap:pretty}
 .forma-note-title{text-wrap:balance}
+
+/* ════ SI hub 外觀層 2026-10-18（只改外觀）════
+   跟 SI hub 同一套：淺色暖白頁面 #f1f0ec＋白卡、深色 #171717＋#232323（key 仍叫 navy／grey，
+   沒手動選過就跟系統外觀＝跟隨系統；舊的 dark／light 值照舊對應）；藍色重點色不變；
+   卡片兩層柔和陰影、圓角 18、字體 -apple-system／PingFang TC／Noto Sans TC。 */
+html.za-clean{--c-shadow:0 1px 2px rgba(20,40,30,.04),0 8px 24px rgba(20,40,30,.04);
+  --c-font:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang TC","Noto Sans TC",sans-serif}
+html.za-clean[data-theme="navy"],html.za-clean:not([data-theme]){--c-shadow:0 1px 2px rgba(0,0,0,.18),0 8px 24px rgba(0,0,0,.22)}
+html.za-clean body,html.za-clean :is(button,input,select,textarea){font-family:var(--c-font)}
+html.za-clean .premium-main :is(.premium-panel,.premium-asset-hero,.trend-radar-shell,.forma-expand-card,div.rounded-2xl,.premium-dashboard>.rounded-xl){box-shadow:var(--c-shadow)!important}
+html.za-clean[data-theme="navy"] .premium-main :is(.premium-panel,.premium-asset-hero,.trend-radar-shell,.forma-expand-card,div.rounded-2xl,.premium-dashboard>.rounded-xl){border-radius:18px!important}
+html.za-clean[data-theme="navy"] :is(.premium-panel,.premium-asset-hero,.premium-dashboard>.rounded-xl,.premium-tab>.space-y-2>div.rounded-2xl,.premium-tab>.space-y-3>div.rounded-2xl,.trend-radar-shell){border-color:rgba(255,255,255,.06)!important}
+html.za-clean .premium-tabbar{box-shadow:0 -1px 2px rgba(20,40,30,.03),0 -8px 24px rgba(20,40,30,.04)}
