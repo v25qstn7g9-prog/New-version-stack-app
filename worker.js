@@ -92,7 +92,7 @@ import { AUTO_DAILY_CRON, runAutoDaily, runDailyReminder, onRequestGet as autoDa
 import { onRequestGet as closesGetHandler } from "./functions/closes.js";
 import { onRequestGet as spiderGetHandler } from "./functions/spider.js";
 import { onRequestPush as pushHandler, runPushRound } from "./functions/push.js";
-import { adminTokenMatches, bearerToken, writeAllowed } from "./functions/request-guard.js";
+import { adminTokenMatches, bearerToken, constantTimeEqual, writeAllowed } from "./functions/request-guard.js";
 import { isKnownSyncToken, isSiHubReadToken } from "./functions/portfolio-sync.js";
 import { handleOpenAiActions } from "./functions/openai-actions.js";
 import { handleAssetOAuth, verifyAssetAccessToken, readAssetMcpSyncToken } from "./functions/asset-mcp-oauth.js";
@@ -204,7 +204,7 @@ export default {
       const supplied = bearerToken(request);
       const owner = String(env.LINE_REMINDER_SYNC_TOKEN || "").trim();
       // 只回傳布林值；Secret 本身永遠不送到瀏覽器。
-      return apiJson({ ok: true, owner: Boolean(supplied && owner && supplied === owner) });
+      return apiJson({ ok: true, owner: Boolean(supplied && owner && constantTimeEqual(supplied, owner)) });
     }
 
     if (url.pathname === "/api/owner-model" && request.method === "GET") return ownerModelGet({ request, env });
@@ -213,7 +213,7 @@ export default {
     if (url.pathname === "/api/system-stats" && request.method === "GET") {
       const auth = String(request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
       const owner = String(env.LINE_REMINDER_SYNC_TOKEN || "").trim();
-      if (!auth || !owner || auth !== owner) return new Response(JSON.stringify({ ok: false, error: "Forbidden" }), { status: 403, headers: { "content-type": "application/json" } });
+      if (!auth || !owner || !constantTimeEqual(auth, owner)) return new Response(JSON.stringify({ ok: false, error: "Forbidden" }), { status: 403, headers: { "content-type": "application/json" } });
       const stats = await readSystemStats(env);
       return new Response(JSON.stringify({ ok: true, ...stats }), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
     }
