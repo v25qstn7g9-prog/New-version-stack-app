@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
-  <meta name="theme-color" content="#29385B" id="zaThemeColor" />
+  <meta name="theme-color" content="#171717" id="zaThemeColor" />
   <script>
     /* 外觀主題（只管畫面）：深藍／淺色（霧藍白，key 仍叫 grey）。沒有手動選過就跟著 iPhone 外觀（淺色模式＝淺色、深色模式＝深藍）；
        手動切換只維持到 iPhone 外觀下一次改變為止，所以外觀設成「自動」時白天淺色、晚上深藍會自己切換。舊的 dark／light 值照舊對應。畫面畫出來前先套用，避免閃一下。 */
     (function () {
-      var K = "zaTheme", KS = "zaThemeSys", BG = { navy: "#29385B", grey: "#F3F5F9" }, root = document.documentElement;
+      var K = "zaTheme", KS = "zaThemeSys", BG = { navy: "#171717", grey: "#F1F0EC" }, root = document.documentElement;
       var mq = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
       function sysTheme() { return mq && !mq.matches ? "grey" : "navy"; }
       function saved() {
@@ -245,12 +245,12 @@
     .premium-tab-daily .premium-panel-title,
     .premium-tab-trades .premium-panel-title,
     .premium-tab-dividends .premium-panel-title{
-      margin-bottom:8px!important;font-size:11px!important;line-height:1.35!important;
+      margin-bottom:8px!important;font-size:12px!important;line-height:1.35!important;
     }
     .premium-tab-daily .premium-field-label,
     .premium-tab-trades .premium-field-label,
     .premium-tab-dividends .premium-field-label{
-      margin-bottom:3px!important;font-size:10px!important;line-height:1.28!important;
+      margin-bottom:3px!important;font-size:12px!important;line-height:1.28!important;
     }
     .premium-tab-daily .input,
     .premium-tab-trades .input,
@@ -280,7 +280,7 @@
     .premium-tab-daily .premium-row .text-\[11px\],
     .premium-tab-trades .premium-row .text-\[11px\],
     .premium-tab-dividends .premium-row .text-\[11px\]{
-      font-size:10px!important;line-height:1.3!important;
+      font-size:12px!important;line-height:1.3!important;
     }
     .premium-tab-daily .premium-panel .mt-3,
     .premium-tab-trades .premium-panel .mt-3,
@@ -348,8 +348,8 @@
       .premium-dashboard>.premium-asset-hero [style*="height: 180"],
       .premium-dashboard>.premium-asset-hero [style*="height: 148"]{height:142px!important}
       .premium-dashboard>.rounded-xl{padding-left:.62rem!important;padding-right:.62rem!important}
-      .premium-dashboard>.rounded-xl .text-[11px]{font-size:10.5px}
-      .premium-dashboard>.rounded-xl .text-[10px]{font-size:9.5px}
+      .premium-dashboard>.rounded-xl .text-[11px]{font-size:12px}
+      .premium-dashboard>.rounded-xl .text-[10px]{font-size:12px}
 
       .premium-tab>.space-y-2{row-gap:.48rem}
       .premium-tab>.space-y-2>div.rounded-2xl{padding:.78rem!important}
@@ -372,8 +372,8 @@
       .premium-tabbar button{min-height:43px;padding-top:3px!important;padding-bottom:2px!important}
       .premium-tabbar button>span:first-child{width:34px!important;height:19px!important}
       .premium-tabbar svg{width:15px;height:15px}
-      .premium-tabbar span.text-[8px]{font-size:8.5px}
-      .live-status-line{font-size:10.5px}
+      .premium-tabbar span.text-[8px]{font-size:12px}
+      .live-status-line{font-size:12px}
       .live-refresh-btn{padding-left:.7rem!important;padding-right:.7rem!important}
     }
     @media(prefers-reduced-motion:reduce){
@@ -395,8 +395,8 @@
     .premium-tab .input::placeholder{color:#7f8da3;opacity:1}
     .premium-tab input[type="checkbox"]{accent-color:var(--premium-gold);width:18px;height:18px;flex-shrink:0}
     .premium-tab [class~="text-[10px]"],.premium-tab [class~="text-[11px]"]{font-size:12px;line-height:1.55}
-    .premium-tab [class~="text-[9px]"]{font-size:11px;line-height:1.55}
-    .premium-tab [class~="text-[8px]"]{font-size:10px;line-height:1.5}
+    .premium-tab [class~="text-[9px]"]{font-size:12px;line-height:1.55}
+    .premium-tab [class~="text-[8px]"]{font-size:12px;line-height:1.5}
     .premium-dashboard{gap:12px!important}
     .premium-dashboard>.rounded-xl{padding:16px!important}
     .premium-tab .premium-add-button{min-height:46px;font-size:14px!important;margin-top:14px!important;border-radius:12px!important}
@@ -411,13 +411,13 @@
     .premium-tabbar button{min-height:56px;padding:6px 2px!important;gap:4px!important}
     .premium-tabbar button>span:first-child{width:38px!important;height:24px!important}
     .premium-tabbar svg{width:18px!important;height:18px!important}
-    .premium-tabbar button>span:last-child{font-size:10px!important;line-height:1.2!important}
+    .premium-tabbar button>span:last-child{font-size:12px!important;line-height:1.2!important}
     .premium-tabbar button[data-active="false"]{opacity:.9}
     .premium-ai-launcher{bottom:calc(78px + env(safe-area-inset-bottom,4px))!important}
     .ai-panel-h textarea{font-size:16px!important;line-height:1.55}
     .premium-header h1{line-height:1.35}
-    .premium-header button{min-height:32px;min-width:58px;font-size:11px}
-    .premium-header [class~="text-[10px]"]{font-size:11px;line-height:1.6}
+    .premium-header button{min-height:32px;min-width:58px;font-size:12px}
+    .premium-header [class~="text-[10px]"]{font-size:12px;line-height:1.6}
     @media(max-width:640px){
       .premium-panel{padding:14px!important}
       .premium-tab .input{font-size:16px!important;min-height:46px!important;padding:10px!important}
@@ -432,7 +432,7 @@
       .premium-header h1>span{white-space:normal}
     }
     @media(max-width:380px){
-      .premium-tabbar button>span:last-child{font-size:9px!important}
+      .premium-tabbar button>span:last-child{font-size:12px!important}
       .premium-tab .holding-header{flex-wrap:wrap}
       .premium-tab-plan .grid.grid-cols-3.gap-2{grid-template-columns:1fr}
     }
@@ -440,11 +440,11 @@
     .live-quote-list{max-height:none;overflow:visible}
     .live-quote-grid{display:grid;grid-template-columns:minmax(32px,.5fr) minmax(0,1.2fr) minmax(0,1.1fr) minmax(0,1.25fr);gap:6px;font-size:12px;line-height:1.6}
     .live-quote-grid>div{min-width:0;overflow-wrap:normal}
-    .live-quote-heading{padding:8px 0;border-bottom:1px solid var(--premium-line);font-size:11px}
+    .live-quote-heading{padding:8px 0;border-bottom:1px solid var(--premium-line);font-size:12px}
     .live-quote-row{padding:8px 0}
     .live-quote-row+.live-quote-row{border-top:1px solid var(--premium-line)}
     .premium-tab .live-quote-list>*+*{margin-top:0}
-    @media(max-width:400px){.live-quote-grid{gap:4px;font-size:10px}.live-quote-heading{font-size:10px}}
+    @media(max-width:400px){.live-quote-grid{gap:4px;font-size:12px}.live-quote-heading{font-size:12px}}
 
     /* Compact shared spacing; retain readable inputs and touch targets. */
     .premium-main{padding-top:10px!important}
@@ -527,12 +527,12 @@
       margin-top:6px;
       padding-top:6px;
       border-top:1px solid rgba(32,43,62,.72);
-      font-size:11px;
+      font-size:12px;
       line-height:1.45;
     }
     @media(max-width:380px){
-      .holding-cost-summary{font-size:11px!important}
-      .holding-trade-average{font-size:10.5px}
+      .holding-cost-summary{font-size:12px!important}
+      .holding-trade-average{font-size:12px}
     }
 
     /* v2.47.7 — dashboard refresh stability + fixed Daily value/cost grid */
@@ -570,14 +570,14 @@
     .premium-tab-trades .premium-panel-title,
     .premium-tab-dividends .premium-panel-title{
       margin-bottom:8px!important;
-      font-size:11px!important;
+      font-size:12px!important;
       line-height:1.35!important;
     }
     .premium-tab-daily .premium-field-label,
     .premium-tab-trades .premium-field-label,
     .premium-tab-dividends .premium-field-label{
       margin-bottom:3px!important;
-      font-size:10px!important;
+      font-size:12px!important;
       line-height:1.35!important;
     }
     .premium-tab-daily .grid:has(>.premium-field),
@@ -641,7 +641,7 @@
     .premium-tab-daily .premium-row [class~="text-[11px]"],
     .premium-tab-trades .premium-row [class~="text-[11px]"],
     .premium-tab-dividends .premium-row [class~="text-[11px]"]{
-      font-size:10px!important;
+      font-size:12px!important;
       line-height:1.3!important;
     }
     .premium-tab-daily .mt-3,
@@ -767,7 +767,7 @@
       justify-content:space-between;
       gap:12px;
       min-height:24px;
-      font-size:10px;
+      font-size:12px;
       line-height:1.35;
     }
     .trend-radar-pred-row+.trend-radar-pred-row{
@@ -826,7 +826,7 @@
     }
     .trend-radar-pred-row{
       min-height:22px!important;
-      font-size:9.5px!important;
+      font-size:12px!important;
     }
     .trend-radar-band{
       margin-top:4px!important;
@@ -856,7 +856,7 @@
       .trend-radar-summary{min-height:66px}
       .trend-radar-market{min-height:82px}
       .trend-radar-stock{min-height:116px}
-      .trend-radar-global-row{gap:5px;font-size:9px}
+      .trend-radar-global-row{gap:5px;font-size:12px}
     }
 
     /* Step 4d — final radar typography rhythm.
@@ -868,7 +868,7 @@
     .trend-radar-key,
     .trend-radar-pred-row,
     .trend-radar-band{
-      font-size:11px!important;
+      font-size:12px!important;
       line-height:17px!important;
     }
     .trend-radar-current{
@@ -899,7 +899,7 @@
       line-height:17px!important;
     }
 </style>
-  <link rel="stylesheet" href="/clean.css?v=light-mist-3" />
+  <link rel="stylesheet" href="/clean.css?v=si-style-1" />
 
   <script>
     window.addEventListener("error", function(e) {
