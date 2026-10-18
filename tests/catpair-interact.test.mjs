@@ -57,8 +57,8 @@ test('runtime reads the white cat data-mood attribute only; no fetch/innerHTML/e
  const life=fs.readFileSync(new URL('../za-catlife.js',import.meta.url),'utf8'),pair=fs.readFileSync(new URL('../za-catpair.js',import.meta.url),'utf8'),photo=fs.readFileSync(new URL('../za-catphoto.js',import.meta.url),'utf8');
  assert.match(life,/getAttribute\('data-mood'\)/);
  for(const code of [life,pair])for(const bad of ['fetch(','innerHTML','eval(','new Function','localStorage'])assert.ok(!code.includes(bad),bad);
- assert.match(photo,/za-catpair\.js\?v=7/);assert.match(photo,/za-catlife\.js\?v=6/);
- assert.match(fs.readFileSync(new URL('../za-cat.js',import.meta.url),'utf8'),/za-catphoto\.js\?v=14/);
- assert.match(readAppSource(),/za-cat\.js\?v=14/);
+ assert.match(photo,/za-catpair\.js\?v=7/);assert.match(photo,/za-catlife\.js\?v=7/);
+ assert.match(fs.readFileSync(new URL('../za-cat.js',import.meta.url),'utf8'),/za-catphoto\.js\?v=15/);
+ assert.match(readAppSource(),/za-cat\.js\?v=15/);
  assert.match(photo,/authorization: "Bearer " \+ tok/);
 });
