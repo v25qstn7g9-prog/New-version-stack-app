@@ -29,3 +29,26 @@ The viewport overlay is click-through. Pause, hide and wake remain explicit head
 Verification: earlier full expanded-version suite passed513/513 before final additions. Final fullscreen-only cat tests are run separately and reported in the PR. Another full-suite run was blocked on an existing TWSE outbound request and was not retried. Initial merged baseline had485 passing tests. Synthetic390×844 tests demonstrate top/middle/bottom coverage without crossing protected rectangles; this is not actual mobile/browser verification. Cloud DevTools mobile emulation was blocked by organization policy. iPhone/Safari remains untested. Synthetic200-obstacle review benchmark: target search4.4ms, initialization6.2ms, worst step4.5ms over1,200 steps; not a device FPS measurement.
 
 Run `node scripts/preview-cat-pair.mjs /tmp/cat-fullscreen-preview.html` for an offline exact-code preview without account data. Review and explicit merge approval are required before production changes.
+
+## Natural motion update — 2026-10-18
+
+The existing pair renderer now prefers `za-white-actions.webp` and `za-tabby-actions.webp`. Each is a 1280 × 1280 RGBA WebP with an 8 × 8 grid of 160px cells. The two additional downloads total 467,228 bytes; the earlier companion sheets remain as fallback when an enhanced image is unavailable. Original photographs and recorded-footage assets are retained.
+
+| Cells | Action | Playback |
+| --- | --- | --- |
+| 0–7 | Walking | Advances with actual ground distance |
+| 8–15 | Short run | Separate limb poses and longer stride |
+| 16–23 | Jump | Crouch, push-off, extended/tucked flight, landing |
+| 24–31 | Seated observation | Sparse blinks, ear/head attention |
+| 32–39 | Self-grooming | Slow paw-to-face sequence |
+| 40–47 | Settling | Standing through sitting to sleeping loaf |
+| 48–55 | Waking | Head lift, stretch and standing recovery |
+| 56–63 | Paw play | Crouch, reach and return |
+
+These are generated photographic poses, not filmed cats or skeletal animation. The original white-cat photo and tabby companion supplied character references. White was generated against chroma green for clean extraction. Asset preparation extracts complete connected silhouettes across nominal grid edges, applies a common scale and ground baseline, and encodes WebP. The generated stretch spans one extra nominal cell: cell 53 holds the complete cell-52 stretch rather than cutting through the body. Thus each atlas has 64 playback slots, with one held stretch beat. Some generated anatomical variation remains, especially in rapid posture changes.
+
+`samplePose` selects the enhanced frames independently for each actor. Tiny local chest/tail patches animate resting poses while paws stay fixed. A short crossfade softens stationary changes; moving feet never crossfade. Actors stand before departure, turn while stationary, groom independently, and rest for different durations. White rests longer; tabby explores more. A bounded detour search prevents repeatedly choosing an obstructed straight route. Pausing, reduced motion, hidden tabs and fallback behavior retain the existing controls.
+
+An endpoint-rounding regression in `za-catspace.js` was also fixed: subtraction of the last segment could reset an actor to that segment's start. Exact and overdue route completion now hold the landing endpoint.
+
+`node scripts/preview-cat-pair.mjs <output.html>` creates a self-contained, offline preview with natural-life mode and action demonstration buttons. Demonstration mode enlarges the two cats on separate rows for inspection; normal application size and roaming remain unchanged. The preview uses the actual sampler and renderer. Browser checks use Chromium mobile viewports; this is not physical iPhone/Safari verification. The approved natural-motion changes use the repository's normal automatic deployment workflow.
