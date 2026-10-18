@@ -4,14 +4,14 @@
    （主要按鈕實心、次要按鈕白底外框、停用＝平的灰色）、
    不用漸層／底色色塊／彩色左邊框／實心徽章（顏色只出現在文字與小圓點）、
    數字等寬、輸入框 17px（iPhone 不會放大畫面）、最後一張卡片不被分頁列蓋住。
-   台股慣例：紅＝漲、綠＝跌（只用在文字顏色），用一般看盤軟體的正紅／正綠：淺色 #e0201b／#00843d、深色 #ff9999／#00d26a（深色紅 2026-10-18 由 #ff5c5c 調亮：卡片 5.1:1、實心卡 4.6:1）。
+   台股慣例：紅＝漲、綠＝跌（只用在文字顏色），用一般看盤軟體的正紅／正綠：淺色 #cf1d19／#007a38、深色 #ff9999／#00d26a（深色紅 2026-10-18 由 #ff5c5c 調亮：卡片 5.1:1、實心卡 4.6:1）。
    ════════════════════════════════════════════════════════════════════ */
 html.za-clean{
   /* 淺色主題（切換鈕的另一個選項，key 仍叫 grey）：Forma portfolio-light「霧藍白」（forma-design-system@ebb5155，色票 FM-146）。
-     淡藍灰頁面＋白卡片、霧藍重點色；紅漲綠跌只用在文字。對比：文字 15.6:1、次要字 5.7:1、重點色 5.0:1、紅 4.8:1、綠 4.8:1（WCAG AA）；紅綠用一般看盤軟體的正紅／正綠 */
+     暖白頁面 #f1f0ec（SI hub）＋白卡片、霧藍重點色；紅漲綠跌只用在文字。對比（直接在 #f1f0ec 頁面上／白卡上，2026-10-18 重算）：文字 13.7／15.6:1、次要字 5.0／5.7:1、重點色 #3f6b91 4.95／5.64:1、紅 #cf1d19 4.79／5.46:1、綠 #007a38 4.79／5.47:1、警示 #8f6300 4.66／5.31:1（皆 ≥4.5，WCAG AA）；紅綠用一般看盤軟體的正紅／正綠 */
   --c-bg:#f1f0ec;--c-card:#ffffff;--c-ink:#19233d;--c-ink-2:#2e3a55;--c-muted:#5b6780;
-  --c-line:#e4e7e2;--c-line-2:#d6dcd5;--c-accent:#44749d;--c-accent-press:#19233d;
-  --c-good:#00843d;--c-warn:#9c6c00;--c-bad:#e0201b;--c-disabled-bg:#eef2f7;--c-disabled-ink:#5b6780;
+  --c-line:#e4e7e2;--c-line-2:#d6dcd5;--c-accent:#3f6b91;--c-accent-press:#19233d;
+  --c-good:#007a38;--c-warn:#8f6300;--c-bad:#cf1d19;--c-disabled-bg:#eef2f7;--c-disabled-ink:#5b6780;
   /* 舊的 premium 變數改成淺色，沿用它們的規則會自動變成淺色 */
   --premium-bg:var(--c-bg);--premium-panel:var(--c-card);--premium-panel-soft:var(--c-card);
   --premium-line:var(--c-line);--premium-line-focus:var(--c-line-2);--premium-muted:var(--c-muted);

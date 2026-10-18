@@ -25,13 +25,13 @@ test("Forma navy permits one asset hero gradient while other cards stay flat", (
 test("navy theme is the default and redefines the shared colour variables", () => {
   assert.match(css, /html\.za-clean\[data-theme="navy"\]\{[^}]*--c-bg:#171717/);
   assert.match(css, /@media all\{\s*html\.za-clean:not\(\[data-theme\]\)\{[^}]*--c-bg:#171717/);
-  assert.match(html, /bg: "var\(--z-bg, #3A4A75\)"/);
+  assert.match(html, /bg: "var\(--z-bg, #171717\)"/);
   assert.match(html, /<meta name="theme-color" content="#171717" id="zaThemeColor"/);
 });
 test("light theme (key grey): Forma portfolio-light mist-blue page, white cards, accessible accent and red-up / green-down", () => {
   const grey = css.match(/html\.za-clean\{([\s\S]*?)\n\}/)[1];
   assert.match(grey, /--c-bg:#f1f0ec/); assert.match(grey, /--c-card:#ffffff/); assert.match(grey, /--c-ink:#19233d/);
-  assert.match(grey, /--c-accent:#44749d/); assert.match(grey, /--c-bad:#e0201b/); assert.match(grey, /--c-good:#00843d/);
+  assert.match(grey, /--c-accent:#3f6b91/); assert.match(grey, /--c-bad:#cf1d19/); assert.match(grey, /--c-good:#007a38/);
 });
 test("theme toggle: applied in <head> before paint, own key, follows the iPhone appearance until chosen, old values mapped", () => {
   const head = html.slice(0, html.indexOf("<body"));

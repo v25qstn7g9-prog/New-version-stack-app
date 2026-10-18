@@ -95,8 +95,8 @@ function visibleTabsFor(allTabs, advanced) {
 // 清爽版配色（只管外觀）：白卡、細線框、單一重點色（gold 這個名字沿用，實際是藍色重點色）。
 const COLORS = {
   // 顏色走 CSS 變數（定義在 clean.css，淺色／深色自動切換）；逗號後是載不到 clean.css 時的淺色備案。
-  bg: "var(--z-bg, #3A4A75)",
-  panel: "var(--z-panel, #3A4A75)",
+  bg: "var(--z-bg, #171717)",
+  panel: "var(--z-panel, #171717)",
   panelBorder: "var(--z-line, #4A5A85)",
   text: "var(--z-text, #FFFFFF)",
   sub: "var(--z-sub, #B3BDD8)",
