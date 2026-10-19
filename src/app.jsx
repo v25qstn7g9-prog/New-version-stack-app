@@ -670,6 +670,13 @@ function holdingCostAt(holding, trades, asOfDate = "9999-12-31") {
   return { current, estCostBasis, avgCost: current > 0 && estCostBasis != null ? estCostBasis / current : null, isManualAvgCost,
     missingInitialCost: !hasOverride && !isManualAvgCost && Number(holding.initialShares || 0) - Number(holding.migrationTradeOffset || 0) > 0 };
 }
+// Unknown initial cost is not zero: preserve a saved baseline until all holdings have a known basis.
+function knownHoldingCost(rows) {
+  if (!rows.length) return null;
+  const active = rows.filter((h) => Number(h.current) > 0);
+  if (active.some((h) => h.missingInitialCost || h.estCostBasis == null || !Number.isFinite(Number(h.estCostBasis)))) return null;
+  return Math.round(active.reduce((sum, h) => sum + Number(h.estCostBasis), 0));
+}
 function tradeAmountNtd(form, fx) {
   const native = Number(form.shares) * Number(form.price) + (form.action === "buy" ? Number(form.fee || 0) : -Number(form.fee || 0) - Number(form.tax || 0));
   return form.currency === "USD" ? (Number(fx ?? form.fxRate) > 0 ? native * Number(fx ?? form.fxRate) : null) : native;
@@ -690,6 +697,10 @@ const isUsRegularTradingHours = (date = new Date()) => {
   }
 };
 const nf = (n) => (n ?? 0).toLocaleString("zh-TW", { maximumFractionDigits: 0 });
+function formatSignedNtd(value) {
+  const amount = Math.round(Number(value));
+  return Number.isFinite(amount) ? `NT$ ${amount < 0 ? "-" : "+"}${nf(Math.abs(amount))}` : "—";
+}
 
 // A categorical XAxis (dataKey pointing at a string) spaces every point
 // evenly by ARRAY INDEX, never by real elapsed time. That's invisible when
@@ -1509,6 +1520,7 @@ function AssetTracker() {
   // 交易紀錄 to fill cost — each visit was resetting whatever the other one
   // had just filled in). Owning it here means it survives tab switches.
   const [dailyForm, setDailyForm] = useState({ date: todayStr(), twValue: "", usValue: "", twCost: "", usCost: "" });
+  const [dailyAutoFrom, setDailyAutoFrom] = useState({});
   // 每日紀錄的市場顯示偏好：台股固定啟用，美股由使用者自行勾選。
   // 只有明確勾選才顯示美股版面；歷史持股不決定顯示偏好。
   const [showUsFields, setShowUsFields] = useState(false);
@@ -2205,7 +2217,7 @@ function AssetTracker() {
 
     const symbolTrades = trades.filter((t) => normalizeStockSymbol(t.symbol) === normalizeStockSymbol(h.symbol))
       .slice().sort((a, b) => a.date.localeCompare(b.date));
-    const { avgCost, estCostBasis, isManualAvgCost: hasManualAvgCost } = holdingCostAt(h, trades);
+    const { avgCost, estCostBasis, isManualAvgCost: hasManualAvgCost, missingInitialCost } = holdingCostAt(h, trades);
     let runningSharesNoFee = 0, runningCostNoFee = 0;
     for (const t of symbolTrades) {
       if (t.action === "buy") {
@@ -2264,7 +2276,7 @@ function AssetTracker() {
     }
 
     return {
-      ...h, bought, sold, current, pct, avgCost, estCostBasis, isManualAvgCost: hasManualAvgCost, avgTradePrice,
+      ...h, bought, sold, current, pct, avgCost, estCostBasis, missingInitialCost, isManualAvgCost: hasManualAvgCost, avgTradePrice,
       quarterSharesAdded, quarterNum, yearSharesAdded, projectedLabel,
     };
   }), [holdings, trades, showEnglish]);
@@ -2425,14 +2437,14 @@ function AssetTracker() {
         });
         if (!ok) return;
         const prior = [...dailyRecords].filter((r) => r.date < today).sort((a, b) => a.date.localeCompare(b.date)).pop();
-        const costSum = Math.round(holdingsWithShares.filter((h) => isTaiwanSymbol(h.symbol)).reduce((s, h) => s + Number(h.estCostBasis || 0), 0));
-        const usCostSum = Math.round(holdingsWithShares.filter((h) => !isTaiwanSymbol(h.symbol)).reduce((s,h) => s + Number(h.estCostBasis || 0),0));
+        const costSum = knownHoldingCost(holdingsWithShares.filter((h) => isTaiwanSymbol(h.symbol)));
+        const usCostSum = knownHoldingCost(holdingsWithShares.filter((h) => !isTaiwanSymbol(h.symbol)));
         insertAutoRecords([{
           date: today, valuationVersion: 2,
           twValue: Math.round(active.reduce((s, h) => s + Number(quotes[h.symbol].price) * Number(h.current), 0)),
-          twCost: costSum > 0 ? costSum : Number(prior?.twCost || 0),
-          usValue: usLive.totalNtd ?? (usHoldings.length > 0 ? 0 : Number(prior?.usValue || 0)),
-          usCost: usCostSum > 0 ? usCostSum : usHoldings.length > 0 && !usHoldings.some((h) => h.shares > 0) ? 0 : Number(prior?.usCost || 0),
+          twCost: costSum != null ? costSum : Number(prior?.twCost || 0),
+          usValue: usAssetLive.totalNtd ?? (usHoldings.length > 0 ? 0 : Number(prior?.usValue || 0)),
+          usCost: usCostSum != null ? usCostSum : Number(prior?.usCost || 0),
         }]);
       } catch {
         // 抓不到就下次再試
@@ -2443,7 +2455,7 @@ function AssetTracker() {
     tryLocal();
     const timer = setInterval(tryLocal, 60 * 1000);
     return () => clearInterval(timer);
-  }, [ready, dailyRecords, holdingsWithShares, usLive.totalNtd, usLive.state.failed.join(",")]);
+  }, [ready, dailyRecords, holdingsWithShares, usAssetLive.totalNtd, usLive.state.failed.join(",")]);
 
   // ---- 背景自動記錄：資料副本、收進 Service Worker 算好的記錄、補齊缺漏交易日 ----
   // ① 每次持股／記錄變動，把「持股、成本、已記錄的日期」存一份在 IndexedDB 給 sw.js 用。
@@ -2453,12 +2465,13 @@ function AssetTracker() {
     const lastRec = [...dailyRecords].sort((a, b) => a.date.localeCompare(b.date)).pop();
     bgSet("mirror", {
       updatedAt: new Date().toISOString(),
-      holdings: active.map((h) => ({ symbol: h.symbol, shares: Number(h.current), costBasis: Number(h.estCostBasis || 0) })),
+      holdings: active.map((h) => ({ symbol: h.symbol, shares: Number(h.current), costBasis: h.missingInitialCost ? null : h.estCostBasis ?? null })),
       tracksUs: usHoldings.length > 0,
+      usBrokerCalibration,
       recordDates: dailyRecords.map((r) => r.date).slice(-10),
       prior: lastRec ? { twCost: lastRec.twCost, usValue: lastRec.usValue, usCost: lastRec.usCost } : null,
     }).catch(() => {});
-  }, [ready, holdingsWithShares, dailyRecords]);
+  }, [ready, holdingsWithShares, dailyRecords, usBrokerCalibration]);
   // ② Service Worker 在背景算好的今日記錄（存在 pendingAuto），App 打開或回到前景時收進來。
   useEffect(() => {
     if (!ready || !window.indexedDB) return;
@@ -2582,7 +2595,7 @@ function AssetTracker() {
           name: h.name || "",
           shares: h.current,
           avgCost: Number.isFinite(h.avgCost) ? Math.round(h.avgCost * 100) / 100 : null,
-          costBasis: h.estCostBasis ?? null,
+          costBasis: h.missingInitialCost ? null : h.estCostBasis ?? null,
         })),
     };
     const [radar, radarHistory, tomorrowHistory, livePrices, trendRadarGlobalSignal, institutionalFlow, stockNews] = await Promise.all([
@@ -2596,7 +2609,7 @@ function AssetTracker() {
     ]);
     summary.dataset = {
       holdings, trades, dividends, dailyRecords, planItems, planSchedule,
-      goal, costBasis, radar, radarHistory, tomorrowHistory, livePrices,
+      goal, costBasis, usBrokerCalibration, radar, radarHistory, tomorrowHistory, livePrices,
       trendRadarGlobalSignal, institutionalFlow, stockNews, goalDate,
     };
     return { token: zinfSyncToken, summary };
@@ -2682,7 +2695,7 @@ function AssetTracker() {
     try { localStorage.setItem("zinfSyncPending", "1"); } catch {}
     const timer = setTimeout(() => runZinfSync({ rebuild: true }), 2000);
     return () => clearTimeout(timer);
-  }, [ready, zinfSyncToken, totalToday, dailyChange, dailyChangePct, totalInvested, capitalGain, totalReturn, totalReturnPct, latest, holdingsWithShares, holdings, trades, dividends, dailyRecords, planItems, planSchedule, goal, costBasis, goalDate]);
+  }, [ready, zinfSyncToken, totalToday, dailyChange, dailyChangePct, totalInvested, capitalGain, totalReturn, totalReturnPct, latest, holdingsWithShares, holdings, trades, dividends, dailyRecords, planItems, planSchedule, goal, costBasis, usBrokerCalibration, goalDate]);
 
   // ---- Atlas 待確認交易 ----
   // 你在 Atlas（Claude 聊天）說「幫我記今天買了 xxx」並確認後，Atlas 只能把這筆交易暫存到伺服器
@@ -2897,7 +2910,8 @@ function AssetTracker() {
               case "daily":
                 return (
                   <DailyPanel records={sortedDaily} setRecords={setDailyRecords} prefill={dailyPrefill}
-                    form={dailyForm} setForm={setDailyForm} holdings={holdingsWithShares}
+                    form={dailyForm} setForm={setDailyForm} autoFrom={dailyAutoFrom} setAutoFrom={setDailyAutoFrom}
+                    onPrefillConsumed={() => setDailyPrefill(null)} holdings={holdingsWithShares}
                     usHoldings={usHoldings} usLive={usAssetLive}
                     showUsFields={showUsFields} setShowUsFields={setShowUsFields} />
                 );
@@ -6754,7 +6768,7 @@ function StatCard({ label, value, tone, className = "" }) {
 }
 
 // ---------------- Daily Panel ----------------
-function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = [], usHoldings = [], usLive, showUsFields = false, setShowUsFields }) {
+function DailyPanel({ records, setRecords, prefill, form, setForm, autoFrom, setAutoFrom, onPrefillConsumed, holdings = [], usHoldings = [], usLive, showUsFields = false, setShowUsFields }) {
   const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
   // When "帶入「每日紀錄」..." is pressed elsewhere in the app, prefill is
   // set to a fresh object each time — that reference change is what makes
@@ -6768,10 +6782,13 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
       if (prefill.twValue != null) next.twValue = String(prefill.twValue);
       if (prefill.usValue != null) next.usValue = String(prefill.usValue);
       if (prefill.twCost != null) next.twCost = String(prefill.twCost);
+      if (prefill.usCost != null) next.usCost = String(prefill.usCost);
       return next;
     });
+    setAutoFrom((a) => ({ ...a, ...Object.fromEntries(["twValue", "usValue", "twCost", "usCost"].filter((k) => prefill[k] != null).map((k) => [k, k.endsWith("Cost") ? "holdings" : k === "usValue" ? "usQuote" : "quote"])) }));
+    onPrefillConsumed?.();
   }, [prefill]);
-  // ── 今天的紀錄：台股市值用即時報價自動算、台股成本用持股頁的持有成本、美股沿用上一筆 ──
+  // 今天的自動欄位跟隨即時／校準市值與持股成本；歷史紀錄與手動輸入保持原值。
   const today = todayStr();
   const isToday = form.date === today;
   const sameDayRecord = records.find((x) => x.date === form.date) || null;
@@ -6781,10 +6798,9 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
   const activeUs = (usHoldings || []).filter((h) => Number(h.shares || 0) > 0 && h.symbol);
   const activeUsKey = activeUs.map((h) => `${String(h.symbol).toUpperCase()}:${h.shares}`).sort().join(",");
   // 和「持股進度」頁的「總持有成本」同一個算法（App 計算目前績效也用這個）。
-  const autoTwCost = Math.round(holdings.filter((h) => isTaiwanSymbol(h.symbol)).reduce((sum, h) => sum + Number(h.estCostBasis || 0), 0));
+  const autoTwCost = knownHoldingCost(holdings.filter((h) => isTaiwanSymbol(h.symbol)));
   const [autoTw, setAutoTw] = useState({ status: "idle", value: null, missing: [] });
   const [autoUs, setAutoUs] = useState({ status: "idle", value: null, missing: [], fx: null });
-  const [autoFrom, setAutoFrom] = useState({});
   const loadAutoTw = async (force = false) => {
     if (!activeTw.length) { const tracked = holdings.some((h) => isTaiwanSymbol(h.symbol)); setAutoTw({ status: tracked ? "ok" : "none", value: tracked ? 0 : null, missing: [] }); return; }
     setAutoTw((s) => ({ ...s, status: "loading" }));
@@ -6802,16 +6818,17 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
   useEffect(() => { loadAutoTw(false); }, [activeKey]);
   const loadAutoUs = () => usLive?.refresh?.();
   useEffect(() => {
-    setAutoUs({ status: !activeUs.length ? (usHoldings.length > 0 ? "ok" : "none") : usLive?.totalNtd != null ? "ok" : usLive?.state?.status === "loading" ? "loading" : "partial",
+    setAutoUs({ status: !activeUs.length ? (usHoldings.length > 0 ? "ok" : "none") : usLive?.state?.status === "loading" ? "loading" : usLive?.totalNtd != null && usLive?.state?.status === "done" && usSnapshotCanRecord(activeUs, usLive.state) ? "ok" : "partial",
       value: usLive?.totalNtd ?? (usHoldings.length > 0 && !activeUs.length ? 0 : null), missing: usLive?.state?.failed || [], fx: usLive?.state?.fx || null });
   }, [activeUsKey, usHoldings.length, usLive?.totalNtd, usLive?.state?.status, usLive?.state?.fx, usLive?.state?.failed?.join(",")]);
-  // 只填「空的」欄位，絕不覆蓋使用者自己打的數字；換日期時先清掉自動帶入的值再重算。
+  // 只填「空的」或今天由程式帶入的欄位；手動欄位與歷史日期絕不跟隨報價改寫。
   useEffect(() => {
+    if (prefill) return;
     const fills = {};
     const from = {};
-    const autoUsCost = Math.round(holdings.filter((h) => !isTaiwanSymbol(h.symbol)).reduce((sum,h) => sum + Number(h.estCostBasis || 0),0));
+    const autoUsCost = knownHoldingCost(holdings.filter((h) => !isTaiwanSymbol(h.symbol)));
     // 使用者自己清空、正在重打的欄位不要再塞值回去。
-    const canFill = (k) => form[k] === "" && autoFrom[k] !== "typed";
+    const canFill = (k) => autoFrom[k] !== "typed" && (form[k] === "" || (isToday && ["quote", "usQuote", "holdings", "saved", "last"].includes(autoFrom[k])));
     // 按了「重新抓報價」：台股市值改用最新報價（即使這天已經存過）。
     if (isToday && autoFrom.twValue === "wantQuote" && form.twValue === "" && autoTw.status === "ok") {
       fills.twValue = String(autoTw.value); from.twValue = "quote";
@@ -6821,27 +6838,34 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
     }
     // 按了「重新抓報價」：成本也改用持股進度目前的總持有成本（剛改過持股成本時，才不會一直顯示舊的）。
     const wantCost = (k) => isToday && autoFrom[k] === "wantHoldings" && form[k] === "";
-    if (wantCost("twCost") && holdings.some((h) => isTaiwanSymbol(h.symbol))) { fills.twCost = String(autoTwCost); from.twCost = "holdings"; }
-    if (wantCost("usCost") && (autoUsCost > 0 || (usHoldings.length > 0 && !activeUs.length))) { fills.usCost = String(autoUsCost); from.usCost = "holdings"; }
+    if (wantCost("twCost") && autoTwCost != null) { fills.twCost = String(autoTwCost); from.twCost = "holdings"; }
+    if (wantCost("usCost") && autoUsCost != null) { fills.usCost = String(autoUsCost); from.usCost = "holdings"; }
+    // Live sources outrank today's saved/previous automatic drafts. They never
+    // change the stored snapshot until the user presses Save/Update.
+    if (isToday) {
+      if (canFill("twValue") && autoTw.status === "ok") { fills.twValue = String(autoTw.value); from.twValue = "quote"; }
+      if (canFill("usValue") && autoUs.status === "ok") { fills.usValue = String(autoUs.value); from.usValue = "usQuote"; }
+      if (canFill("twCost") && autoTwCost != null) { fills.twCost = String(autoTwCost); from.twCost = "holdings"; }
+      if (canFill("usCost") && autoUsCost != null) { fills.usCost = String(autoUsCost); from.usCost = "holdings"; }
+    }
     if (sameDayRecord) {
       ["twValue", "usValue", "twCost", "usCost"].forEach((k) => {
-        if (k === "twValue" && autoFrom.twValue === "wantQuote") return;
-        if (k === "usValue" && autoFrom.usValue === "wantQuote") return;
-        if (canFill(k) && fills[k] == null && sameDayRecord[k] != null) { fills[k] = String(sameDayRecord[k]); from[k] = "saved"; }
+        if (["wantQuote", "wantHoldings"].includes(autoFrom[k])) return;
+        if (canFill(k) && fills[k] == null && sameDayRecord[k] != null && form[k] === "") { fills[k] = String(sameDayRecord[k]); from[k] = "saved"; }
       });
     } else {
       if (isToday && canFill("twValue") && fills.twValue == null && autoTw.status === "ok") { fills.twValue = String(autoTw.value); from.twValue = "quote"; }
       if (isToday && canFill("usValue") && fills.usValue == null && autoUs.status === "ok") { fills.usValue = String(autoUs.value); from.usValue = "usQuote"; }
-      if (isToday && canFill("twCost") && autoTwCost > 0) { fills.twCost = String(autoTwCost); from.twCost = "holdings"; }
-      if (isToday && canFill("usCost") && (autoUsCost > 0 || (usHoldings.length > 0 && !activeUs.length))) { fills.usCost=String(autoUsCost); from.usCost="holdings"; }
-      if (canFill("usValue") && fills.usValue == null && lastBefore && Number(lastBefore.usValue) > 0) { fills.usValue = String(lastBefore.usValue); from.usValue = "last"; }
-      if (canFill("usCost") && fills.usCost == null && lastBefore && Number(lastBefore.usCost) > 0) { fills.usCost = String(lastBefore.usCost); from.usCost = "last"; }
+      if (isToday && canFill("twCost") && autoTwCost != null) { fills.twCost = String(autoTwCost); from.twCost = "holdings"; }
+      if (isToday && canFill("usCost") && autoUsCost != null) { fills.usCost=String(autoUsCost); from.usCost="holdings"; }
+      if (canFill("usValue") && form.usValue === "" && autoFrom.usValue !== "wantQuote" && fills.usValue == null && lastBefore && Number(lastBefore.usValue) > 0) { fills.usValue = String(lastBefore.usValue); from.usValue = "last"; }
+      if (canFill("usCost") && form.usCost === "" && autoFrom.usCost !== "wantHoldings" && fills.usCost == null && lastBefore && Number(lastBefore.usCost) > 0) { fills.usCost = String(lastBefore.usCost); from.usCost = "last"; }
     }
-    if (Object.keys(fills).length) {
-      setForm((f) => ({ ...f, ...fills }));
-      setAutoFrom((a) => ({ ...a, ...from }));
-    }
-  }, [form.date, autoTw.status, autoTw.value, autoUs.status, autoUs.value, autoTwCost, sameDayRecord?.id, lastBefore?.id, holdings, form.twValue, form.twCost, form.usValue, form.usCost, autoFrom]);
+    Object.keys(fills).forEach((k) => { if (fills[k] === form[k]) delete fills[k]; });
+    Object.keys(from).forEach((k) => { if (from[k] === autoFrom[k]) delete from[k]; });
+    if (Object.keys(fills).length) setForm((f) => ({ ...f, ...fills }));
+    if (Object.keys(from).length) setAutoFrom((a) => ({ ...a, ...from }));
+  }, [prefill, form.date, autoTw.status, autoTw.value, autoUs.status, autoUs.value, autoTwCost, sameDayRecord?.id, lastBefore?.id, holdings, form.twValue, form.twCost, form.usValue, form.usCost, autoFrom]);
   const editField = (key, value) => {
     setForm((f) => ({ ...f, [key]: value }));
     setAutoFrom((a) => ({ ...a, [key]: "typed" }));
@@ -6859,8 +6883,13 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
   const dailyMissing = (!sameDayRecord && form.twValue === "" && form.usValue === "")
     ? [isToday && autoTw.status === "loading" ? "台股市值（報價抓取中…）" : "台股市值"]
     : [];
+  if (isToday && activeUs.length > 0 && autoFrom.usValue !== "typed"
+      && (form.usValue === "" || autoFrom.usValue === "last") && autoUs.status !== "ok") {
+    dailyMissing.push(M("US market value (waiting for quotes or manual confirmation)", "美股市值（等待有效報價，或手動輸入確認）"));
+  }
 
   const add = () => {
+    if (dailyMissing.length) return;
     const sameDayExists = records.some((x) => x.date === form.date);
     if (!sameDayExists && !form.twValue && !form.usValue) return;
     if (!form.twValue && !form.usValue && !form.twCost && !form.usCost) return;
@@ -7042,7 +7071,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
   })() : null;
 
   return (
-    <div className="space-y-2">
+    <div className="forma-daily-records space-y-2">
       {/* 今天的紀錄：打開就自動填好，確認後按一次儲存；要補記其他天再改日期。 */}
       <Panel title="今天的紀錄">
         <label className="forma-check-row mb-2 flex items-center gap-2 text-[11px] cursor-pointer" style={{ color: COLORS.sub }}>
@@ -7167,11 +7196,11 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
               return (
                 <div key={wk} className="forma-subcard rounded-lg px-3 py-2 text-xs mono"
                   style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
-                  <div className="flex justify-between items-baseline">
+                  <div className="forma-period-heading">
                     <span style={{ color: COLORS.sub }}>{weekLabel(wk)}{stat?.approximate ? " *" : ""}</span>
                     {stat ? (
                       <span className="font-bold" style={{ color: stat.marketReturn >= 0 ? COLORS.gain : COLORS.loss }}>
-                        {M("Market", "市場")} {stat.marketReturn >= 0 ? "+" : ""}NT$ {nf(stat.marketReturn)}（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）
+                        {M("Market", "市場")} {formatSignedNtd(stat.marketReturn)} <span className="forma-period-percent">（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）</span>
                       </span>
                     ) : (
                       <span style={{ color: COLORS.sub }}>{M("Earliest record, no prior week to compare", "最早紀錄，無前週可比較")}</span>
@@ -7179,7 +7208,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
                   </div>
                   {stat && stat.contribution != null && stat.contribution !== 0 && (
                     <div className="text-right mt-0.5" style={{ color: COLORS.sub }}>
-                      {M("New contribution", "新增投入")} {stat.contribution >= 0 ? "+" : ""}NT$ {nf(stat.contribution)}
+                      {M("New contribution", "新增投入")} {formatSignedNtd(stat.contribution)}
                     </div>
                   )}
                 </div>
@@ -7202,11 +7231,11 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
               return (
                 <div key={mk} className="forma-subcard rounded-lg px-3 py-2 text-xs mono"
                   style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
-                  <div className="flex justify-between items-baseline">
+                  <div className="forma-period-heading">
                     <span style={{ color: COLORS.sub }}>{mk}{stat?.approximate ? " *" : ""}</span>
                     {stat ? (
                       <span className="font-bold" style={{ color: stat.marketReturn >= 0 ? COLORS.gain : COLORS.loss }}>
-                        {M("Market", "市場")} {stat.marketReturn >= 0 ? "+" : ""}NT$ {nf(stat.marketReturn)}（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）
+                        {M("Market", "市場")} {formatSignedNtd(stat.marketReturn)} <span className="forma-period-percent">（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）</span>
                       </span>
                     ) : (
                       <span style={{ color: COLORS.sub }}>{M("Earliest record, no prior month to compare", "最早紀錄，無前月可比較")}</span>
@@ -7214,7 +7243,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
                   </div>
                   {stat && stat.contribution != null && stat.contribution !== 0 && (
                     <div className="text-right mt-0.5" style={{ color: COLORS.sub }}>
-                      {M("New contribution", "新增投入")} {stat.contribution >= 0 ? "+" : ""}NT$ {nf(stat.contribution)}
+                      {M("New contribution", "新增投入")} {formatSignedNtd(stat.contribution)}
                     </div>
                   )}
                 </div>
@@ -7237,11 +7266,11 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
               return (
                 <div key={yk} className="forma-subcard rounded-lg px-3 py-2 text-xs mono"
                   style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
-                  <div className="flex justify-between items-baseline">
+                  <div className="forma-period-heading">
                     <span style={{ color: COLORS.sub }}>{yk}{stat?.approximate ? " *" : ""}</span>
                     {stat ? (
                       <span className="font-bold" style={{ color: stat.marketReturn >= 0 ? COLORS.gain : COLORS.loss }}>
-                        {M("Market", "市場")} {stat.marketReturn >= 0 ? "+" : ""}NT$ {nf(stat.marketReturn)}（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）
+                        {M("Market", "市場")} {formatSignedNtd(stat.marketReturn)} <span className="forma-period-percent">（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）</span>
                       </span>
                     ) : (
                       <span style={{ color: COLORS.sub }}>{M("Earliest record, no prior year to compare", "最早紀錄，無前年可比較")}</span>
@@ -7249,7 +7278,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
                   </div>
                   {stat && stat.contribution != null && stat.contribution !== 0 && (
                     <div className="text-right mt-0.5" style={{ color: COLORS.sub }}>
-                      {M("New contribution", "新增投入")} {stat.contribution >= 0 ? "+" : ""}NT$ {nf(stat.contribution)}
+                      {M("New contribution", "新增投入")} {formatSignedNtd(stat.contribution)}
                     </div>
                   )}
                 </div>
@@ -7278,11 +7307,11 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
                   {showHeader && (
                     <div className="pt-3 pb-1.5 text-[11px] font-bold mono"
                       style={{ borderTop: i > 0 ? `1px solid ${COLORS.panelBorder}` : "none", marginTop: i > 0 ? "0.25rem" : 0 }}>
-                      <div className="flex justify-between items-baseline">
+                      <div className="forma-period-heading">
                         <span style={{ color: COLORS.text }}>{mk}{stat?.approximate ? " *" : ""}</span>
                         {stat ? (
                           <span style={{ color: stat.marketReturn >= 0 ? COLORS.gain : COLORS.loss }}>
-                            {M("Market", "市場")} {stat.marketReturn >= 0 ? "+" : ""}NT$ {nf(stat.marketReturn)}（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）
+                            {M("Market", "市場")} {formatSignedNtd(stat.marketReturn)} <span className="forma-period-percent">（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）</span>
                           </span>
                         ) : (
                           <span style={{ color: COLORS.sub, fontWeight: "normal" }}>{M("Earliest record, no prior month to compare", "最早紀錄，無前月可比較")}</span>
@@ -7290,7 +7319,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, holdings = []
                       </div>
                       {stat && stat.contribution != null && stat.contribution !== 0 && (
                         <div className="text-right font-normal" style={{ color: COLORS.sub }}>
-                          {M("New contribution", "新增投入")} {stat.contribution >= 0 ? "+" : ""}NT$ {nf(stat.contribution)}
+                          {M("New contribution", "新增投入")} {formatSignedNtd(stat.contribution)}
                         </div>
                       )}
                     </div>

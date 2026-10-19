@@ -40,3 +40,18 @@ test('card labels distinguish a total amount from a per-share amount',()=>{
  assert.match(html,/<UiLabel zh="每股平均成本" inline/);assert.match(html,/<UiLabel zh="總持有成本" inline/);
  assert.match(html,/formatNtdPrice\(h\.avgCost\)[\s\S]{0,30}／股/);
 });
+
+test('unknown opening cost is distinct from an explicit zero correction in cost aggregation',()=>{
+ const unknown=ctx.holdingCostAt({symbol:'VOO',initialShares:4},[]);
+ assert.equal(unknown.missingInitialCost,true);assert.equal(ctx.knownHoldingCost([unknown]),null);
+ const zero=ctx.holdingCostAt({symbol:'VOO',initialShares:4,costOverride:{amount:0,asOfDate:'2026-10-05'}},[]);
+ assert.equal(zero.missingInitialCost,false);assert.equal(ctx.knownHoldingCost([zero]),0);
+});
+
+test('empty positions cannot hide a corrected active cost and fully sold positions contribute zero',()=>{
+ const active=ctx.holdingCostAt({symbol:'VOO',initialShares:4,costOverride:{amount:91193,asOfDate:'2026-10-05'}},[]);
+ const empty=ctx.holdingCostAt({symbol:'AAPL',initialShares:0},[]);
+ assert.equal(ctx.knownHoldingCost([active,empty]),91193);
+ const sold=ctx.holdingCostAt({symbol:'VOO',initialShares:4},[{symbol:'VOO',date:'2026-10-06',action:'sell',shares:4,amount:90000}]);
+ assert.equal(sold.current,0);assert.equal(ctx.knownHoldingCost([sold,empty]),0);assert.equal(ctx.knownHoldingCost([]),null);
+});
