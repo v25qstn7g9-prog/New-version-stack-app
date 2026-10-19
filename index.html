@@ -924,18 +924,14 @@
   <script crossorigin src="https://unpkg.com/react-is@18.3.1/umd/react-is.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
   <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
-  <!-- lucide-react's UMD build reads the lowercase global `react`, but React's
-       UMD only defines `React`; without this alias it throws on load and every
-       icon silently falls back to "•". -->
-  <script>window.react = window.React;</script>
-  <script src="https://unpkg.com/lucide-react@0.344.0/dist/umd/lucide-react.js"></script>
+  <!-- 圖示不再整包下載 lucide-react：App 用到的 22 個已編進 app.js（scripts/gen-icons.mjs）。 -->
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body>
   <div id="root"></div>
   <div id="boot-error"></div>
 
-  <script src="/app.js?v=3"></script>
+  <script src="/app.js?v=4"></script>
   <script src="/za-cat.js?v=15" defer></script>
   <script src="/clean-ui.js?v=2" defer></script>
 </body>
