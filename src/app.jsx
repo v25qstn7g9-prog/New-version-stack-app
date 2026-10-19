@@ -2838,7 +2838,7 @@ function AssetTracker() {
       className="min-h-screen font-sans premium-app-shell" data-forma-theme="portfolio">
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400..900&family=JetBrains+Mono:wght@400..700&display=swap');
         * { font-family: 'Noto Sans TC', sans-serif; }
         .mono { font-family: 'JetBrains Mono', monospace; }
         @keyframes celebrate-in {
