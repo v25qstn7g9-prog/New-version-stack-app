@@ -7190,29 +7190,10 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, autoFrom, set
               {M("* For weeks with incomplete cost data, market return and new contributions can't be precisely split — figures are estimates", "* 成本資料不完整的週份，市場報酬與新增投入無法精準拆分，數字為粗估")}
             </div>
           )}
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             {[...weekKeys].reverse().map((wk) => {
               const stat = weeklyStats[wk];
-              return (
-                <div key={wk} className="forma-subcard rounded-lg px-3 py-2 text-xs mono"
-                  style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
-                  <div className="forma-period-heading">
-                    <span style={{ color: COLORS.sub }}>{weekLabel(wk)}{stat?.approximate ? " *" : ""}</span>
-                    {stat ? (
-                      <span className="font-bold" style={{ color: stat.marketReturn >= 0 ? COLORS.gain : COLORS.loss }}>
-                        {M("Market", "市場")} {formatSignedNtd(stat.marketReturn)} <span className="forma-period-percent">（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）</span>
-                      </span>
-                    ) : (
-                      <span style={{ color: COLORS.sub }}>{M("Earliest record, no prior week to compare", "最早紀錄，無前週可比較")}</span>
-                    )}
-                  </div>
-                  {stat && stat.contribution != null && stat.contribution !== 0 && (
-                    <div className="text-right mt-0.5" style={{ color: COLORS.sub }}>
-                      {M("New contribution", "新增投入")} {formatSignedNtd(stat.contribution)}
-                    </div>
-                  )}
-                </div>
-              );
+              return <PeriodStat key={wk} label={weekLabel(wk)} stat={stat} emptyText={M("Earliest record, no prior week to compare", "最早紀錄，無前週可比較")} />;
             })}
           </div>
         </Panel>
@@ -7225,29 +7206,10 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, autoFrom, set
               {M("* For months with incomplete cost data, market return and new contributions can't be precisely split — figures are estimates", "* 成本資料不完整的月份，市場報酬與新增投入無法精準拆分，數字為粗估")}
             </div>
           )}
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             {[...monthKeys].reverse().map((mk) => {
               const stat = monthlyStats[mk];
-              return (
-                <div key={mk} className="forma-subcard rounded-lg px-3 py-2 text-xs mono"
-                  style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
-                  <div className="forma-period-heading">
-                    <span style={{ color: COLORS.sub }}>{mk}{stat?.approximate ? " *" : ""}</span>
-                    {stat ? (
-                      <span className="font-bold" style={{ color: stat.marketReturn >= 0 ? COLORS.gain : COLORS.loss }}>
-                        {M("Market", "市場")} {formatSignedNtd(stat.marketReturn)} <span className="forma-period-percent">（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）</span>
-                      </span>
-                    ) : (
-                      <span style={{ color: COLORS.sub }}>{M("Earliest record, no prior month to compare", "最早紀錄，無前月可比較")}</span>
-                    )}
-                  </div>
-                  {stat && stat.contribution != null && stat.contribution !== 0 && (
-                    <div className="text-right mt-0.5" style={{ color: COLORS.sub }}>
-                      {M("New contribution", "新增投入")} {formatSignedNtd(stat.contribution)}
-                    </div>
-                  )}
-                </div>
-              );
+              return <PeriodStat key={mk} label={mk} stat={stat} emptyText={M("Earliest record, no prior month to compare", "最早紀錄，無前月可比較")} />;
             })}
           </div>
         </Panel>
@@ -7260,29 +7222,10 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, autoFrom, set
               {M("* For years with incomplete cost data, market return and new contributions can't be precisely split — figures are estimates", "* 成本資料不完整的年份，市場報酬與新增投入無法精準拆分，數字為粗估")}
             </div>
           )}
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             {[...yearKeys].reverse().map((yk) => {
               const stat = yearlyStats[yk];
-              return (
-                <div key={yk} className="forma-subcard rounded-lg px-3 py-2 text-xs mono"
-                  style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
-                  <div className="forma-period-heading">
-                    <span style={{ color: COLORS.sub }}>{yk}{stat?.approximate ? " *" : ""}</span>
-                    {stat ? (
-                      <span className="font-bold" style={{ color: stat.marketReturn >= 0 ? COLORS.gain : COLORS.loss }}>
-                        {M("Market", "市場")} {formatSignedNtd(stat.marketReturn)} <span className="forma-period-percent">（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）</span>
-                      </span>
-                    ) : (
-                      <span style={{ color: COLORS.sub }}>{M("Earliest record, no prior year to compare", "最早紀錄，無前年可比較")}</span>
-                    )}
-                  </div>
-                  {stat && stat.contribution != null && stat.contribution !== 0 && (
-                    <div className="text-right mt-0.5" style={{ color: COLORS.sub }}>
-                      {M("New contribution", "新增投入")} {formatSignedNtd(stat.contribution)}
-                    </div>
-                  )}
-                </div>
-              );
+              return <PeriodStat key={yk} label={yk} stat={stat} emptyText={M("Earliest record, no prior year to compare", "最早紀錄，無前年可比較")} />;
             })}
           </div>
         </Panel>
@@ -7305,51 +7248,11 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, autoFrom, set
               return (
                 <div key={r.id}>
                   {showHeader && (
-                    <div className="pt-3 pb-1.5 text-[11px] font-bold mono"
-                      style={{ borderTop: i > 0 ? `1px solid ${COLORS.panelBorder}` : "none", marginTop: i > 0 ? "0.25rem" : 0 }}>
-                      <div className="forma-period-heading">
-                        <span style={{ color: COLORS.text }}>{mk}{stat?.approximate ? " *" : ""}</span>
-                        {stat ? (
-                          <span style={{ color: stat.marketReturn >= 0 ? COLORS.gain : COLORS.loss }}>
-                            {M("Market", "市場")} {formatSignedNtd(stat.marketReturn)} <span className="forma-period-percent">（{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%）</span>
-                          </span>
-                        ) : (
-                          <span style={{ color: COLORS.sub, fontWeight: "normal" }}>{M("Earliest record, no prior month to compare", "最早紀錄，無前月可比較")}</span>
-                        )}
-                      </div>
-                      {stat && stat.contribution != null && stat.contribution !== 0 && (
-                        <div className="text-right font-normal" style={{ color: COLORS.sub }}>
-                          {M("New contribution", "新增投入")} {formatSignedNtd(stat.contribution)}
-                        </div>
-                      )}
+                    <div style={{ borderTop: i > 0 ? `1px solid ${COLORS.panelBorder}` : "none", marginTop: i > 0 ? 6 : 0, paddingTop: i > 0 ? 10 : 2, paddingBottom: 4 }}>
+                      <PeriodStat bare label={mk} stat={stat} emptyText={M("Earliest record, no prior month to compare", "最早紀錄，無前月可比較")} />
                     </div>
                   )}
-                  <Row onDelete={() => remove(r.id)}>
-                    <div className="flex-1">
-                      <div className="text-sm mono">{r.date}{r.source === "auto" && <span className="ml-1.5 text-[10px]" style={{ color: COLORS.sub }}>🤖 <UiLabel zh="自動" inline /></span>}</div>
-                      <div className="text-[11px]" style={{ color: COLORS.sub }}>
-                        {showUsFields ? M(`TW ${nf(r.twValue)} / US ${nf(r.usValue)}`, `台 ${nf(r.twValue)} ／ 美 ${nf(r.usValue)}`) : M(`TW ${nf(r.twValue)}`, `台 ${nf(r.twValue)}`)}
-                      </div>
-                      {totalCost > 0 && (
-                        <div className="text-[11px] mono" style={{ color: COLORS.sub }}>
-                          {showUsFields ? M(`Cost TW ${nf(r.twCost)} / US ${nf(r.usCost)}`, `成本 台 ${nf(r.twCost)} ／ 美 ${nf(r.usCost)}`) : M(`Cost TW ${nf(r.twCost)}`, `成本 台 ${nf(r.twCost)}`)}
-                        </div>
-                      )}
-                    </div>
-                    <div className="text-right">
-                      <div className="mono text-sm font-bold">{nf(total)}</div>
-                      {diff != null && (
-                        <div className="text-[11px] mono" style={{ color: diff >= 0 ? COLORS.gain : COLORS.loss }}>
-                          {diff >= 0 ? "+" : ""}{nf(diff)}
-                        </div>
-                      )}
-                      {totalCost > 0 && (
-                        <div className="text-[11px] mono" style={{ color: (total - totalCost) >= 0 ? COLORS.gain : COLORS.loss }}>
-                          {M("P/L", "損益")} {(total - totalCost) >= 0 ? "+" : ""}{nf(total - totalCost)}
-                        </div>
-                      )}
-                    </div>
-                  </Row>
+                  <DailyRecordCard r={r} diff={diff} total={total} totalCost={totalCost} showUsFields={showUsFields} onDelete={() => remove(r.id)} />
                 </div>
               );
             });
@@ -7357,6 +7260,71 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, autoFrom, set
           {records.length === 0 && <Empty text="尚無紀錄，新增第一筆吧" />}
         </div>
       </Panel>
+    </div>
+  );
+}
+
+// 週／月／年度損益：固定兩行、不換行（1：期間＋市場損益；2：新增投入＋報酬率），字放大但窄螢幕自動縮一點。
+function PeriodStat({ label, stat, emptyText, bare = false }) {
+  const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
+  const tone = stat ? (stat.marketReturn >= 0 ? COLORS.gain : COLORS.loss) : COLORS.sub;
+  const line = { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" };
+  return (
+    <div className={bare ? "forma-pstat" : "forma-pstat forma-subcard rounded-xl"} data-period-stat
+      style={bare ? null : { background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, padding: "10px 14px" }}>
+      <div style={line}>
+        <span style={{ color: bare ? COLORS.text : COLORS.sub, fontSize: 14, fontWeight: bare ? 700 : 500 }}>{label}{stat?.approximate ? " *" : ""}</span>
+        {stat
+          ? <span style={{ color: tone, fontWeight: 700, fontSize: "clamp(14px, 4.2vw, 17px)" }}>{M("Market", "市場")} {formatSignedNtd(stat.marketReturn)}</span>
+          : <span style={{ color: COLORS.sub, fontSize: 13, whiteSpace: "normal", textAlign: "right", minWidth: 0 }}>{emptyText}</span>}
+      </div>
+      {stat && (
+        <div style={{ ...line, marginTop: 4 }}>
+          <span style={{ color: COLORS.sub, fontSize: 13 }}>
+            {stat.contribution != null && stat.contribution !== 0 ? <>{M("New contribution", "新增投入")} {formatSignedNtd(stat.contribution)}</> : null}
+          </span>
+          <span style={{ color: tone, fontSize: 14, fontWeight: 600 }}>{stat.pct >= 0 ? "+" : ""}{stat.pct.toFixed(2)}%</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 歷史紀錄一筆：1 日期｜總資產；2 當日變化｜損益；3 市值（台／美）；4 成本（台／美）。每行都不換行。
+function DailyRecordCard({ r, diff, total, totalCost, showUsFields, onDelete }) {
+  const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
+  const signed = (v) => `${v >= 0 ? "+" : "-"}${nf(Math.abs(v))}`;
+  const line = { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" };
+  const small = { color: COLORS.sub, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontVariantNumeric: "tabular-nums", marginTop: 3 };
+  const pl = total - totalCost;
+  return (
+    <div className="forma-rec flex items-start gap-1 rounded-xl" data-daily-record
+      style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, padding: "12px 4px 12px 14px" }}>
+      <div className="flex-1 min-w-0">
+        <div style={line}>
+          <span style={{ color: COLORS.text, fontSize: 15, fontWeight: 600 }}>
+            {r.date}{r.source === "auto" && <span title={uiText("自動")} style={{ color: COLORS.sub, fontSize: 12, fontWeight: 400, marginLeft: 6 }}>🤖<span className="hidden min-[360px]:inline"> <UiLabel zh="自動" inline /></span></span>}
+          </span>
+          <span style={{ color: COLORS.text, fontSize: 17, fontWeight: 700 }}>{nf(total)}</span>
+        </div>
+        {(diff != null || totalCost > 0) && (
+          <div style={{ ...line, marginTop: 4, fontSize: 14 }}>
+            <span style={{ color: diff == null ? COLORS.sub : diff >= 0 ? COLORS.gain : COLORS.loss }}>
+              {diff != null ? <>{M("Day", "當日")} {signed(diff)}</> : null}
+            </span>
+            {totalCost > 0 && <span style={{ color: pl >= 0 ? COLORS.gain : COLORS.loss, fontWeight: 600 }}>{M("P/L", "損益")} {signed(pl)}</span>}
+          </div>
+        )}
+        <div style={small}>
+          {showUsFields ? M(`Value TW ${nf(r.twValue)} / US ${nf(r.usValue)}`, `市值 台 ${nf(r.twValue)} ／ 美 ${nf(r.usValue)}`) : M(`Value TW ${nf(r.twValue)}`, `市值 台 ${nf(r.twValue)}`)}
+        </div>
+        {totalCost > 0 && (
+          <div style={small}>
+            {showUsFields ? M(`Cost TW ${nf(r.twCost)} / US ${nf(r.usCost)}`, `成本 台 ${nf(r.twCost)} ／ 美 ${nf(r.usCost)}`) : M(`Cost TW ${nf(r.twCost)}`, `成本 台 ${nf(r.twCost)}`)}
+          </div>
+        )}
+      </div>
+      <button className="premium-row-delete" onClick={onDelete} style={{ color: COLORS.sub }} aria-label={uiText("刪除")}><TrashIcon size={15} /></button>
     </div>
   );
 }
