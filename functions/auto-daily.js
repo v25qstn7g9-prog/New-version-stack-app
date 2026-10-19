@@ -67,7 +67,12 @@ export function buildAutoRecord(summary, prices, date) {
   const fx = num(prices.USDTWD);
   if (us.length && !(fx > 0)) return { ok: false, reason: "missing_prices", missing: ["USDTWD"] };
   const twValue = Math.round(tw.reduce((s,h) => s + num(prices[h.symbol]) * num(h.shares),0));
-  const usValue = us.length ? Math.round(us.reduce((s,h) => s + num(prices[h.symbol]) * num(h.shares) * fx,0)) : (summary?.dataset?.holdings?.some((h) => !/^[0-9]/.test(h.symbol)) ? 0 : (num(prior?.usValue) ?? 0));
+  const calibration = summary?.dataset?.usBrokerCalibration;
+  const factor = Number(calibration?.factor);
+  const usKey = us.map((h) => `${String(h.symbol).trim().toUpperCase()}:${Number(h.shares)}`).sort().join(",");
+  const calibrated = calibration?.enabled === true && calibration.activeKey === usKey && Number.isFinite(factor) && factor >= .9 && factor <= 1.1;
+  const rawUsValue = Math.round(us.reduce((s,h) => s + num(prices[h.symbol]) * num(h.shares) * fx,0));
+  const usValue = us.length ? Math.round(rawUsValue * (calibrated ? factor : 1)) : (summary?.dataset?.holdings?.some((h) => !/^[0-9]/.test(h.symbol)) ? 0 : (num(prior?.usValue) ?? 0));
   const costFor = (rows, fallback) => rows.length && rows.every((h) => h.costBasis != null && num(h.costBasis) != null) ? Math.round(rows.reduce((s,h) => s + num(h.costBasis),0)) : fallback;
   const twCost = costFor(tw, num(prior?.twCost) ?? 0);
   const usCost = costFor(us, !us.length && summary?.dataset?.holdings?.some((h) => !/^[0-9]/.test(h.symbol)) ? 0 : num(prior?.usCost) ?? 0);

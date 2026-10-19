@@ -445,3 +445,15 @@ html.za-clean [data-forma-theme="portfolio"] .premium-ai-launcher{bottom:calc(76
   html.za-clean [data-forma-theme="portfolio"] .live-quote-grid>:nth-child(3){grid-area:2 / 2}
   html.za-clean [data-forma-theme="portfolio"] .premium-tabbar button>span:last-child{font-size:10px!important}
 }
+
+/* 每日記錄：週／月／年度與歷史小計固定日期、損益各一列，長金額不再擠壓日期。 */
+html.za-clean [data-forma-theme="portfolio"] .forma-daily-records .forma-period-heading{
+  display:grid;grid-template-columns:minmax(0,1fr);gap:4px;font-size:11px!important;line-height:17px!important;
+}
+html.za-clean [data-forma-theme="portfolio"] .forma-daily-records .forma-period-heading>span:last-child{
+  text-align:right;font-variant-numeric:tabular-nums;
+}
+html.za-clean [data-forma-theme="portfolio"] .forma-daily-records .forma-period-percent{display:inline-block;white-space:nowrap}
+html.za-clean [data-forma-theme="portfolio"] .forma-daily-records .forma-period-heading+div{
+  font-size:11px!important;line-height:17px!important;text-align:right;
+}

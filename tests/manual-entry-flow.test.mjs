@@ -13,16 +13,16 @@ const slice = (name) => {
   return html.slice(a, html.indexOf('\nfunction ', a + 10));
 };
 
-test('daily record: today card auto-fills TW value from quotes, TW cost from holdings, US from the last record', () => {
+test('daily record: today card follows quote/holding sources and retains US history as fallback', () => {
   const daily = slice('DailyPanel');
   assert.match(daily, /<Panel title="今天的紀錄">/);
   assert.match(daily, /fetchQuotesWithFallback\(activeTw\.map\(\(h\) => h\.symbol\), force\)/);
   assert.match(daily, /Number\(quotes\[h\.symbol\]\.price\) \* Number\(h\.current\)/);
-  assert.match(daily, /holdings\.filter\(\(h\) => isTaiwanSymbol\(h\.symbol\)\)\.reduce\(\(sum, h\) => sum \+ Number\(h\.estCostBasis \|\| 0\), 0\)/, 'TW cost excludes US holdings');
+  assert.match(daily, /knownHoldingCost\(holdings\.filter\(\(h\) => isTaiwanSymbol\(h\.symbol\)\)\)/, 'TW cost excludes US holdings');
   assert.match(daily, /fills\.usValue = String\(autoUs\.value\); from\.usValue = "usQuote"/, 'today uses US quotes when configured');
   assert.match(daily, /from\.usValue = "last"/);
-  // 只填空的欄位，使用者自己清空的不會被塞回去
-  assert.match(daily, /const canFill = \(k\) => form\[k\] === "" && autoFrom\[k\] !== "typed";/);
+  // 手動欄位保持原值；今天由程式填入的值允許跟隨行情／校準更新
+  assert.match(daily, /const canFill = \(k\) => autoFrom\[k\] !== "typed" &&/);
   // 報價不完整就不自動帶入市值
   assert.match(daily, /if \(missing\.length\) \{ setAutoTw\(\{ status: "partial"/);
   assert.match(daily, /\|\| quotes\?\.\[h\.symbol\]\?\.isStale\)/, 'stale quotes never become today\'s value');

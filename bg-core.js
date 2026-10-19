@@ -50,10 +50,15 @@
       if (isUS) usTotal += num(q.price) * num(h.shares) * fx;
       else twTotal += num(q.price) * num(h.shares);
     }
+    var calibration = mirror.usBrokerCalibration, factor = Number(calibration && calibration.factor);
+    var usKey = us.map(function(h) { return String(h.symbol).trim().toUpperCase() + ":" + Number(h.shares); }).sort().join(",");
+    var calibrated = calibration && calibration.enabled === true && calibration.activeKey === usKey && isFinite(factor) && factor >= .9 && factor <= 1.1;
+    // Round the raw portfolio first, exactly as the foreground asset layer does.
+    usTotal = Math.round(Math.round(usTotal) * (calibrated ? factor : 1));
     var prior = mirror.prior || {};
     function cost(rows, fallback) {
-      var sum = Math.round(rows.reduce(function(s,h) { return s + num(h.costBasis); },0));
-      return sum > 0 ? sum : num(fallback);
+      return rows.length && rows.every(function(h) { return h.costBasis != null && isFinite(Number(h.costBasis)); })
+        ? Math.round(rows.reduce(function(s,h) { return s + num(h.costBasis); },0)) : num(fallback);
     }
     return {
       ok: true,

@@ -61,7 +61,7 @@ test('weekday-gap check avoids network when nothing can be missing (e.g. Friday 
 test('index.html, sw.js and worker wiring are all in place', () => {
   const html = readAppSource();
   const sw = fs.readFileSync('sw.js', 'utf8');
-  assert.match(html, /<script src="\/bg-core\.js\?v=3"><\/script>/);
+  assert.match(html, /<script src="\/bg-core\.js\?v=4"><\/script>/);
   assert.match(html, /register\("\/sw\.js"\)/);
   assert.match(html, /bgSet\("mirror"/);
   assert.match(html, /bgGet\("pendingAuto"\)/);
@@ -73,7 +73,7 @@ test('index.html, sw.js and worker wiring are all in place', () => {
   const appBody = html.slice(html.indexOf('function AssetTracker('), html.indexOf('function Header('));
   assert.ok(!/useClosingReminder\(\)/.test(appBody), 'the App body itself must not hold push state');
   assert.match(html, /<ClosingReminderBanner \/>/);
-  assert.match(sw, /importScripts\("\/bg-core\.js\?v=3"\)/);
+  assert.match(sw, /importScripts\("\/bg-core\.js\?v=4"\)/);
   assert.equal((sw.match(/showNotification/g) || []).length >= 2, true);
   assert.match(sw, /addEventListener\("push"/);
   assert.match(sw, /\.catch\(\(e\) => self\.registration\.showNotification/, 'a failing handler still shows a notification (iOS requires one per push)');
