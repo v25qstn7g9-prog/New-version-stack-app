@@ -925,7 +925,8 @@
   <script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
   <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
   <!-- 圖示不再整包下載 lucide-react：App 用到的 22 個已編進 app.js（scripts/gen-icons.mjs）。 -->
-  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Tailwind 先編好（npm run build:css），不再每次開 App 下載 407 KB 的瀏覽器編譯器；放在 clean.css 之後，層疊順序和以前 CDN 注入的一樣。 -->
+  <link rel="stylesheet" href="/tw.css?v=1" />
 </head>
 <body>
   <div id="root"></div>

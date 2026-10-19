@@ -15,7 +15,8 @@
     "kv:list": "wrangler kv:namespace list",
     "kv:create": "wrangler kv:namespace create health_kv",
     "kv:delete": "wrangler kv:namespace delete health_kv",
-    "build:app": "node scripts/build-app.mjs"
+    "build:app": "node scripts/build-app.mjs",
+    "build:css": "tailwindcss -c scripts/tailwind.config.cjs -i scripts/tw-input.css -o tw.css --minify"
   },
   "keywords": [
     "stock",
@@ -34,6 +35,7 @@
   "devDependencies": {
     "@babel/standalone": "7.25.6",
     "lucide-react": "0.344.0",
+    "tailwindcss": "3.4.17",
     "terser": "5.31.6"
   }
 }

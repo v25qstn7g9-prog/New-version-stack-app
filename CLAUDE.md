@@ -7,6 +7,7 @@
 - 漸層只用在重點大卡（hero），不要每一格資料都加。
 - 正負數顏色只代表漲跌（`--forma-positive`／`--forma-negative`），不當裝飾。
 - 外觀調整不可影響資產計算、交易紀錄與報價邏輯。
+- **編譯**：前端原始碼是 `src/app.jsx`，改完跑 `npm run build:app`（產生最小化的 `app.js`，含用到的 lucide 圖示；新增圖示先跑 `node scripts/gen-icons.mjs`）；改到 Tailwind class 再跑 `npm run build:css`（產生 `tw.css`，不再用 cdn.tailwindcss.com）。兩者都有測試檢查是否同步。
 
 ## 外觀與配色：照 Forma Design System
 
