@@ -11,6 +11,7 @@
  * - 所有 Assets MCP 工具維持唯讀。
  */
 import { onRequestGet as portfolioSyncGet } from "./portfolio-sync.js";
+import { factorCollectionStatus } from "./factor-status.js";
 import { onRequestGet as quoteGet } from "./quote.js";
 import { onRequestGet as newsGet } from "./news.js";
 import { onRequestGet as dividendGet } from "./dividend-schedule.js";
@@ -112,13 +113,18 @@ export const PREPARED_ASSET_TOOLS = [
   },
   {
     name: "intraday_bars", title: "盤中 1／5／10／15 分 K（當日暫存）", annotations: READ_ONLY,
-    description: "Read today's intraday candles (open/high/low/close) recorded by a background cron every minute during Taiwan market hours (09:00-13:45). Each 1-minute bar is built from four 15-second samples; 5/10/15/30/60-minute bars are aggregated from them and aligned to 09:00. Only about the last 36 hours are kept. If found is false there is no recorded data: say so, never substitute daily bars or live quotes for intraday candles. Bars are sampled, not tick data, so highs/lows may be slightly narrower than the true values and the last bar may be incomplete.",
+    description: "Read today's intraday candles (open/high/low/close) recorded by a background cron every minute during Taiwan market hours (09:00-13:45). Each 1-minute bar is one sampled quote per minute (a minute can occasionally be missing); 5/10/15/30/60-minute bars are aggregated from them and aligned to 09:00. Only about the last 36 hours are kept. If found is false there is no recorded data: say so, never substitute daily bars or live quotes for intraday candles. Bars are sampled, not tick data, so highs/lows may be slightly narrower than the true values and the last bar may be incomplete.",
     inputSchema: { type:"object", properties:{ symbols:{type:"array",items:{type:"string"},maxItems:12}, interval:{type:"integer",enum:[1,5,10,15,30,60],description:"Candle length in minutes. Default 5."}, date:{type:"string",description:"YYYY-MM-DD (Taipei). Default today."}, limit:{type:"integer",minimum:1,maximum:300,description:"Return only the most recent N candles per symbol."} }, additionalProperties:false }
   },
   {
     name: "system_health", title: "資產 App 系統健康", annotations: READ_ONLY,
     description: "Read existing system health cards without triggering a new AI health check.",
     inputSchema: { type:"object", properties:{}, additionalProperties:false }
+  },
+  {
+    name: "factor_collection_status", title: "預測因子收集狀態", annotations: READ_ONLY,
+    description: "Check whether the Trend Radar prediction factors are still being collected: for the last few days of synced factor records, how many records were saved (morning 09:25 / closeLock 13:25, and the 13:25 tomorrow forecast) and how many had each factor filled (index/stock %, news, institutional, KD 5/15/60/daily/monthly, RVOL, VWAP, previous-day breadth, margin, S&P500, SOX, USD/TWD, TX futures). Read-only; data comes from the app's last sync.",
+    inputSchema: { type:"object", properties:{ days:{ type:"integer", minimum:1, maximum:30, description:"How many recent days to summarize. Default 8." } }, additionalProperties:false }
   },
   {
     name: "pending_trades", title: "待確認股票交易", annotations: READ_ONLY,
@@ -732,7 +738,27 @@ async function callTool(name, args, env, syncToken) {
     const data = await res.json().catch(() => null);
     return toolResult(data ?? {ok:false,error:"Invalid TAIFEX response"}, !res.ok || data?.ok === false);
   }
-  if (name === "system_health") return endpointTool(healthGet, "/api/health-cards", env);
+  if (name === "factor_collection_status") {
+    try {
+      const data = await readPortfolio(env, syncToken);
+      return toolResult(factorCollectionStatus(data?.summary, { days: Math.min(30, Math.max(1, Number(args?.days) || 8)) }));
+    } catch (error) {
+      return toolResult({ ok: false, error: String(error?.message || error).slice(0, 300) }, true);
+    }
+  }
+  if (name === "system_health") {
+    // 健康卡片之外，附上最近 3 天的因子收集摘要（讀不到快照就略過，不影響健康卡片）。
+    const res = await healthGet({ request: new Request("https://asset-app.local/api/health-cards"), env });
+    const data = await res.json().catch(() => null);
+    if (data && typeof data === "object") {
+      try {
+        const snap = await readPortfolio(env, syncToken);
+        const st = factorCollectionStatus(snap?.summary, { days: 3 });
+        data.factorCollection = st.ok ? { syncedAt: st.syncedAt, lastIntradayDay: st.lastIntradayDay, lastTomorrowDay: st.lastTomorrowDay, intraday: st.intraday, tomorrow: st.tomorrow } : { ok: false, reason: st.reason };
+      } catch (error) { data.factorCollection = { ok: false, reason: String(error?.message || error).slice(0, 200) }; }
+    }
+    return toolResult(data ?? { ok:false, error:"Invalid endpoint response" }, !res.ok || data?.ok === false);
+  }
   if (name === "pending_trades") {
     const req = new Request("https://asset-app.local/api/pending-trades", { headers:{ authorization:`Bearer ${syncToken}` } });
     const res = await pendingTradesGet({request:req, env});
