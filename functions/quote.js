@@ -603,13 +603,17 @@ export async function onRequestGet(context) {
     const debug = url.searchParams.get("debug") === "1";
     const day = taiwanDateStr();
 
+    // 台股 13:45 收盤後停止自動查詢；但美股個股與隔夜指標（S&P500、費半、美元／台幣）在台股收盤後
+    // 才開始變動，晚上和隔天早上都要能讀，所以它們不受這個時間限制。
+    const liveAfterTwClose = symbols.some((s) => isUsEquitySymbol(s) || isGlobalSymbol(s));
+    const autoStopped = shouldAutoStopQuoteRequests() && !liveAfterTwClose;
+
     const cachedQuick = await readQuoteResponseCache(symbols, day);
-    if (cachedQuick && !forceRefresh && !shouldAutoStopQuoteRequests() && (Date.now() - new Date(cachedQuick.fetchedAt || 0).getTime()) < QUOTE_REFRESH_INTERVAL_MS) {
+    if (cachedQuick && !forceRefresh && !autoStopped && (Date.now() - new Date(cachedQuick.fetchedAt || 0).getTime()) < QUOTE_REFRESH_INTERVAL_MS) {
       return jsonResponse({ ...cachedQuick, fromCache: true, version: QUOTE_VERSION });
     }
 
-    const hasUsEquities = symbols.some(isUsEquitySymbol);
-    if (!forceRefresh && !hasUsEquities && shouldAutoStopQuoteRequests()) {
+    if (!forceRefresh && autoStopped) {
       if (cachedQuick) {
         return jsonResponse({ ...cachedQuick, fromCache: true, stale: true, autoStopped: true, version: QUOTE_VERSION });
       }
