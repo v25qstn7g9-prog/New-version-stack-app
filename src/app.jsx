@@ -2568,9 +2568,11 @@ function AssetTracker() {
       importServerBarSamples({
         symbols, today: todayStr(), modelVersion: TREND_MODEL_VERSION,
         isClosedDay: (d) => Boolean(marketClosureFromCache(new Date(d + "T12:00:00+08:00"))),
-      }).catch(() => {});
+      }).catch(() => {}).then(() => backfillVolumePrice()).catch(() => {});
     }, 5000);
-    return () => clearTimeout(t);
+    // App 一直開著時，半小時後再補一次（剛記的紀錄要等 Yahoo 延遲過去才補得到）。
+    const t2 = setInterval(() => { backfillVolumePrice().catch(() => {}); }, 30 * 60000);
+    return () => { clearTimeout(t); clearInterval(t2); };
   }, [ready, importSymbolsKey]);
   const fillMissedDays = async () => {
     if (missedBusy || !missedDays.length) return;
@@ -4336,6 +4338,72 @@ async function importServerBarSamples({ symbols, today, isClosedDay, modelVersio
   if (done.length) await saveKey("serverBarsImport", { symbolKey, checked: [...checked, ...done].slice(-60), at: new Date().toISOString() });
   return fresh.length + filled;
 }
+// <volume-backfill>
+// 量價（RVOL／VWAP）事後補值：Yahoo 台股分 K 延遲 20 分鐘，App 沒剛好開在 09:20～10:00／13:25，
+// 或那天是伺服器代收的樣本時，紀錄裡的量價都是空的（因子回測 n=0）。打開 App 時請伺服器算
+// 「那天、紀錄那個時間點為止」的量價補上：只補空的、只補最近 5 個有紀錄的交易日、只用紀錄時間以前的分 K。
+// 只是研究紀錄，不影響預測。
+function volumeFromMetrics(m) {
+  const vwap = Number(m?.vwap), last = Number(m?.lastClose), rvol = Number(m?.rvol), days = Number(m?.comparisonDays) || 0;
+  const hasVwap = vwap > 0 && last > 0, hasRvol = rvol > 0 && days >= 2;
+  if (!hasVwap && !hasRvol) return null;
+  return {
+    available: true, vwap: hasVwap ? vwap : null, distPct: hasVwap ? ((last - vwap) / vwap) * 100 : null,
+    vwapSlopePct: Number.isFinite(Number(m?.vwapSlopePct)) && m?.vwapSlopePct !== null ? Number(m.vwapSlopePct) : null,
+    rvol: hasRvol ? rvol : null, comparisonDays: days, asOfMinute: Number(m?.lastMinute) || null, backfilled: true,
+  };
+}
+function volumeBackfillGroups(records, tried, nowMs) {
+  const taipei = (iso) => { const t = Date.parse(iso || ""); if (!Number.isFinite(t)) return null; const d = new Date(t + 8 * 3600000); return { t, day: d.toISOString().slice(0, 10), minute: d.getUTCHours() * 60 + d.getUTCMinutes() }; };
+  const recentDays = [...new Set((records || []).map((r) => r?.day).filter(Boolean))].sort().slice(-5);
+  const groups = new Map();
+  for (const r of records || []) {
+    if (!r || r.symbol === "TAIEX" || (r.phase !== "morning" && r.phase !== "closeLock") || !recentDays.includes(r.day)) continue;
+    if (r.volumePrice?.rvol != null || r.volumePrice?.distPct != null || tried.has(r.key)) continue;
+    const at = taipei(r.ts);
+    if (!at || at.day !== r.day || nowMs - at.t < 25 * 60000) continue; // 太新：Yahoo 還沒有那一分鐘
+    const minute = Math.min(Math.max(at.minute, 540), 810);
+    const k = r.day + "|" + minute;
+    if (!groups.has(k)) groups.set(k, { day: r.day, minute, keys: [], symbols: new Set() });
+    groups.get(k).keys.push(r.key); groups.get(k).symbols.add(String(r.symbol));
+  }
+  return [...groups.values()].slice(0, 10);
+}
+async function backfillVolumePrice(nowMs = Date.now()) {
+  const hist = await loadKey("trendRadarHistory", { records: [] });
+  const triedDoc = await loadKey("volumeBackfillTried", { keys: [] });
+  const tried = new Set(Array.isArray(triedDoc?.keys) ? triedDoc.keys : []);
+  const groups = volumeBackfillGroups(hist?.records || [], tried, nowMs);
+  if (!groups.length) return 0;
+  const fills = new Map(), done = [];
+  for (const g of groups) {
+    const hh = String(Math.floor(g.minute / 60)).padStart(2, "0"), mm = String(g.minute % 60).padStart(2, "0");
+    const res = await fetchWithTimeout(`/intraday-metrics?symbols=${encodeURIComponent([...g.symbols].join(","))}&day=${g.day}&at=${hh}:${mm}`, { cache: "no-store" }, 12000).catch(() => null);
+    const j = res?.ok ? await res.json().catch(() => null) : null;
+    if (!j?.ok) continue; // 暫時抓不到：下次打開再試
+    for (const key of g.keys) {
+      const sym = key.split("|")[1];
+      const m = j.metrics?.[sym];
+      const v = m && m.day === g.day ? volumeFromMetrics(m) : null;
+      if (v) fills.set(key, v);
+      if (v || !j.errors?.some((e) => String(e).startsWith(sym + ":"))) done.push(key); // 來源回了但沒有資料：不再重試
+    }
+  }
+  let n = 0;
+  if (fills.size) {
+    await updateForecastHistory("trendRadarHistory", (latest) => {
+      const records = Array.isArray(latest?.records) ? latest.records.slice() : [];
+      for (const r of records) {
+        const v = r && fills.get(r.key);
+        if (v && r.volumePrice?.rvol == null && r.volumePrice?.distPct == null) { r.volumePrice = v; n++; }
+      }
+      return n ? { ...(latest || {}), records } : null;
+    });
+  }
+  if (done.length) await saveKey("volumeBackfillTried", { keys: [...tried, ...done].slice(-600), at: new Date(nowMs).toISOString() });
+  return n;
+}
+// </volume-backfill>
 // 打開 App 時重新訓練（新增的已驗證紀錄數有變、或換日了才重算；很便宜）。
 async function runSelfLearn(modelVersion) {
   const today = taipeiDateKey();

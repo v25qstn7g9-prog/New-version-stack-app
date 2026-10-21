@@ -31,10 +31,14 @@ async function fetchJson(url,timeoutMs=8000){
     return await r.json();
   }finally{clearTimeout(t);}
 }
-async function metricFor(sym){
+// asOf：{day:"YYYY-MM-DD", minute:分鐘數} 時，算「那天那一分鐘為止」的量價（給因子紀錄事後補值用）。
+async function metricFor(sym,asOf=null){
   const ys=yahooSymbol(sym);
-  const url=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ys)}?interval=1m&range=5d&includePrePost=false&_ts=${Date.now()}`;
+  const url=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ys)}?interval=1m&range=${asOf?"7d":"5d"}&includePrePost=false&_ts=${Date.now()}`;
   const j=await fetchJson(url);
+  return metricsFromChart(j,asOf);
+}
+export function metricsFromChart(j,asOf=null){
   const r=j?.chart?.result?.[0];
   const ts=Array.isArray(r?.timestamp)?r.timestamp:[];
   const q=r?.indicators?.quote?.[0]||{};
@@ -47,9 +51,10 @@ async function metricFor(sym){
     bars.push({day:p.day,minute:p.minute,close,high:Number.isFinite(high)?high:close,low:Number.isFinite(low)?low:close,vol});
   }
   if(!bars.length) return null;
-  const days=[...new Set(bars.map(b=>b.day))].sort();
+  let days=[...new Set(bars.map(b=>b.day))].sort();
+  if(asOf){ if(!days.includes(asOf.day)) return null; days=days.filter(d=>d<=asOf.day); }
   const today=days[days.length-1];
-  const cur=bars.filter(b=>b.day===today).sort((a,b)=>a.minute-b.minute);
+  const cur=bars.filter(b=>b.day===today&&(!asOf||b.minute<=asOf.minute)).sort((a,b)=>a.minute-b.minute);
   if(!cur.length) return null;
   const lastMinute=cur[cur.length-1].minute;
   const cumVolume=cur.reduce((a,b)=>a+b.vol,0);
@@ -80,10 +85,12 @@ export async function onRequestGet(context){
     const url=new URL(context.request.url);
     const symbols=[...new Set((url.searchParams.get("symbols")||"").split(",").map(s=>s.trim().toUpperCase()).filter(allowed))].slice(0,12);
     if(!symbols.length) return json({ok:false,error:"沒有允許的股票代號"},400);
-    const key=`https://intraday-metrics-cache.local/${symbols.slice().sort().join(",")}`;
+    const day=url.searchParams.get("day"), at=url.searchParams.get("at");
+    const asOf=/^\d{4}-\d{2}-\d{2}$/.test(day||"")&&/^\d{1,2}:\d{2}$/.test(at||"")?{day,minute:Number(at.split(":")[0])*60+Number(at.split(":")[1])}:null;
+    const key=`https://intraday-metrics-cache.local/${symbols.slice().sort().join(",")}${asOf?`?day=${asOf.day}&at=${asOf.minute}`:""}`;
     const cached=await cacheGet(key);
     if(cached) return json({...cached,cached:true});
-    const entries=await Promise.all(symbols.map(async s=>{try{return [s,await metricFor(s),null];}catch(e){return [s,null,String(e?.message||e)];}}));
+    const entries=await Promise.all(symbols.map(async s=>{try{return [s,await metricFor(s,asOf),null];}catch(e){return [s,null,String(e?.message||e)];}}));
     const metrics={},errors=[];
     for(const [s,m,e] of entries){if(m)metrics[s]=m;if(e)errors.push(`${s}: ${e}`);}
     const out={ok:true,at:new Date().toISOString(),metrics,errors};
