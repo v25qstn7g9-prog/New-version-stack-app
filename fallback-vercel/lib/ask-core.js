@@ -352,7 +352,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "get_live_quotes",
-      description: "查詢特定股票／ETF 的即時／今日最新股價。",
+      description: "查詢特定股票／ETF 的即時／今日最新股價；也可查 TAIEX（加權指數）、SPX（S&P 500）、SOX（費城半導體）、USDTWD（美元／台幣）。美股指數是最近一個交易日的收盤（美股開盤時是盤中價），隔夜美股請用這個查。",
       parameters: {
         type: "object",
         properties: {
