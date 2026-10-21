@@ -1357,7 +1357,7 @@ function urlBase64ToUint8Array(b64) {
   const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
   return Uint8Array.from(raw, (c) => c.charCodeAt(0));
 }
-async function loadKey(key, fallback) {
+async function loadKey(key, fallback, strict = false) {
   try {
     if (window.storage?.get) {
       const res = await window.storage.get(key, false);
@@ -1365,7 +1365,8 @@ async function loadKey(key, fallback) {
     }
     const local = window.localStorage?.getItem(key);
     return local ? JSON.parse(local) : fallback;
-  } catch {
+  } catch (e) {
+    if (strict) throw e;
     return fallback;
   }
 }
@@ -1387,7 +1388,29 @@ async function saveKey(key, value) {
     console.warn("localStorage save failed", key, e);
   }
   if (!saved) console.error("storage save failed", key);
+  if (saved && (key === "trendRadarHistory" || key === "trendRadarTomorrowHistory")) {
+    try { window.dispatchEvent(new CustomEvent("forecastHistoryUpdated", { detail: { key } })); } catch {}
+  }
+  return saved;
 }
+
+// <forecast-history-writer>
+// 同一頁的補匯入與即時收集共用序列，讀取、合併和寫入必須是一個作業。
+const forecastHistoryWrites = new Map();
+async function updateForecastHistory(key, update) {
+  const previous = forecastHistoryWrites.get(key) || Promise.resolve();
+  const task = previous.catch(() => {}).then(async () => {
+    const current = await loadKey(key, { records: [] }, true);
+    if (!Array.isArray(current?.records)) throw new Error("分析紀錄格式異常，已保留原資料");
+    const next = await update(current);
+    if (next && await saveKey(key, next) === false) throw new Error("分析紀錄儲存失敗，請稍後重試");
+    return next || current;
+  });
+  forecastHistoryWrites.set(key, task);
+  try { return await task; }
+  finally { if (forecastHistoryWrites.get(key) === task) forecastHistoryWrites.delete(key); }
+}
+// </forecast-history-writer>
 
 function isObject(v) {
   return v != null && typeof v === "object" && !Array.isArray(v);
@@ -2527,13 +2550,19 @@ function AssetTracker() {
   // ⑥ 自主學習：只從已驗證紀錄學；學習版在樣本外贏過手調模型才會接手，變差會自動退回。
   useEffect(() => {
     if (!ready) return;
-    const t = setTimeout(() => { runSelfLearn(TREND_MODEL_VERSION).catch(() => {}); }, 8000);
-    return () => clearTimeout(t);
+    let work = Promise.resolve();
+    let stopped = false;
+    const refresh = () => { work = work.then(() => stopped ? null : runSelfLearn(TREND_MODEL_VERSION)).catch(() => {}); };
+    let t = setTimeout(refresh, 8000);
+    const onHistory = () => { clearTimeout(t); t = setTimeout(refresh, 250); };
+    window.addEventListener("forecastHistoryUpdated", onHistory);
+    return () => { stopped = true; clearTimeout(t); window.removeEventListener("forecastHistoryUpdated", onHistory); };
   }, [ready]);
   // ⑤ App 收在背景時，伺服器會代收持股分 K；打開後把錯過的上午 / 收盤前因子樣本補進因子回測。
+  const importSymbolsKey = holdingsWithShares.filter((h) => isTaiwanSymbol(h.symbol) && Number(h.current || 0) > 0).map((h) => String(h.symbol)).sort().join(",");
   useEffect(() => {
     if (!ready) return;
-    const symbols = holdingsWithShares.filter((h) => isTaiwanSymbol(h.symbol) && Number(h.current || 0) > 0).map((h) => h.symbol);
+    const symbols = importSymbolsKey.split(",").filter(Boolean);
     if (!symbols.length) return;
     const t = setTimeout(() => {
       importServerBarSamples({
@@ -2542,7 +2571,7 @@ function AssetTracker() {
       }).catch(() => {});
     }, 5000);
     return () => clearTimeout(t);
-  }, [ready]);
+  }, [ready, importSymbolsKey]);
   const fillMissedDays = async () => {
     if (missedBusy || !missedDays.length) return;
     setMissedBusy(true); setMissedMsg("");
@@ -2834,6 +2863,7 @@ function AssetTracker() {
   }
 
   return (
+    <TrendRadarProvider holdings={holdingsWithShares}>
     <div style={{ background: COLORS.bg, color: COLORS.text }}
       className="min-h-screen font-sans premium-app-shell" data-forma-theme="portfolio">
       <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -3036,6 +3066,7 @@ function AssetTracker() {
 
       <TabBar tabs={visibleTabs} tab={tab} setTab={goToTab} rootRef={tabBarRef} showEnglish={showEnglish} />
     </div>
+    </TrendRadarProvider>
   );
 }
 
@@ -4261,8 +4292,10 @@ function fillMissingShadow(records, daily, today) {
 async function importServerBarSamples({ symbols, today, isClosedDay, modelVersion }) {
   const wanted = [...new Set(symbols.map(String))].slice(0, MAX_SERVER_IMPORT_SYMBOLS);
   if (!wanted.length) return 0;
+  const symbolKey = wanted.slice().sort().join(",");
   const store = await loadKey("serverBarsImport", { checked: [] });
-  const checked = Array.isArray(store?.checked) ? store.checked : [];
+  // 查詢完成的旗標只適用當時的持股集合；新增標的後必須重新查。
+  const checked = store?.symbolKey === symbolKey && Array.isArray(store?.checked) ? store.checked : [];
   const hist0 = await loadKey("trendRadarHistory", { records: [] });
   const days = serverImportDays(hist0?.records || [], today, wanted, isClosedDay, checked);
   const needKd = (hist0?.records || []).some((r) => r && r.day < today && r.symbol !== "TAIEX" && r.kd?.kDaily == null);
@@ -4278,26 +4311,29 @@ async function importServerBarSamples({ symbols, today, isClosedDay, modelVersio
     const res = await fetchWithTimeout(`/intraday-bars?date=${day}&interval=5&symbols=${encodeURIComponent(list.join(","))}`, { cache: "no-store" }, 12000).catch(() => null);
     const j = res?.ok ? await res.json().catch(() => null) : null;
     if (!j?.ok) continue; // 暫時抓不到：不標記，下次打開再試
-    done.push(day);
-    if (!j.found) continue;
+    if (!j.found) { done.push(day); continue; }
     // 前一交易日全市場廣度（開盤前已定案）也一起補；抓不到就留空。
     const bres = await fetchWithTimeout(`/market-breadth?before=${day}`, { cache: "no-store" }, 15000).catch(() => null);
     const bj = bres?.ok ? await bres.json().catch(() => null) : null;
     const breadthPrev = bj?.available && Number.isFinite(Number(bj.breadth)) ? { day: bj.day, breadth: Number(bj.breadth), up: bj.up ?? null, down: bj.down ?? null, flat: bj.flat ?? null } : null;
-    fresh.push(...buildServerSamples({ day, symbols: wanted, serverBars: j.bars, daily: dj.bars, modelVersion, existingKeys: new Set((hist0.records || []).map((r) => r.key)), breadthPrev }));
+    const samples = buildServerSamples({ day, symbols: wanted, serverBars: j.bars, daily: dj.bars, modelVersion, existingKeys: new Set((hist0.records || []).map((r) => r.key)), breadthPrev });
+    fresh.push(...samples);
+    const completed = new Set([...(hist0.records || []), ...samples].map((r) => r.key));
+    // 分 K 有回來不代表樣本已完整；日線晚到、缺一個時段時保留重試資格。
+    if (wanted.every((s) => SERVER_IMPORT_PHASES.every(([phase]) => completed.has(`${day}|${s}|${phase}`)))) done.push(day);
   }
   // 讀最新的歷史再合併（避免蓋掉雷達這段時間剛寫的紀錄），key 重複的以 App 自己當時記的為準。
   let filled = 0;
-  const latest = await loadKey("trendRadarHistory", { records: [] });
-  const records = Array.isArray(latest?.records) ? latest.records.slice() : [];
-  const keys = new Set(records.map((r) => r.key));
-  fresh.forEach((r) => { if (!keys.has(r.key)) { records.push(r); keys.add(r.key); } });
-  filled = fillMissingDailyKd(records, dj.bars, today) + fillMissingShadow(records, dj.bars, today);
-  if (fresh.length || filled) {
+  await updateForecastHistory("trendRadarHistory", (latest) => {
+    const records = Array.isArray(latest?.records) ? latest.records.slice() : [];
+    const keys = new Set(records.map((r) => r.key));
+    fresh.forEach((r) => { if (!keys.has(r.key)) { records.push(r); keys.add(r.key); } });
+    filled = fillMissingDailyKd(records, dj.bars, today) + fillMissingShadow(records, dj.bars, today);
+    if (!fresh.length && !filled) return null;
     records.sort((a, b) => String(a.day).localeCompare(String(b.day)));
-    await saveKey("trendRadarHistory", { ...(latest || {}), records: records.slice(-1500), at: latest?.at || new Date().toISOString() });
-  }
-  if (done.length) await saveKey("serverBarsImport", { checked: [...checked, ...done].slice(-60), at: new Date().toISOString() });
+    return { ...(latest || {}), records: records.slice(-1500), at: latest?.at || new Date().toISOString() };
+  });
+  if (done.length) await saveKey("serverBarsImport", { symbolKey, checked: [...checked, ...done].slice(-60), at: new Date().toISOString() });
   return fresh.length + filled;
 }
 // 打開 App 時重新訓練（新增的已驗證紀錄數有變、或換日了才重算；很便宜）。
@@ -4371,7 +4407,9 @@ function TrendRadarEmpty({ holdings, onAddHolding }) {
   );
 }
 
-function TrendRadar({ holdings, embedded = false, onAddHolding = null }) {
+const TrendRadarContext = window.React.createContext(null);
+// 收集器跟著 App 存活；雷達收合、切換分頁只卸載顯示，不中斷樣本紀錄。
+function TrendRadarProvider({ holdings, children }) {
   const [rows, setRows] = useState([]);
   const [asOf, setAsOf] = useState(null);
   const [instStatus, setInstStatus] = useState("loading");
@@ -4384,12 +4422,18 @@ function TrendRadar({ holdings, embedded = false, onAddHolding = null }) {
   const [tomorrowAccuracy, setTomorrowAccuracy] = useState(null);
   const [postCloseAccuracy, setPostCloseAccuracy] = useState(null);
   const [premarketAccuracy, setPremarketAccuracy] = useState(null);
-  const [detailsOpen, setDetailsOpen] = useState(false);
   const [marketRow, setMarketRow] = useState(null);
   const [tomorrowMap, setTomorrowMap] = useState({});
   const [globalRow, setGlobalRow] = useState(null);
 
+  const collectionKey = JSON.stringify(holdings.filter((h) => Number(h.current || 0) > 0 && isTaiwanSymbol(h.symbol)).map(({ symbol, name, current }) => ({ symbol, name, current })).sort((a, b) => String(a.symbol).localeCompare(String(b.symbol))));
+  const collectorHoldings = useMemo(() => JSON.parse(collectionKey), [collectionKey]);
   useEffect(() => {
+    const holdings = collectorHoldings;
+    if (!holdings.length) {
+      setRows([]); setMarketRow(null); setTomorrowMap({}); setGlobalRow(null);
+      return () => {};
+    }
     let cancelled = false;
     let recalcRunning = false;
     let recalcQueued = false;
@@ -4408,6 +4452,7 @@ function TrendRadar({ holdings, embedded = false, onAddHolding = null }) {
     let memoSelfLearn = null;
     let historyRecords = [], tomorrowRecords = [];
     let latestLive = null, slowTimer = null;
+    let lastQuoteAttempt = 0;
     const F = globalThis.ZinfForecast;
     const pool = F.resourcePool();
     const slots = new Map();
@@ -4524,17 +4569,31 @@ function TrendRadar({ holdings, embedded = false, onAddHolding = null }) {
       } catch(e) { return null; }
     };
     const recalc = async () => {
+      if (document.visibilityState !== "visible" || !holdings.length) return;
       if (recalcRunning) { recalcQueued = true; return; }
       recalcRunning = true;
       try {
-      const cached = latestLive || await loadKey("livePrices", null);
+      let cached = latestLive || await loadKey("livePrices", null);
+      let now = new Date();
+      const symbols = [...holdings.map((h) => h.symbol), "TAIEX"];
+      // 其他分頁沒有行情面板時，只在報價過期且距上次嘗試滿一分鐘才補抓。
+      // 使用原本的新鮮度檢查；失敗沿用快取顯示，不把舊價當新樣本。
+      if (symbols.some((s) => !F.quoteFresh(s === "TAIEX" ? cached?.marketIndex : cached?.map?.[s], now)) && now.getTime() - lastQuoteAttempt >= 60000) {
+        lastQuoteAttempt = now.getTime();
+        try {
+          const { quotes } = await fetchQuotesWithFallback(symbols, false);
+          if (cancelled) return;
+          cached = { ...cached, map: { ...cached?.map, ...Object.fromEntries(Object.entries(quotes || {}).filter(([s]) => s !== "TAIEX")) }, marketIndex: quotes?.TAIEX || cached?.marketIndex };
+          latestLive = cached;
+        } catch {}
+      }
       const newsCache = await loadKey("stockNews", null);
       if (cancelled) return;
+      now = new Date();
       const quoteMap = cached?.map || {};
       // Intraday tape is captured by LivePricePanel from the 15-second quote stream.
       const tapeCache = await loadKey("trendRadarTape", { points: [] });
       const tape = Array.isArray(tapeCache?.points) ? tapeCache.points : [];
-      const now = new Date();
       const sessionClock = F.clock(now).minute;
       // Model correction #1: time-decay / close-proximity weighting.
       // After 10:30, today's own price action and short intraday KD gradually
@@ -4939,7 +4998,8 @@ function TrendRadar({ holdings, embedded = false, onAddHolding = null }) {
       // Save one evaluation snapshot per symbol/day. This creates the training/
       // calibration history needed to replace hand-tuned weights with measured ones.
       try{
-        const historyCache=await loadKey("trendRadarHistory",{records:[]});
+        await updateForecastHistory("trendRadarHistory", (historyCache) => {
+        if (cancelled) return null;
         let records=Array.isArray(historyCache?.records)?historyCache.records:[];
         const stamp=new Date();
         const {day,minute:mins}=F.clock(stamp);
@@ -5008,7 +5068,8 @@ function TrendRadar({ holdings, embedded = false, onAddHolding = null }) {
           });
         }
         records=records.slice(-1500);
-        await saveKey("trendRadarHistory",{records,at:stamp.toISOString()});
+        return {records,at:stamp.toISOString()};
+        });
       }catch(e){}
       // Overnight global signal (S&P500 / SOX / USD-TWD).
       // Hydrate the last successful snapshot first so refreshes never collapse
@@ -5217,6 +5278,7 @@ function TrendRadar({ holdings, embedded = false, onAddHolding = null }) {
         pred.priceBand=F.priceBand(bars,anchor,{beforeDay:todayKey,remainingMinutes:270});
         pred.targetDay=sessionClock<540&&!nonTradingToday?todayKey:F.nextSession(todayKey,readTwseHolidayCache()?.days||{});
       });
+      if (cancelled) return;
       try {
         await saveKey("trendRadarCurrentSnapshot", {
           at: new Date().toISOString(),
@@ -5235,6 +5297,7 @@ function TrendRadar({ holdings, embedded = false, onAddHolding = null }) {
           statuses:{institutional:instDays.length?"ok":"unavailable",global:global?"ok":"unavailable"},
         });
       } catch(e) {}
+      if (cancelled) return;
       const nextInstStatus = instDays.length ? "ok" : "loading";
       const nextMarginStatus = marginDays.length ? "ok" : "loading";
       const nextGlobalStatus = global ? "ok" : "loading";
@@ -5290,7 +5353,7 @@ function TrendRadar({ holdings, embedded = false, onAddHolding = null }) {
     document.addEventListener("visibilitychange",onVisible);
     const timer=setInterval(()=>{if(document.visibilityState==="visible")recalc();},60000);
     return()=>{cancelled=true;clearTimeout(liveSyncTimer);clearTimeout(slowTimer);document.removeEventListener("visibilitychange",onVisible);window.removeEventListener("livePricesUpdated",onLivePricesUpdated);clearInterval(timer);};
-  },[holdings]);
+  },[collectorHoldings]);
   useEffect(() => {
     const on = (e) => { const ls = e?.detail; if (ls?.modelVersion === TREND_MODEL_VERSION) setLearnState(ls); };
     window.addEventListener("selfLearnUpdated", on);
@@ -5333,6 +5396,12 @@ function TrendRadar({ holdings, embedded = false, onAddHolding = null }) {
     return()=>{dead=true;};
   },[asOf]);
 
+  return <TrendRadarContext.Provider value={{ rows, asOf, instStatus, marginStatus, globalStatus, accuracy, closeLockAccuracy, baseline, learnState, tomorrowAccuracy, postCloseAccuracy, premarketAccuracy, marketRow, tomorrowMap, globalRow }}>{children}</TrendRadarContext.Provider>;
+}
+
+function TrendRadar({ holdings, embedded = false, onAddHolding = null }) {
+  const { rows, asOf, instStatus, marginStatus, globalStatus, accuracy, closeLockAccuracy, baseline, learnState, tomorrowAccuracy, postCloseAccuracy, premarketAccuracy, marketRow, tomorrowMap, globalRow } = window.React.useContext(TrendRadarContext);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const bandText=(band)=>band?`${formatNtdPrice(band.lower)}–${formatNtdPrice(band.upper)}`:null;
   const radarCtx=radarTodayContext(new Date(),isNonTradingDay(new Date()));
   const todayCloseLabel=radarCtx.stale
@@ -5652,12 +5721,16 @@ function FactorBacktest() {
   useEffect(() => {
     if (!open) return;
     let dead = false;
-    (async () => {
+    let revision = 0;
+    const refresh = async () => {
+      const request = ++revision;
       const h = await loadKey("trendRadarHistory", { records: [] });
       const th = await loadKey("trendRadarTomorrowHistory", { records: [] });
-      if (!dead) { setToday(h); setTomorrow(th); }
-    })();
-    return () => { dead = true; };
+      if (!dead && request === revision) { setToday(h); setTomorrow(th); }
+    };
+    refresh();
+    window.addEventListener("forecastHistoryUpdated", refresh);
+    return () => { dead = true; window.removeEventListener("forecastHistoryUpdated", refresh); };
   }, [open]);
 
   const MIN_N = 20;
@@ -10030,5 +10103,3 @@ function defaultPlanSchedule() {
 
 
 ReactDOM.createRoot(document.getElementById('root')).render(<AssetTracker />);
-
-  

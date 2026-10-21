@@ -12,11 +12,12 @@ const baselineBlock = html.match(/\/\/ <baseline-compare>([\s\S]*?)\/\/ <\/basel
 const importer = html.match(/async function importServerBarSamples[\s\S]*?\n}\n/)?.[0];
 assert.ok(importer, 'importServerBarSamples must exist');
 const plain = (v) => JSON.parse(JSON.stringify(v));
+const historyWriter = html.match(/\/\/ <forecast-history-writer>([\s\S]*?)\/\/ <\/forecast-history-writer>/)?.[1] || '';
 
 function load(env = {}) {
   const ctx = { ...env };
   vm.createContext(ctx);
-  vm.runInContext(baselineBlock + '\n' + block + '\n' + importer + '\nthis.api={serverImportDays,serverBarAt,buildServerSamples,fillMissingDailyKd,importServerBarSamples,kdFromBars,monthlyFromDaily};', ctx);
+  vm.runInContext(historyWriter + '\n' + baselineBlock + '\n' + block + '\n' + importer + '\nthis.api={serverImportDays,serverBarAt,buildServerSamples,fillMissingDailyKd,importServerBarSamples,kdFromBars,monthlyFromDaily};', ctx);
   return ctx.api;
 }
 
@@ -168,12 +169,71 @@ test('importServerBarSamples: a failed server read changes nothing and is retrie
   assert.deepEqual(h.store.serverBarsImport.checked, []);
 });
 
+test('import retries a day whose archived bars arrived before its completed daily close', async () => {
+  const daily = { 2330: dailyBars('2330', '2026-10-07'), TAIEX: dailyBars('TAIEX', '2026-10-07') };
+  const h = harness({ history: { records: [] }, daily, intraday: () => ({ ok: true, found: true, bars: { 2330: dayBars(100, 101), TAIEX: dayBars(100, 101) } }) });
+  const { importServerBarSamples } = load(h.env);
+  const args = { symbols: ['2330'], today: '2026-10-09', isClosedDay: () => false, modelVersion: 'M' };
+  await importServerBarSamples(args);
+  assert.ok(!h.store.serverBarsImport.checked.includes('2026-10-08'), 'missing daily close must remain retryable');
+  daily['2330'] = dailyBars('2330', '2026-10-08');
+  daily.TAIEX = dailyBars('TAIEX', '2026-10-08');
+  await importServerBarSamples(args);
+  assert.ok(h.store.trendRadarHistory.records.some(r => r.key === '2026-10-08|2330|morning'));
+  assert.ok(h.store.serverBarsImport.checked.includes('2026-10-08'));
+});
+
+test('adding a holding rechecks days previously checked for another symbol set', async () => {
+  const daily = { 2330: dailyBars('2330', '2026-10-12'), '0050': dailyBars('0050', '2026-10-12'), TAIEX: dailyBars('TAIEX', '2026-10-12') };
+  const h = harness({ history: { records: [] }, daily, intraday: () => ({ ok: true, found: true, bars: { 2330: dayBars(100, 101), '0050': dayBars(100, 101), TAIEX: dayBars(100, 101) } }) });
+  const { importServerBarSamples } = load(h.env);
+  const args = { today: '2026-10-13', isClosedDay: () => false, modelVersion: 'M' };
+  await importServerBarSamples({ ...args, symbols: ['2330'] });
+  await importServerBarSamples({ ...args, symbols: ['2330', '0050'] });
+  assert.ok(h.store.trendRadarHistory.records.some(r => r.key === '2026-10-12|0050|morning'));
+});
+
+test('overlapping imports preserve the newer holding even when an older storage write is slow', async () => {
+  const daily = { 2330: dailyBars('2330', '2026-10-12'), '0050': dailyBars('0050', '2026-10-12'), TAIEX: dailyBars('TAIEX', '2026-10-12') };
+  const h = harness({ history: { records: [] }, daily, intraday: () => ({ ok: true, found: true, bars: { 2330: dayBars(100, 101), '0050': dayBars(100, 101), TAIEX: dayBars(100, 101) } }) });
+  const save = h.env.saveKey;
+  let release, started;
+  const gate = new Promise(resolve => { release = resolve; });
+  const firstWrite = new Promise(resolve => { started = resolve; });
+  let first = true;
+  h.env.saveKey = async (key, value) => {
+    if (key === 'trendRadarHistory' && first) { first = false; started(); await gate; }
+    await save(key, value);
+  };
+  const { importServerBarSamples } = load(h.env);
+  const args = { today: '2026-10-13', isClosedDay: () => false, modelVersion: 'M' };
+  const older = importServerBarSamples({ ...args, symbols: ['2330'] });
+  await firstWrite;
+  const newer = importServerBarSamples({ ...args, symbols: ['2330', '0050'] });
+  await new Promise(resolve => setImmediate(resolve));
+  release();
+  await Promise.all([older, newer]);
+  const records = h.store.trendRadarHistory.records;
+  assert.ok(records.some(r => r.symbol === '0050'), 'a slow older write cannot erase the new holding samples');
+  assert.equal(new Set(records.map(r => r.key)).size, records.length);
+});
+
+test('an unsuccessful history write never marks the imported days complete', async () => {
+  const daily = { 2330: dailyBars('2330', '2026-10-12'), TAIEX: dailyBars('TAIEX', '2026-10-12') };
+  const h = harness({ history: { records: [] }, daily, intraday: () => ({ ok: true, found: true, bars: { 2330: dayBars(100, 101), TAIEX: dayBars(100, 101) } }) });
+  const save = h.env.saveKey;
+  h.env.saveKey = async (key, value) => key === 'trendRadarHistory' ? false : save(key, value);
+  const { importServerBarSamples } = load(h.env);
+  await assert.rejects(importServerBarSamples({ symbols: ['2330'], today: '2026-10-13', isClosedDay: () => false, modelVersion: 'M' }), /儲存/);
+  assert.deepEqual(h.store.serverBarsImport.checked, []);
+});
+
 test('the server-bars import is wired into the app and the backtest explains the source', () => {
   assert.match(html, /importServerBarSamples\(\{/);
   assert.match(html, /serverSampleN > 0/);
   // 用「算好股數的持股」(holdingsWithShares) 取代號，而且不能被「補記完成」旗標卡住（沒有缺漏日時那個旗標永遠不會設）。
-  const hook = html.match(/⑤ App 收在背景時[\s\S]*?\}, \[ready\]\);/)?.[0];
-  assert.ok(hook, 'the import hook must depend only on [ready]');
+  const hook = html.match(/⑤ App 收在背景時[\s\S]*?\}, \[ready, importSymbolsKey\]\);/)?.[0];
+  assert.ok(hook, 'the import hook follows readiness and the current symbol set');
   assert.match(hook, /holdingsWithShares\.filter/);
   assert.doesNotMatch(hook, /backfillSettled/);
 });
