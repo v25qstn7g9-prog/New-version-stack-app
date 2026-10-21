@@ -5,29 +5,38 @@ import vm from 'node:vm';
 import '../forecast-core.js';
 import { readAppSource } from './_app-source.mjs';
 const html=readAppSource();
-const effectStart=html.indexOf('  useEffect(() => {',html.indexOf('function TrendRadar('));
+const collectorStart=html.indexOf('function TrendRadarProvider(');
+const effectStart=html.indexOf('  useEffect(() => {',collectorStart>=0?collectorStart:html.indexOf('function TrendRadar('));
 const bodyStart=effectStart+'  useEffect(() => {'.length;
-const bodyEnd=html.indexOf('  },[holdings]);',bodyStart);
+const bodyEnd=html.indexOf(collectorStart>=0?'  },[collectorHoldings]);':'  },[holdings]);',bodyStart);
 const effectBody=html.slice(bodyStart,bodyEnd);
 // kdFromBars / monthlyFromDaily 是模組層級共用函式（雷達與補匯入共用），不在效果函式裡面。
 const sharedKd=html.match(/const kdFromBars = [\s\S]*?\n};\nconst monthlyFromDaily = [\s\S]*?\n};\n/)[0];
 const baselineBlock=html.match(/\/\/ <baseline-compare>([\s\S]*?)\/\/ <\/baseline-compare>/)[1];
+const historyWriter=html.match(/\/\/ <forecast-history-writer>([\s\S]*?)\/\/ <\/forecast-history-writer>/)?.[1]||'';
 const RealDate=Date;
-async function mount(time,{blocked=false,lock=null}={}){
+async function mount(time,{blocked=false,lock=null,stale=false,empty=false,advanceFetch=false,disposeDuringSnapshot=false}={}){
  const timers=[],events=new Map(),storage=new Map(),rows=[],markets=[];let cleanup;
  const fixed=new RealDate(time);
  const D=class extends RealDate{constructor(...args){super(...(args.length?args:[fixed.getTime()]));}static now(){return fixed.getTime();}};
  const tick=time.slice(0,10)+'T'+(time.includes('T05:')?'05:25:00Z':time.includes('T06:')?'05:30:00Z':'01:59:45Z');
  const q={price:101,prevClose:100,high:102,low:99,asOfDate:tick};
- storage.set('livePrices',{map:{2330:q},marketIndex:q});
+ storage.set('livePrices',{map:{2330:{...q,asOfDate:stale?'2026-10-06T01:00:00Z':tick}},marketIndex:{...q,asOfDate:stale?'2026-10-06T01:00:00Z':tick}});
  if(lock)storage.set('trendRadarTomorrowLock',lock);
  const daily=Array.from({length:80},(_,i)=>({day:new RealDate(RealDate.UTC(2026,5,1+i)).toISOString().slice(0,10),open:100,high:102,low:98,close:100+Math.sin(i)}));
  let networkCalls=0;
  const never=new Promise(()=>{});
- const c=vm.createContext({Date:D,console,globalThis:null,holdings:[{symbol:'2330',name:'台積電',current:2}],ZinfForecast:globalThis.ZinfForecast,
+ const c=vm.createContext({Date:D,console,globalThis:null,holdings:[{symbol:'2330',name:'台積電',current:2}],collectorHoldings:empty?[]:[{symbol:'2330',name:'台積電',current:2}],ZinfForecast:globalThis.ZinfForecast,
  TREND_RADAR_VERSION:'2.47',TREND_MODEL_VERSION:'2.47-fresh-source-audit',
- loadKey:async(k,def)=>storage.get(k)??def,saveKey:async(k,v)=>storage.set(k,v),
- fetchQuotesWithFallback:async()=>({quotes:{SPX:{...q,asOfDate:'2026-10-05T20:00:00Z'},SOX:{...q,asOfDate:'2026-10-05T20:00:00Z'}}}),
+ loadKey:async(k,def)=>storage.get(k)??def,saveKey:async(k,v)=>{storage.set(k,v);if(disposeDuringSnapshot&&k==='trendRadarCurrentSnapshot')cleanup();return true;},
+ fetchQuotesWithFallback:async symbols=>{
+  if(symbols.includes('2330')){
+   if(advanceFetch)fixed.setTime(fixed.getTime()+1000);
+   const fresh=advanceFetch?{...q,asOfDate:fixed.toISOString()}:q;
+   return {quotes:{2330:fresh,TAIEX:fresh}};
+  }
+  return {quotes:{SPX:{...q,asOfDate:'2026-10-05T20:00:00Z'},SOX:{...q,asOfDate:'2026-10-05T20:00:00Z'}}};
+ },
  fetchWithTimeout:async url=>{networkCalls++;if(blocked)return never;return Response.json(url.startsWith('/daily-history')?{ok:true,bars:{2330:daily,TAIEX:daily}}:url.startsWith('/intraday-metrics')?{ok:true,metrics:{}}:url.startsWith('/market-breadth')?{ok:true,available:false}:url.startsWith('/taifex')?{ok:false}:{data:[],fields:[]});},
  isTaiwanSymbol:s=>/^\d/.test(s),isNonTradingDay:()=>false,readTwseHolidayCache:()=>({days:{}}),
  marginStats:()=>null,marginForRecord:()=>null,parseMarginRows:()=>null,
@@ -36,7 +45,7 @@ async function mount(time,{blocked=false,lock=null}={}){
  window:{addEventListener:(n,fn)=>events.set(n,fn),removeEventListener:()=>{}},document:{visibilityState:'visible',addEventListener:()=>{},removeEventListener:()=>{}}
  });
  c.globalThis=c;
- vm.runInContext(sharedKd+'\nthis.kdFromBars=kdFromBars;this.monthlyFromDaily=monthlyFromDaily;',c);
+ vm.runInContext(historyWriter+'\n'+sharedKd+'\nthis.kdFromBars=kdFromBars;this.monthlyFromDaily=monthlyFromDaily;',c);
  vm.runInContext(baselineBlock+'\nthis.dailySigma=dailySigma;this.volProbability=volProbability;',c);
  cleanup=vm.runInContext('(function(){'+effectBody+'})()',c);
  // Let the initial calculation finish independently of slow jobs.
@@ -70,4 +79,38 @@ test('preclose lock and postclose forecast are audited as different phases',asyn
  pre.cleanup();
  const post=await mount('2026-10-06T06:00:00Z');
  assert.equal(post.storage.get('trendRadarTomorrowLock')?.phase,'postClose');post.cleanup();
+});
+
+test('collector can capture a preclose sample when the dashboard quote panel is unmounted',async()=>{
+ const a=await mount('2026-10-06T05:25:00Z',{stale:true});
+ assert.ok((a.storage.get('trendRadarHistory')?.records||[]).some(r=>r.symbol==='2330'&&r.phase==='closeLock'),'fresh fallback quotes must allow the scheduled sample');
+ a.cleanup();
+});
+
+test('the collector belongs to the app lifetime rather than the collapsible dashboard card',()=>{
+ const app=html.slice(html.indexOf('function AssetTracker('),html.indexOf('// ---------------- Atlas 待確認交易'));
+ assert.match(app,/<TrendRadarProvider holdings=\{holdingsWithShares\}>/);
+ const ui=html.slice(html.indexOf('function TrendRadar('),html.indexOf('// trusting the hand-picked'));
+ assert.doesNotMatch(ui,/window\.addEventListener\("livePricesUpdated"/,'collapsing the UI must not remove the collector subscription');
+});
+
+test('selling or deleting the last holding clears the previous radar view',async()=>{
+ const a=await mount('2026-10-06T02:00:00Z',{empty:true});
+ assert.ok(a.rows.length,'empty inputs must publish a cleared view');
+ assert.equal(a.rows.at(-1).length,0);
+ assert.equal(a.markets.at(-1),null);
+ a.cleanup();
+});
+
+test('quote freshness uses the clock after a fallback request completes',async()=>{
+ const a=await mount('2026-10-06T05:25:00Z',{stale:true,advanceFetch:true});
+ assert.equal(a.rows[0][0].quoteFresh,true,'a quote received during the request is not a future timestamp');
+ assert.ok((a.storage.get('trendRadarHistory')?.records||[]).some(r=>r.symbol==='2330'&&r.phase==='closeLock'));
+ a.cleanup();
+});
+
+test('a disposed collector cannot restore its view after a delayed snapshot write',async()=>{
+ const a=await mount('2026-10-06T02:00:00Z',{disposeDuringSnapshot:true});
+ assert.equal(a.rows.length,0,'a cleared or replaced holding collection must not receive late state');
+ a.cleanup();
 });
