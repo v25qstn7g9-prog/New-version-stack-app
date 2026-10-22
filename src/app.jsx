@@ -641,6 +641,19 @@ function recordValueNtd(record, value) {
   const rate = Number(record.fxRate);
   return rate > 0 ? amount * rate : null;
 }
+// 股價照實際成交價顯示，不四捨五入：先去掉浮點誤差（例如 58.150001525 → 58.15），
+// 至少 2 位小數、最多 4 位（台股價格本來就最多 2 位；美股偶有 0.0001 級的成交價）。
+function formatQuotePrice(value) {
+  const n = Number(value);
+  if (value == null || value === "" || !Number.isFinite(n)) return "—";
+  const clean = Number(n.toFixed(4)); // Yahoo 給的是 float32，小數第 5 位以後是雜訊
+  const decimals = Math.min(4, Math.max(2, (String(clean).split(".")[1] || "").replace(/0+$/, "").length));
+  return Number(clean.toFixed(decimals)).toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+}
+// 台股 NT$、美股 US$（原幣），都是實際價格。
+function quotePriceText(value, isUs) {
+  return `${isUs ? "US$" : "NT$"} ${formatQuotePrice(value)}`;
+}
 // 持股頁與成本查詢共用：總成本為新台幣，平均成本由總成本／目前股數倒算。
 function formatNtdPrice(value, digits = 2) {
   if (value == null || value === "" || !Number.isFinite(Number(value))) return "—";
@@ -3576,6 +3589,7 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
     return { ...h, price: l.price, prevClose: l.prevClose, prevCloseOk, high: l.high, low: l.low, chg, chgPct, value, isUS, asOfDate: l.asOfDate, fetchedAt: l.fetchedAt, isFromCache, quoteIsStale };
   }).filter(Boolean);
 
+  // 美股：股價照原幣（US$）實際價格顯示，下方另附換算的新台幣參考價。
   const quoteNtd = (row, value) => value == null ? null : recordValueNtd({ currency: row.isUS ? "USD" : "TWD", fxRate: usLive?.state?.fx }, value);
   const twLiveValue = rows.reduce((sum, r) => sum + (!r.isUS ? Number(r.value || 0) : 0), 0);
   const usLiveValue = rows.reduce((sum, r) => sum + (r.isUS ? Number(r.value || 0) : 0), 0);
@@ -3684,15 +3698,15 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
               <div className="flex justify-between items-baseline gap-2 text-[11px] mono">
                 <span style={{ color: COLORS.sub }}><UiLabel zh="加權指數" /></span>
                 <span style={{ color: indexChange >= 0 ? COLORS.gain : COLORS.loss }}>
-                  {nf(Math.round(indexPrice))}　{indexChange >= 0 ? "▲" : "▼"} {indexChangePct >= 0 ? "+" : ""}{indexChangePct.toFixed(2)}%
+                  {formatQuotePrice(indexPrice)}　{indexChange >= 0 ? "▲" : "▼"} {indexChangePct >= 0 ? "+" : ""}{indexChangePct.toFixed(2)}%
                 </span>
               </div>
               <div className="flex justify-between items-baseline gap-2 text-[10px] mono mt-0.5" style={{ color: COLORS.sub }}>
                 <span>
                   {Number.isFinite(Number(marketIndex?.high))&&Number.isFinite(Number(marketIndex?.low))
                     ? (UI_SHOW_ENGLISH
-                      ? <>High {nf(Math.round(Number(marketIndex.high)))} | Low {nf(Math.round(Number(marketIndex.low)))}</>
-                      : <>高 {nf(Math.round(Number(marketIndex.high)))}｜低 {nf(Math.round(Number(marketIndex.low)))}</>)
+                      ? <>High {formatQuotePrice(marketIndex.high)} | Low {formatQuotePrice(marketIndex.low)}</>
+                      : <>高 {formatQuotePrice(marketIndex.high)}｜低 {formatQuotePrice(marketIndex.low)}</>)
                     : null}
                 </span>
                 {vsMarketPct != null && (
@@ -3729,14 +3743,15 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
                     <div>{totalValue > 0 ? `${Math.round((r.value / totalValue) * 100)}%` : "—"}</div>
                   </div>
                   <div className="live-quote-stats" style={{ color: COLORS.sub }}>
-                    <div><UiLabel zh="高" inline /> NT$ {formatNtdPrice(quoteNtd(r, r.high), 1)}</div>
-                    <div><UiLabel zh="低" inline /> NT$ {formatNtdPrice(quoteNtd(r, r.low), 1)}</div>
-                    <div><UiLabel zh="昨收" inline /> NT$ {r.prevCloseOk ? formatNtdPrice(quoteNtd(r, r.prevClose), 1) : "—"}</div>
+                    <div><UiLabel zh="高" inline /> {quotePriceText(r.high, r.isUS)}</div>
+                    <div><UiLabel zh="低" inline /> {quotePriceText(r.low, r.isUS)}</div>
+                    <div><UiLabel zh="昨收" inline /> {r.prevCloseOk ? quotePriceText(r.prevClose, r.isUS) : "—"}</div>
                   </div>
                   <div className="text-right">
-                    <div>NT$ {formatNtdPrice(quoteNtd(r, r.price), 1)}</div>
+                    <div>{quotePriceText(r.price, r.isUS)}</div>
+                    {r.isUS && quoteNtd(r, r.price) != null && <div style={{ color: COLORS.sub, fontSize: 11 }}>≈ NT$ {formatNtdPrice(quoteNtd(r, r.price))}</div>}
                     <div style={{ color: r.quoteIsStale ? COLORS.sub : (r.chg >= 0 ? COLORS.gain : COLORS.loss) }}>
-                      {r.quoteIsStale && isTwseTradingHours() && !isMarketClosedToday() ? <UiLabel zh="待更新" /> : r.prevCloseOk ? <>{r.chg >= 0 ? "▲ +" : "▼ -"}NT$ {formatNtdPrice(quoteNtd(r, Math.abs(r.chg)), 1)}<br />{r.chgPct >= 0 ? "+" : ""}{r.chgPct.toFixed(2)}%</> : "—"}
+                      {r.quoteIsStale && isTwseTradingHours() && !isMarketClosedToday() ? <UiLabel zh="待更新" /> : r.prevCloseOk ? <>{r.chg >= 0 ? "▲ +" : "▼ -"}{quotePriceText(Math.abs(r.chg), r.isUS)}<br />{r.chgPct >= 0 ? "+" : ""}{r.chgPct.toFixed(2)}%</> : "—"}
                     </div>
                   </div>
                   <div className="text-right">
@@ -8068,7 +8083,7 @@ function TradesPanel({ trades, setTrades, holdings, setHoldings, usLive, costBas
                   </span> {t.symbol}
                 </div>
                 <div className="text-[11px]" style={{ color: COLORS.sub }}>
-                  {Number(t.shares).toLocaleString("en-US", { maximumFractionDigits: 6 })}{M("sh", "股")} @ NT$ {formatNtdPrice(recordValueNtd(t, t.price))}
+                  {Number(t.shares).toLocaleString("en-US", { maximumFractionDigits: 6 })}{M("sh", "股")} @ {t.currency === "USD" ? quotePriceText(t.price, true) : quotePriceText(t.price, false)}
                 </div>
               </div>
               <div className="text-right mono text-sm font-bold">
@@ -8413,7 +8428,7 @@ function DividendsPanel({ dividends, setDividends, holdings, usLive }) {
               <div className="flex-1">
                 <div className="text-sm mono">{d.date} · {d.symbol}</div>
                 <div className="text-[11px]" style={{ color: COLORS.sub }}>
-                  {Number(d.shares).toLocaleString("en-US", { maximumFractionDigits: 6 })}{M("sh", "股")} × NT$ {formatNtdPrice(recordValueNtd(d, d.perShare))}
+                  {Number(d.shares).toLocaleString("en-US", { maximumFractionDigits: 6 })}{M("sh", "股")} × {d.currency === "USD" ? quotePriceText(d.perShare, true) : quotePriceText(d.perShare, false)}
                 </div>
               </div>
               <div className="text-right mono text-sm font-bold" style={{ color: COLORS.gold }}>
@@ -9457,11 +9472,15 @@ async function executeLiveQuoteTool(tc, holdings) {
       const q = quotes[sym];
       if (!q || q.price == null) return `${sym}：查不到即時股價`;
       const stamp = q.asOfDate ? `（${q.asOfDate}）` : "";
-      if (sym === "USDTWD") return `美元／台幣：NT$ ${formatNtdPrice(q.price)}／美元${stamp}`;
-      if (!isStockSymbol(sym)) return `${sym}：${formatNtdPrice(q.price)} 點${stamp}`;
+      if (sym === "USDTWD") return `美元／台幣：NT$ ${formatQuotePrice(q.price)}／美元${stamp}`;
+      if (!isStockSymbol(sym)) return `${sym}：${formatQuotePrice(q.price)} 點${stamp}`;
+      if (!isTaiwanSymbol(sym)) {
+        const ntd = recordValueNtd({ currency: "USD", fxRate: fx }, q.price);
+        return `${sym}：US$ ${formatQuotePrice(q.price)}／股${ntd != null ? `（約 NT$ ${formatNtdPrice(ntd)}）` : ""}${stamp}`;
+      }
       const price = recordValueNtd({ currency: isTaiwanSymbol(sym) ? "TWD" : "USD", fxRate: fx }, q.price);
       if (price == null) return `${sym}：新台幣匯率暫時不可用，無法換算報價`;
-      return `${sym}：NT$ ${formatNtdPrice(price)}／股${stamp}`;
+      return `${sym}：NT$ ${formatQuotePrice(price)}／股${stamp}`;
     });
     if (missing && missing.length) lines.push(`（查不到報價的代號：${missing.join("、")}）`);
     return lines.join("\n");
@@ -9489,7 +9508,7 @@ async function executeAppSnapshotTool(tc, baseContext) {
       const items=Object.entries(q).map(([sym,v])=>{
         const p=Number(v?.price), prev=Number(v?.prevClose);
         const pct=(Number.isFinite(p)&&Number.isFinite(prev)&&prev)?((p-prev)/prev*100):null;
-        return `${sym} ${isTaiwanSymbol(sym)?"NT$ "+formatNtdPrice(p):formatNtdPrice(p)+" 點"}${pct!=null?` (${pct>=0?"+":""}${pct.toFixed(2)}%)`:""}`;
+        return `${sym} ${isTaiwanSymbol(sym)?"NT$ "+formatQuotePrice(p):isStockSymbol(sym)?"US$ "+formatQuotePrice(p):formatQuotePrice(p)+" 點"}${pct!=null?` (${pct>=0?"+":""}${pct.toFixed(2)}%)`:""}`;
       });
       add("即時行情", items.join("\n"));
       if(live.marketIndex) add("加權指數", live.marketIndex);

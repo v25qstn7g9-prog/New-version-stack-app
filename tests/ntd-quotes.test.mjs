@@ -11,15 +11,15 @@ function harness(quotes){let requested;const c=vm.createContext({fetchQuotesWith
 test('TWD per-share prices use thousands separators, two decimals and no fake zero for missing data',()=>{
  const {c}=harness({});assert.equal(c.formatNtdPrice(22244.42),'22,244.42');assert.equal(c.formatNtdPrice(81.5),'81.50');assert.equal(c.formatNtdPrice(0),'0.00');assert.equal(c.formatNtdPrice(null),'—');assert.equal(c.formatNtdPrice(undefined),'—');assert.equal(c.formatNtdPrice(NaN),'—');
 });
-test('assistant reports US stock prices in TWD exactly once and preserves Taiwanese prices',async()=>{
+test('assistant reports the actual US$ price plus its TWD value once, and preserves Taiwanese prices',async()=>{
  const h=harness({VOO:{price:700,asOfDate:'2026-10-06'},'0050':{price:100},USDTWD:{price:32}});
  const r=await h.c.executeLiveQuoteTool({arguments:{symbols:['VOO','0050']}},[]);
- assert.deepEqual(h.requested,['VOO','0050','USDTWD']);assert.match(r,/VOO：NT\$ 22,400.00／股/);assert.match(r,/0050：NT\$ 100.00／股/);assert.doesNotMatch(r,/NT\$ 700.00/);
+ assert.deepEqual(h.requested,['VOO','0050','USDTWD']);assert.match(r,/VOO：US\$ 700\.00／股（約 NT\$ 22,400\.00）/);assert.match(r,/0050：NT\$ 100.00／股/);assert.doesNotMatch(r,/NT\$ 700.00/);
 });
-test('missing FX blocks a mislabeled US price without hiding the available TW quote',async()=>{
+test('missing FX still shows the actual US$ price (no NT$ label on a USD number) and the TW quote',async()=>{
  const h=harness({VOO:{price:700},'0050':{price:100}});
  const r=await h.c.executeLiveQuoteTool({arguments:{symbols:['VOO','0050']}},[]);
- assert.match(r,/VOO：新台幣匯率暫時不可用/);assert.match(r,/0050：NT\$ 100.00/);assert.doesNotMatch(r,/NT\$ 700/);
+ assert.match(r,/VOO：US\$ 700\.00／股（2026|VOO：US\$ 700\.00／股$|VOO：US\$ 700\.00／股\n/);assert.match(r,/0050：NT\$ 100.00/);assert.doesNotMatch(r,/NT\$ 700/);
 });
 test('market index points remain points and FX keeps its exchange-rate unit',async()=>{
  const h=harness({TAIEX:{price:50000},USDTWD:{price:32}});

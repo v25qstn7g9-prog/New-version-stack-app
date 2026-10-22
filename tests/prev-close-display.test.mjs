@@ -7,10 +7,10 @@ import { readAppSource } from './_app-source.mjs';
 // quote.js 抓不到真正的前收時會把 prevClose 設成現價並加 warning，那個值不能當昨收顯示。
 const html = readAppSource();
 
-test('each holding card shows previous close and the converted TWD price difference', () => {
-  assert.match(html, /NT\$ \{r\.prevCloseOk \? formatNtdPrice\(quoteNtd\(r, r\.prevClose\), 1\) : "—"\}/);
-  // v2.47.x：漲跌改成「▲ +NT$ 1.2」（符號在前、金額取絕對值），NT$ 位置與其他金額一致
-  assert.match(html, /\{r\.chg >= 0 \? "▲ \+" : "▼ -"\}NT\$ \{formatNtdPrice\(quoteNtd\(r, Math\.abs\(r\.chg\)\), 1\)\}/);
+test('each holding card shows previous close and the actual price difference', () => {
+  // 2026-10-22：股價照實際價格（台股 NT$、美股 US$ 原幣），不再四捨五入到小數 1 位
+  assert.match(html, /\{r\.prevCloseOk \? quotePriceText\(r\.prevClose, r\.isUS\) : "—"\}/);
+  assert.match(html, /\{r\.chg >= 0 \? "▲ \+" : "▼ -"\}\{quotePriceText\(Math\.abs\(r\.chg\), r\.isUS\)\}/);
   assert.match(html, /SessionSparkline points=\{withLive\(sparkFor\(r\.symbol\)/);
 });
 
