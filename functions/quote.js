@@ -183,42 +183,21 @@ function parseTwseItem(item) {
     return null;
   }
 
+  // 只用「真的成交過」的價格：z＝最近成交價；這一刻快照沒有 z 時用 pz（前一筆成交價）。
+  // 以前會拿買賣價的中間值再四捨五入到小數 2 位，那是沒有成交過的價格（例如 58.65／58.70 → 58.68），已拿掉。
+  // 兩個都沒有時先留空，讓下面改用 Yahoo 的成交價；Yahoo 也拿不到才退回最佳買價（bidFallback，真實掛單價、不做運算）。
   let price = NaN;
   let priceSource = null;
-
-  if (
-    item.z &&
-    item.z !== "-" &&
-    Number.isFinite(Number(item.z))
-  ) {
-    price = Number(item.z);
+  const lastTrade = (v) => (v && v !== "-" && Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : NaN);
+  if (Number.isFinite(lastTrade(item.z))) {
+    price = lastTrade(item.z);
     priceSource = "last";
-  } else {
-    const bid = firstNumber(item.b);
-    const ask = firstNumber(item.a);
-
-    if (
-      Number.isFinite(bid) &&
-      Number.isFinite(ask) &&
-      bid > 0 &&
-      ask > 0
-    ) {
-      price = Math.round(((bid + ask) / 2) * 100) / 100;
-      priceSource = "mid";
-    } else if (
-      Number.isFinite(ask) &&
-      ask > 0
-    ) {
-      price = ask;
-      priceSource = "ask";
-    } else if (
-      Number.isFinite(bid) &&
-      bid > 0
-    ) {
-      price = bid;
-      priceSource = "bid";
-    }
+  } else if (Number.isFinite(lastTrade(item.pz))) {
+    price = lastTrade(item.pz);
+    priceSource = "last";
   }
+  const bid = firstNumber(item.b), ask = firstNumber(item.a);
+  const bidFallback = Number.isFinite(bid) && bid > 0 ? { price: bid, source: "bid" } : Number.isFinite(ask) && ask > 0 ? { price: ask, source: "ask" } : null;
 
   const tickMs = Number(item.tlong);
 
@@ -237,6 +216,7 @@ function parseTwseItem(item) {
     volume: Number.isFinite(volume) && volume >= 0 ? volume : null,
     priceSource,
     asOfDate,
+    bidFallback,
   };
 }
 
@@ -279,6 +259,7 @@ async function fetchTwseBatch(symbols, debug = false) {
       asOfDate: parsed.asOfDate,
       source: "TWSE",
       priceSource: parsed.priceSource,
+      bidFallback: parsed.bidFallback,
     };
 
     if (debug) {
@@ -684,7 +665,10 @@ export async function onRequestGet(context) {
         if (result.status !== "fulfilled") {
           errors.push(`Yahoo ${symbol}: ${result.reason?.message || result.reason}`);
 
-          if (quotes[symbol] && quotes[symbol].price == null && Number.isFinite(quotes[symbol].prevClose)) {
+          if (quotes[symbol] && quotes[symbol].price == null && quotes[symbol].bidFallback) {
+            quotes[symbol].price = quotes[symbol].bidFallback.price;
+            quotes[symbol].priceSource = quotes[symbol].bidFallback.source;
+          } else if (quotes[symbol] && quotes[symbol].price == null && Number.isFinite(quotes[symbol].prevClose)) {
             quotes[symbol].price = quotes[symbol].prevClose;
             quotes[symbol].priceSource = "prev";
             quotes[symbol].isStale = true;
@@ -728,6 +712,7 @@ export async function onRequestGet(context) {
     }
 
     for (const s of Object.keys(quotes)) {
+      delete quotes[s].bidFallback;
       if (quotes[s].price == null || !Number.isFinite(quotes[s].price)) {
         delete quotes[s];
       }
