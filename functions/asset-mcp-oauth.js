@@ -19,6 +19,8 @@ const ALLOWED_REDIRECTS = new Set([
   "https://grok.com/connectors-oauth-exchange-code/",
   "https://manus.im/api/webhook/mcp/callback",
   "https://chatgpt.com/connector_platform_oauth_redirect",
+  "https://www.perplexity.ai/rest/connections/oauth_callback",
+  "https://enterprise.perplexity.ai/rest/connections/oauth_callback",
 ]);
 // ChatGPT 新版連接器每個連接器有自己的回呼網址：/connector/oauth/<id>
 const CHATGPT_CALLBACK = /^https:\/\/chatgpt\.com\/connector\/oauth\/[A-Za-z0-9_-]+$/;
