@@ -7,6 +7,7 @@
 import { PREPARED_ASSET_TOOLS, handlePreparedAssetMcp } from "./ai-connector-prepared.js";
 
 const openAiEnc = new TextEncoder();
+const OPENAI_MAX_BODY_BYTES = 64 * 1024;
 
 function openAiJson(body, status = 200, extra = {}) {
   return new Response(JSON.stringify(body), {
@@ -93,8 +94,13 @@ export async function handleOpenAiActions(request, env) {
   if (!/^[A-Za-z0-9_-]{16,128}$/.test(syncToken)) return openAiJson({ error: "Assets sync token is not configured" }, 503);
 
   let args = {};
-  try { const text = await request.text(); if (text.trim()) args = JSON.parse(text); }
-  catch { return openAiJson({ error: "Invalid JSON" }, 400); }
+  try {
+    const declared = Number(request.headers.get("content-length") || 0);
+    if (declared > OPENAI_MAX_BODY_BYTES) return openAiJson({ error: "Request too large" }, 413);
+    const text = await request.text();
+    if (openAiEnc.encode(text).byteLength > OPENAI_MAX_BODY_BYTES) return openAiJson({ error: "Request too large" }, 413);
+    if (text.trim()) args = JSON.parse(text);
+  } catch { return openAiJson({ error: "Invalid JSON" }, 400); }
 
   const rpcRequest = new Request(url.origin + "/mcp", {
     method: "POST",

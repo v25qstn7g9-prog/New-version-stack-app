@@ -25,6 +25,15 @@ test('沒設金鑰 503、金鑰錯誤 401、未知工具 404、GET 405', async (
   assert.equal((await call('/openai/tools/asset_summary', { method: 'GET' })).status, 405);
 });
 
+test('過大的工具參數直接拒絕，不讀進資產', async () => {
+  const res = await call('/openai/tools/asset_summary', {
+    key: 'k-test',
+    body: 'x'.repeat(64 * 1024 + 1),
+  });
+  assert.equal(res.status, 413);
+  assert.equal((await res.json()).error, 'Request too large');
+});
+
 test('沒有唯讀同步金鑰時回 503，不去讀資產', async () => {
   const res = await call('/openai/tools/asset_summary', { key: 'k-test', body: '{}', env: { OPENAI_ACTION_KEY: 'k-test' } });
   assert.equal(res.status, 503);

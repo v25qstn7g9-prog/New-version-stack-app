@@ -2757,15 +2757,17 @@ function AssetTracker() {
     });
   }, []);
   const resolvePendingOnServer = useCallback((id) => {
+    // token 放在 Authorization，不放網址、也不放 body（舊版伺服器仍接受 body.token）。
     return fetch("/api/pending-trades/resolve", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ token: zinfSyncToken, id }),
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer " + zinfSyncToken },
+      body: JSON.stringify({ id }),
     }).catch(() => {});
   }, [zinfSyncToken]);
   const refreshPendingTrades = useCallback(() => {
     if (!zinfSyncToken) { setPendingTrades([]); return; }
     if (!handledPendingLoaded) return;
-    fetch(`/api/pending-trades?token=${encodeURIComponent(zinfSyncToken)}`)
+    fetch("/api/pending-trades", { headers: { authorization: "Bearer " + zinfSyncToken, "cache-control": "no-store" } })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (!Array.isArray(data?.pending)) return;
