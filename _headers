@@ -1,0 +1,16 @@
+# 首頁與靜態檔不在 run_worker_first 裡，正式環境會直接送檔、不會進 worker.js。
+# 所以防嵌入、不嗅探、不外帶網址這些標頭必須寫在這裡，手機開 App 才真的收得到。
+# 只鎖「不准被別的網站用框架包住」。不限制腳本來源，頁面上的 React／圖表連結維持原樣。
+/*
+	X-Frame-Options: DENY
+	X-Content-Type-Options: nosniff
+	Referrer-Policy: strict-origin-when-cross-origin
+	Content-Security-Policy: frame-ancestors 'none'
+
+# 首頁不要進瀏覽器快取，更新（含這次的錯誤畫面修正）開一次就看得到。
+# 腳本與樣式仍用平台預設的 must-revalidate，內容沒變就不用整包重下。
+/
+	Cache-Control: no-store, no-cache, must-revalidate, max-age=0
+
+/index.html
+	Cache-Control: no-store, no-cache, must-revalidate, max-age=0

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { onRequestGet, onRequestPost, onRequestResolve } from '../functions/pending-trades.js';
 
 // 待確認交易佇列：Atlas 中控台在聊天裡幫使用者送出的股票交易，先放這裡等使用者
@@ -86,6 +87,49 @@ test('a KV write failure surfaces the real reason, not a bare 500', async () => 
   assert.equal(response.status, 500);
   const body = await response.json();
   assert.match(body.detail, /KV put\(\) limit exceeded/);
+});
+
+test('Bearer auth matches the MCP pending_trades call, including lowercase bearer', async () => {
+  const env = environment();
+  const added = await (await post(env, { token, trade })).json();
+  const list = await onRequestGet({ env, request: new Request('https://example.com/api/pending-trades', {
+    headers: { authorization: `Bearer ${token}` },
+  }) });
+  assert.equal(list.status, 200);
+  assert.equal((await list.json()).pending[0].id, added.pending.id);
+  const lower = await onRequestGet({ env, request: new Request('https://example.com/api/pending-trades', {
+    headers: { authorization: `bearer  ${token}` },
+  }) });
+  assert.equal((await lower.json()).pending.length, 1);
+  const resolved = await onRequestResolve({ env, request: new Request('https://example.com/api/pending-trades/resolve', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ id: added.pending.id }),
+  }) });
+  assert.equal(resolved.status, 200);
+  const after = await onRequestGet({ env, request: new Request(`https://example.com/api/pending-trades?token=${token}`) });
+  assert.deepEqual((await after.json()).pending, []);
+});
+
+test('resolve refuses a body larger than 8 KB and does not write', async () => {
+  const env = environment();
+  const res = await onRequestResolve({ env, request: new Request('https://example.com/api/pending-trades/resolve', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token, id: 'x', pad: 'a'.repeat(9000) }),
+  }) });
+  assert.equal(res.status, 413);
+  const list = await onRequestGet({ env, request: new Request(`https://example.com/api/pending-trades?token=${token}`) });
+  assert.deepEqual((await list.json()).pending, []);
+});
+
+test('the phone app sends the sync token in the Authorization header, not the URL', () => {
+  const src = fs.readFileSync(new URL('../src/app.jsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(src, /pending-trades\?token=/);
+  assert.match(src, /fetch\("\/api\/pending-trades", \{ headers: \{ authorization: "Bearer " \+ zinfSyncToken/);
+  assert.match(src, /authorization: "Bearer " \+ zinfSyncToken \}/);
+  assert.match(src, /JSON\.stringify\(\{ id \}\)/);
+  assert.doesNotMatch(src, /pending-trades\/resolve"[\s\S]{0,280}token: zinfSyncToken/);
 });
 
 test('resolving a trade for one token never touches another token\'s pending list', async () => {

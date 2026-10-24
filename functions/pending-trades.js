@@ -8,9 +8,11 @@
  * 這支 API 全程不會碰到、也看不到使用者的完整持股資料。
  *
  * 路由（掛在 worker.js）：
- *   GET  /api/pending-trades?token=xxx           → 讀回這個 token 目前待確認的交易列表
+ *   GET  /api/pending-trades                     → 讀回這個 token 目前待確認的交易列表
+ *        （Authorization: Bearer；舊網址 ?token= 仍接受，但 App 不再把 token 放進網址）
  *   POST /api/pending-trades   body:{token,trade} → 新增一筆待確認交易（Atlas 呼叫）
- *   POST /api/pending-trades/resolve body:{token,id,applied} → App 端按了加入/忽略後呼叫，把那筆移除
+ *   POST /api/pending-trades/resolve body:{id}    → App 端按了加入/忽略後呼叫，把那筆移除
+ *        （token 放 Authorization；舊版 body.token 仍接受）
  *
  * KV：沿用 health_kv（跟 portfolio-sync 同一個 namespace），key 用 pending-trades: 前綴，
  * 彼此獨立，不會互相覆蓋。
@@ -44,7 +46,8 @@ function isValidToken(token) {
 
 function tokenFrom(request, url) {
   const auth = request.headers.get("authorization") || "";
-  if (auth.startsWith("Bearer ")) return auth.slice(7);
+  // 跟 portfolio-sync 一樣：大小寫與多餘空白都收。MCP 的 pending_trades 用的就是 Bearer。
+  if (/^Bearer\s+/i.test(auth)) return auth.replace(/^Bearer\s+/i, "").trim();
   return url.searchParams.get("token") || "";
 }
 
@@ -117,7 +120,9 @@ export async function onRequestResolve({ request, env }) {
   const url = new URL(request.url);
   let body;
   try {
-    body = JSON.parse(await request.text());
+    const text = await request.text();
+    if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) return jsonResponse({ error: "內容過大" }, 413);
+    body = JSON.parse(text);
   } catch {
     return jsonResponse({ error: "Invalid JSON" }, 400);
   }
