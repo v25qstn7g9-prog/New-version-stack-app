@@ -21,6 +21,11 @@ const ALLOWED_REDIRECTS = new Set([
   "https://chatgpt.com/connector_platform_oauth_redirect",
   "https://www.perplexity.ai/rest/connections/oauth_callback",
   "https://enterprise.perplexity.ai/rest/connections/oauth_callback",
+  // Cursor（含 Cursor 上的 Grok Bot）遠端 MCP OAuth 的固定回呼網址，只做完全比對：
+  // 網頁版／Cloud Agents、Cursor 雲端 bot、桌面版舊的自訂 scheme。
+  "https://www.cursor.com/agents/mcp/oauth/callback",
+  "https://www.cursor.com/bot/mcp/oauth/callback",
+  "cursor://anysphere.cursor-mcp/oauth/callback",
 ]);
 // ChatGPT 新版連接器每個連接器有自己的回呼網址：/connector/oauth/<id>
 const CHATGPT_CALLBACK = /^https:\/\/chatgpt\.com\/connector\/oauth\/[A-Za-z0-9_-]+$/;
