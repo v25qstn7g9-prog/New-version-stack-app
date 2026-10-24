@@ -312,8 +312,12 @@ export default {
 
     const assetResponse = await env.ASSETS.fetch(request);
     const headers = new Headers(assetResponse.headers);
+    // 正式環境的靜態檔多半不進這支程式（見 _headers）。這裡是同一組標頭的備援，
+    // 給測試與「有進到 Worker 才送檔」的路徑用。只禁止被其他網站嵌進框架，不改腳本政策。
     headers.set("X-Content-Type-Options", "nosniff");
     headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+    headers.set("X-Frame-Options", "DENY");
+    headers.set("Content-Security-Policy", "frame-ancestors 'none'");
 
     if (url.pathname === "/" || url.pathname === "/index.html") {
       headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");

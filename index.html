@@ -902,20 +902,30 @@
   <link rel="stylesheet" href="/clean.css?v=daily-records-1" />
 
   <script>
+    /* boot-error-start */
+    function showBootError(title, text) {
+      var root = document.getElementById("root");
+      if (root && root.childNodes.length) return;
+      var box = document.getElementById("boot-error");
+      if (!box) return;
+      box.replaceChildren();
+      var heading = document.createElement("h2");
+      heading.textContent = title;
+      var detail = document.createElement("div");
+      detail.textContent = String(text == null || text === "" ? "未知錯誤" : text);
+      box.append(heading, detail);
+      box.style.display = "block";
+    }
     window.addEventListener("error", function(e) {
-      var box=document.getElementById("boot-error");
-      if(box) {
-        box.style.display="block";
-        box.innerHTML="<h2>App 載入錯誤</h2><div>"+String(e.message||e.error||"未知錯誤")+"</div>";
-      }
+      if (e.target && e.target !== window) return;
+      var err = e.error;
+      showBootError("App 載入錯誤", e.message || (err && (err.message || String(err))) || "未知錯誤");
     });
     window.addEventListener("unhandledrejection", function(e) {
-      var box=document.getElementById("boot-error");
-      if(box) {
-        box.style.display="block";
-        box.innerHTML="<h2>App 執行錯誤</h2><div>"+String(e.reason||"未知錯誤")+"</div>";
-      }
+      var reason = e.reason;
+      showBootError("App 執行錯誤", reason && reason.message ? reason.message : String(reason == null ? "未知錯誤" : reason));
     });
+    /* boot-error-end */
   </script>
 
   <!-- Pinned, mutually compatible browser builds -->
