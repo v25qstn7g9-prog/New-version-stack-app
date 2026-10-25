@@ -1,6 +1,9 @@
+// CI（GitHub Actions 會設 CI=true）一定要跑，不准因為沒裝工具就跳過。
 // app.js 是 src/app.jsx 預先編譯的結果（scripts/build-app.mjs），兩邊不能不同步。
 import test from 'node:test';
 import assert from 'node:assert/strict';
+// CI=true／1 才算 CI（CI=false 不算）；CI 一定要跑同步檢查，不能因為沒裝工具就跳過
+const IS_CI = ['true', '1'].includes(String(process.env.CI || '').toLowerCase());
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import { build, header } from '../scripts/build-app.mjs';
@@ -15,7 +18,8 @@ test('app.js header matches the current src/app.jsx (run npm run build:app)', ()
   assert.ok(out.startsWith(header(src)), 'app.js 過期：請執行 npm run build:app');
 });
 
-test('app.js is exactly a fresh build of src/app.jsx', { skip: hasBabel ? false : '需要 npm install（@babel/standalone、terser）' }, async () => {
+test('app.js is exactly a fresh build of src/app.jsx', { skip: hasBabel || IS_CI ? false : '需要 npm install（@babel/standalone、terser）' }, async () => {
+  assert.ok(hasBabel, '需要 npm install（@babel/standalone、terser）（CI 必須先安裝）');
   assert.equal(await build(src), out, 'app.js 過期：請執行 npm run build:app');
 });
 

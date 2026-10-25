@@ -17,4 +17,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      # 安裝鎖定版本的建置工具（含間接套件），讓「app.js／tw.css 必須和原始碼重新編譯一致」的測試真的跑。
+      # 根目錄的 package-lock.json 照 .gitignore 不進 repo；CI 用 ci/package-lock.json（改了 devDependencies 要重產，npm ci 會擋不一致）。
+      - run: cp ci/package-lock.json package-lock.json && npm ci --no-audit --no-fund
       - run: npm test

@@ -15,6 +15,8 @@ wrangler.lock
 # Node.js
 node_modules/
 package-lock.json
+# CI 專用的鎖定檔（只給 GitHub Actions 安裝建置工具用）
+!ci/package-lock.json
 yarn.lock
 pnpm-lock.yaml
 npm-debug.log*

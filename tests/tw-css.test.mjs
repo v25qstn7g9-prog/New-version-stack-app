@@ -1,6 +1,8 @@
 // Tailwind 先編好成 tw.css（npm run build:css），不再載入 cdn.tailwindcss.com 的瀏覽器編譯器。
 import test from 'node:test';
 import assert from 'node:assert/strict';
+// CI=true／1 才算 CI（CI=false 不算）；CI 一定要跑同步檢查，不能因為沒裝工具就跳過
+const IS_CI = ['true', '1'].includes(String(process.env.CI || '').toLowerCase());
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -24,7 +26,8 @@ test('tw.css has the classes the app relies on', () => {
   for (const sel of ['.grid-cols-3', '.text-\\[11px\\]', '.animate-spin', '.space-y-2>', '.whitespace-nowrap', '.fixed', '.hidden']) assert.ok(css.includes(sel), sel);
 });
 
-test('tw.css is a fresh build of the current sources (run npm run build:css)', { skip: cli ? false : '需要 npm install（tailwindcss）' }, () => {
+test('tw.css is a fresh build of the current sources (run npm run build:css)', { skip: cli || IS_CI ? false : '需要 npm install（tailwindcss）' }, () => {
+  assert.ok(cli, '需要 npm install（tailwindcss）（CI 必須先安裝）');
   const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'tw-')), 'tw.css');
   execFileSync(process.execPath, [cli, '-c', 'scripts/tailwind.config.cjs', '-i', 'scripts/tw-input.css', '-o', out, '--minify'], { cwd: new URL('.', root), stdio: 'ignore' });
   assert.equal(fs.readFileSync(out, 'utf8'), css, 'tw.css 過期：請執行 npm run build:css');
