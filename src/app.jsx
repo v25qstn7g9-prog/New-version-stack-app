@@ -9659,6 +9659,49 @@ function AiChatWidget({ advancedUse = true, holdings, goal, totalToday, totalInv
   const [providerInfo, setProviderInfo] = useState(null); // { provider, model, profile }
   const scrollRef = useRef(null);
   const sendingRef = useRef(false);
+  const launcherRef = useRef(null);
+  const panelRef = useRef(null);
+
+  // 對話框的焦點：打開時移到對話框本身（不直接點輸入框，避免 iPhone 一打開就跳出鍵盤）；
+  // 關閉後回到右下角的開啟鈕，鍵盤與讀螢幕軟體使用者不會迷路。
+  useEffect(() => {
+    if (!open) return;
+    panelRef.current?.focus({ preventScroll: true });
+    return () => launcherRef.current?.focus({ preventScroll: true });
+  }, [open]);
+
+  // 開著時在整個頁面聽鍵盤：被點的按鈕消失或變成停用、焦點掉到頁面本身時，Esc 和 Tab 仍然有效。
+  // Esc 關閉（輸入法選字中的 Esc 是給輸入法用的，不關）；Tab 只在對話框裡循環，跑出去就拉回來。
+  useEffect(() => {
+    if (!open) return;
+    const focusables = () => [...(panelRef.current?.querySelectorAll('button:not([disabled]), textarea:not([disabled]), input:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])') || [])]
+      .filter((el) => el.offsetParent !== null);
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        if (e.isComposing || e.keyCode === 229) return;
+        e.preventDefault(); setOpen(false); return;
+      }
+      if (e.key !== "Tab" || !panelRef.current) return;
+      const items = focusables();
+      if (!items.length) { e.preventDefault(); panelRef.current.focus(); return; }
+      const idx = items.indexOf(document.activeElement);
+      const last = items.length - 1;
+      // 焦點不在清單裡（在對話框本身、訊息捲動區或掉到頁面上）時，從頭或從尾開始
+      if (idx === -1) { e.preventDefault(); items[e.shiftKey ? last : 0].focus(); return; }
+      if (e.shiftKey && idx === 0) { e.preventDefault(); items[last].focus(); }
+      else if (!e.shiftKey && idx === last) { e.preventDefault(); items[0].focus(); }
+    };
+    // 焦點被點到背後的頁面時拉回對話框
+    const onFocusIn = (e) => {
+      if (panelRef.current && !panelRef.current.contains(e.target)) panelRef.current.focus({ preventScroll: true });
+    };
+    document.addEventListener("keydown", onKey, true);
+    document.addEventListener("focusin", onFocusIn);
+    return () => {
+      document.removeEventListener("keydown", onKey, true);
+      document.removeEventListener("focusin", onFocusIn);
+    };
+  }, [open]);
 
   // 開啟 AI 助手時把背景頁面「鎖死」，不能被 iOS 內部的 scroll-into-view
   // 行為拖走。只用 overflow:hidden 不夠——那只能擋使用者手動滑動，擋不住
@@ -9947,6 +9990,8 @@ function AiChatWidget({ advancedUse = true, holdings, goal, totalToday, totalInv
   };
 
   const onKeyDown = (e) => {
+    // 輸入法（注音、拼音）選字中按的 Enter 是給輸入法用的，不能拿來送出
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       send();
@@ -9955,8 +10000,9 @@ function AiChatWidget({ advancedUse = true, holdings, goal, totalToday, totalInv
 
   return (
     <>
-      <button onClick={() => setOpen(true)}
+      <button ref={launcherRef} onClick={() => setOpen(true)}
         aria-label={UI_SHOW_ENGLISH ? "Open investment assistant" : "開啟投資助手"}
+        aria-haspopup="dialog" aria-expanded={open}
         className="premium-ai-launcher fixed z-40 rounded-full flex items-center justify-center"
         style={{
           right: 14, bottom: "calc(64px + env(safe-area-inset-bottom, 4px))",
@@ -9971,7 +10017,9 @@ function AiChatWidget({ advancedUse = true, holdings, goal, totalToday, totalInv
         <div className="ai-panel-wrap fixed inset-0 flex flex-col justify-end"
           style={{ background: "rgba(15,23,42,0.32)", zIndex: 1000 }}
           onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}>
-          <div className="ai-panel-h flex flex-col rounded-t-2xl" style={{
+          <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="ai-chat-title" tabIndex={-1}
+            className="ai-panel-h flex flex-col rounded-t-2xl" style={{
+            outline: "none",
             background: COLORS.bg,
             maxHeight: "100%",
             overflow: "hidden",
@@ -9980,7 +10028,7 @@ function AiChatWidget({ advancedUse = true, holdings, goal, totalToday, totalInv
             <div className="flex items-center justify-between px-4 py-3"
               style={{ borderBottom: `1px solid ${COLORS.panelBorder}`, paddingTop: "max(12px, env(safe-area-inset-top, 0px))" }}>
               <div className="flex items-center gap-2 min-w-0">
-                <div className="font-bold text-sm"><UiLabel zh="存股助手 AI" /></div>
+                <div id="ai-chat-title" className="font-bold text-sm"><UiLabel zh="存股助手 AI" /></div>
                 {providerInfo && (() => {
                   const isGemini = String(providerInfo.provider || "").toLowerCase().includes("gemini");
                   return (
