@@ -68,8 +68,8 @@ import { onRequestGet as roGet, onRequestPost as roPost } from '../functions/por
   const post = (env, token, summary = { holdings: [{ symbol: '0050' }] }) => roPost({ env, request: new Request('https://x/api/portfolio-sync', { method: 'POST', headers: { authorization: 'Bearer ' + token }, body: JSON.stringify({ summary }) }) });
   const get = (env, token) => roGet({ env, request: new Request('https://x/api/portfolio-sync', { headers: { authorization: 'Bearer ' + token } }) });
 
-  test('SI_HUB_READ_TOKEN reads the latest snapshot even after the sync token changes', async () => {
-    const env = roEnv({ SI_HUB_READ_TOKEN: ro });
+  test('SI_HUB_READ_TOKEN follows the configured owner when the sync token changes', async () => {
+    const env = roEnv({ SI_HUB_READ_TOKEN: ro, LINE_REMINDER_SYNC_TOKEN: owner });
     assert.equal((await (await get(env, ro)).json()).reason, 'awaiting_first_sync');
     assert.equal((await post(env, owner)).status, 200);
     let data = await (await get(env, ro)).json();
@@ -77,12 +77,14 @@ import { onRequestGet as roGet, onRequestPost as roPost } from '../functions/por
     assert.equal(data.summary.holdings[0].symbol, '0050');
     const newOwner = 'rotated-sync-token-abcdefghijk';
     assert.equal((await post(env, newOwner, { holdings: [{ symbol: '2330' }] })).status, 200);
+    assert.equal((await (await get(env, ro)).json()).summary.holdings[0].symbol, '0050');
+    env.LINE_REMINDER_SYNC_TOKEN = newOwner;
     data = await (await get(env, ro)).json();
     assert.equal(data.summary.holdings[0].symbol, '2330');
   });
 
   test('the read-only key cannot write and cannot read previous versions; without the secret nothing extra is stored', async () => {
-    const env = roEnv({ SI_HUB_READ_TOKEN: ro });
+    const env = roEnv({ SI_HUB_READ_TOKEN: ro, LINE_REMINDER_SYNC_TOKEN: owner });
     assert.equal((await post(env, ro)).status, 403);
     assert.equal(env.data.has('portfolio-sync:' + ro), false);
     await post(env, owner);
@@ -110,6 +112,6 @@ import { onRequestGet as roGet, onRequestPost as roPost } from '../functions/por
     assert.equal((await r.json()).found, true);
     const p = await roPost({ env, request: new Request('https://x/api/portfolio-sync', { method: 'POST', headers: { authorization: 'Bearer ' + same }, body: JSON.stringify({ summary: { holdings: [{ symbol: '2330' }] } }) }) });
     assert.equal(p.status, 200);
-    assert.ok(d.has('portfolio-sync-latest'));
+    assert.equal(d.has('portfolio-sync-latest'), false);
   });
 }
