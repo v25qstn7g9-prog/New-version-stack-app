@@ -17,8 +17,9 @@
  *   expired        上傳過，但快照超過 14 天沒更新、被 KV 自動清掉（lastSyncedAt 是最後一次上傳的大約時間）
  *   token_mismatch 這組 token 沒上傳過，但最近 14 天有「別的 token」在上傳（推測兩邊 token 不一致）
  *
- * SI Hub 唯讀金鑰：Secret SI_HUB_READ_TOKEN（16–128 字，英數與 _-）。設了之後，每次 POST 成功會多存一份最新快照（portfolio-sync-latest），
- *   GET 帶這組金鑰就讀得到那一份（不能 POST、不能讀 prev）。同步金鑰換掉也不影響。第一次要等 App 同步一次才有資料（reason: awaiting_first_sync）。
+ * SI Hub 唯讀金鑰：Secret SI_HUB_READ_TOKEN（16–128 字，英數與 _-）。
+ *   GET 只讀既有 LINE_REMINDER_SYNC_TOKEN 指向的擁有者快照（不能 POST、不能讀 prev）。
+ *   不信任舊的共用 portfolio-sync-latest；換同步金鑰時也要更新 LINE_REMINDER_SYNC_TOKEN。
  *
  * KV：沿用 health_kv（見 wrangler.jsonc），不另外申請新的 namespace。
  *   portfolio-sync:<token>        快照本體（14 天 TTL，跟以前一樣）
@@ -39,9 +40,6 @@ const KV_PREFIX = "portfolio-sync:";
 const META_PREFIX = "portfolio-sync-meta:";
 const LAST_WRITER_KEY = "portfolio-sync-last-writer";
 const PREV_PREFIX = "portfolio-sync-prev:";
-// SI Hub 專用的唯讀金鑰（Secret SI_HUB_READ_TOKEN）：每次同步成功後多存一份「最新快照」在這個固定 key，
-// SI Hub 用固定金鑰讀它，不受同步金鑰更換影響。只有設了這個 Secret 才會多寫這一次。
-const LATEST_KEY = "portfolio-sync-latest";
 // 上一版備份最多每 6 小時存一次（帳號共用的 KV 每日寫入額度有限）。
 const PREV_REFRESH_MS = 6 * 60 * 60 * 1000;
 // 交易／每日紀錄原本有這麼多筆以上，才會套用「掉到不到一半就拒絕」。
@@ -175,8 +173,11 @@ export async function onRequestGet({ request, env }) {
     const ro = readOnlyToken(env);
     // 唯讀金鑰若剛好跟 App 真正在用的同步金鑰相同（已有同步紀錄），照一般同步金鑰處理，不攔截。
     if (ro && sameSecret(token, ro) && !(await isKnownSyncToken(env, token))) {
-      // SI Hub 的唯讀金鑰：只讀「最新快照」，沒有上一版（prev）、也不能寫入。
-      const latest = url.searchParams.get("prev") === "1" ? null : await env.health_kv.get(LATEST_KEY);
+      // 沿用 LINE 提醒／owner-model 已有的擁有者設定，直接讀其隔離快照。
+      // 不可用最近寫入者或既有 token 推測擁有者：任何人都能註冊自己的同步 token。
+      const ownerToken = String(env.LINE_REMINDER_SYNC_TOKEN || "").trim();
+      if (!isValidToken(ownerToken)) return jsonResponse({ error: "owner_sync_token_not_configured" }, 503);
+      const latest = url.searchParams.get("prev") === "1" ? null : await env.health_kv.get(KV_PREFIX + ownerToken);
       if (!latest) return jsonResponse({ ok: true, found: false, summary: null, reason: "awaiting_first_sync", lastSyncedAt: null });
       return jsonResponse({ ok: true, found: true, summary: typeof latest === "string" ? JSON.parse(latest) : latest });
     }
@@ -265,8 +266,6 @@ export async function onRequestPost({ request, env }) {
 
     const stored = { ...summary, syncedAt };
     await env.health_kv.put(KV_PREFIX + token, JSON.stringify(stored), { expirationTtl: TTL_SECONDS });
-    // 只有設了 SI_HUB_READ_TOKEN 才多存一份；失敗不影響同步本身。
-    if (roToken) { try { await env.health_kv.put(LATEST_KEY, JSON.stringify(stored), { expirationTtl: TTL_SECONDS }); } catch { /* 略過 */ } }
     await touchSyncMeta(env, token, syncedAt);
     return jsonResponse({ ok: true, syncedAt });
   } catch (e) {
