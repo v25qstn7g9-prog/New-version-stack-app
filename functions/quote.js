@@ -217,6 +217,7 @@ function parseTwseItem(item) {
     priceSource,
     asOfDate,
     bidFallback,
+    open: lastTrade(item.o),
   };
 }
 
@@ -260,6 +261,7 @@ async function fetchTwseBatch(symbols, debug = false) {
       source: "TWSE",
       priceSource: parsed.priceSource,
       bidFallback: parsed.bidFallback,
+      open: Number.isFinite(parsed.open) ? parsed.open : null,
     };
 
     if (debug) {
@@ -533,6 +535,44 @@ async function fetchYahooPrice(symbol) {
   };
 }
 
+// 今天最後一次看到的真實成交價（邊緣快取，跟著台灣日期換日）。
+async function readLastTrade(symbol, day) {
+  try {
+    const hit = await caches.default.match(new Request(`https://quote-cache.local/last/${day}/${symbol}`));
+    if (!hit) return null;
+    const j = await hit.json();
+    return Number(j?.price) > 0 ? j : null;
+  } catch {
+    return null;
+  }
+}
+async function writeLastTrade(symbol, day, value) {
+  try {
+    await caches.default.put(new Request(`https://quote-cache.local/last/${day}/${symbol}`), new Response(JSON.stringify(value), {
+      headers: { "content-type": "application/json", "cache-control": "public, max-age=43200" },
+    }));
+  } catch {
+    // Cache is optional.
+  }
+}
+const taipeiDayOf = (iso) => { const t = Date.parse(iso || ""); return Number.isFinite(t) ? new Date(t + 8 * 3600 * 1000).toISOString().slice(0, 10) : null; };
+
+// 證交所盤中快照常常沒有「最近成交價」（z 是 "-"）：改用今天最後一次看到的真實成交價；
+// 今天還沒看過就用今天的開盤價（也是真實成交）。都沒有才交給後面的 Yahoo／最佳買價。不做任何平均或四捨五入。
+export async function fillTwseFromLastTrades(quotes, day, store = { read: readLastTrade, write: writeLastTrade }, marketOpen = isTaiwanTradingHours) {
+  for (const [sym, q] of Object.entries(quotes)) {
+    if (!q || q.source !== "TWSE") continue;
+    // 快照時間是今天才用；快照沒帶時間時，只在台股盤中用（快照就是此刻的）。
+    if (taipeiDayOf(q.asOfDate) !== day && !(q.asOfDate == null && marketOpen())) continue;
+    if (q.price != null && q.priceSource === "last") { await store.write(sym, day, { price: q.price, asOfDate: q.asOfDate }); continue; }
+    if (q.price != null) continue;
+    const last = await store.read(sym, day);
+    if (last) { q.price = Number(last.price); q.priceSource = "last-seen"; q.isStale = false; q.lastTradeAt = last.asOfDate || null; q.asOfDate = q.asOfDate || new Date().toISOString(); continue; }
+    if (Number(q.open) > 0) { q.price = Number(q.open); q.priceSource = "open"; q.isStale = false; q.asOfDate = q.asOfDate || new Date().toISOString(); }
+  }
+  return quotes;
+}
+
 async function readPrevCloseCache(symbol, day) {
   try {
     const key = new Request(`https://quote-cache.local/prev/${day}/${symbol}`);
@@ -624,6 +664,7 @@ export async function onRequestGet(context) {
         await writePrevCloseCache(sym, day, q.prevClose);
       }
     }
+    await fillTwseFromLastTrades(quotes, day);
 
     for (const sym of symbols) {
       if (quotes[sym] && Number.isFinite(quotes[sym].prevClose)) continue;
