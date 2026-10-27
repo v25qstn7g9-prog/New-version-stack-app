@@ -42,3 +42,17 @@ test('a snapshot without a time during trading hours still gets the last trade',
   assert.equal(q['0056'].price, 56.75);
   assert.ok(q['0056'].asOfDate);
 });
+
+test('the new nested trade field from the exchange is the real last trade (real 2026-10-27 snapshot)', async () => {
+  const { parseTwseItem } = await import('../functions/quote.js');
+  const item = { c: '0050', z: '-', pz: '-', tv: '-', v: '25407', b: '107.1500_107.1000_', a: '107.2000_107.2500_', o: '107.1000', h: '107.5500', l: '106.8000', y: '106.9000', tlong: '1793063889000', trade: { t: '09:17:19', v: 1, z: '107.2500', ft: 20 } };
+  const q = parseTwseItem(item);
+  assert.equal(q.price, 107.25);
+  assert.equal(q.priceSource, 'last');
+  assert.equal(q.lastTradeAt, '09:17:19');
+  // 沒有 trade、也沒有 z／pz：不平均買賣價，留給後面的備援
+  const none = parseTwseItem({ ...item, trade: undefined });
+  assert.equal(none.price, null);
+  // 大盤仍走 z
+  assert.equal(parseTwseItem({ c: 't00', z: '46343.28', y: '46041.43', tlong: '1793063890000' }).price, 46343.28);
+});
