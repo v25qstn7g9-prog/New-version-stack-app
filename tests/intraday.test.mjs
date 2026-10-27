@@ -144,7 +144,7 @@ test('recordIntradayMinute: later minutes append, repeated minute overwrites', a
   assert.deepEqual(rows.map((r) => [r[0], r[4]]), [['12:13', 56.7], ['12:14', 56.9]]);
 });
 
-test('recordIntradayMinute: skips outside hours, on stale/holiday data, and without KV', async () => {
+test('recordIntradayMinute: skips outside hours, writes no bars on stale data (only the quality counter), and needs KV', async () => {
   const kv = fakeKV();
   const fetchQuotes = async () => ({ quotes: { '0056': q(56.7, '2026-09-30T05:30:00.000Z') } });
   assert.deepEqual(
@@ -155,18 +155,23 @@ test('recordIntradayMinute: skips outside hours, on stale/holiday data, and with
     await recordIntradayMinute({ health_kv: kv }, { now: at('2026-10-01T04:13:05Z'), sleep: async () => {}, fetchQuotes }),
     { ok: true, skipped: 'no_fresh_quotes' },
   );
-  assert.equal(kv.puts.length, 0);
+  // 盤中沒有可用報價：不寫分 K，只記「報價品質」連續失敗次數（給盤中報價警示用）
+  assert.equal(kv.puts.length, 1);
+  const saved = JSON.parse(kv.data.get(kv.puts[0].k));
+  assert.deepEqual(saved.bars, {});
+  assert.equal(saved.quality.streak, 1);
   assert.deepEqual(await recordIntradayMinute({}, { now: at('2026-10-01T04:13:05Z') }), { ok: false, reason: 'no_kv' });
 });
 
-test('recordIntradayMinute: a failing quote fetch writes nothing and does not throw', async () => {
+test('recordIntradayMinute: a failing quote fetch writes no bars and does not throw', async () => {
   const kv = fakeKV();
   const res = await recordIntradayMinute({ health_kv: kv, INTRADAY_SYMBOLS: '0056' }, {
     now: at('2026-10-01T04:13:05Z'), sleep: async () => {},
     fetchQuotes: async () => { throw new Error('boom'); },
   });
   assert.deepEqual(res, { ok: true, skipped: 'no_fresh_quotes' });
-  assert.equal(kv.puts.length, 0);
+  // 不寫分 K；只留品質計數（連續失敗才能觸發警示）
+  assert.equal(kv.puts.length, 1);
 });
 
 test('recordIntradayMinute: a weekday market holiday (e.g. 2026-10-09 國慶補假) fetches no quotes at all', async () => {
