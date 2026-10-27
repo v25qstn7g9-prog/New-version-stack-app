@@ -69,7 +69,7 @@ export async function probeFactorSources(env, symbols = ["0050", "0056", "2330"]
     const exCh = ["t00", ...symbols].map((s) => `tse_${s}.tw`).join("|");
     const res = await withTimeout(fetch(`https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${encodeURIComponent(exCh)}&json=1&delay=0&_ts=${Date.now()}`, { headers: { accept: "application/json", "user-agent": "Mozilla/5.0" } }), 6000);
     const j = await res.json();
-    out.twseRaw = (j?.msgArray || []).map((m) => ({ c: m.c, z: m.z, pz: m.pz ?? null, tv: m.tv, v: m.v, b: m.b, a: m.a, o: m.o, h: m.h, l: m.l, y: m.y, tlong: m.tlong, extra: Object.fromEntries(["trade","ps","s","ts","bp","f","g","u","w","p","it","ip","mt","nu","m%","#","^","%","d","t"].map((k) => [k, m[k] ?? null])) }));
+    out.twseRaw = (j?.msgArray || []).map((m) => ({ c: m.c, z: m.z, pz: m.pz ?? null, o: m.o, h: m.h, l: m.l, y: m.y, tlong: m.tlong, trade: m.trade ?? null }));
   })().catch((e) => { out.twseRaw = { ok: false, error: String(e?.message || e) }; }));
   await Promise.all(tasks);
   return out;

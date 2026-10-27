@@ -176,7 +176,7 @@ function firstNumber(s) {
   return Number.isFinite(n) ? n : NaN;
 }
 
-function parseTwseItem(item) {
+export function parseTwseItem(item) {
   const prevClose = Number(item.y);
 
   if (!Number.isFinite(prevClose) || prevClose <= 0) {
@@ -189,9 +189,15 @@ function parseTwseItem(item) {
   let price = NaN;
   let priceSource = null;
   const lastTrade = (v) => (v && v !== "-" && Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : NaN);
+  // 2026-10 起證交所把個股的最近成交移到 trade 物件（{t:"09:17:19", z:"107.2500", v, ft}），z／pz／tv 都是 "-"。
+  let lastTradeAt = null;
   if (Number.isFinite(lastTrade(item.z))) {
     price = lastTrade(item.z);
     priceSource = "last";
+  } else if (item.trade && typeof item.trade === "object" && Number.isFinite(lastTrade(item.trade.z))) {
+    price = lastTrade(item.trade.z);
+    priceSource = "last";
+    lastTradeAt = /^\d{2}:\d{2}(:\d{2})?$/.test(String(item.trade.t || "")) ? String(item.trade.t) : null;
   } else if (Number.isFinite(lastTrade(item.pz))) {
     price = lastTrade(item.pz);
     priceSource = "last";
@@ -218,6 +224,7 @@ function parseTwseItem(item) {
     asOfDate,
     bidFallback,
     open: lastTrade(item.o),
+    lastTradeAt,
   };
 }
 
@@ -262,6 +269,7 @@ async function fetchTwseBatch(symbols, debug = false) {
       priceSource: parsed.priceSource,
       bidFallback: parsed.bidFallback,
       open: Number.isFinite(parsed.open) ? parsed.open : null,
+      ...(parsed.lastTradeAt ? { lastTradeAt: parsed.lastTradeAt } : {}),
     };
 
     if (debug) {
