@@ -18,6 +18,7 @@
  */
 import { onRequestGet as quoteGet } from "./quote.js";
 import { marketClosed } from "./market-calendar.js";
+import { setPriceQualityCard } from "./health-check.js";
 
 // 每分鐘一次的盤中 cron（UTC 01:00–05:59 = 台北 09:00–13:59；程式內再收斂到 13:45）。
 // 星期欄一定要用 MON-FRI：Cloudflare 的數字星期 1 = 週日，寫 1-5 會變成週日到週四、週五不跑。
@@ -238,6 +239,35 @@ async function defaultMarketClosed(ymd) {
   return marketClosed(ymd);
 }
 
+// ── 報價品質：盤中持股是不是拿到「真實成交價」──────────────
+// 只算 09:05～13:25（避開開盤與收盤集合競價）；連續 5 分鐘有持股不是真實成交價就開警示卡。
+export const QUALITY_FROM = 9 * 60 + 5;
+export const QUALITY_TO = 13 * 60 + 25;
+export const QUALITY_STREAK = 5;
+const WHY = { open: "只有開盤價", "last-seen": "一直沿用之前的成交價", bid: "只有最佳買價", ask: "只有最佳賣價", prev: "退回昨收", yahoo: "只有 Yahoo 延遲價" };
+export function priceQuality(data, symbols, day) {
+  const bad = [];
+  for (const sym of symbols) {
+    const q = data?.quotes?.[sym];
+    let why = null;
+    if (!q || !(Number(q.price) > 0)) why = "沒有報價";
+    else if (q.isStale === true) why = "過期（待更新）";
+    else if (q.asOfDate && taipei(new Date(q.asOfDate)).day !== day) why = "不是今天的報價";
+    else if (q.priceSource !== "last") why = WHY[q.priceSource] || `來源 ${q.priceSource || "不明"}`;
+    if (why) bad.push(`${sym} ${why}`);
+  }
+  return bad;
+}
+// 回傳新的狀態與這一分鐘要不要開／關卡片。
+export function nextQuality(prev, bad, minuteLabel) {
+  const p = prev && typeof prev === "object" ? prev : {};
+  if (!bad.length) return { state: { streak: 0, cardOpen: false }, action: p.cardOpen ? "close" : null };
+  const streak = (Number(p.streak) || 0) + 1;
+  const state = { streak, since: p.streak ? p.since : minuteLabel, bad: bad.slice(0, 6), cardOpen: Boolean(p.cardOpen) };
+  if (streak >= QUALITY_STREAK && !p.cardOpen) { state.cardOpen = true; return { state, action: "open" }; }
+  return { state, action: null };
+}
+
 export async function recordIntradayMinute(env, deps = {}) {
   const now = deps.now ? deps.now() : new Date();
   if (!env?.health_kv) return { ok: false, reason: "no_kv" };
@@ -253,30 +283,55 @@ export async function recordIntradayMinute(env, deps = {}) {
 
   // 一次取價就寫。Cron 若在函式裡睡 45 秒，免費方案常在 put 之前被掐掉。
   const samples = Object.fromEntries(symbols.map((s) => [s, []]));
+  let raw = null;
   try {
-    const prices = usablePrices(await fetchQuotes(symbols), start.day);
+    raw = await fetchQuotes(symbols);
+    const prices = usablePrices(raw, start.day);
     for (const [sym, price] of Object.entries(prices)) if (samples[sym]) samples[sym].push(price);
   } catch {
     // 取價失敗就不寫入。
   }
+  const checkQuality = start.minuteOfDay >= QUALITY_FROM && start.minuteOfDay <= QUALITY_TO;
+  const bad = checkQuality ? priceQuality(raw, symbols, start.day) : [];
+  const priceCard = deps.priceCard || ((open, detail) => setPriceQualityCard(env, { open, detail }));
+  // 品質狀態跟著當天的分 K 文件一起寫（本來每分鐘就會寫一次），不多耗 KV 寫入額度。
+  const applyQuality = async (doc) => {
+    if (!checkQuality) return;
+    const { state, action } = nextQuality(doc.quality, bad, start.label);
+    doc.quality = state;
+    if (action === "open") await priceCard(true, `${state.since} 起連續 ${state.streak} 分鐘：${state.bad.join("、")}`).catch(() => {});
+    if (action === "close") await priceCard(false, "").catch(() => {});
+  };
 
   const bars = {};
   for (const sym of symbols) {
     const bar = buildMinuteBar(start.label, samples[sym]);
     if (bar) bars[sym] = bar;
   }
-  if (!Object.keys(bars).length) return { ok: true, skipped: "no_fresh_quotes" };
-
   const key = KV_PREFIX + start.day;
-  let doc = null;
-  try {
-    const raw = await env.health_kv.get(key);
-    doc = raw ? JSON.parse(raw) : null;
-  } catch {
-    doc = null;
+  const readDoc = async () => {
+    let d = null;
+    try {
+      const text = await env.health_kv.get(key);
+      d = text ? JSON.parse(text) : null;
+    } catch {
+      d = null;
+    }
+    return !d || d.day !== start.day || typeof d.bars !== "object" ? { v: 1, day: start.day, bars: {} } : d;
+  };
+  if (!Object.keys(bars).length) {
+    // 這一分鐘完全沒有可用報價：盤中仍要記品質（連續失敗也要警示）。
+    if (checkQuality) {
+      const doc = await readDoc();
+      await applyQuality(doc);
+      await env.health_kv.put(key, JSON.stringify(doc), { expirationTtl: TTL_SECONDS });
+    }
+    return { ok: true, skipped: "no_fresh_quotes" };
   }
-  if (!doc || doc.day !== start.day || typeof doc.bars !== "object") doc = { v: 1, day: start.day, bars: {} };
+
+  const doc = await readDoc();
   for (const [sym, bar] of Object.entries(bars)) doc.bars[sym] = mergeBar(doc.bars[sym], bar);
+  await applyQuality(doc);
 
   await env.health_kv.put(key, JSON.stringify(doc), { expirationTtl: TTL_SECONDS });
   return { ok: true, recorded: Object.keys(bars), minute: start.label };

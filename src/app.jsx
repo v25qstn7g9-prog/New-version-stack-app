@@ -8587,6 +8587,9 @@ function PlanPanel({ advanced = false, setAdvancedMode, planItems, setPlanItems,
           {healthCards.map((card) => (
             <div key={card.id} className="mb-3 rounded-xl p-3" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
               <div className="text-[12px] leading-5" style={{ color: COLORS.text }}>{card.summary}</div>
+              {card.kind === "price" && card.rawError && (
+                <div className="mt-1 text-[11px] leading-5" style={{ color: COLORS.sub }}>{card.rawError}</div>
+              )}
               {card.occurrences > 1 && (
                 <div className="mt-1 text-[10px]" style={{ color: COLORS.sub }}>{M(`Detected ${card.occurrences} times in a row, last: ${card.lastSeenAt}`, `已連續偵測到 ${card.occurrences} 次，最後一次：${card.lastSeenAt}`)}</div>
               )}

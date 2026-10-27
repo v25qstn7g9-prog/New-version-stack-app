@@ -99,7 +99,8 @@ async function saveCards(env, cards) {
 // 都重複新增一張、洗掉舊卡片；狀態恢復正常時，若上一張還是 pending，順手標記解決。
 export async function runHealthCheck(env) {
   const cards = await loadCards(env);
-  const lastPending = [...cards].reverse().find((c) => c.status === "pending");
+  // 只看 AI 這一種卡片（盤中報價警示是另一種，不能被「AI 恢復正常」順手關掉）。
+  const lastPending = [...cards].reverse().find((c) => c.status === "pending" && (c.kind || "ai") === "ai");
 
   let ok = true;
   let errorMessage = "";
@@ -195,4 +196,31 @@ export async function onRequestPost(context) {
   card.respondedAt = taiwanNowIso();
   await saveCards(context.env, cards);
   return jsonResponse({ ok: true, version: HEALTH_VERSION, card });
+}
+
+// ---- 盤中報價品質警示（intraday.js 每分鐘排程呼叫）----
+// 盤中持股連續幾分鐘拿不到「真實成交價」就開一張卡；恢復正常就標記解決。和 AI 卡片分開（kind: "price"）。
+export const PRICE_CARD_SUMMARY = "盤中有持股抓不到真實成交價（可能是證交所報價格式又改了）";
+export async function setPriceQualityCard(env, { open, detail = "" }) {
+  const cards = await loadCards(env);
+  const pending = [...cards].reverse().find((c) => c.status === "pending" && c.kind === "price");
+  if (open) {
+    if (pending) {
+      pending.lastSeenAt = taiwanNowIso();
+      pending.occurrences = (pending.occurrences || 1) + 1;
+      pending.rawError = detail;
+    } else {
+      cards.push({
+        id: `hc_${Date.now()}`, kind: "price", detectedAt: taiwanNowIso(), lastSeenAt: taiwanNowIso(), occurrences: 1,
+        severity: "warning", rawError: detail, summary: PRICE_CARD_SUMMARY, fixType: "code", proposedChange: null, status: "pending",
+      });
+    }
+    await saveCards(env, cards);
+    return true;
+  }
+  if (!pending) return false;
+  pending.status = "resolved";
+  pending.resolvedAt = taiwanNowIso();
+  await saveCards(env, cards);
+  return true;
 }
