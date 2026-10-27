@@ -64,6 +64,13 @@ export async function probeFactorSources(env, symbols = ["0050", "0056", "2330"]
       out.institutional = { date: ymd(d), http: r.http, stat: r.json?.stat ?? null, rows: Array.isArray(r.json?.data) ? r.json.data.length : 0, nonJson: r.head };
     })().catch((e) => { out.institutional = { ok: false, error: String(e?.message || e) }; }),
   ];
+  tasks.push((async () => {
+    // 證交所即時快照的原始欄位（z 最近成交價、pz、tv 成交量、b/a 五檔、o/h/l、tlong 時間），用來確認成交價欄位是否常是 "-"。
+    const exCh = ["t00", ...symbols].map((s) => `tse_${s}.tw`).join("|");
+    const res = await withTimeout(fetch(`https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${encodeURIComponent(exCh)}&json=1&delay=0&_ts=${Date.now()}`, { headers: { accept: "application/json", "user-agent": "Mozilla/5.0" } }), 6000);
+    const j = await res.json();
+    out.twseRaw = (j?.msgArray || []).map((m) => ({ c: m.c, z: m.z, pz: m.pz ?? null, tv: m.tv, v: m.v, b: m.b, a: m.a, o: m.o, h: m.h, l: m.l, y: m.y, tlong: m.tlong, keys: Object.keys(m).join(",") }));
+  })().catch((e) => { out.twseRaw = { ok: false, error: String(e?.message || e) }; }));
   await Promise.all(tasks);
   return out;
 }
