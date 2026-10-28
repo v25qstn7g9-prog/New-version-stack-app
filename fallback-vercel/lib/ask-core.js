@@ -13,7 +13,7 @@
  * Cloudflare 為主模型；Cloudflare 失敗時由同一個 Worker 直接切 Gemini 3.6 Flash。
  * 舊 fallback-vercel 仍保留作最後一道相容備援。
  */
-const ASK_VERSION = "4.7-personal-advisor-v3.2-bounded-learning";
+const ASK_VERSION = "4.7-personal-advisor-v3.3-claude-promo";
 const GEMINI_MODEL_DEFAULT = "gemini-3.6-flash";
 const GEMINI_MAX_OUTPUT_TOKENS = 1000;
 // Owner 的詢問（量少、要品質）：思考深度調到 medium。Gemini 的思考 token 也算在輸出上限內，
@@ -634,8 +634,209 @@ function extractCloudflareText(result) {
   return "";
 }
 
+/**
+ * 送的 Claude 額度期間（到 2026-11-10），Owner 的 AI 問答先問 Claude Opus 5.5。
+ *
+ * - 只有 Owner（帶同步 token）的問答會用；家人／朋友維持 Cloudflare → Gemini，不吃這份額度。
+ * - 金鑰：Cloudflare Secret「Anthropic_api_key」（跟訓練 App 同名）。沒設、過期或設 CLAUDE_PRIMARY=off 就完全不碰。
+ * - 失敗就丟錯，由 ask.js 照原本順序（Cloudflare → Gemini）接手；伺服器忙或額度問題會暫停一陣子，不每題都等它失敗。
+ * - App 工具（查持股、報價…）照舊回給 App 執行；App 送回來的工具結果用文字放進最後一則訊息，
+ *   不重播 tool_use（那些呼叫可能來自 Cloudflare／Gemini，id 與思考紀錄都對不上）。
+ */
+
+export const CLAUDE_MODEL_DEFAULT = "claude-opus-5-5";
+export const CLAUDE_PRIMARY_UNTIL = "2026-11-10"; // 台北日期，這天（含）以前 Claude 當主力
+const CLAUDE_KEY_NAMES = ["Anthropic_api_key", "ANTHROPIC_API_KEY", "ANTHROPIC_KEY"];
+const API_VERSION = "2026-10-21";
+const MAX_OUTPUT_TOKENS = 4000; // 含思考；Opus 5.5 一定會先想再答
+const MAX_TOOL_TEXT = 12000;
+const MAX_SEARCH_ROUNDS = 2;
+const COOLDOWN_KEY = "ask-claude-cooldown";
+const LAST_ERROR_KEY = "ask-claude-last-error";
+const BUSY_COOLDOWN_MS = 10 * 60 * 1000;      // 429／5xx：10 分鐘內先不問
+const BILLING_COOLDOWN_MS = 6 * 3600 * 1000;  // 額度用完／金鑰失效：6 小時內先不問
+
+export function readClaudeKey(env) {
+  for (const name of CLAUDE_KEY_NAMES) {
+    const v = String(env?.[name] || "").trim();
+    if (v) return v;
+  }
+  return "";
+}
+
+function taipeiDateKey(now = Date.now()) {
+  return new Date(Number(now) + 8 * 3600e3).toISOString().slice(0, 10);
+}
+
+export function claudePrimaryActive(env, now = Date.now()) {
+  if (String(env?.CLAUDE_PRIMARY || "").toLowerCase() === "off") return false;
+  const until = String(env?.CLAUDE_PRIMARY_UNTIL || CLAUDE_PRIMARY_UNTIL).trim();
+  return taipeiDateKey(now) <= until;
+}
+
+export async function claudeCoolingDown(env, now = Date.now()) {
+  try {
+    const raw = await env?.health_kv?.get(COOLDOWN_KEY);
+    if (!raw) return null;
+    const rec = JSON.parse(raw);
+    return Number(rec?.until) > now ? rec : null;
+  } catch { return null; }
+}
+
+async function startCooldown(env, ms, reason) {
+  try {
+    await env?.health_kv?.put(COOLDOWN_KEY, JSON.stringify({ until: Date.now() + ms, reason: String(reason).slice(0, 200) }),
+      { expirationTtl: Math.max(60, Math.ceil(ms / 1000)) });
+  } catch { /* 存不進去就算了 */ }
+}
+
+// 這次要不要先問 Claude（Owner、期間內、有金鑰、沒在暫停）
+export async function shouldAskClaude(env, { owner, now = Date.now() } = {}) {
+  if (owner !== true) return false;
+  if (!claudePrimaryActive(env, now)) return false;
+  if (!readClaudeKey(env)) return false;
+  return !(await claudeCoolingDown(env, now));
+}
+
+// OpenAI 格式的工具 → Anthropic 格式
+export function claudeTools(tools = []) {
+  return tools
+    .map((t) => t?.function)
+    .filter((f) => f?.name)
+    .map((f) => ({ name: f.name, description: String(f.description || ""), input_schema: f.parameters || { type: "object", properties: {} } }));
+}
+
+// 對話紀錄要 user／assistant 交替、從 user 開始；同角色連續的合併。
+export function buildClaudeMessages(history = [], message = "", toolTurns = []) {
+  const out = [];
+  const push = (role, text) => {
+    const t = String(text || "").trim();
+    if (!t) return;
+    if (!out.length && role !== "user") return;
+    const last = out[out.length - 1];
+    if (last && last.role === role) last.content += `\n\n${t}`;
+    else out.push({ role, content: t });
+  };
+  for (const m of history || []) push(m?.role === "assistant" ? "assistant" : "user", m?.content);
+
+  const blocks = [];
+  for (const turn of toolTurns || []) {
+    const calls = Array.isArray(turn?.calls) ? turn.calls : [];
+    const results = Array.isArray(turn?.results) ? turn.results : [];
+    const names = new Map(calls.map((c) => [String(c?.id || ""), String(c?.name || "app_tool")]));
+    results.forEach((r, i) => {
+      const name = String(r?.name || names.get(String(r?.id || "")) || calls[i]?.name || "app_tool");
+      blocks.push(`【App 工具結果：${name}】\n${String(r?.content || "").slice(0, MAX_TOOL_TEXT)}`);
+    });
+  }
+  const last = blocks.length
+    ? `${message}\n\n（你剛才要求的 App 工具已經執行完畢，結果如下。請直接根據這些結果回答，同樣的工具不要再要一次。）\n\n${blocks.join("\n\n")}`
+    : message;
+  push("user", last);
+  return out;
+}
+
+function textOf(data) {
+  return (Array.isArray(data?.content) ? data.content : [])
+    .filter((b) => b?.type === "text").map((b) => b.text || "").join("").trim();
+}
+
+function toolUsesOf(data, allowed) {
+  return (Array.isArray(data?.content) ? data.content : [])
+    .filter((b) => b?.type === "tool_use" && (!allowed || allowed.has(b.name)))
+    .map((b) => ({ id: String(b.id || ""), name: b.name, arguments: b.input && typeof b.input === "object" ? b.input : {} }));
+}
+
+async function callClaudeOnce(env, { system, messages, tools, deadline, fetcher }) {
+  const remaining = deadline - Date.now();
+  if (remaining < 3000) throw new Error("Claude 逾時");
+  const body = {
+    model: String(env?.ANTHROPIC_MODEL || "").trim() || CLAUDE_MODEL_DEFAULT,
+    max_tokens: MAX_OUTPUT_TOKENS,
+    output_config: { effort: "low" },
+    system,
+    messages,
+  };
+  if (tools?.length) body.tools = tools;
+  let res;
+  try {
+    res = await fetcher("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      signal: AbortSignal.timeout(remaining),
+      headers: { "content-type": "application/json", "x-api-key": readClaudeKey(env), "anthropic-version": API_VERSION },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    throw new Error(/abort|timeout/i.test(String(e?.name || e?.message)) ? "Claude 逾時" : `Claude 連線失敗：${e?.message || e}`);
+  }
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    const err = new Error(`Claude HTTP ${res.status}：${String(data?.error?.message || "").slice(0, 200)}`);
+    err.status = res.status;
+    throw err;
+  }
+  if (data?.stop_reason === "refusal") throw new Error("Claude 拒絕回答這一題");
+  return data;
+}
+
+/**
+ * 問 Claude 一次（含伺服器端網路搜尋的小迴圈）。
+ * 回傳 { provider, model, reply } 或 { provider, model, toolCalls }；失敗丟錯（ask.js 接手備援）。
+ */
+export async function runClaudeAsk(env, { systemPrompt, history, message, toolTurns, tools, allowedToolNames, forceAnswer = false, timeoutMs = 30000, webSearch, fetcher = fetch } = {}) {
+  const started = Date.now();
+  const deadline = started + timeoutMs;
+  const messages = buildClaudeMessages(history, message, toolTurns);
+  const toolDefs = forceAnswer ? [] : claudeTools(tools);
+  try {
+    let data = await callClaudeOnce(env, { system: systemPrompt, messages, tools: toolDefs, deadline, fetcher });
+    let rounds = 0;
+    while (true) {
+      const calls = toolUsesOf(data, allowedToolNames);
+      const searches = calls.filter((c) => c.name === "web_search");
+      if (calls.length && searches.length === calls.length && rounds < MAX_SEARCH_ROUNDS && typeof webSearch === "function") {
+        // 搜尋在伺服器端做完再接著問：整段 content（含思考）原樣放回，工具結果對應同一個 id。
+        messages.push({ role: "assistant", content: data.content });
+        const results = [];
+        for (const c of searches) {
+          const content = await webSearch(c.arguments?.query);
+          results.push({ type: "tool_result", tool_use_id: c.id, content: String(content || "").slice(0, MAX_TOOL_TEXT) });
+        }
+        messages.push({ role: "user", content: results });
+        rounds += 1;
+        data = await callClaudeOnce(env, { system: systemPrompt, messages, tools: toolDefs, deadline, fetcher });
+        continue;
+      }
+      const model = String(data?.model || CLAUDE_MODEL_DEFAULT);
+      const provider = /opus-5-5/.test(model) ? "Claude Opus 5.5" : `Claude（${model}）`;
+      const appCalls = calls.filter((c) => c.name !== "web_search");
+      if (appCalls.length) return { provider, model, toolCalls: appCalls };
+      const reply = textOf(data);
+      if (!reply) throw new Error("Claude 沒有回傳文字");
+      return { provider, model, reply };
+    }
+  } catch (e) {
+    const msg = String(e?.message || e);
+    const billing = [401, 402, 403].includes(e?.status) || /credit balance|billing/i.test(msg);
+    const busy = e?.status === 429 || e?.status >= 500 || /overloaded/i.test(msg);
+    if (billing) await startCooldown(env, BILLING_COOLDOWN_MS, msg);
+    else if (busy) await startCooldown(env, BUSY_COOLDOWN_MS, msg);
+    try {
+      await env?.health_kv?.put(LAST_ERROR_KEY, JSON.stringify({ at: new Date().toISOString(), ms: Date.now() - started, status: e?.status ?? null, message: msg.slice(0, 300) }), { expirationTtl: 14 * 86400 });
+    } catch { /* 存不進去就算了 */ }
+    throw e;
+  }
+}
+
+// 整個 /ask 要在 App 等待上限（55 秒）內回完；先問 Claude 時，後面的備援用剩下的時間。
+const ASK_TOTAL_BUDGET_MS = 52000;
+const CLAUDE_ASK_TIMEOUT_MS = 30000;
+const GEMINI_RESERVE_MS = 18000;
+
 export async function onRequestPost(context) {
   let primaryError = null;
+  const requestStarted = Date.now();
+  let claudeNote = "";
   try {
     const ai = context.env.AI;
 
@@ -695,6 +896,22 @@ export async function onRequestPost(context) {
       ? `${SYSTEM_PROMPT_BASE}\n\n${dateLine}\n\n目前持股資料：\n${contextText}${finalizeLine}`
       : `${SYSTEM_PROMPT_BASE}\n\n${dateLine}${finalizeLine}`;
 
+    // 送的 Claude 額度期間（到 11/10）：Owner 先問 Claude Opus 5.5；失敗就照原本順序接手。
+    const ownerAsk = isOwnerAsk(context.request, context.env);
+    if (await shouldAskClaude(context.env, { owner: ownerAsk })) {
+      const claudeStarted = Date.now();
+      try {
+        const claude = await runClaudeAsk(context.env, {
+          systemPrompt, history, message, toolTurns, tools: TOOLS, allowedToolNames: ALLOWED_TOOL_NAMES,
+          forceAnswer, timeoutMs: CLAUDE_ASK_TIMEOUT_MS,
+          webSearch: (q) => callTavily(context.env.TAVILY_API_KEY, q),
+        });
+        return jsonResponse({ ok: true, version: ASK_VERSION, ...claude });
+      } catch (e) {
+        claudeNote = `Claude ${Math.round((Date.now() - claudeStarted) / 1000)} 秒後失敗：${String(e?.message || e).slice(0, 120)}`;
+      }
+    }
+
     const messages = [
       { role: "system", content: systemPrompt },
       ...history,
@@ -726,7 +943,7 @@ export async function onRequestPost(context) {
       }).filter(Boolean);
     }
 
-    const primaryDeadline = Date.now() + PRIMARY_AI_TIMEOUT_MS;
+    const primaryDeadline = Math.min(Date.now() + PRIMARY_AI_TIMEOUT_MS, requestStarted + ASK_TOTAL_BUDGET_MS - GEMINI_RESERVE_MS);
     async function runModel() {
       if (!ai) throw new Error("尚未設定 Cloudflare AI Binding（AI）");
       if ((primaryCooldown.get(ai) || 0) > Date.now()) throw new Error("AI 暫時冷卻，改用備援");
@@ -783,7 +1000,7 @@ export async function onRequestPost(context) {
           toolCalls = parseToolCalls(result).filter((tc) => tc.name !== "web_search");
         }
         if (toolCalls.length > 0) {
-          const payload = { ok: true, version: ASK_VERSION, provider: "cloudflare", model: activeModel, toolCalls };
+          const payload = { ok: true, version: ASK_VERSION, provider: "cloudflare", model: activeModel, toolCalls, ...(claudeNote ? { fallbackFrom: claudeNote } : {}) };
           if (cacheEnabled) writeAskCache(cacheKey, payload);
           return jsonResponse(payload);
         }
@@ -794,7 +1011,7 @@ export async function onRequestPost(context) {
           reply = extractCloudflareText(result);
         }
         if (!reply) throw new Error("AI 沒有回傳文字內容");
-        const payload = { ok: true, version: ASK_VERSION, provider: "cloudflare", model: activeModel, reply };
+        const payload = { ok: true, version: ASK_VERSION, provider: "cloudflare", model: activeModel, reply, ...(claudeNote ? { fallbackFrom: claudeNote } : {}) };
         if (cacheEnabled) writeAskCache(cacheKey, payload);
         return jsonResponse(payload);
       } catch (e) {
@@ -807,8 +1024,8 @@ export async function onRequestPost(context) {
       const gemini = await withTimeout(runGeminiFallback(context.env, {
         message, history, contextText, toolTurns, allowPrivate: body?.allowGeminiPrivate === true, forceAnswer,
         owner: isOwnerAsk(context.request, context.env),
-      }), GEMINI_AI_TIMEOUT_MS, "Gemini 備援");
-      const payload = { ok: true, version: ASK_VERSION, ...gemini, fallbackFrom: friendlyAiError(primaryError?.message) };
+      }), Math.max(8000, Math.min(GEMINI_AI_TIMEOUT_MS, requestStarted + ASK_TOTAL_BUDGET_MS - Date.now())), "Gemini 備援");
+      const payload = { ok: true, version: ASK_VERSION, ...gemini, fallbackFrom: [claudeNote, friendlyAiError(primaryError?.message)].filter(Boolean).join("；") };
       if (cacheEnabled) writeAskCache(cacheKey, payload);
       return jsonResponse(payload);
     } catch (geminiError) {
