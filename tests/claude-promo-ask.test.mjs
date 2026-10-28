@@ -101,3 +101,13 @@ test('對話紀錄整理成 user／assistant 交替、從 user 開始', () => {
   assert.equal(msgs[0].content, 'a\n\nb');
   assert.equal(claudeTools([{ type: 'function', function: { name: 'x', description: 'd', parameters: { type: 'object', properties: {} } } }])[0].input_schema.type, 'object');
 });
+
+test('系統健康的 Claude 狀態：說得出金鑰有沒有讀到、實測結果，但不帶金鑰內容', async () => {
+  const { claudeAskStatus } = await import('../functions/ask.js');
+  const st = await claudeAskStatus({ Anthropic_api_key: 'sk-secret-value', health_kv: kv() }, { probe: true, fetcher: async () => ok([{ type: 'text', text: 'OK' }]) });
+  assert.equal(st.keyFound, true); assert.equal(st.keyName, 'Anthropic_api_key');
+  assert.equal(st.probe.ok, true); assert.equal(st.probe.text, 'OK');
+  assert.doesNotMatch(JSON.stringify(st), /sk-secret-value/);
+  const none = await claudeAskStatus({}, { probe: true });
+  assert.equal(none.keyFound, false); assert.equal(none.probe, undefined);
+});

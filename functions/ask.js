@@ -653,6 +653,7 @@ const MAX_TOOL_TEXT = 12000;
 const MAX_SEARCH_ROUNDS = 2;
 const COOLDOWN_KEY = "ask-claude-cooldown";
 const LAST_ERROR_KEY = "ask-claude-last-error";
+const LAST_OK_KEY = "ask-claude-last-ok";
 const BUSY_COOLDOWN_MS = 10 * 60 * 1000;      // 429／5xx：10 分鐘內先不問
 const BILLING_COOLDOWN_MS = 6 * 3600 * 1000;  // 額度用完／金鑰失效：6 小時內先不問
 
@@ -779,6 +780,27 @@ async function callClaudeOnce(env, { system, messages, tools, deadline, fetcher 
   return data;
 }
 
+// 給系統健康看的 Claude 狀態（不含金鑰內容）。probe=true 會實際問一句很短的話，確認金鑰與額度能用。
+export async function claudeAskStatus(env, { probe = false, fetcher = fetch } = {}) {
+  const keyName = CLAUDE_KEY_NAMES.find((n) => String(env?.[n] || "").trim()) || null;
+  const read = async (k) => { try { return JSON.parse((await env?.health_kv?.get(k)) || "null"); } catch { return null; } };
+  const status = {
+    keyFound: Boolean(keyName), keyName, active: claudePrimaryActive(env), until: String(env?.CLAUDE_PRIMARY_UNTIL || CLAUDE_PRIMARY_UNTIL),
+    ownerTokenConfigured: Boolean(String(env?.LINE_REMINDER_SYNC_TOKEN || "").trim()),
+    coolingDown: await claudeCoolingDown(env), lastOk: await read(LAST_OK_KEY), lastError: await read(LAST_ERROR_KEY),
+  };
+  if (probe && keyName) {
+    const t = Date.now();
+    try {
+      const data = await callClaudeOnce(env, { system: "回覆 OK 兩個字。", messages: [{ role: "user", content: "ping" }], tools: [], deadline: Date.now() + 25000, fetcher });
+      status.probe = { ok: true, ms: Date.now() - t, model: data?.model || null, text: textOf(data).slice(0, 20) };
+    } catch (e) {
+      status.probe = { ok: false, ms: Date.now() - t, status: e?.status ?? null, error: String(e?.message || e).slice(0, 200) };
+    }
+  }
+  return status;
+}
+
 /**
  * 問 Claude 一次（含伺服器端網路搜尋的小迴圈）。
  * 回傳 { provider, model, reply } 或 { provider, model, toolCalls }；失敗丟錯（ask.js 接手備援）。
@@ -809,6 +831,7 @@ export async function runClaudeAsk(env, { systemPrompt, history, message, toolTu
       }
       const model = String(data?.model || CLAUDE_MODEL_DEFAULT);
       const provider = /opus-5-5/.test(model) ? "Claude Opus 5.5" : `Claude（${model}）`;
+      try { await env?.health_kv?.put(LAST_OK_KEY, JSON.stringify({ at: new Date().toISOString(), ms: Date.now() - started, model }), { expirationTtl: 14 * 86400 }); } catch { /* 存不進去就算了 */ }
       const appCalls = calls.filter((c) => c.name !== "web_search");
       if (appCalls.length) return { provider, model, toolCalls: appCalls };
       const reply = textOf(data);
