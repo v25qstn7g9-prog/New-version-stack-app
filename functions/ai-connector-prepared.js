@@ -13,6 +13,7 @@
 import { onRequestGet as portfolioSyncGet } from "./portfolio-sync.js";
 import { factorCollectionStatus } from "./factor-status.js";
 import { probeFactorSources } from "./factor-sources.js";
+import { claudeAskStatus } from "./ask.js";
 import { onRequestGet as quoteGet } from "./quote.js";
 import { onRequestGet as newsGet } from "./news.js";
 import { onRequestGet as dividendGet } from "./dividend-schedule.js";
@@ -758,6 +759,8 @@ async function callTool(name, args, env, syncToken) {
         data.factorCollection = st.ok ? { syncedAt: st.syncedAt, lastIntradayDay: st.lastIntradayDay, lastTomorrowDay: st.lastTomorrowDay, intraday: st.intraday, tomorrow: st.tomorrow } : { ok: false, reason: st.reason };
       } catch (error) { data.factorCollection = { ok: false, reason: String(error?.message || error).slice(0, 200) }; }
       // 因子資料來源（量價、前日廣度、融資、法人）此刻從伺服器抓不抓得到；任何一項失敗只記在這裡。
+      // AI 問答的 Claude（送的額度期間）：金鑰有沒有讀到、上次成功／失敗、實際問一句測試。
+      try { data.claudeAsk = await claudeAskStatus(env, { probe: true }); } catch (error) { data.claudeAsk = { ok: false, error: String(error?.message || error).slice(0, 200) }; }
       try { data.factorSources = await probeFactorSources(env); } catch (error) { data.factorSources = { ok: false, error: String(error?.message || error).slice(0, 200) }; }
     }
     return toolResult(data ?? { ok:false, error:"Invalid endpoint response" }, !res.ok || data?.ok === false);
