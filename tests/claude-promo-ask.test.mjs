@@ -111,3 +111,50 @@ test('系統健康的 Claude 狀態：說得出金鑰有沒有讀到、實測結
   const none = await claudeAskStatus({}, { probe: true });
   assert.equal(none.keyFound, false); assert.equal(none.probe, undefined);
 });
+
+test('香港機房被擋（403 Request not allowed）不是額度問題：不暫停，下一題照樣先問 Claude', async () => {
+  const env = { health_kv: kv() };
+  const first = await ask({ env, claude: () => Response.json({ error: { type: 'forbidden', message: 'Request not allowed' } }, { status: 403 }) });
+  assert.match(first.body.provider, /cloudflare/i);
+  const second = await ask({ env, claude: () => ok([{ type: 'text', text: 'Claude 回來了' }]) });
+  assert.equal(second.body.reply, 'Claude 回來了');
+});
+
+test('舊版誤記的「Request not allowed」暫停紀錄不再擋住 Claude', async () => {
+  const store = kv();
+  await store.put('ask-claude-cooldown', JSON.stringify({ until: Date.now() + 3600e3, reason: 'Claude HTTP 403：Request not allowed' }));
+  const { body } = await ask({ env: { health_kv: store }, claude: () => ok([{ type: 'text', text: 'ok' }]) });
+  assert.equal(body.reply, 'ok');
+});
+
+test('有 CLAUDE_RELAY 綁定時，Claude 走美國西部的 Durable Object，不直接從使用者附近的機房呼叫', async () => {
+  const seen = [];
+  const relay = {
+    idFromName: (name) => ({ name }),
+    get: (id, opts) => ({ fetch: async (url, init) => { seen.push({ id, opts, url, key: init.headers['x-api-key'] }); return ok([{ type: 'text', text: '從美國回答' }]); } }),
+  };
+  const { body, hits } = await ask({ env: { CLAUDE_RELAY: relay }, claude: () => { throw new Error('should not call api.anthropic.com directly'); } });
+  assert.equal(body.reply, '從美國回答');
+  assert.equal(hits.claude.length, 0);
+  assert.equal(seen[0].opts.locationHint, 'wnam');
+  assert.equal(seen[0].key, 'sk-test');
+});
+
+test('relay 類別有從主程式匯出，wrangler 也有綁定與 migration', async () => {
+  const fs = await import('node:fs');
+  const worker = fs.readFileSync('worker.js', 'utf8');
+  assert.match(worker, /export \{ ClaudeRelay \} from "\.\/functions\/claude-relay\.js"/);
+  const cfg = fs.readFileSync('wrangler.jsonc', 'utf8');
+  assert.match(cfg, /"name": "CLAUDE_RELAY", "class_name": "ClaudeRelay"/);
+  assert.match(cfg, /"new_sqlite_classes": \["ClaudeRelay"\]/);
+  const { ClaudeRelay } = await import('../functions/claude-relay.js');
+  const original = globalThis.fetch; let forwarded;
+  globalThis.fetch = async (url, init) => { forwarded = { url, init }; return ok([{ type: 'text', text: 'x' }]); };
+  try {
+    const res = await new ClaudeRelay({}, {}).fetch(new Request('https://claude-relay.internal/v1/messages', { method: 'POST', headers: { 'x-api-key': 'k', 'anthropic-version': 'v' }, body: '{"a":1}' }));
+    assert.equal(res.status, 200);
+    assert.equal(forwarded.url, 'https://api.anthropic.com/v1/messages');
+    assert.equal(forwarded.init.headers['x-api-key'], 'k');
+    assert.equal(forwarded.init.body, '{"a":1}');
+  } finally { globalThis.fetch = original; }
+});

@@ -46,6 +46,18 @@
     ]
   },
 
+  // ============================================
+  // AI 問答呼叫 Claude 的美國出口（functions/claude-relay.js）
+  // ============================================
+  // 手機有時被分到香港機房，香港不在 Anthropic 服務地區，直接呼叫會被擋（403 Request not allowed）。
+  // 這個 Durable Object 建在美國西部，ask.js 透過它呼叫 Claude；不存任何資料。
+  "durable_objects": {
+    "bindings": [{ "name": "CLAUDE_RELAY", "class_name": "ClaudeRelay" }]
+  },
+  "migrations": [
+    { "tag": "v1-claude-relay", "new_sqlite_classes": ["ClaudeRelay"] }
+  ],
+
   // Gemini 備援模型（API Key 請用 Cloudflare Secret：GEMINI_API_KEY）
   "vars": {
     "GEMINI_MODEL": "gemini-3.6-flash",
