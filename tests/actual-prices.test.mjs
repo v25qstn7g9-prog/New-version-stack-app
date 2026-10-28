@@ -22,8 +22,9 @@ test('prices keep their real decimals: no rounding to 1 decimal, float noise rem
 
 test('live price card shows actual TW prices and US prices in US$, TAIEX with its decimals', () => {
   assert.doesNotMatch(src, /formatNtdPrice\(quoteNtd\(r, r\.(price|high|low|prevClose)\), 1\)/);
-  assert.match(src, /<div>\{quotePriceText\(r\.price, r\.isUS\)\}<\/div>/);
-  assert.match(src, /\{formatQuotePrice\(indexPrice\)\}　/);
+  // 2026-10-28 總覽精簡：每檔一行摘要，現價仍是實際價格
+  assert.match(src, /<span className="live-q-price mono">\s*\{quotePriceText\(r\.price, r\.isUS\)\}/);
+  assert.match(src, /<span className="live-q-price mono">\{formatQuotePrice\(indexPrice\)\}<\/span>/);
   assert.doesNotMatch(src, /nf\(Math\.round\(indexPrice\)\)/);
 });
 
