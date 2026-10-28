@@ -11,7 +11,8 @@ test('each holding card shows previous close and the actual price difference', (
   // 2026-10-22：股價照實際價格（台股 NT$、美股 US$ 原幣），不再四捨五入到小數 1 位
   assert.match(html, /\{r\.prevCloseOk \? quotePriceText\(r\.prevClose, r\.isUS\) : "—"\}/);
   assert.match(html, /\{r\.chg >= 0 \? "▲ \+" : "▼ -"\}\{quotePriceText\(Math\.abs\(r\.chg\), r\.isUS\)\}/);
-  assert.match(html, /SessionSparkline points=\{withLive\(sparkFor\(r\.symbol\)/);
+  assert.match(html, /const rowSpark = withLive\(sparkFor\(r\.symbol\)/);
+  assert.match(html, /<SessionSparkline points=\{rowSpark\}/);
 });
 
 test('a fake previous close (no_prevClose_available) is never shown as 昨收', () => {

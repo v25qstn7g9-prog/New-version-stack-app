@@ -111,6 +111,12 @@
  [rt.white,rt.tabby].forEach(function(el){el.tabIndex=-1;el.setAttribute('aria-hidden','true');});
  var hide=document.createElement('button');hide.type='button';hide.className='za-cat-control';hide.textContent='收起小貓';hide.setAttribute('aria-pressed','false');rt.bar.appendChild(hide);
  var pet=document.createElement('button');pet.type='button';pet.className='za-cat-control';pet.textContent='叫醒／逗貓';rt.bar.appendChild(pet);
+ // 頂端只留一顆「小貓」按鈕，暫停／收起／叫醒收在裡面，點了才展開（總覽精簡）。
+ var menu=document.createElement('button');menu.type='button';menu.className='za-cat-control za-cat-menu';menu.textContent='小貓 ▾';menu.setAttribute('aria-expanded','false');menu.setAttribute('aria-label','小貓選單');
+ if(typeof rt.bar.insertBefore==='function'&&rt.pause&&rt.pause.parentNode===rt.bar)rt.bar.insertBefore(menu,rt.pause);else rt.bar.appendChild(menu);
+ [rt.pause,hide,pet].forEach(function(b){if(b&&b.classList)b.classList.add('za-cat-opt');});
+ var menuCss=document.createElement('style');menuCss.textContent='.za-cat-pair-bar:not(.za-cat-open) .za-cat-opt{display:none!important}';document.head.appendChild(menuCss);
+ menu.addEventListener('click',function(){var cl=rt.bar.classList;if(!cl)return;var open=!cl.contains('za-cat-open');cl.toggle('za-cat-open',open);menu.setAttribute('aria-expanded',String(open));menu.textContent=open?'小貓 ▴':'小貓 ▾';});
  var safe=document.createElement('i');safe.className='za-cat-safe';document.body.appendChild(safe);
  var life=null,raf=0,last=0,userHidden=false,timer=0,dirty=true,assetError=false,layoutKey='',settling=false,fadeTimer=0;
  var media=window.matchMedia('(prefers-reduced-motion: reduce)');

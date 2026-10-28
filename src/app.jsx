@@ -505,6 +505,9 @@ const UI_EN = {
   "買": "Buy",
   "賣": "Sell",
   "趨勢累積中": "Trend accumulating",
+  "市值明細": "Market value details",
+  "收起市值明細": "Hide market value details",
+  "市值": "Value",
   "上升趨勢": "Uptrend",
   "下降趨勢": "Downtrend",
   "抓取失敗（來源可能暫時壅塞），稍後再試或改用券商 App 查詢": "Fetch failed (source may be busy). Try again later or check via your broker's app.",
@@ -3303,7 +3306,7 @@ function MiniSparkline({ values, width=120, height=18, tone=null, showArea=true,
   );
 }
 
-function SessionSparkline({ points, baseline=null, width=300, height=34, tone=null, showDot=true }) {
+function SessionSparkline({ points, baseline=null, width=300, height=34, tone=null, showDot=true, placeholder=true }) {
   const startMin=9*60, closeMin=13*60+30, endMin=14*60;
   const plotBottom=height-10;
   const raw=(points||[]).map(p=>({ts:Number(p?.ts),value:Number(p?.value)}))
@@ -3314,7 +3317,8 @@ function SessionSparkline({ points, baseline=null, width=300, height=34, tone=nu
     })
     .filter(p=>p.minute>=startMin&&p.minute<=endMin)
     .sort((a,b)=>a.ts-b.ts);
-  if(raw.length<2) return <span className="text-[9px]" style={{color:COLORS.sub}}><UiLabel zh="趨勢累積中" /></span>;
+  // 每檔的小走勢線不顯示「趨勢累積中」：整區只在大盤那條寫一次，不要每檔都重複。
+  if(raw.length<2) return placeholder ? <span className="text-[9px]" style={{color:COLORS.sub}}><UiLabel zh="趨勢累積中" /></span> : null;
 
   const base=Number(baseline);
   const vals=raw.map(p=>p.value);
@@ -3361,6 +3365,11 @@ function SessionSparkline({ points, baseline=null, width=300, height=34, tone=nu
 }
 
 function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yesterdayUsValue, hasUsAssets }) {
+  // 精簡版面：每檔一行摘要（代號・現價・漲跌％・今日損益），點一下才展開高／低／昨收與市值。
+  const [openRows, setOpenRows] = useState({});
+  const [indexOpen, setIndexOpen] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const toggleRow = (id) => setOpenRows((m) => ({ ...m, [id]: !m[id] }));
   const [live, setLive] = useState({});      // symbol -> { price, prevClose, isUS, asOfDate, isStale }
   const [liveStatus, setLiveStatus] = useState("idle"); // idle | loading | done | error
   const [liveAt, setLiveAt] = useState(null);
@@ -3662,8 +3671,8 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
 
   return (
     <Panel title="即時股價">
-      <div className="flex items-center justify-between gap-2 mb-2">
-        <div className={`live-status-line text-[11px] ${marketClosedNow ? "is-closed" : ""}`} style={{ color: COLORS.sub }}>
+      <div className="flex items-center justify-between gap-2 mb-2 live-status-row" style={{ flexWrap: "nowrap" }}>
+        <div className={`live-status-line text-[11px] ${marketClosedNow ? "is-closed" : ""}`} style={{ color: COLORS.sub, minWidth: 0, flex: "1 1 auto" }}>
           {/* 休市日（週末、國定假日、補假）提醒：v2.46 原有，10/05 美股改版時被拿掉，這裡補回 */}
           {marketClosedNow && <span className="live-closed-note">{UI_SHOW_ENGLISH
             ? `${todayClosure?.name || "Market holiday"} · Taiwan market closed, auto refresh paused${staleOne ? ` · showing ${staleOne.asOfDate.getMonth() + 1}/${staleOne.asOfDate.getDate()} close` : ""}`
@@ -3678,13 +3687,15 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
         <button
           onClick={() => { fetchAllLive(true); usLive?.refresh?.(); }}
           disabled={liveStatus === "loading" || usLive?.state?.status === "loading" || !activeHoldings.length}
-          className="forma-tap live-refresh-btn relative text-xs font-bold px-3 py-1.5 rounded-lg flex items-center justify-center flex-shrink-0"
-          style={{ background: COLORS.gold, color: COLORS.bg, opacity: !activeHoldings.length ? 0.5 : 1 }}
-          aria-label={uiText("抓取即時股價")}
+          className="forma-tap live-refresh-icon relative rounded-full flex items-center justify-center flex-shrink-0"
+          style={{ width: 40, height: 40, background: "transparent", color: COLORS.gold, border: `1px solid ${COLORS.panelBorder}`, opacity: !activeHoldings.length ? 0.5 : 1 }}
+          aria-label={uiText("抓取即時股價")} title={uiText("抓取即時股價")}
         >
-          <span style={{ visibility: (liveStatus === "loading" || usLive?.state?.status === "loading") ? "hidden" : "visible" }}>
-            <UiLabel zh="抓取即時股價" />
-          </span>
+          {/* 開盤時本來就每 15 秒自動更新，這顆只是手動立刻重抓：縮成一個重新整理圖示 */}
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+            style={{ visibility: (liveStatus === "loading" || usLive?.state?.status === "loading") ? "hidden" : "visible" }}>
+            <path d="M21 12a9 9 0 1 1-2.64-6.36" /><path d="M21 3v6h-6" />
+          </svg>
           {(liveStatus === "loading" || usLive?.state?.status === "loading") && (
             <span className="absolute inset-0 flex items-center justify-center">
               <Loader2 size={15} className="animate-spin" />
@@ -3698,32 +3709,38 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
           {/* 大盤放最上面：先知道今天是大盤帶動還是自己選股 */}
           {hasMarketIndex && (
             <div className="mb-2 pb-2" style={{ borderBottom: `1px solid ${COLORS.panelBorder}` }}>
-              <div className="flex justify-between items-baseline gap-2 text-[11px] mono">
-                <span style={{ color: COLORS.sub }}><UiLabel zh="加權指數" /></span>
-                <span style={{ color: indexChange >= 0 ? COLORS.gain : COLORS.loss }}>
-                  {formatQuotePrice(indexPrice)}　{indexChange >= 0 ? "▲" : "▼"} {indexChangePct >= 0 ? "+" : ""}{indexChangePct.toFixed(2)}%
+              <button type="button" className="live-q-sum" onClick={() => setIndexOpen((v) => !v)} aria-expanded={indexOpen}
+                aria-label={UI_SHOW_ENGLISH ? "TAIEX details" : "加權指數：點一下看高低與昨收"}>
+                <span className="live-q-sym"><UiLabel zh="加權指數" /></span>
+                <span className="live-q-price mono">{formatQuotePrice(indexPrice)}</span>
+                <span className="live-q-chg mono" style={{ color: indexChange >= 0 ? COLORS.gain : COLORS.loss }}>
+                  {indexChange >= 0 ? "▲" : "▼"} {indexChangePct >= 0 ? "+" : ""}{indexChangePct.toFixed(2)}%
                 </span>
-              </div>
-              <div className="flex justify-between items-baseline gap-2 text-[10px] mono mt-0.5" style={{ color: COLORS.sub }}>
-                <span>
-                  {Number.isFinite(Number(marketIndex?.high))&&Number.isFinite(Number(marketIndex?.low))
-                    ? (UI_SHOW_ENGLISH
-                      ? <>High {formatQuotePrice(marketIndex.high)} | Low {formatQuotePrice(marketIndex.low)}</>
-                      : <>高 {formatQuotePrice(marketIndex.high)}｜低 {formatQuotePrice(marketIndex.low)}</>)
-                    : null}
-                </span>
+              </button>
+              <div className="flex justify-between items-baseline gap-2 mono live-q-sub">
+                {indexPrevCloseOk ? (
+                  <span style={{ color: indexChange >= 0 ? COLORS.gain : COLORS.loss }}>
+                    <UiLabel zh="漲跌" inline /> {indexChange >= 0 ? "+" : "−"}{fmt2(Math.abs(indexChange))} <UiLabel zh="點" inline />
+                  </span>
+                ) : <span />}
                 {vsMarketPct != null && (
                   <span style={{ color: vsMarketPct >= 0 ? COLORS.gain : COLORS.loss }}>
                     <UiLabel zh={vsMarketPct >= 0 ? "贏大盤" : "輸大盤"} inline /> {vsMarketPct >= 0 ? "+" : ""}{vsMarketPct.toFixed(2)}%
                   </span>
                 )}
               </div>
-              {indexPrevCloseOk && (
-                <div className="flex justify-between items-baseline gap-2 text-[10px] mono mt-0.5">
-                  <span style={{ color: COLORS.sub }}><UiLabel zh="昨收" inline /> {fmt2(indexPrevClose)}</span>
-                  <span style={{ color: indexChange >= 0 ? COLORS.gain : COLORS.loss }}>
-                    <UiLabel zh="漲跌" inline /> {indexChange >= 0 ? "+" : "−"}{fmt2(Math.abs(indexChange))} <UiLabel zh="點" inline />
+              {indexOpen && (
+                <div className="flex justify-between items-baseline gap-2 mono live-q-sub" style={{ color: COLORS.sub }}>
+                  <span>
+                    {Number.isFinite(Number(marketIndex?.high))&&Number.isFinite(Number(marketIndex?.low))
+                      ? (UI_SHOW_ENGLISH
+                        ? <>High {formatQuotePrice(marketIndex.high)} | Low {formatQuotePrice(marketIndex.low)}</>
+                        : <>高 {formatQuotePrice(marketIndex.high)}｜低 {formatQuotePrice(marketIndex.low)}</>)
+                      : null}
                   </span>
+                  {indexPrevCloseOk && (
+                    <span><UiLabel zh="昨收" inline /> {fmt2(indexPrevClose)}</span>
+                  )}
                 </div>
               )}
               <div className="h-[22px] mt-1 opacity-80">
@@ -3732,15 +3749,37 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
             </div>
           )}
           <div className="live-quote-list">
-            <div className="live-quote-grid live-quote-heading" style={{ color: COLORS.sub }}>
-              <span>{UI_SHOW_ENGLISH ? "Code / Weight" : "代號／佔比"}</span>
-              <span>{UI_SHOW_ENGLISH ? "High / Low / Prev" : "高／低・昨收"}</span>
-              <span className="text-right">{UI_SHOW_ENGLISH ? "Price / Change" : "股價／漲跌幅"}</span>
-              <span className="text-right">{UI_SHOW_ENGLISH ? "Value / P&L" : "市值／今日損益"}</span>
-            </div>
-            {[...rows].sort((x, y) => y.value - x.value).map((r) => (
+            {[...rows].sort((x, y) => y.value - x.value).map((r) => {
+              const open = Boolean(openRows[r.id]);
+              const stalePending = r.quoteIsStale && isTwseTradingHours() && !isMarketClosedToday();
+              const tone = r.quoteIsStale ? COLORS.sub : (r.chg >= 0 ? COLORS.gain : COLORS.loss);
+              const pnlAbs = Math.abs(r.chg * r.current * (r.isUS ? Number(usLive?.state?.fx || 0) * Number(usLive?.calibrationFactor || 1) : 1));
+              const pnl = ntdAmount(pnlAbs, UI_SHOW_ENGLISH);
+              const rowSpark = withLive(sparkFor(r.symbol), r.quoteIsStale || r.isFromCache ? null : r.price);
+              return (
               <div key={r.id} className="live-quote-row">
-                <div className="live-quote-grid mono">
+                <button type="button" className="live-q-sum" onClick={() => toggleRow(r.id)} aria-expanded={open}
+                  aria-label={UI_SHOW_ENGLISH ? `${r.symbol} details` : `${r.symbol}：點一下看高低、昨收與市值`}>
+                  <span className="live-q-sym mono">
+                    <span style={{ color: COLORS.text }}>{r.symbol}</span>
+                    <span className="live-q-weight" style={{ color: COLORS.sub }}>{totalValue > 0 ? `${Math.round((r.value / totalValue) * 100)}%` : "—"}</span>
+                  </span>
+                  <span className="live-q-price mono">
+                    {quotePriceText(r.price, r.isUS)}
+                    {r.isUS && quoteNtd(r, r.price) != null && <span className="live-q-weight" style={{ color: COLORS.sub }}>≈ NT$ {formatNtdPrice(quoteNtd(r, r.price))}</span>}
+                  </span>
+                  <span className="live-q-chg mono" style={{ color: tone }}>
+                    {stalePending ? <UiLabel zh="待更新" /> : r.prevCloseOk ? <>{r.chgPct >= 0 ? "+" : ""}{r.chgPct.toFixed(2)}%</> : "—"}
+                    {!r.quoteIsStale && r.prevCloseOk && <span className="live-q-weight" data-live-amount style={{ color: tone }}>{r.chg >= 0 ? "+" : "-"}{pnl.text}</span>}
+                  </span>
+                </button>
+                {rowSpark.length >= 2 && (
+                <div className="h-[20px] mt-1 opacity-80">
+                  <SessionSparkline points={rowSpark} baseline={r.prevClose} width={240} height={20} tone={r.chg>=0?COLORS.gain:COLORS.loss} placeholder={false} />
+                </div>
+                )}
+                {open && (
+                <div className="live-quote-grid mono live-q-detail">
                   <div style={{ color: COLORS.sub }}>
                     <div style={{ color: COLORS.text }}>{r.symbol}</div>
                     <div>{totalValue > 0 ? `${Math.round((r.value / totalValue) * 100)}%` : "—"}</div>
@@ -3751,33 +3790,32 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
                     <div><UiLabel zh="昨收" inline /> {r.prevCloseOk ? quotePriceText(r.prevClose, r.isUS) : "—"}</div>
                   </div>
                   <div className="text-right">
-                    <div>{quotePriceText(r.price, r.isUS)}</div>
-                    {r.isUS && quoteNtd(r, r.price) != null && <div style={{ color: COLORS.sub, fontSize: 11 }}>≈ NT$ {formatNtdPrice(quoteNtd(r, r.price))}</div>}
-                    <div style={{ color: r.quoteIsStale ? COLORS.sub : (r.chg >= 0 ? COLORS.gain : COLORS.loss) }}>
-                      {r.quoteIsStale && isTwseTradingHours() && !isMarketClosedToday() ? <UiLabel zh="待更新" /> : r.prevCloseOk ? <>{r.chg >= 0 ? "▲ +" : "▼ -"}{quotePriceText(Math.abs(r.chg), r.isUS)}<br />{r.chgPct >= 0 ? "+" : ""}{r.chgPct.toFixed(2)}%</> : "—"}
+                    <div style={{ color: COLORS.sub }}><UiLabel zh="漲跌" inline /></div>
+                    <div style={{ color: tone }}>
+                      {stalePending ? <UiLabel zh="待更新" /> : r.prevCloseOk ? <>{r.chg >= 0 ? "▲ +" : "▼ -"}{quotePriceText(Math.abs(r.chg), r.isUS)}</> : "—"}
                     </div>
                   </div>
                   <div className="text-right">
+                    <div style={{ color: COLORS.sub }}><UiLabel zh="市值" inline /></div>
                     {(() => { const a = ntdAmount(r.value, UI_SHOW_ENGLISH); return <div className="font-bold whitespace-nowrap" data-live-amount style={a.small ? { fontSize: 12 } : undefined}>{a.text}</div>; })()}
-                    {!r.quoteIsStale && (() => {
-                      const pnl = Math.abs(r.chg * r.current * (r.isUS ? Number(usLive?.state?.fx || 0) * Number(usLive?.calibrationFactor || 1) : 1));
-                      const a = ntdAmount(pnl, UI_SHOW_ENGLISH);
-                      return <div className="whitespace-nowrap" data-live-amount style={{ color: r.chg >= 0 ? COLORS.gain : COLORS.loss, ...(a.small ? { fontSize: 12 } : {}) }}>{r.chg >= 0 ? "+" : "-"}{a.text}</div>;
-                    })()}
                   </div>
                 </div>
-                <div className="h-[20px] mt-1 opacity-80">
-                  <SessionSparkline points={withLive(sparkFor(r.symbol), r.quoteIsStale || r.isFromCache ? null : r.price)} baseline={r.prevClose} width={240} height={20} tone={r.chg>=0?COLORS.gain:COLORS.loss} />
-                </div>
+                )}
                 {r.isUS && r.asOfDate && <div className="text-[9px] text-right mt-0.5" style={{ color: COLORS.sub }}>
                   {UI_SHOW_ENGLISH ? "US quote " : "美股報價 "}{new Date(r.asOfDate).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}
                 </div>}
               </div>
-            ))}
+              );
+            })}
           </div>
           {/* One flat summary instead of a boxed 今日摘要 plus two repeated
               blocks: portfolio value vs yesterday, then TAIEX vs portfolio. */}
           <div className="pt-2 mt-2" style={{ borderTop: `1px solid ${COLORS.panelBorder}` }}>
+            {/* 台股／美股市值、合計、較昨日跟最上面的總資產卡重複：預設收起，要看再點開 */}
+            <button type="button" className="live-q-more" onClick={() => setSummaryOpen((v) => !v)} aria-expanded={summaryOpen} style={{ color: COLORS.sub }}>
+              <UiLabel zh={summaryOpen ? "收起市值明細" : "市值明細"} inline /> <ExpandChevron open={summaryOpen} size={13} />
+            </button>
+            {summaryOpen && (<>
             <div className="space-y-1 mono">
               <div className="flex justify-between items-baseline gap-2 text-xs">
                 <span style={{ color: COLORS.sub }}><UiLabel zh="台股持股市值" /></span>
@@ -3811,6 +3849,7 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
             <div className="h-[24px] mt-1 opacity-85">
               <SessionSparkline points={portfolioSpark} baseline={(Number(yesterdayTwValue || 0) + Number(yesterdayUsValue || 0))} width={300} height={24} tone={portfolioDayUp?COLORS.gain:COLORS.loss} />
             </div>
+            </>)}
           </div>
 
 
