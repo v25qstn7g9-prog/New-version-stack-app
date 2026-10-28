@@ -68,6 +68,8 @@ async function readSystemStats(env) {
 import { onRequestGet as quoteHandler } from "./functions/quote.js";
 import { onRequestGet as newsHandler } from "./functions/news.js";
 import { onRequestPost as askHandler } from "./functions/ask.js";
+// 呼叫 Claude 固定走美國出口（Durable Object 類別要從主程式匯出，Cloudflare 才找得到）
+export { ClaudeRelay } from "./functions/claude-relay.js";
 import { onRequestGet as ownerModelGet, onRequestPost as ownerModelPost } from "./functions/owner-model.js";
 import { onRequestGet as dividendScheduleHandler } from "./functions/dividend-schedule.js";
 import { onRequestGet as dailyHistoryHandler } from "./functions/daily-history.js";

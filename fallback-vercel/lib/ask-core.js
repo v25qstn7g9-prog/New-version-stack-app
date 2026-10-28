@@ -680,6 +680,7 @@ export async function claudeCoolingDown(env, now = Date.now()) {
     const raw = await env?.health_kv?.get(COOLDOWN_KEY);
     if (!raw) return null;
     const rec = JSON.parse(raw);
+    if (regionBlocked(403, rec?.reason)) return null; // 舊版把地區被擋誤記成額度問題
     return Number(rec?.until) > now ? rec : null;
   } catch { return null; }
 }
@@ -748,6 +749,23 @@ function toolUsesOf(data, allowed) {
     .map((b) => ({ id: String(b.id || ""), name: b.name, arguments: b.input && typeof b.input === "object" ? b.input : {} }));
 }
 
+// 呼叫 Claude 固定走美國出口的 Durable Object（functions/claude-relay.js 的 ClaudeRelay）：
+// 手機有時被分到香港機房，香港不在 Anthropic 服務地區，直接呼叫會被擋（403 Request not allowed）。
+// 沒有綁定（測試、Vercel 備援）就回 null，直接呼叫。名稱與地區要跟 claude-relay.js 一致。
+export const CLAUDE_RELAY_NAME = "claude-relay-wnam-v1";
+export const CLAUDE_RELAY_LOCATION = "wnam";
+function claudeRelay(env) {
+  const ns = env?.CLAUDE_RELAY;
+  if (!ns || typeof ns.idFromName !== "function" || typeof ns.get !== "function") return null;
+  return (_url, init) => ns.get(ns.idFromName(CLAUDE_RELAY_NAME), { locationHint: CLAUDE_RELAY_LOCATION })
+    .fetch("https://claude-relay.internal/v1/messages", init);
+}
+
+// 403「Request not allowed」是出口地區被擋，不是額度或金鑰問題：不暫停，下一題照樣先問 Claude。
+function regionBlocked(status, msg) {
+  return status === 403 && /request not allowed/i.test(String(msg || ""));
+}
+
 async function callClaudeOnce(env, { system, messages, tools, deadline, fetcher }) {
   const remaining = deadline - Date.now();
   if (remaining < 3000) throw new Error("Claude 逾時");
@@ -759,14 +777,25 @@ async function callClaudeOnce(env, { system, messages, tools, deadline, fetcher 
     messages,
   };
   if (tools?.length) body.tools = tools;
+  const init = {
+    method: "POST",
+    signal: AbortSignal.timeout(remaining),
+    headers: { "content-type": "application/json", "x-api-key": readClaudeKey(env), "anthropic-version": API_VERSION },
+    body: JSON.stringify(body),
+  };
   let res;
   try {
-    res = await fetcher("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      signal: AbortSignal.timeout(remaining),
-      headers: { "content-type": "application/json", "x-api-key": readClaudeKey(env), "anthropic-version": API_VERSION },
-      body: JSON.stringify(body),
-    });
+    // 沒指定就走美國出口的 relay（見 claude-relay.js）；relay 本身壞掉才直接呼叫。
+    const relay = fetcher ? null : claudeRelay(env);
+    if (relay) {
+      try { res = await relay("https://api.anthropic.com/v1/messages", init); }
+      catch (relayError) {
+        if (/abort|timeout/i.test(String(relayError?.name || relayError?.message))) throw relayError;
+        res = await fetch("https://api.anthropic.com/v1/messages", init);
+      }
+    } else {
+      res = await (fetcher || fetch)("https://api.anthropic.com/v1/messages", init);
+    }
   } catch (e) {
     throw new Error(/abort|timeout/i.test(String(e?.name || e?.message)) ? "Claude 逾時" : `Claude 連線失敗：${e?.message || e}`);
   }
@@ -781,7 +810,7 @@ async function callClaudeOnce(env, { system, messages, tools, deadline, fetcher 
 }
 
 // 給系統健康看的 Claude 狀態（不含金鑰內容）。probe=true 會實際問一句很短的話，確認金鑰與額度能用。
-export async function claudeAskStatus(env, { probe = false, fetcher = fetch } = {}) {
+export async function claudeAskStatus(env, { probe = false, fetcher = null } = {}) {
   const keyName = CLAUDE_KEY_NAMES.find((n) => String(env?.[n] || "").trim()) || null;
   const read = async (k) => { try { return JSON.parse((await env?.health_kv?.get(k)) || "null"); } catch { return null; } };
   const status = {
@@ -793,7 +822,9 @@ export async function claudeAskStatus(env, { probe = false, fetcher = fetch } = 
     const t = Date.now();
     try {
       const data = await callClaudeOnce(env, { system: "回覆 OK 兩個字。", messages: [{ role: "user", content: "ping" }], tools: [], deadline: Date.now() + 25000, fetcher });
-      status.probe = { ok: true, ms: Date.now() - t, model: data?.model || null, text: textOf(data).slice(0, 20) };
+      status.probe = { ok: true, ms: Date.now() - t, model: data?.model || null, text: textOf(data).slice(0, 20), viaRelay: !fetcher && Boolean(claudeRelay(env)) };
+      // 實測正常就解除暫停，不用等時間到
+      if (status.coolingDown) { try { await env?.health_kv?.delete?.(COOLDOWN_KEY); status.coolingDown = null; status.cooldownCleared = true; } catch { /* 刪不掉就等它到期 */ } }
     } catch (e) {
       status.probe = { ok: false, ms: Date.now() - t, status: e?.status ?? null, error: String(e?.message || e).slice(0, 200) };
     }
@@ -805,7 +836,7 @@ export async function claudeAskStatus(env, { probe = false, fetcher = fetch } = 
  * 問 Claude 一次（含伺服器端網路搜尋的小迴圈）。
  * 回傳 { provider, model, reply } 或 { provider, model, toolCalls }；失敗丟錯（ask.js 接手備援）。
  */
-export async function runClaudeAsk(env, { systemPrompt, history, message, toolTurns, tools, allowedToolNames, forceAnswer = false, timeoutMs = 30000, webSearch, fetcher = fetch } = {}) {
+export async function runClaudeAsk(env, { systemPrompt, history, message, toolTurns, tools, allowedToolNames, forceAnswer = false, timeoutMs = 30000, webSearch, fetcher = null, colo = null } = {}) {
   const started = Date.now();
   const deadline = started + timeoutMs;
   const messages = buildClaudeMessages(history, message, toolTurns);
@@ -831,7 +862,7 @@ export async function runClaudeAsk(env, { systemPrompt, history, message, toolTu
       }
       const model = String(data?.model || CLAUDE_MODEL_DEFAULT);
       const provider = /opus-5-5/.test(model) ? "Claude Opus 5.5" : `Claude（${model}）`;
-      try { await env?.health_kv?.put(LAST_OK_KEY, JSON.stringify({ at: new Date().toISOString(), ms: Date.now() - started, model }), { expirationTtl: 14 * 86400 }); } catch { /* 存不進去就算了 */ }
+      try { await env?.health_kv?.put(LAST_OK_KEY, JSON.stringify({ at: new Date().toISOString(), ms: Date.now() - started, model, colo: colo || null, viaRelay: Boolean(claudeRelay(env)) }), { expirationTtl: 14 * 86400 }); } catch { /* 存不進去就算了 */ }
       const appCalls = calls.filter((c) => c.name !== "web_search");
       if (appCalls.length) return { provider, model, toolCalls: appCalls };
       const reply = textOf(data);
@@ -840,12 +871,13 @@ export async function runClaudeAsk(env, { systemPrompt, history, message, toolTu
     }
   } catch (e) {
     const msg = String(e?.message || e);
-    const billing = [401, 402, 403].includes(e?.status) || /credit balance|billing/i.test(msg);
+    const blocked = regionBlocked(e?.status, msg);
+    const billing = !blocked && ([401, 402, 403].includes(e?.status) || /credit balance|billing/i.test(msg));
     const busy = e?.status === 429 || e?.status >= 500 || /overloaded/i.test(msg);
     if (billing) await startCooldown(env, BILLING_COOLDOWN_MS, msg);
     else if (busy) await startCooldown(env, BUSY_COOLDOWN_MS, msg);
     try {
-      await env?.health_kv?.put(LAST_ERROR_KEY, JSON.stringify({ at: new Date().toISOString(), ms: Date.now() - started, status: e?.status ?? null, message: msg.slice(0, 300) }), { expirationTtl: 14 * 86400 });
+      await env?.health_kv?.put(LAST_ERROR_KEY, JSON.stringify({ at: new Date().toISOString(), ms: Date.now() - started, status: e?.status ?? null, message: msg.slice(0, 300), colo: colo || null, viaRelay: Boolean(claudeRelay(env)) }), { expirationTtl: 14 * 86400 });
     } catch { /* 存不進去就算了 */ }
     throw e;
   }
@@ -926,7 +958,7 @@ export async function onRequestPost(context) {
       try {
         const claude = await runClaudeAsk(context.env, {
           systemPrompt, history, message, toolTurns, tools: TOOLS, allowedToolNames: ALLOWED_TOOL_NAMES,
-          forceAnswer, timeoutMs: CLAUDE_ASK_TIMEOUT_MS,
+          forceAnswer, timeoutMs: CLAUDE_ASK_TIMEOUT_MS, colo: context.request?.cf?.colo || null,
           webSearch: (q) => callTavily(context.env.TAVILY_API_KEY, q),
         });
         return jsonResponse({ ok: true, version: ASK_VERSION, ...claude });
