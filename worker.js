@@ -158,6 +158,12 @@ export default {
     const oauthResponse = await handleAssetOAuth(request, env);
     if (oauthResponse) return oauthResponse;
 
+    // Today MCP（簡單 Bearer Token，不需要 OAuth）
+    if (url.pathname === "/mcp/today") {
+      const { handleAssetMcpToday } = await import("./mcp-asset.js");
+      return handleAssetMcpToday(request, env);
+    }
+
     if (url.pathname === "/mcp") {
       const bearer = (request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
       // SI Hub reads through the fixed read-only key (Secret SI_HUB_READ_TOKEN, the same key that already reads
