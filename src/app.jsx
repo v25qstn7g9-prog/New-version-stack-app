@@ -338,6 +338,7 @@ const UI_EN = {
   "總資產": "Total Assets",
   "持倉損益(估)": "Holding P/L (Est.)",
   "累積股息": "Cumulative Dividends",
+  "股息報表": "Dividend Report",
   "粗估總報酬": "Estimated Total Return",
   "合併總報酬": "Combined Total Return",
   "台股總報酬": "TW Total Return",
@@ -8296,6 +8297,127 @@ function DividendHistoryChart({ dividends }) {
   );
 }
 
+// <dividend-report>
+// 股息報表（參考 Sharesight）：今年已領 vs 去年同期、近 12 個月 vs 前 12 個月、成本殖利率、今年每月入帳、各檔明細。
+// 只讀現有的配息紀錄與持有成本，不改任何既有數字。todayKey 是台北日期 YYYY-MM-DD。
+function dividendGrowthPct(now, before) {
+  return before > 0 ? ((now - before) / before) * 100 : null;
+}
+function dividendReport(dividends, holdings, todayKey) {
+  const list = (Array.isArray(dividends) ? dividends : [])
+    .filter((d) => d && /^\d{4}-\d{2}-\d{2}/.test(String(d.date)) && Number.isFinite(Number(d.amount)))
+    .map((d) => ({ date: String(d.date).slice(0, 10), symbol: normalizeStockSymbol(d.symbol), amount: Number(d.amount) }));
+  const year = Number(todayKey.slice(0, 4));
+  const md = todayKey.slice(5, 10);
+  const sum = (arr) => arr.reduce((s, d) => s + d.amount, 0);
+  const inYear = (d, y) => d.date.slice(0, 4) === String(y);
+  const thisYear = sum(list.filter((d) => inYear(d, year) && d.date <= todayKey));
+  const lastYearSame = sum(list.filter((d) => inYear(d, year - 1) && d.date.slice(5) <= md));
+  const lastYearFull = sum(list.filter((d) => inYear(d, year - 1)));
+  const oneYearAgo = `${year - 1}-${md}`;
+  const twoYearsAgo = `${year - 2}-${md}`;
+  const inTtm = (d) => d.date > oneYearAgo && d.date <= todayKey;
+  const ttm = sum(list.filter(inTtm));
+  const ttmPrev = sum(list.filter((d) => d.date > twoYearsAgo && d.date <= oneYearAgo));
+  const months = Array.from({ length: 12 }, (_, i) => sum(list.filter((d) => inYear(d, year) && Number(d.date.slice(5, 7)) === i + 1)));
+  const rows = (Array.isArray(holdings) ? holdings : [])
+    .filter((h) => h && h.symbol && Number(h.estCostBasis) > 0)
+    .map((h) => {
+      const symbol = normalizeStockSymbol(h.symbol);
+      const symTtm = sum(list.filter((d) => d.symbol === symbol && inTtm(d)));
+      return { symbol, name: h.name || "", ttm: symTtm, cost: Number(h.estCostBasis), yoc: (symTtm / Number(h.estCostBasis)) * 100 };
+    })
+    .filter((r) => r.ttm > 0)
+    .sort((a, b) => b.ttm - a.ttm);
+  const rowCost = rows.reduce((s, r) => s + r.cost, 0);
+  const rowTtm = rows.reduce((s, r) => s + r.ttm, 0);
+  return {
+    year, thisYear, lastYearSame, lastYearFull, ytdGrowthPct: dividendGrowthPct(thisYear, lastYearSame),
+    ttm, ttmPrev, ttmGrowthPct: dividendGrowthPct(ttm, ttmPrev),
+    yocPct: rowCost > 0 ? (rowTtm / rowCost) * 100 : null,
+    months, rows, hasData: list.length > 0,
+  };
+}
+// </dividend-report>
+
+function DividendReport({ dividends, holdings }) {
+  const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
+  const r = useMemo(() => dividendReport(dividends, holdings, taipeiDateKey(new Date())), [dividends, holdings]);
+  if (!r.hasData) return null;
+  const line = { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" };
+  const growth = (pct) => pct == null ? null : (
+    <span style={{ color: pct >= 0 ? COLORS.gain : COLORS.loss, fontSize: 14, fontWeight: 600 }}>{pct >= 0 ? "▲ +" : "▼ "}{pct.toFixed(1)}%</span>
+  );
+  const Stat = ({ label, value, subLabel, subValue, pct }) => (
+    <div className="forma-subcard rounded-xl" data-dividend-stat style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, padding: "10px 14px" }}>
+      <div style={line}>
+        <span style={{ color: COLORS.sub, fontSize: 14 }}>{label}</span>
+        <span style={{ color: COLORS.gold, fontSize: "clamp(15px, 4.4vw, 17px)", fontWeight: 700 }}>NT$ {nf(value)}</span>
+      </div>
+      {subLabel && (
+        <div style={{ ...line, marginTop: 4 }}>
+          <span style={{ color: COLORS.sub, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis" }}>{subLabel} NT$ {nf(subValue)}</span>
+          {growth(pct)}
+        </div>
+      )}
+    </div>
+  );
+  const maxMonth = Math.max(...r.months, 0);
+  const monthNow = Number(taipeiDateKey(new Date()).slice(5, 7));
+  const kText = (v) => v >= 10000 ? `${(v / 1000).toFixed(0)}k` : v >= 1000 ? `${(v / 1000).toFixed(1)}k` : nf(v);
+  return (
+    <Panel title="股息報表">
+      <div className="space-y-2">
+        <Stat label={M(`${r.year} received`, `${r.year} 今年已領`)} value={r.thisYear}
+          subLabel={M("Same period last year", "去年同期")} subValue={r.lastYearSame} pct={r.ytdGrowthPct} />
+        <Stat label={M("Last 12 months", "近 12 個月")} value={r.ttm}
+          subLabel={M("Previous 12 months", "前 12 個月")} subValue={r.ttmPrev} pct={r.ttmGrowthPct} />
+        {r.yocPct != null && (
+          <div className="forma-subcard rounded-xl" data-dividend-stat style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, padding: "10px 14px" }}>
+            <div style={line}>
+              <span style={{ color: COLORS.sub, fontSize: 14 }}>{M("Yield on cost", "成本殖利率")}</span>
+              <span style={{ color: COLORS.text, fontSize: "clamp(15px, 4.4vw, 17px)", fontWeight: 700 }}>{r.yocPct.toFixed(2)}%</span>
+            </div>
+            <div style={{ color: COLORS.sub, fontSize: 13, marginTop: 4 }}>{M("Last 12 months of dividends ÷ cost of current holdings", "近 12 個月股息 ÷ 目前持股的持有成本")}</div>
+          </div>
+        )}
+      </div>
+
+      <div style={{ color: COLORS.sub, fontSize: 13, margin: "14px 0 6px" }}>{M(`${r.year} by month`, `${r.year} 每月入帳`)}</div>
+      <div className="grid grid-cols-6 gap-1.5" data-dividend-months>
+        {r.months.map((v, i) => (
+          <div key={i} className="rounded-lg text-center" style={{ background: COLORS.bg, border: `1px solid ${i + 1 === monthNow ? COLORS.gold : COLORS.panelBorder}`, padding: "6px 2px" }}>
+            <div style={{ color: COLORS.sub, fontSize: 12 }}>{M(["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][i], `${i + 1}月`)}</div>
+            <div className="mono" style={{ color: v > 0 ? COLORS.gold : COLORS.sub, fontSize: 13, fontWeight: v > 0 ? 700 : 400, marginTop: 2 }}>{v > 0 ? kText(v) : "—"}</div>
+            <div style={{ height: 3, marginTop: 4, borderRadius: 2, background: COLORS.panelBorder, overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${maxMonth > 0 ? Math.round((v / maxMonth) * 100) : 0}%`, background: COLORS.gold }} />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {r.rows.length > 0 && (
+        <>
+          <div style={{ ...line, color: COLORS.sub, fontSize: 13, margin: "14px 0 6px" }}>
+            <span>{M("Holding · last 12 months", "持股 · 近 12 個月股息")}</span><span>{M("Yield on cost", "成本殖利率")}</span>
+          </div>
+          <div className="space-y-1.5">
+            {r.rows.map((row) => (
+              <div key={row.symbol} data-dividend-row className="rounded-xl" style={{ ...line, background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, padding: "9px 14px" }}>
+                <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+                  <span className="mono" style={{ color: COLORS.text, fontSize: 15, fontWeight: 600 }}>{row.symbol}</span>
+                  <span style={{ color: COLORS.gold, fontSize: 14, marginLeft: 8 }}>NT$ {nf(row.ttm)}</span>
+                </span>
+                <span style={{ color: COLORS.text, fontSize: 15, fontWeight: 700 }}>{row.yoc.toFixed(2)}%</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </Panel>
+  );
+}
+
 // ---------------- Dividends Panel ----------------
 function DividendsPanel({ dividends, setDividends, holdings, usLive }) {
   const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
@@ -8420,6 +8542,8 @@ function DividendsPanel({ dividends, setDividends, holdings, usLive }) {
         <MissingHint missing={[!form.symbol && "代號", !form.shares && "股數", !form.perShare && "每股配息"].filter(Boolean)} />
         <AddButton onClick={add} label="新增配息紀錄" disabled={!isStockSymbol(form.symbol) || !(Number(form.shares) > 0) || !(Number(form.perShare) > 0)} />
       </Panel>
+
+      <DividendReport dividends={dividends} holdings={holdings} />
 
       <DividendHistoryChart dividends={dividends} />
 
