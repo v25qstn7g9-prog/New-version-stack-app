@@ -761,6 +761,8 @@ async function callTool(name, args, env, syncToken) {
       // 因子資料來源（量價、前日廣度、融資、法人）此刻從伺服器抓不抓得到；任何一項失敗只記在這裡。
       // AI 問答的 Claude（送的額度期間）：金鑰有沒有讀到、上次成功／失敗、實際問一句測試。
       try { data.claudeAsk = await claudeAskStatus(env, { probe: true }); } catch (error) { data.claudeAsk = { ok: false, error: String(error?.message || error).slice(0, 200) }; }
+      // 報價診斷：最近幾次從哪個機房讀證交所、成功或失敗（手機走的機房可能跟檢查工具不同）
+      try { data.quoteDiag = JSON.parse((await env.health_kv?.get("quote-diag")) || "null"); } catch { data.quoteDiag = null; }
       try { data.factorSources = await probeFactorSources(env); } catch (error) { data.factorSources = { ok: false, error: String(error?.message || error).slice(0, 200) }; }
     }
     return toolResult(data ?? { ok:false, error:"Invalid endpoint response" }, !res.ok || data?.ok === false);

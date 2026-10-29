@@ -611,6 +611,24 @@ async function writePrevCloseCache(symbol, day, prevClose) {
   }
 }
 
+// 報價診斷：記下最近幾次「從哪個機房、證交所成功或失敗、哪幾檔不是真實成交價」，給系統健康看。
+// 手機可能被分到台灣／香港機房，我們的檢查工具走美國機房，兩邊結果可能不同；有這份紀錄才查得到。
+// 只記事件，不記個人資料；同一個執行個體失敗最多每分鐘記一次、成功每 30 分鐘記一次（省 KV 寫入額度）。
+export const QUOTE_DIAG_KEY = "quote-diag";
+const quoteDiagLast = { ok: 0, fail: 0 };
+export async function recordQuoteDiag(env, entry, now = Date.now()) {
+  const kv = env?.health_kv;
+  if (!kv) return;
+  const kind = entry.ok ? "ok" : "fail";
+  if (now - quoteDiagLast[kind] < (entry.ok ? 30 * 60 * 1000 : 60 * 1000)) return;
+  quoteDiagLast[kind] = now;
+  try {
+    const prev = JSON.parse((await kv.get(QUOTE_DIAG_KEY)) || "null") || { recent: [] };
+    const recent = [{ at: new Date(now).toISOString(), ...entry }, ...(Array.isArray(prev.recent) ? prev.recent : [])].slice(0, 30);
+    await kv.put(QUOTE_DIAG_KEY, JSON.stringify({ recent }), { expirationTtl: 7 * 86400 });
+  } catch { /* 診斷寫不進去不影響報價 */ }
+}
+
 export async function onRequestGet(context) {
   try {
     const url = new URL(context.request.url);
@@ -659,13 +677,17 @@ export async function onRequestGet(context) {
     const errors = [];
     const twseSymbols = symbols.filter((s) => s === "TAIEX" || isTwListedSymbol(s));
 
+    let twseError = null;
+    const twseStarted = Date.now();
     if (twseSymbols.length) {
       try {
         Object.assign(quotes, await fetchTwseWithRetry(twseSymbols, debug));
       } catch (e) {
+        twseError = String(e?.message || e).slice(0, 160);
         errors.push("TWSE 報價來源暫時失敗");
       }
     }
+    const twseMs = Date.now() - twseStarted;
 
     for (const [sym, q] of Object.entries(quotes)) {
       if (Number.isFinite(q.prevClose)) {
@@ -791,6 +813,15 @@ export async function onRequestGet(context) {
     };
 
     await writeQuoteResponseCache(symbols, day, payload);
+    if (twseSymbols.length) {
+      const nonLast = twseSymbols.filter((sym) => quotes[sym]?.priceSource !== "last");
+      const work = recordQuoteDiag(context.env, {
+        colo: context.request?.cf?.colo || null, ok: !twseError && (!isTaiwanTradingHours() || nonLast.length === 0),
+        twseError, twseMs, nonLast: isTaiwanTradingHours() ? nonLast : [], force: forceRefresh,
+        sources: [...new Set(Object.values(quotes).map((q) => q.priceSource || q.source))],
+      });
+      if (context.ctx?.waitUntil) context.ctx.waitUntil(work); else await work;
+    }
     return jsonResponse(payload);
   } catch (e) {
     return jsonResponse({ error: "報價服務暫時無法使用", version: QUOTE_VERSION }, 500);
