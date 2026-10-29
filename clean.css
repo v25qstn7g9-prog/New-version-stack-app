@@ -468,3 +468,7 @@ html .live-q-sub{font-size:13px;margin-top:2px}
 html .live-q-detail{margin-top:6px;padding-top:6px;border-top:1px dashed var(--z-line,rgba(150,170,200,.25))}
 html .live-q-more{appearance:none;-webkit-appearance:none;border:0;background:transparent!important;box-shadow:none!important;font:inherit;font-size:13px;display:inline-flex;align-items:center;gap:4px;min-height:36px;padding:0;margin:0;cursor:pointer}
 html.za-clean .live-quote-row .live-q-detail.live-quote-grid{padding-top:6px}
+
+/* 每日紀錄的收合框（使用者 2026-10-29「固定框的高度、裡面能滑動、加收合鍵」）：標題列是 44px 的按鈕，上下吃掉一點留白，收合時框只剩標題列 */
+html .premium-panel>.premium-panel-title.forma-fold-head,
+html.za-clean [data-forma-theme] .premium-panel>.premium-panel-title.forma-fold-head{appearance:none;-webkit-appearance:none;border:0;background:transparent!important;box-shadow:none!important;margin:-8px 0!important;padding:0!important;font-family:inherit;font-weight:700}

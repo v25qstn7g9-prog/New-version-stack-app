@@ -7382,56 +7382,41 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, autoFrom, set
       </Panel>
 
       {weekKeys.length > 0 && (
-        <Panel title="週度損益">
-          {weekKeys.some((wk) => weeklyStats[wk]?.approximate) && (
-            <div className="text-[10px] mb-2" style={{ color: COLORS.sub }}>
-              {M("* For weeks with incomplete cost data, market return and new contributions can't be precisely split — figures are estimates", "* 成本資料不完整的週份，市場報酬與新增投入無法精準拆分，數字為粗估")}
-            </div>
-          )}
+        <FoldPanel title="週度損益" foldKey="week" count={M(`${weekKeys.length}`, `${weekKeys.length} 週`)} maxH="21rem" note={weekKeys.some((k) => weeklyStats[k]?.approximate) ? M("* For periods with incomplete cost data, market return and new contributions can't be precisely split — figures are estimates", "* 成本資料不完整的期間，市場報酬與新增投入無法精準拆分，數字為粗估") : null}>
           <div className="space-y-2">
             {[...weekKeys].reverse().map((wk) => {
               const stat = weeklyStats[wk];
               return <PeriodStat key={wk} label={weekLabel(wk)} stat={stat} emptyText={M("Earliest record, no prior week to compare", "最早紀錄，無前週可比較")} />;
             })}
           </div>
-        </Panel>
+        </FoldPanel>
       )}
 
       {monthKeys.length > 0 && (
-        <Panel title="月度損益">
-          {monthKeys.some((mk) => monthlyStats[mk]?.approximate) && (
-            <div className="text-[10px] mb-2" style={{ color: COLORS.sub }}>
-              {M("* For months with incomplete cost data, market return and new contributions can't be precisely split — figures are estimates", "* 成本資料不完整的月份，市場報酬與新增投入無法精準拆分，數字為粗估")}
-            </div>
-          )}
+        <FoldPanel title="月度損益" foldKey="month" count={M(`${monthKeys.length}`, `${monthKeys.length} 個月`)} maxH="21rem" note={monthKeys.some((k) => monthlyStats[k]?.approximate) ? M("* For periods with incomplete cost data, market return and new contributions can't be precisely split — figures are estimates", "* 成本資料不完整的期間，市場報酬與新增投入無法精準拆分，數字為粗估") : null}>
           <div className="space-y-2">
             {[...monthKeys].reverse().map((mk) => {
               const stat = monthlyStats[mk];
               return <PeriodStat key={mk} label={mk} stat={stat} emptyText={M("Earliest record, no prior month to compare", "最早紀錄，無前月可比較")} />;
             })}
           </div>
-        </Panel>
+        </FoldPanel>
       )}
 
       {yearKeys.length > 0 && (
-        <Panel title="年度損益">
-          {yearKeys.some((yk) => yearlyStats[yk]?.approximate) && (
-            <div className="text-[10px] mb-2" style={{ color: COLORS.sub }}>
-              {M("* For years with incomplete cost data, market return and new contributions can't be precisely split — figures are estimates", "* 成本資料不完整的年份，市場報酬與新增投入無法精準拆分，數字為粗估")}
-            </div>
-          )}
+        <FoldPanel title="年度損益" foldKey="year" count={M(`${yearKeys.length}`, `${yearKeys.length} 年`)} maxH="21rem" note={yearKeys.some((k) => yearlyStats[k]?.approximate) ? M("* For periods with incomplete cost data, market return and new contributions can't be precisely split — figures are estimates", "* 成本資料不完整的期間，市場報酬與新增投入無法精準拆分，數字為粗估") : null}>
           <div className="space-y-2">
             {[...yearKeys].reverse().map((yk) => {
               const stat = yearlyStats[yk];
               return <PeriodStat key={yk} label={yk} stat={stat} emptyText={M("Earliest record, no prior year to compare", "最早紀錄，無前年可比較")} />;
             })}
           </div>
-        </Panel>
+        </FoldPanel>
       )}
 
 
-      <Panel title={M(`History (${records.length})`, `歷史紀錄（${records.length}）`)}>
-        <div className="space-y-2 max-h-[30rem] overflow-y-auto">
+      <FoldPanel title={M("History", "歷史紀錄")} foldKey="history" count={M(`${records.length}`, `${records.length} 筆`)} maxH="30rem">
+        <div className="space-y-2">
           {(() => {
             let lastMonth = null;
             return reversed.map((r, i) => {
@@ -7457,7 +7442,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, autoFrom, set
           })()}
           {records.length === 0 && <Empty text="尚無紀錄，新增第一筆吧" />}
         </div>
-      </Panel>
+      </FoldPanel>
     </div>
   );
 }
@@ -9085,6 +9070,37 @@ function ProgressPanel({ planSchedule, setPlanSchedule, planTotal, schedule, tot
 }
 
 // ---------------- shared bits ----------------
+// 每日紀錄的週／月／年度損益與歷史紀錄（使用者 2026-10-29「每段記錄應該是固定一定框的高度，裡面要能查閱滑動，每個記錄框可以加收合鍵」）：
+// 框的高度固定、內容在框裡上下滑；標題列右邊的鍵收合／展開，記在這台裝置（localStorage），收合時只留標題列。
+function FoldPanel({ title, foldKey, count, maxH = "21rem", note = null, children }) {
+  const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
+  const storeKey = "ledger_fold_" + foldKey;
+  const [open, setOpen] = useState(() => { try { return localStorage.getItem(storeKey) !== "0"; } catch (e) { return true; } });
+  const toggle = () => setOpen((v) => { const next = !v; try { localStorage.setItem(storeKey, next ? "1" : "0"); } catch (e) {} return next; });
+  const bodyId = "fold-" + foldKey;
+  return (
+    <div className="premium-panel rounded-2xl p-4" data-fold-panel={foldKey} style={{
+      background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`, boxShadow: "none",
+    }}>
+      <button type="button" onClick={toggle} aria-expanded={open} aria-controls={bodyId}
+        className="premium-panel-title forma-fold-head text-xs font-bold"
+        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", minHeight: 44, cursor: "pointer", color: COLORS.sub, textAlign: "left" }}>
+        <span><UiLabel zh={title} />{count ? <span style={{ fontWeight: 500, marginLeft: 8 }}>{count}</span> : null}</span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontWeight: 500, fontSize: 13 }}>
+          {open ? M("Collapse", "收合") : M("Expand", "展開")}
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+            style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }}><path d="m6 9 6 6 6-6" /></svg>
+        </span>
+      </button>
+      {open && note && <div className="text-[10px]" style={{ color: COLORS.sub, marginTop: 6 }}>{note}</div>}
+      {open && (
+        <div id={bodyId} className="forma-fold-body" data-fold-body style={{ maxHeight: maxH, overflowY: "auto", WebkitOverflowScrolling: "touch", paddingRight: 2, marginTop: 6 }}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
 function Panel({ title, children }) {
   return (
     <div className="premium-panel rounded-2xl p-4" style={{
