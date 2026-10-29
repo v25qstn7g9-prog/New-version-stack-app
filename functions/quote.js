@@ -305,12 +305,25 @@ async function fetchTwseWithRetry(symbols, debug = false) {
       throw new Error(`TWSE: ${msg1}`);
     }
 
+    const started = Date.now();
     await new Promise((resolve) => setTimeout(resolve, 250));
 
     try {
       return await fetchTwseBatch(symbols, debug);
     } catch (e2) {
-      throw new Error(`TWSE: ${msg1}; retry: ${e2?.message || e2}`);
+      // 證交所偶爾連續回 502／503（2026-10-29 盤中實測）：失敗得快就再等一下試第三次，
+      // 但整體要在 App 等待上限（9 秒）內，所以前兩次已經花超過 3 秒就不再試。
+      const msg2 = String(e2?.message || e2);
+      const status2 = Number((msg2.match(/^HTTP (\d+)$/) || [])[1]);
+      if ([500, 502, 503, 504, 522, 524].includes(status2) && Date.now() - started < 3000) {
+        await new Promise((resolve) => setTimeout(resolve, 700));
+        try {
+          return await fetchTwseBatch(symbols, debug);
+        } catch (e3) {
+          throw new Error(`TWSE: ${msg1}; retry: ${msg2}; retry2: ${e3?.message || e3}`);
+        }
+      }
+      throw new Error(`TWSE: ${msg1}; retry: ${msg2}`);
     }
   }
 }
@@ -581,6 +594,21 @@ export async function fillTwseFromLastTrades(quotes, day, store = { read: readLa
   return quotes;
 }
 
+// 證交所整個讀不到（例如連續 502）時：盤中先用「10 分鐘內剛看到的真實成交價」撐著，不要整排退回 Yahoo 延遲價。
+// 超過 10 分鐘、不是今天、或不在盤中就不用，照原本順序交給 Yahoo。
+export const TWSE_DOWN_LAST_SEEN_MS = 10 * 60 * 1000;
+export async function fillWhenTwseDown(quotes, symbols, day, store = { read: readLastTrade }, now = Date.now(), marketOpen = isTaiwanTradingHours) {
+  if (!marketOpen()) return quotes;
+  for (const sym of symbols) {
+    if (quotes[sym]) continue;
+    const last = await store.read(sym, day);
+    const seenAt = Date.parse(last?.asOfDate || "");
+    if (!last || !Number.isFinite(seenAt) || now - seenAt > TWSE_DOWN_LAST_SEEN_MS || taipeiDayOf(last.asOfDate) !== day) continue;
+    quotes[sym] = { price: Number(last.price), prevClose: null, high: null, low: null, isStale: false, asOfDate: last.asOfDate, source: "TWSE", priceSource: "last-seen", lastTradeAt: null, twseDown: true };
+  }
+  return quotes;
+}
+
 async function readPrevCloseCache(symbol, day) {
   try {
     const key = new Request(`https://quote-cache.local/prev/${day}/${symbol}`);
@@ -695,6 +723,7 @@ export async function onRequestGet(context) {
       }
     }
     await fillTwseFromLastTrades(quotes, day);
+    if (twseError) await fillWhenTwseDown(quotes, twseSymbols, day);
 
     for (const sym of symbols) {
       if (quotes[sym] && Number.isFinite(quotes[sym].prevClose)) continue;
