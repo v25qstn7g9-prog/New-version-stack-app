@@ -641,15 +641,15 @@ async function writePrevCloseCache(symbol, day, prevClose) {
 
 // 報價診斷：記下最近幾次「從哪個機房、證交所成功或失敗、哪幾檔不是真實成交價」，給系統健康看。
 // 手機可能被分到台灣／香港機房，我們的檢查工具走美國機房，兩邊結果可能不同；有這份紀錄才查得到。
-// 只記事件，不記個人資料；同一個執行個體失敗最多每分鐘記一次、成功每 30 分鐘記一次（省 KV 寫入額度）。
+// 只記失敗事件，不記個人資料；同一個執行個體最多每分鐘記一次（省 KV 寫入額度）。
 export const QUOTE_DIAG_KEY = "quote-diag";
 const quoteDiagLast = { ok: 0, fail: 0 };
 export async function recordQuoteDiag(env, entry, now = Date.now()) {
   const kv = env?.health_kv;
-  if (!kv) return;
-  const kind = entry.ok ? "ok" : "fail";
-  if (now - quoteDiagLast[kind] < (entry.ok ? 30 * 60 * 1000 : 60 * 1000)) return;
-  quoteDiagLast[kind] = now;
+  // 只記失敗：每分鐘的排程也會走這裡，每次都是新的執行個體，成功也記的話一天會寫好幾百次 KV（免費額度一天 1000 次）。
+  if (!kv || entry.ok) return;
+  if (now - quoteDiagLast.fail < 60 * 1000) return;
+  quoteDiagLast.fail = now;
   try {
     const prev = JSON.parse((await kv.get(QUOTE_DIAG_KEY)) || "null") || { recent: [] };
     const recent = [{ at: new Date(now).toISOString(), ...entry }, ...(Array.isArray(prev.recent) ? prev.recent : [])].slice(0, 30);
