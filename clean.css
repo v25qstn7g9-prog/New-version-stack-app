@@ -19,7 +19,7 @@ html.za-clean{
   /* index.html 的 COLORS 直接用這些變數，深色模式只要換變數 */
   --z-bg:var(--c-card);--z-panel:var(--c-card);--z-line:var(--c-line);--z-line-2:var(--c-line-2);
   --z-text:var(--c-ink);--z-sub:var(--c-muted);--z-gain:var(--c-bad);--z-loss:var(--c-good);--z-gold:var(--c-accent);
-  --c-btn:var(--c-accent);--c-btn-ink:#ffffff;--c-solid-card:var(--c-card);--c-tabbar:rgba(255,255,255,.97);--c-placeholder:#5b6780;--c-tick:#5b6780;
+  --c-btn:var(--c-accent);--c-btn-ink:#ffffff;--c-solid-card:var(--c-card);--c-tabbar:#ffffff;--c-placeholder:#5b6780;--c-tick:#5b6780;
   color-scheme:light;
 }
 html.za-clean,html.za-clean body,html.za-clean #root{background:var(--c-bg)!important;color:var(--c-ink)}
@@ -152,7 +152,7 @@ html.za-clean[data-theme="navy"]{
     --c-bg:#171717;--c-card:#232323;--c-ink:#ffffff;--c-ink-2:#ffffff;--c-muted:#ffffff;
     --c-line:rgba(255,255,255,.08);--c-line-2:rgba(255,255,255,.16);--c-accent:#a8c2ff;--c-accent-press:#e6ecfa;--c-btn:#ffffff;--c-btn-ink:#1f2b4d;
     --c-good:#00d26a;--c-warn:#f5c26b;--c-bad:#ff9999;--c-disabled-bg:rgba(255,255,255,.08);--c-disabled-ink:#9a9f9c;
-    --c-tabbar:rgba(23,23,23,.97);--c-placeholder:#ffffff;--c-tick:#ffffff;--c-solid-card:#2a2a2a;
+    --c-tabbar:#171717;--c-placeholder:#ffffff;--c-tick:#ffffff;--c-solid-card:#2a2a2a;
     color-scheme:dark;
   }
   html.za-clean[data-theme="navy"] :is(input,select,textarea):focus,html.za-clean[data-theme="navy"] .premium-tab .input:focus{box-shadow:0 0 0 3px rgba(168,194,255,.3)!important}
@@ -170,7 +170,7 @@ html.za-clean[data-theme="navy"]{
     --c-bg:#171717;--c-card:#232323;--c-ink:#ffffff;--c-ink-2:#ffffff;--c-muted:#ffffff;
     --c-line:rgba(255,255,255,.08);--c-line-2:rgba(255,255,255,.16);--c-accent:#a8c2ff;--c-accent-press:#e6ecfa;--c-btn:#ffffff;--c-btn-ink:#1f2b4d;
     --c-good:#00d26a;--c-warn:#f5c26b;--c-bad:#ff9999;--c-disabled-bg:rgba(255,255,255,.08);--c-disabled-ink:#9a9f9c;
-    --c-tabbar:rgba(23,23,23,.97);--c-placeholder:#ffffff;--c-tick:#ffffff;--c-solid-card:#2a2a2a;
+    --c-tabbar:#171717;--c-placeholder:#ffffff;--c-tick:#ffffff;--c-solid-card:#2a2a2a;
     color-scheme:dark;
   }
   html.za-clean:not([data-theme]) :is(input,select,textarea):focus,html.za-clean:not([data-theme]) .premium-tab .input:focus{box-shadow:0 0 0 3px rgba(168,194,255,.3)!important}
@@ -482,3 +482,31 @@ html.za-clean [data-forma-theme] .premium-panel>.premium-panel-title.forma-fold-
 .forma-undo-btn{flex:none;min-width:64px;min-height:44px;padding:0 12px;font-weight:700;font-size:14px;background:transparent;border:0;text-decoration:underline;text-underline-offset:3px}
 @media (prefers-reduced-motion:no-preference){.forma-undo-toast{animation:forma-undo-in .18s ease-out}}
 @keyframes forma-undo-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+/* ════ 標題列瘦身 2026-11-03（只改外觀）════ */
+/* 小貓：只剩標題列右邊一顆 🐱（44px 可點），點開是一個小選單：狀態文字＋暫停／收起／叫醒。 */
+html.za-clean .premium-header .za-cat-slot{display:inline-flex;align-items:center;position:relative}
+html.za-clean .premium-header .za-cat-slot:empty{display:none}
+html.za-clean .premium-header .za-cat-slot .za-cat-pair{margin:0!important;contain:none!important;overflow:visible!important}
+html.za-clean .premium-header .za-cat-slot .za-cat-pair-bar{position:relative;height:auto!important;min-height:0!important;flex-wrap:nowrap!important}
+html.za-clean .premium-header .za-cat-slot button.za-cat-menu{width:44px!important;min-width:44px!important;padding:0!important;font-size:18px!important;line-height:1!important;--forma-pill-line:transparent!important;--forma-pill-bg:transparent!important}
+html.za-clean .premium-header .za-cat-slot button.za-cat-menu::before{left:7px!important;right:7px!important}
+html.za-clean .premium-header .za-cat-slot button.za-cat-icon::after{content:"";width:22px;height:22px;background:currentColor;
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 9.5V4l4 3.2a8.6 8.6 0 0 1 6 0L19 4v5.5a7.5 7.5 0 0 1 1 3.7c0 4.1-3.6 6.8-8 6.8s-8-2.7-8-6.8a7.5 7.5 0 0 1 1-3.7z'/%3E%3Cpath d='M9 12.5v.5M15 12.5v.5M10.8 15.3l1.2.8 1.2-.8'/%3E%3C/svg%3E") center/22px 22px no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 9.5V4l4 3.2a8.6 8.6 0 0 1 6 0L19 4v5.5a7.5 7.5 0 0 1 1 3.7c0 4.1-3.6 6.8-8 6.8s-8-2.7-8-6.8a7.5 7.5 0 0 1 1-3.7z'/%3E%3Cpath d='M9 12.5v.5M15 12.5v.5M10.8 15.3l1.2.8 1.2-.8'/%3E%3C/svg%3E") center/22px 22px no-repeat}
+html.za-clean .premium-header .za-cat-slot button.za-cat-menu{display:inline-flex!important;align-items:center;justify-content:center;color:var(--c-accent)!important}
+html.za-clean .premium-header .za-cat-pop{position:absolute;top:calc(100% + 4px);right:-96px;z-index:60;display:flex;flex-direction:column;align-items:stretch;gap:4px;
+  width:max-content;max-width:min(240px,calc(100vw - 24px));padding:10px;border-radius:14px;background:var(--c-solid-card,#fff);border:1px solid var(--c-line);
+  box-shadow:0 10px 28px -12px rgba(15,23,42,.45);color:var(--c-text)}
+html.za-clean .premium-header .za-cat-pop>span{font-size:13px!important;line-height:1.35;color:var(--c-muted);padding:2px 4px 4px;white-space:normal!important;margin:0!important}
+html.za-clean .premium-header .za-cat-pop>button{width:100%;justify-content:center}
+/* 標題列不再留第二排：內容區直接從標題下面開始。 */
+html.za-clean .premium-header{padding-bottom:8px!important}
+/* 小貓選單打開時，標題列整塊浮到內容上面，選單才不會被下面的卡片蓋住。 */
+html.za-clean .premium-header:has(.za-cat-open){position:relative;z-index:40}
+
+/* ════ 底部：AI 圓鈕不遮數字、導覽列不透明 2026-11-03 ════ */
+/* 內容最底下多留 72px，最後一行數字可以捲到 AI 圓鈕上面。 */
+html.za-clean .premium-main{padding-bottom:calc(96px + 72px + env(safe-area-inset-bottom,0px))!important}
+html.za-clean .premium-tabbar{opacity:1!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
+/* 深色選中分頁：只留膠囊底＋粗體白字，拿掉會疊在圖示上的頂端亮線。 */
+html.za-clean[data-theme="navy"] .premium-tabbar button[data-active="true"]::before{content:none!important;display:none!important}

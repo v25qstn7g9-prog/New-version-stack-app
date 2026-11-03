@@ -33,9 +33,19 @@ test('即時股價底下的市值明細預設收起；重新整理改成小圖�
   assert.doesNotMatch(panel, /<UiLabel zh="抓取即時股價" \/>/);
 });
 
-test('頂端小貓只留一顆「小貓」按鈕，暫停／收起／叫醒收在裡面', () => {
+test('頂端小貓只留一顆小小的貓臉圖示，放在標題列右邊；狀態與暫停／收起／叫醒收在點開的選單裡', () => {
   const life = fs.readFileSync(new URL('../za-catlife.js', import.meta.url), 'utf8');
-  assert.match(life, /menu\.textContent='小貓 ▾'/);
+  assert.match(life, /menu\.textContent='';menu\.className\+=' za-cat-icon';/);
+  const css = fs.readFileSync(new URL('../clean.css', import.meta.url), 'utf8');
+  assert.match(css, /\.za-cat-slot button\.za-cat-icon::after\{content:"";width:22px;height:22px;background:currentColor;/);
+  assert.match(css, /\.za-cat-slot button\.za-cat-menu\{width:44px!important;min-width:44px!important/);
+  assert.match(life, /menu\.setAttribute\('aria-label','小貓選單'\)/);
   assert.match(life, /\.za-cat-pair-bar:not\(\.za-cat-open\) \.za-cat-opt\{display:none!important\}/);
-  assert.match(life, /\[rt\.pause,hide,pet\]\.forEach/);
+  assert.match(life, /\.za-cat-pair-bar:not\(\.za-cat-open\) \.za-cat-pop\{display:none!important\}/);
+  assert.match(life, /\[rt\.label,rt\.pause,hide,pet\]\.forEach/);
+  assert.match(life, /document\.querySelector\('\.premium-header \.za-cat-slot'\)\|\|document\.querySelector\('\.premium-header'\)/);
+  const jsx = fs.readFileSync(new URL('../src/app.jsx', import.meta.url), 'utf8');
+  const header = jsx.slice(jsx.indexOf('function Header('), jsx.indexOf('function NewsCarousel('));
+  assert.match(header, /<span className="za-cat-slot" \/>/);
+  assert.doesNotMatch(header, /APP_DISPLAY_VERSION/, 'version number lives at the bottom of 設定');
 });
