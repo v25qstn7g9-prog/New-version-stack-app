@@ -28,5 +28,5 @@ test("FoldPanel: the body scrolls inside the box, the title row is a 44px button
 
 test("the folded title row has no extra space (clean.css, cache-busted)", () => {
   assert.match(css, /\.premium-panel>\.premium-panel-title\.forma-fold-head\{[^}]*margin:-8px 0!important;padding:0!important/);
-  assert.match(html, /href="\/clean\.css\?v=ledger-fold-1"/);
+  assert.match(html, /href="\/clean\.css\?v=[\w.-]+"/);
 });

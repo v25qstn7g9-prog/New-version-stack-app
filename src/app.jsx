@@ -54,7 +54,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.47.25-money-sign-order";
+const APP_VERSION = "4.7-personal-advisor-v2.47.26-undo-delete";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -1641,6 +1641,12 @@ function AssetTracker() {
     setTab(nextId);
   };
 
+  // 跳到「設定」的備份卡（只做導覽，不會自動備份）。標題列提醒、首次使用引導、總覽都共用這一個。
+  const openBackup = () => {
+    setTab("plan");
+    setTimeout(() => { const el = document.querySelector("[data-backup-card]"); if (el) el.scrollIntoView({ behavior: "smooth", block: "center" }); }, 350);
+  };
+
   const finishTransition = () => {
     const st = transitionRef.current;
     if (!st || (st.mode === "drag" && st.phase === "dragging")) return;
@@ -2909,7 +2915,7 @@ function AssetTracker() {
       )}
 
       <div ref={headerRef}>
-        <Header goal={goal} totalToday={totalToday} goalDate={goalDate} backupOverdue={showBackupBanner} backupAgeDays={backupAgeDays} showEnglish={showEnglish} onToggleBilingual={toggleBilingual} onOpenBackup={() => { setTab("plan"); setTimeout(() => { const el = document.querySelector("[data-backup-card]"); if (el) el.scrollIntoView({ behavior: "smooth", block: "center" }); }, 350); }} />
+        <Header goal={goal} totalToday={totalToday} goalDate={goalDate} backupOverdue={showBackupBanner} backupAgeDays={backupAgeDays} showEnglish={showEnglish} onToggleBilingual={toggleBilingual} onOpenBackup={openBackup} />
         <ClosingReminderBanner />
         <MissedDaysBanner days={missedHiddenDay === todayStr() ? [] : missedDays} busy={missedBusy} msg={missedMsg} onFill={fillMissedDays} onLater={hideMissedToday} />
         {pendingTrades.length > 0 && (
@@ -2955,7 +2961,7 @@ function AssetTracker() {
                         try { el.focus({ preventScroll: true }); } catch (e) {}
                       }, 450);
                     }}
-                    onOpenBackup={() => { setTab("plan"); setTimeout(() => { const el = document.querySelector("[data-backup-card]"); if (el) el.scrollIntoView({ behavior: "smooth", block: "center" }); }, 350); }}
+                    onOpenBackup={openBackup}
                   />
                 );
               case "daily":
@@ -3085,6 +3091,7 @@ function AssetTracker() {
           elapsedMonths, costLeadMonths, assetLeadMonths, startingCost: costTrack.startingCost,
         }} />
 
+      <UndoToast />
       <TabBar tabs={visibleTabs} tab={tab} setTab={goToTab} rootRef={tabBarRef} showEnglish={showEnglish} />
     </div>
     </TrendRadarProvider>
@@ -7108,7 +7115,8 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, autoFrom, set
     setForm({ date: todayStr(), twValue: "", usValue: "", twCost: "", usCost: "" });
     setAutoFrom({});
   };
-  const remove = (id) => setRecords((r) => r.filter((x) => x.id !== id));
+  // 刪除後 5 秒內可按「復原」放回原位（只是把同一筆資料放回去，資料格式不變）。
+  const remove = (id, label) => deleteWithUndo(setRecords, id, label);
   const sortedRecords = [...records].sort((a, b) => a.date.localeCompare(b.date));
   const reversed = [...sortedRecords].reverse();
 
@@ -7435,7 +7443,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, autoFrom, set
                       <PeriodStat bare label={mk} stat={stat} emptyText={M("Earliest record, no prior month to compare", "最早紀錄，無前月可比較")} />
                     </div>
                   )}
-                  <DailyRecordCard r={r} diff={diff} total={total} totalCost={totalCost} showUsFields={showUsFields} onDelete={() => remove(r.id)} />
+                  <DailyRecordCard r={r} diff={diff} total={total} totalCost={totalCost} showUsFields={showUsFields} onDelete={() => remove(r.id, M(`${r.date} record`, `${r.date} 紀錄`))} />
                 </div>
               );
             });
@@ -7680,7 +7688,7 @@ function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldi
     }]);
     setForm({ symbol: "", name: "", initialShares: "", target2035: "", costBasis: "" });
   };
-  const remove = (id) => setHoldings((h) => h.filter((x) => x.id !== id));
+  const remove = (id, label) => deleteWithUndo(setHoldings, id, label);
 
   const startEdit = (h) => {
     setEditingId(h.id);
@@ -7828,7 +7836,7 @@ function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldi
                     </div>
                     <div className="holding-actions flex items-center shrink-0" style={{ gap: 16 }}>
                       <button className="holding-action" aria-label={M(`Edit ${h.symbol}`, `編輯 ${h.symbol}`)} onClick={() => startEdit(h)} style={{ color: COLORS.sub }}><PencilIcon size={15} /></button>
-                      <button className="holding-action" aria-label={M(`Delete ${h.symbol}`, `刪除 ${h.symbol}`)} onClick={() => remove(h.id)} style={{ color: COLORS.sub }}><TrashIcon size={15} /></button>
+                      <button className="holding-action" aria-label={M(`Delete ${h.symbol}`, `刪除 ${h.symbol}`)} onClick={() => remove(h.id, h.symbol)} style={{ color: COLORS.sub }}><TrashIcon size={15} /></button>
                     </div>
                   </div>
                   <div className="holding-cost-summary text-xs mono mt-2">
@@ -7991,7 +7999,7 @@ function TradesPanel({ trades, setTrades, holdings, setHoldings, usLive, costBas
     }
     setForm({ date: todayStr(), symbol: "", action: "buy", shares: "", price: "", fee: "", tax: "", note: "", fxRate: "" });
   };
-  const remove = (id) => setTrades((t) => t.filter((x) => x.id !== id));
+  const remove = (id, label) => deleteWithUndo(setTrades, id, label);
   const sorted = [...trades].sort((a, b) => b.date.localeCompare(a.date));
 
   // 依代號或名稱搜尋，方便查某一檔股票的完整交易紀錄、抓股數哪裡算錯。
@@ -8102,7 +8110,7 @@ function TradesPanel({ trades, setTrades, holdings, setHoldings, usLive, costBas
         )}
         <div className="space-y-2 max-h-96 overflow-y-auto">
           {filtered.map((t) => (
-            <Row key={t.id} onDelete={() => remove(t.id)}>
+            <Row key={t.id} onDelete={() => remove(t.id, `${t.date} ${t.symbol}`)}>
               <div className="flex-1">
                 <div className="text-sm mono">
                   {t.date} <span style={{ color: COLORS.text, fontWeight: 700 }}>
@@ -8530,7 +8538,7 @@ function DividendsPanel({ dividends, setDividends, holdings, usLive }) {
     }]);
     setForm({ date: todayStr(), symbol: "", shares: "", perShare: "", fxRate: "", withholdingTax: "" });
   };
-  const remove = (id) => setDividends((d) => d.filter((x) => x.id !== id));
+  const remove = (id, label) => deleteWithUndo(setDividends, id, label);
   const sorted = [...dividends].sort((a, b) => b.date.localeCompare(a.date));
   const total = dividends.reduce((s, d) => s + d.amount, 0);
 
@@ -8574,7 +8582,7 @@ function DividendsPanel({ dividends, setDividends, holdings, usLive }) {
       <Panel title={M(`Cumulative Dividends: NT$ ${nf(total)}`, `累積股息：NT$ ${nf(total)}`)}>
         <div className="space-y-2">
           {sorted.map((d) => (
-            <Row key={d.id} onDelete={() => remove(d.id)}>
+            <Row key={d.id} onDelete={() => remove(d.id, `${d.date} ${d.symbol}`)}>
               <div className="flex-1">
                 <div className="text-sm mono">{d.date} · {d.symbol}</div>
                 <div className="text-[11px]" style={{ color: COLORS.sub }}>
@@ -8673,7 +8681,7 @@ function PlanPanel({ advanced = false, setAdvancedMode, planItems, setPlanItems,
     setPlanItems((p) => [...p, { id: uid(), symbol: form.symbol, amount: Number(form.amount), note: form.note }]);
     setForm({ symbol: "", amount: "", note: "" });
   };
-  const remove = (id) => setPlanItems((p) => p.filter((x) => x.id !== id));
+  const remove = (id, label) => deleteWithUndo(setPlanItems, id, label);
 
   return (
     <div className="space-y-2">
@@ -8702,7 +8710,7 @@ function PlanPanel({ advanced = false, setAdvancedMode, planItems, setPlanItems,
       <Panel title={M(`Monthly Recurring (Total NT$ ${nf(planTotal)})`, `每月定期定額（合計 NT$ ${nf(planTotal)}）`)}>
         <div className="space-y-2">
           {planItems.map((p) => (
-            <Row key={p.id} onDelete={() => remove(p.id)}>
+            <Row key={p.id} onDelete={() => remove(p.id, p.symbol)}>
               <div className="flex-1">
                 <div className="text-sm mono font-bold">{p.symbol}</div>
                 {p.note && <div className="text-[11px]" style={{ color: COLORS.sub }}>{p.note}</div>}
@@ -9363,6 +9371,51 @@ function AddButton({ onClick, label, disabled = false }) {
     </button>
   );
 }
+// <undo-delete>
+// 刪除可復原：刪掉的那一筆先記在這裡，底部跳出 5 秒「已刪除 X・復原」。
+// 按「復原」只是把同一筆原封不動放回原本的位置（同一個 id、同一份內容），不改資料格式、不重算。
+// 5 秒內又刪了下一筆，上一筆就算正式刪除，提示換成新的這筆。
+const UNDO_TOAST_MS = 5000;
+let undoToastSink = null;
+function deleteWithUndo(setList, id, label) {
+  const snap = { item: null, index: -1 };
+  setList((list) => {
+    const i = list.findIndex((x) => x.id === id);
+    if (i < 0) return list;
+    snap.item = list[i]; snap.index = i;
+    return list.filter((x) => x.id !== id);
+  });
+  const restore = () => {
+    if (!snap.item) return;
+    setList((list) => list.some((x) => x.id === snap.item.id) ? list
+      : [...list.slice(0, Math.min(snap.index, list.length)), snap.item, ...list.slice(Math.min(snap.index, list.length))]);
+  };
+  if (undoToastSink) undoToastSink({ key: uid(), label: String(label || ""), restore });
+}
+function UndoToast() {
+  const [toast, setToast] = useState(null);
+  useEffect(() => {
+    undoToastSink = (t) => setToast(t);
+    return () => { if (undoToastSink) undoToastSink = null; };
+  }, []);
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), UNDO_TOAST_MS);
+    return () => clearTimeout(timer);
+  }, [toast]);
+  if (!toast) return null;
+  const undo = () => { toast.restore(); setToast(null); };
+  return (
+    <div className="forma-undo-toast" role="status" aria-live="polite" data-undo-toast
+      style={{ background: COLORS.text, color: COLORS.bg }}>
+      <span className="forma-undo-label">{UI_SHOW_ENGLISH ? `Deleted ${toast.label}` : `已刪除 ${toast.label}`}</span>
+      <button type="button" className="forma-undo-btn" onClick={undo} style={{ color: COLORS.bg }}>
+        {UI_SHOW_ENGLISH ? "Undo" : "復原"}
+      </button>
+    </div>
+  );
+}
+// </undo-delete>
 function Row({ children, onDelete }) {
   return (
     <div className="premium-row flex items-center gap-2 rounded-xl p-2.5" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
