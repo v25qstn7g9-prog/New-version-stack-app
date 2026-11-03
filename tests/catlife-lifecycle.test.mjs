@@ -24,7 +24,7 @@ function harness({reduced=false,viewport=null,delayedAssets=false,obstacles=[]}=
   vm.createContext(sandbox);
   for(const f of ['za-catspace.js','za-catlife.js'])vm.runInContext(fs.readFileSync(new URL('../'+f,import.meta.url),'utf8'),sandbox);
   return {window,document,rt,rafs,timers,media,observers,life:window.__zaCatLifeCore.state,
-    click(text){const button=bar.children.find(x=>x.textContent===text);assert.ok(button);button.listeners.click.forEach(f=>f());},
+    click(text){const all=(n)=>n.children.flatMap(c=>[c,...all(c)]);const button=all(bar).find(x=>x.textContent===text);assert.ok(button);button.listeners.click.forEach(f=>f());},
     visibility(hidden){document.hidden=hidden;events.visibilitychange.forEach(f=>f());},
     flush(){const callbacks=[...timers.values()];timers.clear();callbacks.forEach(f=>f());},
     advance(ms){const end=now+ms;for(;;){const next=[...timers.keys()].filter(i=>due.get(i)<=end).sort((a,b)=>due.get(a)-due.get(b))[0];if(!next)break;now=due.get(next);const f=timers.get(next);timers.delete(next);due.delete(next);f();}now=end;},

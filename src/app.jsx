@@ -54,7 +54,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.47.26-undo-delete";
+const APP_VERSION = "4.7-personal-advisor-v2.47.27-header-settings";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -66,7 +66,7 @@ const TABS = [
   { id: "trades", label: "交易紀錄", en: "Trades", icon: Receipt },
   { id: "dividends", label: "配息", en: "Dividends", icon: Coins },
   { id: "progress", label: "計畫進度", en: "Progress", icon: Target },
-  { id: "plan", label: "計畫設定", en: "Settings", icon: Settings2 },
+  { id: "plan", label: "設定", en: "Settings", icon: Settings2 },
 ];
 
 // <advanced-mode>
@@ -330,6 +330,7 @@ const UI_EN = {
   "因子回測（研究用）": "Factor Backtest (Research)",
   "計畫進度": "Progress",
   "計畫設定": "Settings",
+  "設定": "Settings",
   "資產曲線": "Asset Curve",
   "資產高點": "Asset High",
   "回撤率": "Drawdown",
@@ -529,8 +530,8 @@ const UI_EN = {
   "建議：不用做什麼，等它自動恢復即可。": "Suggestion: no action needed — it should recover on its own.",
   "建議：這個需要改程式碼重新部署，按「確定」只會把這張卡片標記為已處理，不會自動改程式。": "Suggestion: this needs a code change and redeploy. Pressing \"OK\" only marks this card as handled — it won't change any code automatically.",
   "已超出目前推算年限，請拉長下方「推算年限」以看到精確月份。": "This is beyond the current projection horizon — extend \"Projection Years\" below to see the exact month.",
-  "Cloudflare AI 已失敗；獨立 Gemini 備援可用，但這一輪包含私人資產查詢結果。請到『計畫設定 → AI 獨立備援』開啟私人資料授權後再試。": "Cloudflare AI failed; the independent Gemini fallback is available, but this turn includes private asset query results. Please enable private data access under \"Settings → AI Fallback\" and try again.",
-  "這個問題需要讀取你的 App 私人資產資料；目前 Gemini 備援的私人資料授權是關閉的。請到『計畫設定 → AI 獨立備援』開啟後再試。": "This question needs to read your app's private asset data, but the Gemini fallback's private data access is currently off. Please enable it under \"Settings → AI Fallback\" and try again.",
+  "Cloudflare AI 已失敗；獨立 Gemini 備援可用，但這一輪包含私人資產查詢結果。請到『設定 → 系統／AI → AI 雙層備援』開啟私人資料授權後再試。": "Cloudflare AI failed; the independent Gemini fallback is available, but this turn includes private asset query results. Please enable private data access under \"Settings → AI Fallback\" and try again.",
+  "這個問題需要讀取你的 App 私人資產資料；目前 Gemini 備援的私人資料授權是關閉的。請到『設定 → 系統／AI → AI 雙層備援』開啟後再試。": "This question needs to read your app's private asset data, but the Gemini fallback's private data access is currently off. Please enable it under \"Settings → AI Fallback\" and try again.",
   "賣出": "Sell",
   "買進": "Buy",
   "不認得這個動作": "Unrecognized action",
@@ -3155,9 +3156,12 @@ function Header({ goal, totalToday, goalDate, backupOverdue, backupAgeDays, show
       <div className="max-w-none mx-auto px-0">
         <div className="flex items-center justify-between gap-3">
           <h1 className="text-lg font-black tracking-tight min-w-0" style={{ color: COLORS.gold }}>
-            <span className="block whitespace-nowrap">{showEnglish ? "Stock Asset Tracker" : "存股資產追蹤"} <span className="text-[10px] font-medium" style={{ color: COLORS.sub }}>v{APP_DISPLAY_VERSION}</span></span>
+            {/* 版本號移到「設定」頁最底下（標題列瘦身）。 */}
+            <span className="block whitespace-nowrap">{showEnglish ? "Stock Asset Tracker" : "存股資產追蹤"}</span>
           </h1>
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-1 flex-shrink-0">
+          {/* 小貓選單（za-catlife.js 會把「🐱」按鈕放進這個空位；React 不管裡面的內容） */}
+          <span className="za-cat-slot" />
           <ThemeToggle showEnglish={showEnglish} />
           <button onClick={onToggleBilingual}
             className="za-lang-toggle rounded-full px-2.5 py-1 text-[9px] font-bold leading-none flex-shrink-0"
@@ -3168,7 +3172,7 @@ function Header({ goal, totalToday, goalDate, backupOverdue, backupAgeDays, show
           </div>
         </div>
         {backupOverdue && (
-          // 整塊可點：直接跳到「計畫設定」的備份卡（只做導覽，不會自動備份）
+          // 整塊可點：直接跳到「設定」的備份卡（只做導覽，不會自動備份）
           <button type="button" onClick={onOpenBackup} className="forma-note forma-tap mt-2 w-full text-left rounded-lg px-2.5 py-1.5 text-[10px] font-bold flex items-center justify-between gap-2"
             style={{ color: COLORS.gold, background: COLORS.panel, border: `1px solid ${COLORS.gold}` }}>
             <span>{showEnglish
@@ -6928,7 +6932,8 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
       </DashboardCollapsibleSection>
 
 
-      <DailyClosingAiReport holdings={holdings} dailyRecords={dailyRecords} />
+      {/* 還沒有任何持股時整張收盤報告不顯示（以前會印出六段「資料不足」）。 */}
+      {holdings.some((h) => Number(h.current) > 0) && <DailyClosingAiReport holdings={holdings} dailyRecords={dailyRecords} />}
 
 
       <DashboardCollapsibleSection
@@ -8609,6 +8614,7 @@ function PlanPanel({ advanced = false, setAdvancedMode, planItems, setPlanItems,
   const [syncTokenCopied, setSyncTokenCopied] = useState(false);
   const [zinfExpanded, setZinfExpanded] = useState(false);
   const [aiFallbackExpanded, setAiFallbackExpanded] = useState(false);
+  const [systemOpen, setSystemOpen] = useState(false);
   // Owner 專用：自選自己詢問時用的 Gemini 模型（存在伺服器 KV，家人不受影響）。
   const [ownerModel, setOwnerModel] = useState({ saved: "", defaultModel: "", input: "", status: "idle", message: "" });
   useEffect(() => {
@@ -8685,6 +8691,59 @@ function PlanPanel({ advanced = false, setAdvancedMode, planItems, setPlanItems,
 
   return (
     <div className="space-y-2">
+      {/* 設定頁順序（2026-11-03）：備份（最重要）→ 收盤提醒 → 進階功能 → 最底下收合「系統／AI（給開發用）」。只換位置，各卡內容不變。 */}
+      <Panel title="資料備份與還原">
+        <div className="rounded-xl p-3" data-backup-card
+          style={{ background: COLORS.bg, border: `1px solid ${backupOverdue ? "rgba(47,91,234,0.45)" : COLORS.panelBorder}` }}>
+          <div className="flex items-center" style={{ gap: 10 }}>
+            <span className="flex items-center justify-center rounded-full flex-shrink-0"
+              style={{ width: 34, height: 34, background: "transparent", border: "1px solid var(--z-line-2, #D9DEE7)" }}>
+              <ShieldCheck size={17} style={{ color: COLORS.gold }} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="text-[10px] leading-4" style={{ color: COLORS.sub }}>{UI_SHOW_ENGLISH ? "Last JSON Backup" : "上次 JSON 備份"}</div>
+              <div className="text-[13px] font-bold mono leading-5 whitespace-nowrap" style={{ color: lastBackupAt ? COLORS.text : COLORS.sub }}>
+                {lastBackupAt
+                  ? <>{new Date(lastBackupAt).toLocaleDateString("zh-TW")}<span className="text-[10px] font-normal" style={{ marginLeft: 8, color: backupOverdue ? COLORS.gold : COLORS.sub }}>{M(`${backupAgeDays}d ago`, `${backupAgeDays} 天前`)}</span></>
+                  : <UiLabel zh="尚未記錄" />}
+              </div>
+            </div>
+            <span className="rounded-full text-[10px] font-bold leading-none whitespace-nowrap flex-shrink-0"
+              style={{ padding: "6px 10px", ...(backupOverdue
+                ? { color: "var(--c-warn, #9c6c00)", background: "transparent", border: "1px solid var(--c-line-2, #cdd6e3)" }
+                : { color: COLORS.sub, background: "transparent", border: `1px solid ${COLORS.panelBorder}` }) }}>
+              {backupOverdue ? M("Backup due", "建議備份") : M("Up to date", "已備份")}
+            </span>
+          </div>
+          <div className="text-[11px] leading-5" style={{ marginTop: 10, paddingTop: 10, color: COLORS.sub, borderTop: `1px solid ${COLORS.panelBorder}` }}>
+            <UiLabel className="forma-note block" zh="JSON 用來完整備份／還原 App；Excel 用來保存、檢視與分析投資歷史。重要修改後建議兩種都留一份。" />
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-2 mt-3">
+          <button onClick={exportBackup}
+            className="rounded-xl py-2.5 text-[11px] font-bold flex items-center justify-center gap-1"
+            style={{ background: COLORS.gold, color: COLORS.bg }}>
+            <Download size={14} /> <UiLabel zh="JSON備份" inline />
+          </button>
+          <label className="rounded-xl py-2.5 text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer"
+            style={{ background: COLORS.bg, color: COLORS.gold, border: `1px solid ${COLORS.gold}` }}>
+            <Upload size={14} /> <UiLabel zh="JSON還原" inline />
+            <input type="file" accept="application/json,.json" className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                importBackup(file);
+                e.target.value = "";
+              }} />
+          </label>
+          <button onClick={exportExcel}
+            className="rounded-xl py-2.5 text-[11px] font-bold flex items-center justify-center gap-1"
+            style={{ background: COLORS.bg, color: COLORS.gold, border: `1px solid ${COLORS.gold}` }}>
+            <Download size={14} /> <UiLabel zh="匯出Excel" inline />
+          </button>
+        </div>
+      </Panel>
+      <PushReminderPanel />
+
       <Panel title="進階使用">
         <label className="forma-check-row flex items-start gap-2 text-[12px] cursor-pointer" style={{ color: COLORS.text }}>
           <input type="checkbox" checked={advanced} onChange={(e) => setAdvancedMode?.(e.target.checked)} style={{ marginTop: 2 }} />
@@ -8738,6 +8797,14 @@ function PlanPanel({ advanced = false, setAdvancedMode, planItems, setPlanItems,
       </Panel>
       </>)}
 
+      <div className="forma-system-group" data-system-group>
+        <button type="button" onClick={() => setSystemOpen((v) => !v)} aria-expanded={systemOpen}
+          className="forma-tap w-full flex items-center justify-between rounded-xl px-3 py-2.5 text-left"
+          style={{ background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`, color: COLORS.text }}>
+          <span className="text-sm font-bold">{M("System / AI (for developers)", "系統／AI（給開發用）")}{healthCards.length > 0 && <span className="text-[11px] font-medium" style={{ color: COLORS.gold }}>{M(` · ${healthCards.length} to review`, `・${healthCards.length} 則待確認`)}</span>}</span>
+          <ExpandChevron open={systemOpen} />
+        </button>
+        {systemOpen && <div className="space-y-2 mt-2">
       {healthCards.length > 0 && (
         <Panel title="系統健康">
           {healthCards.map((card) => (
@@ -8805,8 +8872,6 @@ function PlanPanel({ advanced = false, setAdvancedMode, planItems, setPlanItems,
 
         </div>}
       </Panel>
-
-      <PushReminderPanel />
 
       {isOwner && <Panel title="系統管理">
         <div className="text-[11px] leading-5 mb-3" style={{ color: COLORS.sub }}>
@@ -8891,56 +8956,12 @@ function PlanPanel({ advanced = false, setAdvancedMode, planItems, setPlanItems,
         </div>}
       </Panel>}
 
-      <Panel title="資料備份與還原">
-        <div className="rounded-xl p-3" data-backup-card
-          style={{ background: COLORS.bg, border: `1px solid ${backupOverdue ? "rgba(47,91,234,0.45)" : COLORS.panelBorder}` }}>
-          <div className="flex items-center" style={{ gap: 10 }}>
-            <span className="flex items-center justify-center rounded-full flex-shrink-0"
-              style={{ width: 34, height: 34, background: "transparent", border: "1px solid var(--z-line-2, #D9DEE7)" }}>
-              <ShieldCheck size={17} style={{ color: COLORS.gold }} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="text-[10px] leading-4" style={{ color: COLORS.sub }}>{UI_SHOW_ENGLISH ? "Last JSON Backup" : "上次 JSON 備份"}</div>
-              <div className="text-[13px] font-bold mono leading-5 whitespace-nowrap" style={{ color: lastBackupAt ? COLORS.text : COLORS.sub }}>
-                {lastBackupAt
-                  ? <>{new Date(lastBackupAt).toLocaleDateString("zh-TW")}<span className="text-[10px] font-normal" style={{ marginLeft: 8, color: backupOverdue ? COLORS.gold : COLORS.sub }}>{M(`${backupAgeDays}d ago`, `${backupAgeDays} 天前`)}</span></>
-                  : <UiLabel zh="尚未記錄" />}
-              </div>
-            </div>
-            <span className="rounded-full text-[10px] font-bold leading-none whitespace-nowrap flex-shrink-0"
-              style={{ padding: "6px 10px", ...(backupOverdue
-                ? { color: "var(--c-warn, #9c6c00)", background: "transparent", border: "1px solid var(--c-line-2, #cdd6e3)" }
-                : { color: COLORS.sub, background: "transparent", border: `1px solid ${COLORS.panelBorder}` }) }}>
-              {backupOverdue ? M("Backup due", "建議備份") : M("Up to date", "已備份")}
-            </span>
-          </div>
-          <div className="text-[11px] leading-5" style={{ marginTop: 10, paddingTop: 10, color: COLORS.sub, borderTop: `1px solid ${COLORS.panelBorder}` }}>
-            <UiLabel className="forma-note block" zh="JSON 用來完整備份／還原 App；Excel 用來保存、檢視與分析投資歷史。重要修改後建議兩種都留一份。" />
-          </div>
-        </div>
-        <div className="grid grid-cols-3 gap-2 mt-3">
-          <button onClick={exportBackup}
-            className="rounded-xl py-2.5 text-[11px] font-bold flex items-center justify-center gap-1"
-            style={{ background: COLORS.gold, color: COLORS.bg }}>
-            <Download size={14} /> <UiLabel zh="JSON備份" inline />
-          </button>
-          <label className="rounded-xl py-2.5 text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer"
-            style={{ background: COLORS.bg, color: COLORS.gold, border: `1px solid ${COLORS.gold}` }}>
-            <Upload size={14} /> <UiLabel zh="JSON還原" inline />
-            <input type="file" accept="application/json,.json" className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                importBackup(file);
-                e.target.value = "";
-              }} />
-          </label>
-          <button onClick={exportExcel}
-            className="rounded-xl py-2.5 text-[11px] font-bold flex items-center justify-center gap-1"
-            style={{ background: COLORS.bg, color: COLORS.gold, border: `1px solid ${COLORS.gold}` }}>
-            <Download size={14} /> <UiLabel zh="匯出Excel" inline />
-          </button>
-        </div>
-      </Panel>
+        </div>}
+      </div>
+
+      <div className="forma-app-version text-center text-[11px] pt-2 pb-1" style={{ color: COLORS.sub }} data-app-version>
+        {M("Stock Asset Tracker", "存股資產追蹤")} v{APP_DISPLAY_VERSION}
+      </div>
     </div>
   );
 }
@@ -9037,7 +9058,7 @@ function ProgressPanel({ planSchedule, setPlanSchedule, planTotal, schedule, tot
         <button onClick={() => setPlanSchedule({ ...planSchedule, monthlyAmount: planTotal })}
           className="mt-3 w-full rounded-xl py-2 text-xs font-bold"
           style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, color: COLORS.gold }}>
-          {M(`Send Current Monthly Recurring Total to "Plan Settings" (NT$ ${nf(planTotal)})`, `帶入「計畫設定」目前每月定期定額合計（NT$ ${nf(planTotal)}）`)}
+          {M(`Send Current Monthly Recurring Total to "Plan Settings" (NT$ ${nf(planTotal)})`, `帶入「設定」目前每月定期定額合計（NT$ ${nf(planTotal)}）`)}
         </button>
       </Panel>
 
@@ -10034,7 +10055,7 @@ function AiChatWidget({ advancedUse = true, holdings, goal, totalToday, totalInv
         Array.isArray(turn?.calls) && turn.calls.some((tc) => tc?.name === "query_app_data" || tc?.name === "get_app_snapshot")
       );
       if (containsPrivateToolResult && aiFallbackConfig?.allowPrivate !== true) {
-        throw new Error(uiText("Cloudflare AI 已失敗；獨立 Gemini 備援可用，但這一輪包含私人資產查詢結果。請到『計畫設定 → AI 獨立備援』開啟私人資料授權後再試。"));
+        throw new Error(uiText("Cloudflare AI 已失敗；獨立 Gemini 備援可用，但這一輪包含私人資產查詢結果。請到『設定 → 系統／AI → AI 雙層備援』開啟私人資料授權後再試。"));
       }
 
       const fallbackBody = {
@@ -10044,7 +10065,7 @@ function AiChatWidget({ advancedUse = true, holdings, goal, totalToday, totalInv
       try {
         const data = await callAskEndpoint(fallbackUrl, fallbackBody, { fallback: true });
         if (aiFallbackConfig?.allowPrivate !== true && Array.isArray(data?.toolCalls) && data.toolCalls.some((tc) => tc?.name === "query_app_data" || tc?.name === "get_app_snapshot")) {
-          throw new Error(uiText("這個問題需要讀取你的 App 私人資產資料；目前 Gemini 備援的私人資料授權是關閉的。請到『計畫設定 → AI 獨立備援』開啟後再試。"));
+          throw new Error(uiText("這個問題需要讀取你的 App 私人資產資料；目前 Gemini 備援的私人資料授權是關閉的。請到『設定 → 系統／AI → AI 雙層備援』開啟後再試。"));
         }
         return { ...data, provider: data.provider || "gemini-external", fallbackFrom: primaryError.message };
       } catch (fallbackError) {

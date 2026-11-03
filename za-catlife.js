@@ -111,12 +111,17 @@
  [rt.white,rt.tabby].forEach(function(el){el.tabIndex=-1;el.setAttribute('aria-hidden','true');});
  var hide=document.createElement('button');hide.type='button';hide.className='za-cat-control';hide.textContent='收起小貓';hide.setAttribute('aria-pressed','false');rt.bar.appendChild(hide);
  var pet=document.createElement('button');pet.type='button';pet.className='za-cat-control';pet.textContent='叫醒／逗貓';rt.bar.appendChild(pet);
- // 頂端只留一顆「小貓」按鈕，暫停／收起／叫醒收在裡面，點了才展開（總覽精簡）。
- var menu=document.createElement('button');menu.type='button';menu.className='za-cat-control za-cat-menu';menu.textContent='小貓 ▾';menu.setAttribute('aria-expanded','false');menu.setAttribute('aria-label','小貓選單');
+ // 頂端只留一顆小小的貓臉圖示（線條圖示用 CSS 畫；按鈕上的 emoji 會被 clean-ui.js 拿掉，所以不用 emoji），放在標題列右邊（.za-cat-slot）；狀態文字和暫停／收起／叫醒收在點開的小選單裡（標題列瘦身 2026-11-03）。
+ var menu=document.createElement('button');menu.type='button';menu.className='za-cat-control za-cat-menu';menu.textContent='';menu.className+=' za-cat-icon';menu.setAttribute('aria-expanded','false');menu.setAttribute('aria-label','小貓選單');menu.title='小貓選單';
  if(typeof rt.bar.insertBefore==='function'&&rt.pause&&rt.pause.parentNode===rt.bar)rt.bar.insertBefore(menu,rt.pause);else rt.bar.appendChild(menu);
- [rt.pause,hide,pet].forEach(function(b){if(b&&b.classList)b.classList.add('za-cat-opt');});
- var menuCss=document.createElement('style');menuCss.textContent='.za-cat-pair-bar:not(.za-cat-open) .za-cat-opt{display:none!important}';document.head.appendChild(menuCss);
- menu.addEventListener('click',function(){var cl=rt.bar.classList;if(!cl)return;var open=!cl.contains('za-cat-open');cl.toggle('za-cat-open',open);menu.setAttribute('aria-expanded',String(open));menu.textContent=open?'小貓 ▴':'小貓 ▾';});
+ var pop=document.createElement('div');pop.className='za-cat-pop';if(pop.setAttribute)pop.setAttribute('role','group');
+ [rt.label,rt.pause,hide,pet].forEach(function(b){if(b&&b.classList&&b!==rt.label)b.classList.add('za-cat-opt');if(b&&typeof pop.appendChild==='function')pop.appendChild(b);});
+ rt.bar.appendChild(pop);
+ var menuCss=document.createElement('style');menuCss.textContent='.za-cat-pair-bar:not(.za-cat-open) .za-cat-opt{display:none!important}.za-cat-pair-bar:not(.za-cat-open) .za-cat-pop{display:none!important}';document.head.appendChild(menuCss);
+ function setOpen(open){var cl=rt.bar.classList;if(!cl)return;cl.toggle('za-cat-open',open);menu.setAttribute('aria-expanded',String(open));}
+ menu.addEventListener('click',function(e){var cl=rt.bar.classList;if(!cl)return;if(e&&e.stopPropagation)e.stopPropagation();setOpen(!cl.contains('za-cat-open'));});
+ // 點選單外面就收起來。
+ document.addEventListener('click',function(e){var cl=rt.bar.classList;if(!cl||!cl.contains('za-cat-open'))return;if(e&&e.target&&rt.bar.contains&&rt.bar.contains(e.target))return;setOpen(false);});
  var safe=document.createElement('i');safe.className='za-cat-safe';document.body.appendChild(safe);
  var life=null,raf=0,last=0,userHidden=false,timer=0,dirty=true,assetError=false,layoutKey='',settling=false,fadeTimer=0;
  var media=window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -158,7 +163,7 @@
   });
  }
  function remeasure(smooth){
-  timer=0;var header=document.querySelector('.premium-header');if(header&&rt.host.parentNode!==header)header.appendChild(rt.host);
+  timer=0;var header=document.querySelector('.premium-header .za-cat-slot')||document.querySelector('.premium-header');if(header&&rt.host.parentNode!==header)header.appendChild(rt.host);
   var l=measured(),key=JSON.stringify(l);
   if(smooth&&life&&key!==layoutKey&&needsReposition(l)&&!userHidden&&assetsReady()&&!assetError){
    // Only relocate while fully transparent; never show a teleport after scrolling.

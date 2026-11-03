@@ -1,9 +1,9 @@
 {
-  "app": "2.47.26",
+  "app": "2.47.27",
   "lastUpdated": "2026-11-03",
-  "status": "undo-delete",
+  "status": "header-settings",
   "cloudflare": {
-    "index.html": "4.7-personal-advisor-v2.47.26-undo-delete",
+    "index.html": "4.7-personal-advisor-v2.47.27-header-settings",
     "quote.js": "4.7-quote-schedule-6-us-live",
     "ask.js": "4.7-personal-advisor-v3.3-claude-promo",
     "news.js": "4.6-news-stable-6",
