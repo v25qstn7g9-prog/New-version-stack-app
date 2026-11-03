@@ -16,7 +16,7 @@ The initial merged version added a visual-only, bounded companion area below the
 
 Run `npm test` for the application tests, including pure pair-state simulation and lifecycle regressions. Run `node scripts/preview-cat-pair.mjs /tmp/cat-pair-preview.html` to generate a standalone offline preview with the exact production scripts and embedded images. The preview contains no account data and makes no financial calls.
 
-Original `za-catroam.js` is retained for historical compatibility and tests but is no longer loaded. Its former free-roam behavior was replaced by the initial pair lane; the follow-up below supersedes that reserved lane.
+The original free-roam `za-catroam.js` (and the older `za-cat2d.js` / `za-cat3d.js`) were removed on 2026-11-03; they had not been loaded for a long time. The pair lane and the fullscreen follow-up below replaced them.
 
 Physical iPhone/Safari behavior and subjective animation quality require review before production deployment. The fullscreen follow-up requires separate review and merge approval.
 

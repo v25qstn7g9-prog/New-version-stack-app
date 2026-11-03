@@ -899,7 +899,7 @@
       line-height:17px!important;
     }
 </style>
-  <link rel="stylesheet" href="/clean.css?v=ledger-fold-1" />
+  <link rel="stylesheet" href="/clean.css?v=undo-delete-1" />
 
   <script>
     /* boot-error-start */
@@ -928,12 +928,12 @@
     /* boot-error-end */
   </script>
 
-  <!-- Pinned, mutually compatible browser builds -->
-  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-is@18.3.1/umd/react-is.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
-  <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+  <!-- Pinned, mutually compatible browser builds：同版本存一份在自己網站的 vendor/（2026-11-03 起不再從 unpkg 載入，unpkg 掛掉 App 也打得開）。 -->
+  <script src="/vendor/react-18.3.1.production.min.js"></script>
+  <script src="/vendor/react-dom-18.3.1.production.min.js"></script>
+  <script src="/vendor/react-is-18.3.1.production.min.js"></script>
+  <script src="/vendor/prop-types-15.8.1.min.js"></script>
+  <script src="/vendor/recharts-2.12.7.js"></script>
   <!-- 圖示不再整包下載 lucide-react：App 用到的 22 個已編進 app.js（scripts/gen-icons.mjs）。 -->
   <!-- Tailwind 先編好（npm run build:css），不再每次開 App 下載 407 KB 的瀏覽器編譯器；放在 clean.css 之後，層疊順序和以前 CDN 注入的一樣。 -->
   <link rel="stylesheet" href="/tw.css?v=1" />
@@ -942,7 +942,7 @@
   <div id="root"></div>
   <div id="boot-error"></div>
 
-  <script src="/app.js?v=4"></script>
+  <script src="/app.js?v=5"></script>
   <script src="/za-cat.js?v=15" defer></script>
   <script src="/clean-ui.js?v=2" defer></script>
 </body>
