@@ -2205,8 +2205,25 @@ function AssetTracker() {
   const currentUsValue = usHoldings.length > 0 && !usHoldings.some((h) => h.shares > 0) ? 0 : usAssetLive.totalNtd ?? (latest ? Number(latest.usValue || 0) : 0);
   const totalToday = currentTwValue + currentUsValue;
   const totalPrev = yesterdayRecord ? Number(yesterdayRecord.twValue || 0) + Number(yesterdayRecord.usValue || 0) : null;
-  const dailyChange = totalPrev != null ? totalToday - totalPrev : 0;
-  const dailyChangePct = totalPrev ? (dailyChange / totalPrev) * 100 : 0;
+  // 交易日、每檔都有今天的報價：今日損益＝每檔 (現價 − 昨收) × 股數 的加總（quoteDayChange）；休市日、盤前或報價不全才跟每日紀錄比
+  const quoteDay = (() => {
+    if (isNonTradingDay()) return null;
+    const today = todayStr(), items = [];
+    for (const h of twHeld) {
+      const q = portfolioQuotes[h.symbol], t = Date.parse(q && q.asOfDate);
+      if (!q || q.isStale || q.warning === "no_prevClose_available" || !Number.isFinite(t) || taipeiDateKey(new Date(t)) !== today) return null;
+      items.push({ price: q.price, prevClose: q.prevClose, shares: holdingShareCount(h, trades) });
+    }
+    const fx = Number(usLive?.state?.fx), k = Number(usAssetLive.calibrationFactor || 1);
+    for (const h of usHoldings.filter((x) => x.shares > 0)) {
+      const q = usLive?.state?.quotes?.[String(h.symbol).trim().toUpperCase()];
+      if (!q || q.warning === "no_prevClose_available") return null;
+      items.push({ price: q.price, prevClose: q.prevClose, shares: h.shares, rate: fx * k });
+    }
+    return quoteDayChange(items);
+  })();
+  const dailyChange = quoteDay ? Math.round(quoteDay.change) : totalPrev != null ? totalToday - totalPrev : 0;
+  const dailyChangePct = quoteDay ? quoteDay.pct : totalPrev ? (dailyChange / totalPrev) * 100 : 0;
 
   const tradesInvested = trades.reduce(
     (s, t) => s + (t.action === "buy" ? t.amount : -t.amount), 0
@@ -3632,7 +3649,13 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
   const indexChangePct = hasMarketIndex ? (indexChange / indexPrevClose) * 100 : null;
   const indexPrevCloseOk = hasMarketIndex && marketIndex?.warning !== "no_prevClose_available";
   const fmt2 = (v) => Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const portfolioDayPct = yesterdayTwValue
+  // 今日損益＝每檔「(現價 − 昨收) × 股數」的加總（quoteDayChange，和每檔一行的金額加起來一樣）；有一檔沒有今天的報價或昨收時，照舊跟每日紀錄比
+  const usRate = Number(usLive?.state?.fx || 0) * Number(usLive?.calibrationFactor || 1);
+  const rowDay = rows.length === activeHoldings.length && !isNonTradingDay() && rows.every((r) => r.isUS || (r.asOfDate instanceof Date ? taipeiDateKey(r.asOfDate) : taipeiDateKey(new Date(r.asOfDate))) === todayStr())
+    ? quoteDayChange(rows.map((r) => ({ price: r.price, prevClose: r.prevClose, shares: r.current, rate: r.isUS ? usRate : 1, ok: r.prevCloseOk && !r.quoteIsStale && !r.isFromCache })))
+    : null;
+  const twRowDay = rowDay ? quoteDayChange(rows.filter((r) => !r.isUS).map((r) => ({ price: r.price, prevClose: r.prevClose, shares: r.current }))) : null;
+  const portfolioDayPct = twRowDay ? twRowDay.pct : yesterdayTwValue
     ? ((rows.filter((r) => !r.isUS).reduce((sum,r) => sum + r.value,0) - yesterdayTwValue) / yesterdayTwValue) * 100
     : null;
   const vsMarketPct = portfolioDayPct != null && indexChangePct != null
@@ -3667,7 +3690,7 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
     return complete?{ts:Number(p?.ts),value:total}:null;
   }).filter(p=>p && Number.isFinite(p.ts) && Number.isFinite(p.value) && p.value>0), quoteComplete ? totalValue : null);
   const indexSpark = withLive(sparkFor("TAIEX"), hasMarketIndex && !marketIndex?.isStale ? indexPrice : null);
-  const portfolioDayUp = yesterdayTwValue != null
+  const portfolioDayUp = rowDay ? rowDay.change >= 0 : yesterdayTwValue != null
     ? totalValue >= Number(yesterdayTwValue || 0) + Number(yesterdayUsValue || 0)
     : (portfolioSpark.length>1 ? portfolioSpark[portfolioSpark.length-1].value >= portfolioSpark[0].value : true);
 
@@ -3844,16 +3867,17 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
                 <span style={{ color: COLORS.text }}>NT$ {formatNtdPrice(totalValue, 0)}</span>
               </div>
             </div>
-            {(yesterdayTwValue != null || yesterdayUsValue != null) && (() => {
-              const diff = totalValue - (Number(yesterdayTwValue || 0) + Number(yesterdayUsValue || 0));
-              const diffPct = (Number(yesterdayTwValue || 0) + Number(yesterdayUsValue || 0)) ? (diff / (Number(yesterdayTwValue || 0) + Number(yesterdayUsValue || 0))) * 100 : 0;
+            {(rowDay || yesterdayTwValue != null || yesterdayUsValue != null) && (() => {
+              const recBase = Number(yesterdayTwValue || 0) + Number(yesterdayUsValue || 0);
+              const diff = rowDay ? rowDay.change : totalValue - recBase;
+              const diffPct = rowDay ? rowDay.pct : recBase ? (diff / recBase) * 100 : 0;
               const dUp = diff >= 0;
               return (
-                <div className="flex justify-between items-baseline gap-2 text-[11px] mono mt-0.5">
+                <div className="flex justify-between items-baseline gap-2 text-[11px] mono mt-0.5" data-day-change={rowDay ? "quotes" : "record"}>
                   <span style={{ color: dUp ? COLORS.gain : COLORS.loss }}>
                     {UI_SHOW_ENGLISH ? "vs yesterday " : "較昨日 "}{dUp ? "+" : ""}NT$ {formatNtdPrice(diff, 0)}（{dUp ? "+" : ""}{diffPct.toFixed(2)}%）
                   </span>
-                  <span style={{ color: COLORS.sub }}>{UI_SHOW_ENGLISH ? "Yesterday " : "昨日 "}NT$ {formatNtdPrice((Number(yesterdayTwValue || 0) + Number(yesterdayUsValue || 0)), 0)}</span>
+                  <span style={{ color: COLORS.sub }}>{rowDay ? (UI_SHOW_ENGLISH ? "At yesterday's close " : "昨收市值 ") : (UI_SHOW_ENGLISH ? "Yesterday " : "昨日 ")}NT$ {formatNtdPrice(rowDay ? rowDay.base : recBase, 0)}</span>
                 </div>
               );
             })()}
@@ -6676,6 +6700,19 @@ function DashboardCollapsibleSection({ storageKey, title, subtitle, children, de
 }
 
 // 總覽「今日變化」的比較日標籤：交易日回傳 null（顯示「今日」）；休市日回傳「M/D」（今天之前最近一筆紀錄）。
+// 今日損益（使用者 2026-11-04「首頁的今日資產增減總數怪怪的」）：每檔「(現價 − 昨收) × 股數」加總，美股照匯率（含券商校準）
+// 換成台幣，和下面每檔的今日損益加起來一樣。以前用「現在市值 − 昨天存的每日紀錄」：那筆紀錄若是盤中存的、或之後又買了股票，
+// 總數就和每檔加起來對不上（11/4 每檔加總約 −7.0 萬，總數卻是 −8.5 萬）。任何一檔沒有今天的報價或真正的昨收就回 null，照舊跟每日紀錄比。
+function quoteDayChange(items) {
+  if (!Array.isArray(items) || !items.length) return null;
+  let change = 0, base = 0;
+  for (const it of items) {
+    const p = Number(it && it.price), pc = Number(it && it.prevClose), n = Number(it && it.shares), k = Number(it && it.rate != null ? it.rate : 1);
+    if (!it || it.ok === false || !(p > 0) || !(pc > 0) || !(n >= 0) || !(k > 0)) return null;
+    change += (p - pc) * n * k; base += pc * n * k;
+  }
+  return { change, base, pct: base > 0 ? (change / base) * 100 : 0 };
+}
 function changeLabelDate(dailyRecords, today, nonTradingDay) {
   if (!nonTradingDay) return null;
   const prev = (dailyRecords || []).reduce((m, r) => (r?.date && r.date < today && r.date > m ? r.date : m), "");
@@ -6757,8 +6794,8 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
   highPoint, drawdown, ytdGain, ytdPct, chartData, goal, goalDate, totalInvested, holdings,
   dailyRecords, dividends, yesterdayTwValue, yesterdayUsValue, onFillDailyTw, onFillDailyUs, usHoldings = [], usLive, onGoUsSettings, onGoDaily, firstRun = false, onAddHolding, onOpenBackup }) {
   const up = dailyChange >= 0;
-  // dailyChange = 現在的總資產（即時）減「今天之前最近一筆紀錄」（見 App 的 yesterdayRecord）。
-  // 交易日它就是今天的變化，標「今日」（和即時股價卡的「較昨日」同一個數字）；
+  // dailyChange：交易日是每檔「(現價 − 昨收) × 股數」的加總（App 的 quoteDay，和下面每檔的今日損益加起來一樣），標「今日」；
+  // 盤前或報價不全時才是「現在的總資產 − 今天之前最近一筆紀錄」；
   // 週末／休市日沒有今天的行情，標「較 M/D」說清楚是跟哪一天比。
   const changeDateLabel = changeLabelDate(dailyRecords, todayStr(), isNonTradingDay());
   // Defaults to "1年" rather than "全部": with 3+ sparse years plotted
