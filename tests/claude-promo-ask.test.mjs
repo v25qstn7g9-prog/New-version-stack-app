@@ -1,17 +1,20 @@
-// 送的 Claude 額度期間（到 2026-11-10）：Owner 的 AI 問答先問 Claude Opus 5.5；
-// 家人、過期、沒金鑰都不碰 Claude；Claude 失敗就照原本順序（Cloudflare → Gemini）接手。
+// Owner 的 AI 問答先問 Claude（11/10 以前 Opus 5.5、11/11 起 Sonnet 5.5；使用者 2026-11-05 延長，沒有預設結束日）；
+// 家人、關掉、沒金鑰都不碰 Claude；Claude 失敗就照原本順序（Cloudflare → Gemini）接手。
+// 時間一律固定（ask 的 now），不看真的時鐘，過了 11/10 結果也一樣。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { onRequestPost, claudePrimaryActive, buildClaudeMessages, claudeTools, CLAUDE_PRIMARY_UNTIL } from '../functions/ask.js';
 
 const OWNER = 'owner-sync-token-abcdefghijklmnop';
 const at = (iso) => Date.parse(iso);
+const PROMO_NOW = '2026-10-28T12:00:00+08:00'; // 預設固定在送的額度期間（Opus 5.5）
 let n = 0;
 
 function kv() { const m = new Map(); return { m, get: async (k) => m.get(k) ?? null, put: async (k, v) => { m.set(k, v); } }; }
 
-async function ask({ owner = true, env = {}, claude, body = {} } = {}) {
-  const original = globalThis.fetch;
+async function ask({ owner = true, env = {}, claude, body = {}, now = PROMO_NOW } = {}) {
+  const original = globalThis.fetch, realNow = Date.now;
+  if (now) Date.now = () => at(now);
   const hits = { claude: [], gemini: 0, cloudflare: 0 };
   globalThis.fetch = async (url, init) => {
     if (String(url).includes('anthropic.com')) { const b = JSON.parse(init.body); hits.claude.push({ body: b, headers: init.headers }); return claude(b, hits.claude.length); }
@@ -23,15 +26,62 @@ async function ask({ owner = true, env = {}, claude, body = {} } = {}) {
       request: new Request('https://app/ask', { method: 'POST', headers: owner ? { authorization: 'Bearer ' + OWNER } : {}, body: JSON.stringify({ message: '0050 今天怎樣 ' + (++n), context: '持股：0050', ...body }) }),
     });
     return { body: await res.json(), hits };
-  } finally { globalThis.fetch = original; }
+  } finally { globalThis.fetch = original; Date.now = realNow; }
 }
 const ok = (content, model = 'claude-opus-5-5') => Response.json({ model, stop_reason: 'end_turn', content });
 
-test('期間只到 11/10（台北日期），也能用 CLAUDE_PRIMARY=off 關掉', () => {
-  assert.equal(CLAUDE_PRIMARY_UNTIL, '2026-11-10');
-  assert.equal(claudePrimaryActive({}, at('2026-11-10T15:59:00Z')), true);
-  assert.equal(claudePrimaryActive({}, at('2026-11-10T16:00:00Z')), false);
-  assert.equal(claudePrimaryActive({ CLAUDE_PRIMARY: 'off' }, at('2026-10-28T00:00:00Z')), false);
+test('Claude 主力沒有預設結束日（使用者 2026-11-05 延長）；CLAUDE_PRIMARY=off 立即關、CLAUDE_PRIMARY_UNTIL 可設結束日', async () => {
+  const core = await import('../fallback-vercel/lib/ask-core.js');
+  for (const [f, until] of [[claudePrimaryActive, CLAUDE_PRIMARY_UNTIL], [core.claudePrimaryActive, core.CLAUDE_PRIMARY_UNTIL]]) {
+    assert.equal(until, '');
+    assert.equal(f({}, at('2026-11-10T15:59:00Z')), true);
+    assert.equal(f({}, at('2026-11-10T16:00:00Z')), true);  // 台北 11/11 00:00 仍是主力
+    assert.equal(f({}, at('2026-12-01T04:00:00Z')), true);
+    assert.equal(f({ CLAUDE_PRIMARY: 'off' }, at('2026-10-28T00:00:00Z')), false);
+    assert.equal(f({ CLAUDE_PRIMARY: ' OFF ' }, at('2026-12-01T04:00:00Z')), false);
+    assert.equal(f({ CLAUDE_PRIMARY_UNTIL: '2026-11-30' }, at('2026-11-30T15:59:00Z')), true);
+    assert.equal(f({ CLAUDE_PRIMARY_UNTIL: '2026-11-30' }, at('2026-11-30T16:00:00Z')), false);
+  }
+});
+
+for (const day of ['2026-11-11T09:00:00+08:00', '2026-12-01T09:00:00+08:00']) {
+  test(`${day.slice(0, 10)}：Owner 仍先問 Claude（Sonnet 5.5，一般金鑰 ANTHROPIC_API_KEY 優先）；失敗照原本順序接手；關掉就不碰`, async () => {
+    const reply = (b) => ok([{ type: 'text', text: 'Claude 回答' }], b.model);
+    const env = { ANTHROPIC_API_KEY: 'sk-regular' };
+    const a = await ask({ now: day, env, claude: reply });
+    assert.equal(a.body.reply, 'Claude 回答');
+    assert.equal(a.body.provider, 'Claude Sonnet 5.5');
+    assert.equal(a.hits.claude[0].body.model, 'claude-sonnet-5-5');
+    assert.equal(a.hits.claude[0].headers['x-api-key'], 'sk-regular');
+    assert.equal(a.hits.cloudflare, 0);
+    const fb = await ask({ now: day, env: { ...env, health_kv: kv() }, claude: () => Response.json({ error: { message: 'Overloaded' } }, { status: 529 }) });
+    assert.match(fb.body.provider, /cloudflare/i);
+    assert.match(fb.body.fallbackFrom, /Claude/);
+    const off = await ask({ now: day, env: { ...env, CLAUDE_PRIMARY: 'off' }, claude: reply });
+    assert.equal(off.hits.claude.length, 0);
+    assert.match(off.body.provider, /cloudflare/i);
+  });
+}
+
+test('金鑰：11/10 以前先用送的額度那把；11/11 起一般金鑰優先，失效（401）就同一題換 Anthropic_api_key', async () => {
+  const both = { Anthropic_api_key: 'sk-test', ANTHROPIC_API_KEY: 'sk-regular' };
+  const reply = (b) => ok([{ type: 'text', text: '好' }], b.model);
+  const before = await ask({ now: '2026-11-10T23:59:00+08:00', env: both, claude: reply });
+  assert.deepEqual(before.hits.claude.map((h) => h.headers['x-api-key']), ['sk-test']);
+  const after = await ask({ now: '2026-11-11T00:00:00+08:00', env: { ...both, health_kv: kv() },
+    claude: (b, i) => i === 1 ? Response.json({ error: { message: 'invalid x-api-key' } }, { status: 401 }) : reply(b) });
+  assert.deepEqual(after.hits.claude.map((h) => h.headers['x-api-key']), ['sk-regular', 'sk-test']);
+  assert.equal(after.body.reply, '好');
+});
+
+test('11/11 起只剩送的額度那把、而且額度沒了：乾淨地交給 Cloudflare，並暫停 Claude', async () => {
+  const env = { health_kv: kv() };
+  const now = '2026-11-12T09:00:00+08:00';
+  const first = await ask({ now, env, claude: () => Response.json({ error: { message: 'Your credit balance is too low' } }, { status: 400 }) });
+  assert.equal(first.hits.claude.length, 1);
+  assert.match(first.body.provider, /cloudflare/i);
+  const second = await ask({ now, env, claude: () => ok([{ type: 'text', text: 'should not be asked' }]) });
+  assert.equal(second.hits.claude.length, 0);
 });
 
 test('Owner 的問答先問 Claude，用 Secret「Anthropic_api_key」，回覆標成 Claude Opus 5.5', async () => {
@@ -122,7 +172,7 @@ test('香港機房被擋（403 Request not allowed）不是額度問題：不暫
 
 test('舊版誤記的「Request not allowed」暫停紀錄不再擋住 Claude', async () => {
   const store = kv();
-  await store.put('ask-claude-cooldown', JSON.stringify({ until: Date.now() + 3600e3, reason: 'Claude HTTP 403：Request not allowed' }));
+  await store.put('ask-claude-cooldown', JSON.stringify({ until: at(PROMO_NOW) + 3600e3, reason: 'Claude HTTP 403：Request not allowed' }));
   const { body } = await ask({ env: { health_kv: store }, claude: () => ok([{ type: 'text', text: 'ok' }]) });
   assert.equal(body.reply, 'ok');
 });
@@ -171,20 +221,14 @@ test('Claude 模型：台北 11/10 23:59 用 Opus 5.5、11/11 00:00 起 Sonnet 5
   }
 });
 
-test('問答送出時才決定模型（期間延長時 11/11 起送 Sonnet 5.5，標籤跟著換）', async () => {
-  const realNow = Date.now;
-  const extend = { CLAUDE_PRIMARY_UNTIL: '2026-12-31' };
+test('問答送出時才決定模型（11/11 起送 Sonnet 5.5，標籤跟著換）', async () => {
   const reply = (b) => ok([{ type: 'text', text: 'Claude 回答' }], b.model);
-  try {
-    Date.now = () => at('2026-11-10T23:59:00+08:00');
-    const a = await ask({ env: extend, claude: reply });
-    assert.equal(a.hits.claude[0].body.model, 'claude-opus-5-5');
-    assert.equal(a.body.provider, 'Claude Opus 5.5');
-    Date.now = () => at('2026-11-11T00:00:00+08:00');
-    const b = await ask({ env: extend, claude: reply });
-    assert.equal(b.hits.claude[0].body.model, 'claude-sonnet-5-5');
-    assert.equal(b.body.provider, 'Claude Sonnet 5.5');
-    const c = await ask({ env: { ...extend, ANTHROPIC_MODEL: 'claude-opus-5-5' }, claude: reply });
-    assert.equal(c.hits.claude[0].body.model, 'claude-opus-5-5');
-  } finally { Date.now = realNow; }
+  const a = await ask({ now: '2026-11-10T23:59:00+08:00', claude: reply });
+  assert.equal(a.hits.claude[0].body.model, 'claude-opus-5-5');
+  assert.equal(a.body.provider, 'Claude Opus 5.5');
+  const b = await ask({ now: '2026-11-11T00:00:00+08:00', claude: reply });
+  assert.equal(b.hits.claude[0].body.model, 'claude-sonnet-5-5');
+  assert.equal(b.body.provider, 'Claude Sonnet 5.5');
+  const c = await ask({ now: '2026-11-11T00:00:00+08:00', env: { ANTHROPIC_MODEL: 'claude-opus-5-5' }, claude: reply });
+  assert.equal(c.hits.claude[0].body.model, 'claude-opus-5-5');
 });

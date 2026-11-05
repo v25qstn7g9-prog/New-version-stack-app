@@ -13,7 +13,7 @@
  * Cloudflare 為主模型；Cloudflare 失敗時由同一個 Worker 直接切 Gemini 3.6 Flash。
  * 舊 fallback-vercel 仍保留作最後一道相容備援。
  */
-const ASK_VERSION = "4.7-personal-advisor-v3.3-claude-promo";
+const ASK_VERSION = "4.7-personal-advisor-v3.4-claude-primary";
 const GEMINI_MODEL_DEFAULT = "gemini-3.6-flash";
 const GEMINI_MAX_OUTPUT_TOKENS = 1000;
 // Owner 的詢問（量少、要品質）：思考深度調到 medium。Gemini 的思考 token 也算在輸出上限內，
@@ -635,10 +635,13 @@ function extractCloudflareText(result) {
 }
 
 /**
- * 送的 Claude 額度期間（到 2026-11-10），Owner 的 AI 問答先問 Claude Opus 5.5。
+ * Owner 的 AI 問答先問 Claude（台北 2026-11-10 以前 Opus 5.5、11/11 起 Sonnet 5.5）。
+ * 使用者 2026-11-05「延長，改用 Sonnet 5.5」：11/10 之後用帳號每月 US$100 的 API 額度繼續當主力，沒有預設結束日。
  *
  * - 只有 Owner（帶同步 token）的問答會用；家人／朋友維持 Cloudflare → Gemini，不吃這份額度。
- * - 金鑰：Cloudflare Secret「Anthropic_api_key」（跟訓練 App 同名）。沒設、過期或設 CLAUDE_PRIMARY=off 就完全不碰。
+ * - 金鑰：11/10（含）以前先用送的額度那把 Secret「Anthropic_api_key」（跟訓練 App 同名）；11/11 起一般的
+ *   ANTHROPIC_API_KEY／ANTHROPIC_KEY 有設就先用，沒有才用 Anthropic_api_key。一把回 401／402／403（地區被擋除外）
+ *   或額度不足，同一題換下一把；都沒設、或設 CLAUDE_PRIMARY=off（立即）／CLAUDE_PRIMARY_UNTIL=YYYY-MM-DD 過了，就完全不碰。
  * - 失敗就丟錯，由 ask.js 照原本順序（Cloudflare → Gemini）接手；伺服器忙或額度問題會暫停一陣子，不每題都等它失敗。
  * - App 工具（查持股、報價…）照舊回給 App 執行；App 送回來的工具結果用文字放進最後一則訊息，
  *   不重播 tool_use（那些呼叫可能來自 Cloudflare／Gemini，id 與思考紀錄都對不上）。
@@ -647,10 +650,12 @@ function extractCloudflareText(result) {
 export const CLAUDE_MODEL_DEFAULT = "claude-opus-5-5";   // 台北 2026-11-10（含）以前的預設
 export const CLAUDE_MODEL_LATER = "claude-sonnet-5-5";   // 使用者 2026-11-05「11/11 開始…其他都降到 Sonnet 5.5」
 export const CLAUDE_SONNET_FROM = "2026-11-11";          // 台北日期（含）起預設改 Sonnet 5.5
-export const CLAUDE_PRIMARY_UNTIL = "2026-11-10"; // 台北日期，這天（含）以前 Claude 當主力
-const CLAUDE_KEY_NAMES = ["Anthropic_api_key", "ANTHROPIC_API_KEY", "ANTHROPIC_KEY"];
+export const CLAUDE_PRIMARY_UNTIL = ""; // 沒有預設結束日（使用者 2026-11-05 延長）；要停可設環境變數 CLAUDE_PRIMARY_UNTIL
+export const CLAUDE_PROMO_KEY_UNTIL = "2026-11-10"; // 台北日期：這天（含）以前送的額度那把 Anthropic_api_key 先用
+const CLAUDE_KEY_NAMES_PROMO = ["Anthropic_api_key", "ANTHROPIC_API_KEY", "ANTHROPIC_KEY"];
+const CLAUDE_KEY_NAMES_LATER = ["ANTHROPIC_API_KEY", "ANTHROPIC_KEY", "Anthropic_api_key"];
 const API_VERSION = "2026-10-21";
-const MAX_OUTPUT_TOKENS = 4000; // 含思考；Opus 5.5 一定會先想再答
+const MAX_OUTPUT_TOKENS = 4000; // 含思考；Opus／Sonnet 5.5 一定會先想再答
 const MAX_TOOL_TEXT = 12000;
 const MAX_SEARCH_ROUNDS = 2;
 const COOLDOWN_KEY = "ask-claude-cooldown";
@@ -659,16 +664,23 @@ const LAST_OK_KEY = "ask-claude-last-ok";
 const BUSY_COOLDOWN_MS = 10 * 60 * 1000;      // 429／5xx：10 分鐘內先不問
 const BILLING_COOLDOWN_MS = 6 * 3600 * 1000;  // 額度用完／金鑰失效：6 小時內先不問
 
-export function readClaudeKey(env) {
-  for (const name of CLAUDE_KEY_NAMES) {
-    const v = String(env?.[name] || "").trim();
-    if (v) return v;
-  }
-  return "";
-}
-
 function taipeiDateKey(now = Date.now()) {
   return new Date(Number(now) + 8 * 3600e3).toISOString().slice(0, 10);
+}
+
+// 依序要試的金鑰（名稱＋值，值相同的只留一次）；不回傳到畫面，只在呼叫時用。
+function claudeKeyEntries(env, now = Date.now()) {
+  const names = taipeiDateKey(now) <= CLAUDE_PROMO_KEY_UNTIL ? CLAUDE_KEY_NAMES_PROMO : CLAUDE_KEY_NAMES_LATER;
+  const out = [];
+  for (const name of names) {
+    const value = String(env?.[name] || "").trim();
+    if (value && !out.some((e) => e.value === value)) out.push({ name, value });
+  }
+  return out;
+}
+
+export function readClaudeKey(env, now = Date.now()) {
+  return claudeKeyEntries(env, now)[0]?.value || "";
 }
 
 // 每次呼叫時才算（Worker 可能跨過午夜還活著）；ANTHROPIC_MODEL 有設仍優先。
@@ -677,9 +689,15 @@ export function claudeModelFor(env, now = Date.now()) {
 }
 
 export function claudePrimaryActive(env, now = Date.now()) {
-  if (String(env?.CLAUDE_PRIMARY || "").toLowerCase() === "off") return false;
+  if (String(env?.CLAUDE_PRIMARY || "").trim().toLowerCase() === "off") return false;
   const until = String(env?.CLAUDE_PRIMARY_UNTIL || CLAUDE_PRIMARY_UNTIL).trim();
-  return taipeiDateKey(now) <= until;
+  return !until || taipeiDateKey(now) <= until;
+}
+
+// 給畫面看的名字（Opus／Sonnet 5.5，其他模型照原名）
+export function claudeLabel(model = "") {
+  const m = String(model || "");
+  return /opus-5-5/.test(m) ? "Claude Opus 5.5" : /sonnet-5-5/.test(m) ? "Claude Sonnet 5.5" : `Claude（${m}）`;
 }
 
 export async function claudeCoolingDown(env, now = Date.now()) {
@@ -699,7 +717,7 @@ async function startCooldown(env, ms, reason) {
   } catch { /* 存不進去就算了 */ }
 }
 
-// 這次要不要先問 Claude（Owner、期間內、有金鑰、沒在暫停）
+// 這次要不要先問 Claude（Owner、沒被關掉、有金鑰、沒在暫停）
 export async function shouldAskClaude(env, { owner, now = Date.now() } = {}) {
   if (owner !== true) return false;
   if (!claudePrimaryActive(env, now)) return false;
@@ -773,7 +791,23 @@ function regionBlocked(status, msg) {
   return status === 403 && /request not allowed/i.test(String(msg || ""));
 }
 
-async function callClaudeOnce(env, { system, messages, tools, deadline, fetcher }) {
+// 金鑰失效或額度不足（地區被擋不算）：換下一把金鑰再試同一題
+function claudeKeyProblem(status, msg) {
+  return !regionBlocked(status, msg) && ([401, 402, 403].includes(status) || /credit balance|billing/i.test(String(msg || "")));
+}
+
+async function callClaudeOnce(env, opts) {
+  const keys = claudeKeyEntries(env);
+  if (!keys.length) throw new Error("Claude 金鑰（ANTHROPIC_API_KEY／Anthropic_api_key）未設定");
+  for (let i = 0; ; i++) {
+    try { return await callClaudeWithKey(env, keys[i].value, opts); }
+    catch (e) {
+      if (i >= keys.length - 1 || !claudeKeyProblem(e?.status, e?.message)) throw e;
+    }
+  }
+}
+
+async function callClaudeWithKey(env, apiKey, { system, messages, tools, deadline, fetcher }) {
   const remaining = deadline - Date.now();
   if (remaining < 3000) throw new Error("Claude 逾時");
   const body = {
@@ -787,7 +821,7 @@ async function callClaudeOnce(env, { system, messages, tools, deadline, fetcher 
   const init = {
     method: "POST",
     signal: AbortSignal.timeout(remaining),
-    headers: { "content-type": "application/json", "x-api-key": readClaudeKey(env), "anthropic-version": API_VERSION },
+    headers: { "content-type": "application/json", "x-api-key": apiKey, "anthropic-version": API_VERSION },
     body: JSON.stringify(body),
   };
   let res;
@@ -818,10 +852,10 @@ async function callClaudeOnce(env, { system, messages, tools, deadline, fetcher 
 
 // 給系統健康看的 Claude 狀態（不含金鑰內容）。probe=true 會實際問一句很短的話，確認金鑰與額度能用。
 export async function claudeAskStatus(env, { probe = false, fetcher = null } = {}) {
-  const keyName = CLAUDE_KEY_NAMES.find((n) => String(env?.[n] || "").trim()) || null;
+  const keyName = claudeKeyEntries(env)[0]?.name || null;
   const read = async (k) => { try { return JSON.parse((await env?.health_kv?.get(k)) || "null"); } catch { return null; } };
   const status = {
-    keyFound: Boolean(keyName), keyName, active: claudePrimaryActive(env), until: String(env?.CLAUDE_PRIMARY_UNTIL || CLAUDE_PRIMARY_UNTIL),
+    keyFound: Boolean(keyName), keyName, active: claudePrimaryActive(env), until: String(env?.CLAUDE_PRIMARY_UNTIL || CLAUDE_PRIMARY_UNTIL).trim() || null, model: claudeModelFor(env),
     ownerTokenConfigured: Boolean(String(env?.LINE_REMINDER_SYNC_TOKEN || "").trim()),
     coolingDown: await claudeCoolingDown(env), lastOk: await read(LAST_OK_KEY), lastError: await read(LAST_ERROR_KEY),
   };
@@ -868,7 +902,7 @@ export async function runClaudeAsk(env, { systemPrompt, history, message, toolTu
         continue;
       }
       const model = String(data?.model || claudeModelFor(env));
-      const provider = /opus-5-5/.test(model) ? "Claude Opus 5.5" : /sonnet-5-5/.test(model) ? "Claude Sonnet 5.5" : `Claude（${model}）`;
+      const provider = claudeLabel(model);
       try { await env?.health_kv?.put(LAST_OK_KEY, JSON.stringify({ at: new Date().toISOString(), ms: Date.now() - started, model, colo: colo || null, viaRelay: Boolean(claudeRelay(env)) }), { expirationTtl: 14 * 86400 }); } catch { /* 存不進去就算了 */ }
       const appCalls = calls.filter((c) => c.name !== "web_search");
       if (appCalls.length) return { provider, model, toolCalls: appCalls };
@@ -958,7 +992,7 @@ export async function onRequestPost(context) {
       ? `${SYSTEM_PROMPT_BASE}\n\n${dateLine}\n\n目前持股資料：\n${contextText}${finalizeLine}`
       : `${SYSTEM_PROMPT_BASE}\n\n${dateLine}${finalizeLine}`;
 
-    // 送的 Claude 額度期間（到 11/10）：Owner 先問 Claude Opus 5.5；失敗就照原本順序接手。
+    // Owner 先問 Claude（11/10 以前 Opus 5.5、11/11 起 Sonnet 5.5，沒有預設結束日）；失敗就照原本順序接手。
     const ownerAsk = isOwnerAsk(context.request, context.env);
     if (await shouldAskClaude(context.env, { owner: ownerAsk })) {
       const claudeStarted = Date.now();

@@ -10329,7 +10329,7 @@ function AiChatWidget({ advancedUse = true, holdings, goal, totalToday, totalInv
                     <div className="text-[11px] px-2 py-0.5 rounded-full truncate max-w-[170px]"
                       title={`${providerInfo.provider} · ${providerInfo.model}`}
                       style={{ color: isGemini ? COLORS.gold : COLORS.sub, border: `1px solid ${isGemini ? COLORS.gold : COLORS.panelBorder}` }}>
-                      {isGemini ? <UiLabel zh="Gemini 獨立備援" inline /> : isClaude ? "Claude Opus 5.5" : "GPT-OSS"}
+                      {isGemini ? <UiLabel zh="Gemini 獨立備援" inline /> : isClaude ? String(providerInfo.provider) : "GPT-OSS"}
                     </div>
                   );
                 })()}
