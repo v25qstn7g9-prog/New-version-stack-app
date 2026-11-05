@@ -644,7 +644,9 @@ function extractCloudflareText(result) {
  *   不重播 tool_use（那些呼叫可能來自 Cloudflare／Gemini，id 與思考紀錄都對不上）。
  */
 
-export const CLAUDE_MODEL_DEFAULT = "claude-opus-5-5";
+export const CLAUDE_MODEL_DEFAULT = "claude-opus-5-5";   // 台北 2026-11-10（含）以前的預設
+export const CLAUDE_MODEL_LATER = "claude-sonnet-5-5";   // 使用者 2026-11-05「11/11 開始…其他都降到 Sonnet 5.5」
+export const CLAUDE_SONNET_FROM = "2026-11-11";          // 台北日期（含）起預設改 Sonnet 5.5
 export const CLAUDE_PRIMARY_UNTIL = "2026-11-10"; // 台北日期，這天（含）以前 Claude 當主力
 const CLAUDE_KEY_NAMES = ["Anthropic_api_key", "ANTHROPIC_API_KEY", "ANTHROPIC_KEY"];
 const API_VERSION = "2026-10-21";
@@ -667,6 +669,11 @@ export function readClaudeKey(env) {
 
 function taipeiDateKey(now = Date.now()) {
   return new Date(Number(now) + 8 * 3600e3).toISOString().slice(0, 10);
+}
+
+// 每次呼叫時才算（Worker 可能跨過午夜還活著）；ANTHROPIC_MODEL 有設仍優先。
+export function claudeModelFor(env, now = Date.now()) {
+  return String(env?.ANTHROPIC_MODEL || "").trim() || (taipeiDateKey(now) >= CLAUDE_SONNET_FROM ? CLAUDE_MODEL_LATER : CLAUDE_MODEL_DEFAULT);
 }
 
 export function claudePrimaryActive(env, now = Date.now()) {
@@ -770,7 +777,7 @@ async function callClaudeOnce(env, { system, messages, tools, deadline, fetcher 
   const remaining = deadline - Date.now();
   if (remaining < 3000) throw new Error("Claude 逾時");
   const body = {
-    model: String(env?.ANTHROPIC_MODEL || "").trim() || CLAUDE_MODEL_DEFAULT,
+    model: claudeModelFor(env),
     max_tokens: MAX_OUTPUT_TOKENS,
     output_config: { effort: "low" },
     system,
@@ -860,8 +867,8 @@ export async function runClaudeAsk(env, { systemPrompt, history, message, toolTu
         data = await callClaudeOnce(env, { system: systemPrompt, messages, tools: toolDefs, deadline, fetcher });
         continue;
       }
-      const model = String(data?.model || CLAUDE_MODEL_DEFAULT);
-      const provider = /opus-5-5/.test(model) ? "Claude Opus 5.5" : `Claude（${model}）`;
+      const model = String(data?.model || claudeModelFor(env));
+      const provider = /opus-5-5/.test(model) ? "Claude Opus 5.5" : /sonnet-5-5/.test(model) ? "Claude Sonnet 5.5" : `Claude（${model}）`;
       try { await env?.health_kv?.put(LAST_OK_KEY, JSON.stringify({ at: new Date().toISOString(), ms: Date.now() - started, model, colo: colo || null, viaRelay: Boolean(claudeRelay(env)) }), { expirationTtl: 14 * 86400 }); } catch { /* 存不進去就算了 */ }
       const appCalls = calls.filter((c) => c.name !== "web_search");
       if (appCalls.length) return { provider, model, toolCalls: appCalls };

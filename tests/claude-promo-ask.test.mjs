@@ -158,3 +158,33 @@ test('relay 類別有從主程式匯出，wrangler 也有綁定與 migration', a
     assert.equal(forwarded.init.body, '{"a":1}');
   } finally { globalThis.fetch = original; }
 });
+
+// 使用者 2026-11-05「11/11 開始…其他都降到 Sonnet 5.5」：台北 11/11 起預設 Sonnet 5.5，每次呼叫才算；ANTHROPIC_MODEL 仍優先
+test('Claude 模型：台北 11/10 23:59 用 Opus 5.5、11/11 00:00 起 Sonnet 5.5；ANTHROPIC_MODEL 仍優先', async () => {
+  const { claudeModelFor } = await import('../functions/ask.js');
+  const core = await import('../fallback-vercel/lib/ask-core.js');
+  for (const f of [claudeModelFor, core.claudeModelFor]) {
+    assert.equal(f({}, at('2026-11-10T23:59:00+08:00')), 'claude-opus-5-5');
+    assert.equal(f({}, at('2026-11-11T00:00:00+08:00')), 'claude-sonnet-5-5');
+    assert.equal(f({ ANTHROPIC_MODEL: ' claude-opus-5-5 ' }, at('2026-11-11T00:00:00+08:00')), 'claude-opus-5-5');
+    assert.equal(f({ ANTHROPIC_MODEL: 'claude-x' }, at('2026-11-01T00:00:00+08:00')), 'claude-x');
+  }
+});
+
+test('問答送出時才決定模型（期間延長時 11/11 起送 Sonnet 5.5，標籤跟著換）', async () => {
+  const realNow = Date.now;
+  const extend = { CLAUDE_PRIMARY_UNTIL: '2026-12-31' };
+  const reply = (b) => ok([{ type: 'text', text: 'Claude 回答' }], b.model);
+  try {
+    Date.now = () => at('2026-11-10T23:59:00+08:00');
+    const a = await ask({ env: extend, claude: reply });
+    assert.equal(a.hits.claude[0].body.model, 'claude-opus-5-5');
+    assert.equal(a.body.provider, 'Claude Opus 5.5');
+    Date.now = () => at('2026-11-11T00:00:00+08:00');
+    const b = await ask({ env: extend, claude: reply });
+    assert.equal(b.hits.claude[0].body.model, 'claude-sonnet-5-5');
+    assert.equal(b.body.provider, 'Claude Sonnet 5.5');
+    const c = await ask({ env: { ...extend, ANTHROPIC_MODEL: 'claude-opus-5-5' }, claude: reply });
+    assert.equal(c.hits.claude[0].body.model, 'claude-opus-5-5');
+  } finally { Date.now = realNow; }
+});
