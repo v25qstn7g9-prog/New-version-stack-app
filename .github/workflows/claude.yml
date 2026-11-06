@@ -1,0 +1,126 @@
+name: Claude implementation
+
+on:
+  issues:
+    types: [opened]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: claude-issue-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  implement:
+    # This repository belongs to an individual. Only its owner's own issues
+    # and explicit commands can spend Claude credits or write code.
+    if: >-
+      github.event.sender.login == github.repository_owner &&
+      github.event.issue.user.login == github.repository_owner &&
+      !github.event.issue.pull_request &&
+      ((github.event_name == 'issues' &&
+        (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude'))) ||
+       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      branch: ${{ steps.claude.outputs.branch_name }}
+      conclusion: ${{ steps.claude.outputs.conclusion }}
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      actions: read
+      id-token: write
+    steps:
+      - name: Checkout trusted default branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          # claude-code-action runs `git fetch origin <base>` before it sets up its own
+          # git auth; on this private repo that fetch needs the checkout's token.
+          # main must be branch-protected so this token still cannot push main.
+          persist-credentials: true
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+
+      - name: Require protected main before launching Claude
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+        run: node .github/scripts/check-claude-branch.mjs
+
+      - name: Check one-time Claude authentication
+        env:
+          CLAUDE_OAUTH: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$CLAUDE_OAUTH" ] && [ -z "$CLAUDE_API_KEY" ]; then
+            echo '::error::Claude 尚未綁定：請參考 docs/claude-handoff.md，將 CLAUDE_CODE_OAUTH_TOKEN（訂閱）或 ANTHROPIC_API_KEY（API 金鑰）存入 GitHub Actions Secrets。不要貼在 Issue。'
+            echo 'Claude 未啟動：缺少一次性的帳號授權設定。' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+      - name: Prepare project dependencies
+        run: |
+          cp ci/package-lock.json package-lock.json && npm ci --no-audit --no-fund
+
+      - name: Let Claude implement the issue
+        id: claude
+        uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c # v1
+        with:
+          # Subscription OAuth if set; otherwise the API key.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN == '' && secrets.ANTHROPIC_API_KEY || '' }}
+          base_branch: ${{ github.event.repository.default_branch }}
+          include_comments_by_actor: ${{ github.repository_owner }}
+          additional_permissions: |
+            actions: read
+          show_full_output: 'true'
+          claude_args: >-
+            --max-turns 60
+            --allowedTools "Bash(node:*),Bash(npm:*),Bash(npx:*),Bash(git:*)"
+            --append-system-prompt "Read CLAUDE.md first and follow it (Forma portfolio theme, approved 11px dense cards, build rules). This is the New-version-stack-app Cloudflare Worker stock app. Implement the issue on the action-created branch. Before committing: run npm test; if src/app.jsx or icons change run npm run build:app; if Tailwind classes change run npm run build:css; keep app.js/tw.css in sync with sources. Do not edit workflow files, inspect credentials, upload customer data, merge PRs or push main. Do not change portfolio calculations, trade ledger or quote logic unless the issue explicitly asks. Report incomplete checks honestly. A following workflow step creates the draft PR; you do not create or merge it."
+
+      - name: Report if no implementation branch was produced
+        if: success() && steps.claude.outputs.branch_name == ''
+        run: echo '本次未取得 Claude 實作分支；請查看 Issue 的 Claude 回覆，不能視為修改完成。' >> "$GITHUB_STEP_SUMMARY"
+
+  # A different runner is the isolation boundary: no files, environment updates
+  # or artifacts from the agent job are executed here. Only a validated branch
+  # name crosses the boundary. The agent itself remains a trusted code executor.
+  open-pr:
+    needs: implement
+    if: >-
+      needs.implement.result == 'success' &&
+      needs.implement.outputs.branch != '' &&
+      needs.implement.outputs.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout publication helper from the triggering commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+      - name: Ensure a draft PR exists
+        env:
+          CLAUDE_BRANCH: ${{ needs.implement.outputs.branch }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: node .github/scripts/ensure-claude-pr.mjs
