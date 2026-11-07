@@ -13,19 +13,20 @@
  * Cloudflare 為主模型；Cloudflare 失敗時由同一個 Worker 直接切 Gemini 3.6 Flash。
  * 舊 fallback-vercel 仍保留作最後一道相容備援。
  */
-const ASK_VERSION = "4.7-personal-advisor-v3.4-claude-primary";
+const ASK_VERSION = "4.7-personal-advisor-v3.5-gemma4";
 const GEMINI_MODEL_DEFAULT = "gemini-3.6-flash";
 const GEMINI_MAX_OUTPUT_TOKENS = 1000;
 // Owner 的詢問（量少、要品質）：思考深度調到 medium。Gemini 的思考 token 也算在輸出上限內，
 // 所以上限同步放寬，避免思考吃光額度、回答被截斷或空白。家人維持 minimal／1000。
 const GEMINI_OWNER_THINKING_LEVEL = "medium";
 const GEMINI_OWNER_MAX_OUTPUT_TOKENS = 3000;
-// 2026-10：輕、重都升級成 GLM-5.3 Flash（較新、較強、價格仍低）；原本的 20B 留作 Workers AI 內的備援
-const LIGHT_MODEL = "@cf/zai-org/glm-5.3-flash";
-const HEAVY_MODEL = "@cf/zai-org/glm-5.3-flash";
-const FALLBACK_MODEL = "@cf/openai/gpt-oss-20b";
+// 2026-11：GLM-5.3 Flash 預計 2026-11-20 下線。輕、重主模型改成 Gemma 4 26B A4B；
+// Workers AI 內的備援仍是 gpt-oss-20b。
+export const LIGHT_MODEL = "@cf/google/gemma-4-26b-a4b-it";
+export const HEAVY_MODEL = "@cf/google/gemma-4-26b-a4b-it";
+export const FALLBACK_MODEL = "@cf/openai/gpt-oss-20b";
 
-function chooseAssetModel(message = "", contextText = "", toolTurns = [], forceAnswer = false) {
+export function chooseAssetModel(message = "", contextText = "", toolTurns = [], forceAnswer = false) {
   const question = String(message || "");
   const complex = /(完整分析|綜合分析|比較|趨勢|歷史|為什麼|原因|風險|情境|規劃|預測|模型|驗證|關聯|法人|新聞|台指|隔夜|跨期|月總結|年度|全部紀錄)/i.test(question);
   const multiStep = Array.isArray(toolTurns) && toolTurns.length > 0;
@@ -37,6 +38,24 @@ const MAX_MESSAGE_LEN = 2000;
 const MAX_HISTORY_CONTENT = 3000;
 const MAX_CONTEXT_LEN = 12000;
 const MAX_TOKENS = 1000;
+
+// Gemma 4 官方輸入把 max_tokens 標成棄用，改以 max_completion_tokens 限制輸出。
+// chat_template_kwargs.enable_thinking 官方預設是 true，思考 token 算進這個上限。
+// 問答的 1000 與健康檢查的 5 都要留給可見文字，所以主模型明確關掉思考。
+// gpt-oss-20b 官方輸入只有 max_tokens，沒有 max_completion_tokens，也沒有 chat_template_kwargs。
+// 備援請求維持 max_tokens，不帶 Gemma 專用欄位。messages／tools 兩邊都是
+// OpenAI function-calling 形狀（system／user／assistant／tool），不必改。
+export function workersAiRunInput(model, messages, { tools, maxTokens = MAX_TOKENS } = {}) {
+  const input = { messages };
+  if (model === FALLBACK_MODEL) {
+    input.max_tokens = maxTokens;
+  } else {
+    input.max_completion_tokens = maxTokens;
+    input.chat_template_kwargs = { enable_thinking: false };
+  }
+  if (tools) input.tools = tools;
+  return input;
+}
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_SERVER_SEARCH_ROUNDS = 2;
 
@@ -1044,9 +1063,7 @@ export async function onRequestPost(context) {
       if (!ai) throw new Error("尚未設定 Cloudflare AI Binding（AI）");
       if ((primaryCooldown.get(ai) || 0) > Date.now()) throw new Error("AI 暫時冷卻，改用備援");
       if (Date.now() >= primaryDeadline) throw new Error("Cloudflare Workers AI 逾時");
-      const request = forceAnswer
-        ? ai.run(activeModel, { messages, max_tokens: MAX_TOKENS })
-        : ai.run(activeModel, { messages, max_tokens: MAX_TOKENS, tools: TOOLS });
+      const request = ai.run(activeModel, workersAiRunInput(activeModel, messages, forceAnswer ? {} : { tools: TOOLS }));
       return await withTimeout(request, primaryDeadline - Date.now(), "Cloudflare Workers AI");
     }
 
@@ -1089,7 +1106,7 @@ export async function onRequestPost(context) {
           messages.push({ role: "user", content: "（系統提示：已達自動查詢次數上限，請直接根據目前已經查到的資料用文字回答，不要再要求呼叫任何工具。）" });
           if (Date.now() >= primaryDeadline) throw new Error("Cloudflare Workers AI 逾時");
           result = await withTimeout(
-            ai.run(activeModel, { messages, max_tokens: MAX_TOKENS }),
+            ai.run(activeModel, workersAiRunInput(activeModel, messages)),
             primaryDeadline - Date.now(),
             "Cloudflare Workers AI"
           );

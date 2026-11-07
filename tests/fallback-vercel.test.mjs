@@ -55,6 +55,7 @@ test("fallback handler answers through Gemini using the shared core", async () =
   assert.equal(res.body.provider, "gemini-external");
   assert.match(seen[0].url, /gemini-3\.6-flash:generateContent$/);
   assert.match(seen[0].body.systemInstruction.parts[0].text, /0050 1000股/);
+  assert.equal(seen[0].body.generationConfig.maxOutputTokens, 1000);
 });
 
 test("fallback handler passes App tool calls back to the browser for the confirm card", async () => {
