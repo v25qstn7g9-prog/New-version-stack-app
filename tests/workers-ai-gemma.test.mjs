@@ -14,7 +14,7 @@ const OSS = '@cf/openai/gpt-oss-20b';
 function assertGemmaInput(input, { tools = true } = {}) {
   assert.equal(input.max_completion_tokens, 1000);
   assert.equal(input.max_tokens, undefined);
-  assert.equal(input.chat_template_kwargs, undefined);
+  assert.deepEqual(input.chat_template_kwargs, { enable_thinking: false });
   assert.equal(input.temperature, undefined);
   assert.ok(Array.isArray(input.messages) && input.messages.length >= 1);
   assert.ok(input.messages.every((m) => typeof m.role === 'string' && (typeof m.content === 'string' || m.content === null || Array.isArray(m.content) || m.tool_calls)));
@@ -29,7 +29,7 @@ function assertGemmaInput(input, { tools = true } = {}) {
     assert.equal(input.tools, undefined);
   }
   const keys = Object.keys(input).sort();
-  assert.deepEqual(keys, tools ? ['max_completion_tokens', 'messages', 'tools'] : ['max_completion_tokens', 'messages']);
+  assert.deepEqual(keys, tools ? ['chat_template_kwargs', 'max_completion_tokens', 'messages', 'tools'] : ['chat_template_kwargs', 'max_completion_tokens', 'messages']);
 }
 
 function assertOssInput(input, { tools = true } = {}) {
@@ -169,7 +169,20 @@ test('forceAnswer omits tools but still uses the model-specific token field', as
   assertGemmaInput(calls[0].input, { tools: false });
 });
 
-test('health check calls Gemma 4 with max_completion_tokens and does not use the fallback model', async () => {
+test('health check and answers turn Gemma thinking off; GPT-OSS fallback does not', async () => {
+  const ping = [{ role: 'user', content: 'ping' }];
+  const healthInput = workersAiRunInput(GEMMA, ping, { maxTokens: 5 });
+  assert.deepEqual(healthInput, {
+    messages: ping,
+    max_completion_tokens: 5,
+    chat_template_kwargs: { enable_thinking: false },
+  });
+  const answer = workersAiRunInput(GEMMA, ping);
+  assert.equal(answer.max_completion_tokens, 1000);
+  assert.deepEqual(answer.chat_template_kwargs, { enable_thinking: false });
+  const fallback = workersAiRunInput(OSS, ping, { tools: [{ type: 'function', function: { name: 'add_trade', parameters: { type: 'object' } } }] });
+  assertOssInput(fallback);
+
   const calls = [];
   const env = {
     AI: { run: async (model, input) => { calls.push({ model, input }); return { response: 'pong' }; } },
@@ -180,8 +193,8 @@ test('health check calls Gemma 4 with max_completion_tokens and does not use the
   assert.equal(calls.length, 1);
   assert.equal(calls[0].model, GEMMA);
   assert.notEqual(calls[0].model, OSS);
-  assert.deepEqual(calls[0].input, {
-    messages: [{ role: 'user', content: 'ping' }],
-    max_completion_tokens: 5,
-  });
+  assert.deepEqual(calls[0].input, healthInput);
+  assert.equal(calls[0].input.max_completion_tokens, 5);
+  assert.deepEqual(calls[0].input.chat_template_kwargs, { enable_thinking: false });
+  assert.equal(calls[0].input.max_tokens, undefined);
 });

@@ -112,8 +112,10 @@ export async function runHealthCheck(env) {
     await Promise.race([
       env.AI.run(CLOUDFLARE_TEST_MODEL, {
         messages: [{ role: "user", content: "ping" }],
-        // Gemma 4 官方輸入以 max_completion_tokens 取代已棄用的 max_tokens。這支檢查只打主模型。
+        // Gemma 4 以 max_completion_tokens 取代已棄用的 max_tokens。
+        // enable_thinking 官方預設 true，5 token 會被思考吃掉並讓健康檢查誤判故障，所以關掉。
         max_completion_tokens: 5,
+        chat_template_kwargs: { enable_thinking: false },
       }),
       timeoutPromise,
     ]);

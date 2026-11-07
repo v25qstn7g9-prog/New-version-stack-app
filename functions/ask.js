@@ -40,14 +40,19 @@ const MAX_CONTEXT_LEN = 12000;
 const MAX_TOKENS = 1000;
 
 // Gemma 4 官方輸入把 max_tokens 標成棄用，改以 max_completion_tokens 限制輸出。
+// chat_template_kwargs.enable_thinking 官方預設是 true，思考 token 算進這個上限。
+// 問答的 1000 與健康檢查的 5 都要留給可見文字，所以主模型明確關掉思考。
 // gpt-oss-20b 官方輸入只有 max_tokens，沒有 max_completion_tokens，也沒有 chat_template_kwargs。
-// 備援請求維持 max_tokens，不帶 Gemma 專用欄位。省略 chat_template_kwargs 時，
-// Gemma 的 enable_thinking 沿用官方預設 true。messages／tools 兩邊都是
+// 備援請求維持 max_tokens，不帶 Gemma 專用欄位。messages／tools 兩邊都是
 // OpenAI function-calling 形狀（system／user／assistant／tool），不必改。
 export function workersAiRunInput(model, messages, { tools, maxTokens = MAX_TOKENS } = {}) {
   const input = { messages };
-  if (model === FALLBACK_MODEL) input.max_tokens = maxTokens;
-  else input.max_completion_tokens = maxTokens;
+  if (model === FALLBACK_MODEL) {
+    input.max_tokens = maxTokens;
+  } else {
+    input.max_completion_tokens = maxTokens;
+    input.chat_template_kwargs = { enable_thinking: false };
+  }
   if (tools) input.tools = tools;
   return input;
 }
