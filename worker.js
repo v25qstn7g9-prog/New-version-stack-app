@@ -104,6 +104,7 @@ import {
   onRequestPost as pendingTradesPostHandler,
   onRequestResolve as pendingTradesResolveHandler,
 } from "./functions/pending-trades.js";
+import { runProactiveAnomalies, HOOK_AFTER_CLOSE, HOOK_DAILY_HEALTH } from "./functions/proactive-anomaly.js";
 
 function apiJson(data, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(data), {
@@ -367,6 +368,9 @@ export default {
         await runAutoDaily(env).catch((e) => console.warn("auto daily failed", e?.message || e));
         // 14:00 再推一次，讓手機上的 Service Worker 用本機資料自動記錄
         await runPushRound(env, { force: true }).catch((e) => console.warn("push round failed", e?.message || e));
+        // 主動異常通知走既有收盤排程。失敗只留固定日誌，不能影響上面的記帳與推播。
+        try { await runProactiveAnomalies(env, { hook: HOOK_AFTER_CLOSE }); }
+        catch { console.warn("proactive anomaly scan failed"); }
       })());
       return;
     }
@@ -375,6 +379,9 @@ export default {
       await runHealthCheck(env);
       // 12 月每週檢查一次：證交所公布明年休市表了沒，沒有就 LINE 提醒
       try { await runCalendarCheck(env); } catch (e) { console.warn("calendar check failed", e?.message || e); }
+      // 08:00 的健康檢查排程順帶看待確認交易與系統／同步異常。不在每分鐘 cron 裡跑。
+      try { await runProactiveAnomalies(env, { hook: HOOK_DAILY_HEALTH }); }
+      catch { console.warn("proactive anomaly scan failed"); }
     })());
   },
 };
