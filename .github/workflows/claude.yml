@@ -50,7 +50,10 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22
+          # package.json engines.node is a range (>=18). This repo's test workflow
+          # installs ci/package-lock.json and runs npm test on Node 20, which also
+          # satisfies fallback-vercel engines (>=20). Node 22 was the ota-report-tool copy.
+          node-version: 20
 
       - name: Require protected main before launching Claude
         env:
@@ -69,6 +72,11 @@ jobs:
             exit 1
           fi
 
+      # Same locked install as test.yml so npm test, build:app, build:css and
+      # sync:fallback see this repo's devDependencies. Root package-lock.json is gitignored.
+      - name: Install locked build tools
+        run: cp ci/package-lock.json package-lock.json && npm ci --no-audit --no-fund
+
       - name: Let Claude implement the issue
         id: claude
         uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c # v1
@@ -80,11 +88,11 @@ jobs:
           include_comments_by_actor: ${{ github.repository_owner }}
           additional_permissions: |
             actions: read
-          show_full_output: 'false'
+          show_full_output: 'true'
           claude_args: >-
             --max-turns 60
             --allowedTools "Bash(node:*),Bash(npm:*),Bash(npx:*),Bash(git:*)"
-            --append-system-prompt "Read CLAUDE.md first and follow it. Implement the issue on the action-created branch; never change asset calculations, trade records or quote logic unless the issue asks. After editing src/app.jsx run npm run build:app (and npm run build:css for Tailwind classes); after functions/ask.js run npm run sync:fallback. Run npm test before committing. Do not edit workflow files, inspect credentials, merge PRs or push main. Report incomplete checks honestly. A following workflow step creates the draft PR."
+            --append-system-prompt "Read CLAUDE.md first and follow it. Implement the issue on the action-created branch; never change asset calculations, trade records or quote logic unless the issue asks. This repo installs locked devDependencies with cp ci/package-lock.json package-lock.json && npm ci --no-audit --no-fund (root package-lock.json is gitignored; do not commit it). After editing src/app.jsx run npm run build:app (and npm run build:css for Tailwind classes); after functions/ask.js run npm run sync:fallback. Run npm test before committing. Do not edit workflow files, inspect credentials, merge PRs, push main, or turn on auto-merge. Report incomplete checks honestly. A following workflow step creates the draft PR; do not create or merge it yourself."
 
       - name: Report if no implementation branch was produced
         if: success() && steps.claude.outputs.branch_name == ''
@@ -114,7 +122,8 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22
+          # Same major as the implement job and test.yml. This job only runs the PR helper.
+          node-version: 20
       - name: Ensure a draft PR exists
         env:
           CLAUDE_BRANCH: ${{ needs.implement.outputs.branch }}
