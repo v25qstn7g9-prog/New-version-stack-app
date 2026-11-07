@@ -18,7 +18,7 @@ const HEALTH_VERSION = "4.6-health-check-2";
 const KV_KEY = "health:cards";
 const MAX_CARDS = 20;
 const MAX_BODY_BYTES = 64 * 1024;
-const CLOUDFLARE_TEST_MODEL = "@cf/zai-org/glm-5.3-flash"; // 跟 functions/ask.js 用同一顆模型
+const CLOUDFLARE_TEST_MODEL = "@cf/google/gemma-4-26b-a4b-it"; // 跟 functions/ask.js 的 LIGHT_MODEL 同一顆
 
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -112,7 +112,8 @@ export async function runHealthCheck(env) {
     await Promise.race([
       env.AI.run(CLOUDFLARE_TEST_MODEL, {
         messages: [{ role: "user", content: "ping" }],
-        max_tokens: 5,
+        // Gemma 4 官方輸入以 max_completion_tokens 取代已棄用的 max_tokens。這支檢查只打主模型。
+        max_completion_tokens: 5,
       }),
       timeoutPromise,
     ]);

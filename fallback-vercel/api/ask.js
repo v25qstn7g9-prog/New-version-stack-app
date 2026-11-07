@@ -167,6 +167,12 @@ function fromGeminiResponse(data) {
   return { choices: [{ message: { role: "assistant", content: text } }] };
 }
 
+// Gemma 4 用 max_completion_tokens；gpt-oss-20b 仍用 max_tokens。沒帶時維持原本的 1000。
+export function workersOutputTokenCap(options, fallback = 1000) {
+  const raw = options?.max_completion_tokens ?? options?.max_tokens ?? fallback;
+  return Number(raw);
+}
+
 async function callGemini(options, allowRetry = true) {
   const apiKey = String(process.env.GEMINI_API_KEY || "").trim();
   if (!apiKey) throw new Error("GEMINI_API_KEY 尚未設定");
@@ -176,7 +182,8 @@ async function callGemini(options, allowRetry = true) {
   const timeout = setTimeout(() => controller.abort(), 28000);
   try {
     const payload = toGeminiRequest(options?.messages, options?.tools);
-    const maxTokens = Number(options?.max_tokens || 1000);
+    // 主模型（Gemma 4）送 max_completion_tokens；gpt-oss-20b 備援仍送 max_tokens。兩邊都要套到 Gemini 輸出上限。
+    const maxTokens = workersOutputTokenCap(options);
     if (Number.isFinite(maxTokens) && maxTokens > 0) {
       payload.generationConfig = {
         ...(payload.generationConfig || {}),
