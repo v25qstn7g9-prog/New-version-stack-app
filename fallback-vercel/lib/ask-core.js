@@ -635,11 +635,12 @@ function extractCloudflareText(result) {
 }
 
 /**
- * Owner 的 AI 問答先問 Claude（台北 2026-11-10 以前 Opus 5.5、11/11 起 Sonnet 5.5）。
- * 使用者 2026-11-05「延長，改用 Sonnet 5.5」：11/10 之後用帳號每月 US$100 的 API 額度繼續當主力，沒有預設結束日。
+ * Owner 的 AI 問答先問 Claude（台北 2026-12-10 以前 Opus 5.5、12/11 起 Sonnet 5.5）。
+ * 使用者 2026-11-08「延長到12/10」：第二筆送的額度到 12/10，Opus 5.5 與先用送的額度那把都延到 12/10（含）；之後若有新額度再延長。
+ * 使用者 2026-11-05「延長，改用 Sonnet 5.5」：送的額度過後用帳號每月 US$100 的 API 額度繼續當主力，沒有預設結束日。
  *
  * - 只有 Owner（帶同步 token）的問答會用；家人／朋友維持 Cloudflare → Gemini，不吃這份額度。
- * - 金鑰：11/10（含）以前先用送的額度那把 Secret「Anthropic_api_key」（跟訓練 App 同名）；11/11 起一般的
+ * - 金鑰：12/10（含）以前先用送的額度那把 Secret「Anthropic_api_key」（跟訓練 App 同名）；12/11 起一般的
  *   ANTHROPIC_API_KEY／ANTHROPIC_KEY 有設就先用，沒有才用 Anthropic_api_key。一把回 401／402／403（地區被擋除外）
  *   或額度不足，同一題換下一把；都沒設、或設 CLAUDE_PRIMARY=off（立即）／CLAUDE_PRIMARY_UNTIL=YYYY-MM-DD 過了，就完全不碰。
  * - 失敗就丟錯，由 ask.js 照原本順序（Cloudflare → Gemini）接手；伺服器忙或額度問題會暫停一陣子，不每題都等它失敗。
@@ -647,11 +648,11 @@ function extractCloudflareText(result) {
  *   不重播 tool_use（那些呼叫可能來自 Cloudflare／Gemini，id 與思考紀錄都對不上）。
  */
 
-export const CLAUDE_MODEL_DEFAULT = "claude-opus-5-5";   // 台北 2026-11-10（含）以前的預設
-export const CLAUDE_MODEL_LATER = "claude-sonnet-5-5";   // 使用者 2026-11-05「11/11 開始…其他都降到 Sonnet 5.5」
-export const CLAUDE_SONNET_FROM = "2026-11-11";          // 台北日期（含）起預設改 Sonnet 5.5
+export const CLAUDE_MODEL_DEFAULT = "claude-opus-5-5";   // 台北 2026-12-10（含）以前的預設（使用者 2026-11-08「延長到12/10」）
+export const CLAUDE_MODEL_LATER = "claude-sonnet-5-5";   // 使用者 2026-11-05「…其他都降到 Sonnet 5.5」，2026-11-08 延到 12/11 起
+export const CLAUDE_SONNET_FROM = "2026-12-11";          // 台北日期（含）起預設改 Sonnet 5.5
 export const CLAUDE_PRIMARY_UNTIL = ""; // 沒有預設結束日（使用者 2026-11-05 延長）；要停可設環境變數 CLAUDE_PRIMARY_UNTIL
-export const CLAUDE_PROMO_KEY_UNTIL = "2026-11-10"; // 台北日期：這天（含）以前送的額度那把 Anthropic_api_key 先用
+export const CLAUDE_PROMO_KEY_UNTIL = "2026-12-10"; // 台北日期：這天（含）以前送的額度那把 Anthropic_api_key 先用
 const CLAUDE_KEY_NAMES_PROMO = ["Anthropic_api_key", "ANTHROPIC_API_KEY", "ANTHROPIC_KEY"];
 const CLAUDE_KEY_NAMES_LATER = ["ANTHROPIC_API_KEY", "ANTHROPIC_KEY", "Anthropic_api_key"];
 const API_VERSION = "2026-10-21";
@@ -992,7 +993,7 @@ export async function onRequestPost(context) {
       ? `${SYSTEM_PROMPT_BASE}\n\n${dateLine}\n\n目前持股資料：\n${contextText}${finalizeLine}`
       : `${SYSTEM_PROMPT_BASE}\n\n${dateLine}${finalizeLine}`;
 
-    // Owner 先問 Claude（11/10 以前 Opus 5.5、11/11 起 Sonnet 5.5，沒有預設結束日）；失敗就照原本順序接手。
+    // Owner 先問 Claude（12/10 以前 Opus 5.5、12/11 起 Sonnet 5.5，沒有預設結束日）；失敗就照原本順序接手。
     const ownerAsk = isOwnerAsk(context.request, context.env);
     if (await shouldAskClaude(context.env, { owner: ownerAsk })) {
       const claudeStarted = Date.now();
