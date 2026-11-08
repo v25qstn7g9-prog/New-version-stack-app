@@ -1,6 +1,6 @@
-// Owner 的 AI 問答先問 Claude（11/10 以前 Opus 5.5、11/11 起 Sonnet 5.5；使用者 2026-11-05 延長，沒有預設結束日）；
+// Owner 的 AI 問答先問 Claude（12/10 以前 Opus 5.5、12/11 起 Sonnet 5.5；使用者 2026-11-08「延長到12/10」；主力沒有預設結束日）；
 // 家人、關掉、沒金鑰都不碰 Claude；Claude 失敗就照原本順序（Cloudflare → Gemini）接手。
-// 時間一律固定（ask 的 now），不看真的時鐘，過了 11/10 結果也一樣。
+// 時間一律固定（ask 的 now），不看真的時鐘，過了 12/10 結果也一樣。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { onRequestPost, claudePrimaryActive, buildClaudeMessages, claudeTools, CLAUDE_PRIMARY_UNTIL } from '../functions/ask.js';
@@ -34,8 +34,8 @@ test('Claude 主力沒有預設結束日（使用者 2026-11-05 延長）；CLAU
   const core = await import('../fallback-vercel/lib/ask-core.js');
   for (const [f, until] of [[claudePrimaryActive, CLAUDE_PRIMARY_UNTIL], [core.claudePrimaryActive, core.CLAUDE_PRIMARY_UNTIL]]) {
     assert.equal(until, '');
-    assert.equal(f({}, at('2026-11-10T15:59:00Z')), true);
-    assert.equal(f({}, at('2026-11-10T16:00:00Z')), true);  // 台北 11/11 00:00 仍是主力
+    assert.equal(f({}, at('2026-12-10T15:59:00Z')), true);
+    assert.equal(f({}, at('2026-12-10T16:00:00Z')), true);  // 台北 12/11 00:00 仍是主力
     assert.equal(f({}, at('2026-12-01T04:00:00Z')), true);
     assert.equal(f({ CLAUDE_PRIMARY: 'off' }, at('2026-10-28T00:00:00Z')), false);
     assert.equal(f({ CLAUDE_PRIMARY: ' OFF ' }, at('2026-12-01T04:00:00Z')), false);
@@ -44,7 +44,7 @@ test('Claude 主力沒有預設結束日（使用者 2026-11-05 延長）；CLAU
   }
 });
 
-for (const day of ['2026-11-11T09:00:00+08:00', '2026-12-01T09:00:00+08:00']) {
+for (const day of ['2026-12-11T09:00:00+08:00', '2026-12-20T09:00:00+08:00']) {
   test(`${day.slice(0, 10)}：Owner 仍先問 Claude（Sonnet 5.5，一般金鑰 ANTHROPIC_API_KEY 優先）；失敗照原本順序接手；關掉就不碰`, async () => {
     const reply = (b) => ok([{ type: 'text', text: 'Claude 回答' }], b.model);
     const env = { ANTHROPIC_API_KEY: 'sk-regular' };
@@ -63,20 +63,20 @@ for (const day of ['2026-11-11T09:00:00+08:00', '2026-12-01T09:00:00+08:00']) {
   });
 }
 
-test('金鑰：11/10 以前先用送的額度那把；11/11 起一般金鑰優先，失效（401）就同一題換 Anthropic_api_key', async () => {
+test('金鑰：12/10 以前先用送的額度那把；12/11 起一般金鑰優先，失效（401）就同一題換 Anthropic_api_key', async () => {
   const both = { Anthropic_api_key: 'sk-test', ANTHROPIC_API_KEY: 'sk-regular' };
   const reply = (b) => ok([{ type: 'text', text: '好' }], b.model);
-  const before = await ask({ now: '2026-11-10T23:59:00+08:00', env: both, claude: reply });
+  const before = await ask({ now: '2026-12-10T23:59:00+08:00', env: both, claude: reply });
   assert.deepEqual(before.hits.claude.map((h) => h.headers['x-api-key']), ['sk-test']);
-  const after = await ask({ now: '2026-11-11T00:00:00+08:00', env: { ...both, health_kv: kv() },
+  const after = await ask({ now: '2026-12-11T00:00:00+08:00', env: { ...both, health_kv: kv() },
     claude: (b, i) => i === 1 ? Response.json({ error: { message: 'invalid x-api-key' } }, { status: 401 }) : reply(b) });
   assert.deepEqual(after.hits.claude.map((h) => h.headers['x-api-key']), ['sk-regular', 'sk-test']);
   assert.equal(after.body.reply, '好');
 });
 
-test('11/11 起只剩送的額度那把、而且額度沒了：乾淨地交給 Cloudflare，並暫停 Claude', async () => {
+test('12/11 起只剩送的額度那把、而且額度沒了：乾淨地交給 Cloudflare，並暫停 Claude', async () => {
   const env = { health_kv: kv() };
-  const now = '2026-11-12T09:00:00+08:00';
+  const now = '2026-12-12T09:00:00+08:00';
   const first = await ask({ now, env, claude: () => Response.json({ error: { message: 'Your credit balance is too low' } }, { status: 400 }) });
   assert.equal(first.hits.claude.length, 1);
   assert.match(first.body.provider, /cloudflare/i);
@@ -209,26 +209,27 @@ test('relay 類別有從主程式匯出，wrangler 也有綁定與 migration', a
   } finally { globalThis.fetch = original; }
 });
 
-// 使用者 2026-11-05「11/11 開始…其他都降到 Sonnet 5.5」：台北 11/11 起預設 Sonnet 5.5，每次呼叫才算；ANTHROPIC_MODEL 仍優先
-test('Claude 模型：台北 11/10 23:59 用 Opus 5.5、11/11 00:00 起 Sonnet 5.5；ANTHROPIC_MODEL 仍優先', async () => {
+// 使用者 2026-11-05「…其他都降到 Sonnet 5.5」、2026-11-08「延長到12/10」：台北 12/11 起預設 Sonnet 5.5，每次呼叫才算；ANTHROPIC_MODEL 仍優先
+test('Claude 模型：台北 12/10 23:59 用 Opus 5.5、12/11 00:00 起 Sonnet 5.5；ANTHROPIC_MODEL 仍優先', async () => {
   const { claudeModelFor } = await import('../functions/ask.js');
   const core = await import('../fallback-vercel/lib/ask-core.js');
   for (const f of [claudeModelFor, core.claudeModelFor]) {
-    assert.equal(f({}, at('2026-11-10T23:59:00+08:00')), 'claude-opus-5-5');
-    assert.equal(f({}, at('2026-11-11T00:00:00+08:00')), 'claude-sonnet-5-5');
-    assert.equal(f({ ANTHROPIC_MODEL: ' claude-opus-5-5 ' }, at('2026-11-11T00:00:00+08:00')), 'claude-opus-5-5');
+    assert.equal(f({}, at('2026-11-11T00:00:00+08:00')), 'claude-opus-5-5'); // 舊的 11/11 分界已延後
+    assert.equal(f({}, at('2026-12-10T23:59:00+08:00')), 'claude-opus-5-5');
+    assert.equal(f({}, at('2026-12-11T00:00:00+08:00')), 'claude-sonnet-5-5');
+    assert.equal(f({ ANTHROPIC_MODEL: ' claude-opus-5-5 ' }, at('2026-12-11T00:00:00+08:00')), 'claude-opus-5-5');
     assert.equal(f({ ANTHROPIC_MODEL: 'claude-x' }, at('2026-11-01T00:00:00+08:00')), 'claude-x');
   }
 });
 
-test('問答送出時才決定模型（11/11 起送 Sonnet 5.5，標籤跟著換）', async () => {
+test('問答送出時才決定模型（12/11 起送 Sonnet 5.5，標籤跟著換）', async () => {
   const reply = (b) => ok([{ type: 'text', text: 'Claude 回答' }], b.model);
-  const a = await ask({ now: '2026-11-10T23:59:00+08:00', claude: reply });
+  const a = await ask({ now: '2026-12-10T23:59:00+08:00', claude: reply });
   assert.equal(a.hits.claude[0].body.model, 'claude-opus-5-5');
   assert.equal(a.body.provider, 'Claude Opus 5.5');
-  const b = await ask({ now: '2026-11-11T00:00:00+08:00', claude: reply });
+  const b = await ask({ now: '2026-12-11T00:00:00+08:00', claude: reply });
   assert.equal(b.hits.claude[0].body.model, 'claude-sonnet-5-5');
   assert.equal(b.body.provider, 'Claude Sonnet 5.5');
-  const c = await ask({ now: '2026-11-11T00:00:00+08:00', env: { ANTHROPIC_MODEL: 'claude-opus-5-5' }, claude: reply });
+  const c = await ask({ now: '2026-12-11T00:00:00+08:00', env: { ANTHROPIC_MODEL: 'claude-opus-5-5' }, claude: reply });
   assert.equal(c.hits.claude[0].body.model, 'claude-opus-5-5');
 });
