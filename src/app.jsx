@@ -495,6 +495,7 @@ const UI_EN = {
   "✅ 已記錄": "✅ Recorded",
   "今天的紀錄": "Today's Record",
   "累積報酬": "Total Return",
+  "讓資產安排，更有條理": "Bringing order to your assets",
   "目標進度": "Goal Progress",
   "在高點": "At high",
   "回撤": "Drawdown",
@@ -780,13 +781,56 @@ function loadXLSXLibrary() {
 // Animates a number counting up/down to its new value instead of jumping
 // instantly — used for the big "目前總資產" figure so a live-price refresh
 // feels like something happened rather than a silent swap.
+// 減少動態效果（prefers-reduced-motion）時不播動畫：直接顯示最新值（只影響顯示，不改數值）。
+function prefersReducedMotion() {
+  try {
+    return typeof window !== "undefined" && typeof window.matchMedia === "function"
+      && window.matchMedia("(prefers-reduced-motion: reduce)")?.matches === true;
+  } catch (_) { return false; }
+}
 function AnimatedNumber({ value, prefix = "" }) {
   const [display, setDisplay] = useState(value);
   const fromRef = useRef(value);
   const rafRef = useRef(null);
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  // 動畫途中才切換成「減少動態效果」（value 不變）：立即停掉影格、直接顯示目前值。
   useEffect(() => {
-    const from = fromRef.current;
+    let mql = null;
+    try {
+      if (typeof window !== "undefined" && typeof window.matchMedia === "function") mql = window.matchMedia("(prefers-reduced-motion: reduce)");
+    } catch (_) { mql = null; }
+    if (!mql) return undefined;
+    const onChange = (e) => {
+      const reduce = e && typeof e.matches === "boolean" ? e.matches : mql.matches === true;
+      if (!reduce) return;
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+      fromRef.current = valueRef.current;
+      setDisplay(valueRef.current);
+    };
+    try {
+      if (typeof mql.addEventListener === "function") {
+        mql.addEventListener("change", onChange);
+        return () => { try { mql.removeEventListener("change", onChange); } catch (_) {} };
+      }
+      if (typeof mql.addListener === "function") {
+        mql.addListener(onChange);
+        return () => { try { mql.removeListener(onChange); } catch (_) {} };
+      }
+    } catch (_) {}
+    return undefined;
+  }, []);
+  useEffect(() => {
     const to = value;
+    if (prefersReducedMotion()) {
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+      fromRef.current = to;
+      setDisplay(to);
+      return;
+    }
+    const from = fromRef.current;
     if (from === to) return;
     const duration = 500;
     const start = performance.now();
@@ -6826,6 +6870,8 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
         background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`,
         boxShadow:"none",
       }}>
+        {/* Issue #78：白話眉標（比主數字小、不暗示報酬）；右上角極淡等高線只是裝飾（forma-hero.css 的 ::after，不承載資料）。 */}
+        <p className="forma-hero-eyebrow"><UiLabel zh="讓資產安排，更有條理" /></p>
         <div className="forma-asset-heading flex items-center gap-2">
           <div className="text-xs" style={{ color: COLORS.sub }}><UiLabel zh="目前總資產" /></div>
           <div className="text-[10px]" style={{ color: COLORS.sub, opacity: 0.85 }}>
@@ -6833,11 +6879,8 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
           </div>
         </div>
         <div className="forma-asset-total text-3xl font-black mono mt-1"><AnimatedNumber value={totalToday} prefix="NT$ " /></div>
-        <div className="forma-asset-breakdown mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] mono" style={{ color: COLORS.sub }}>
-          <span><UiLabel zh="台股資產" inline /> <span style={{ color: COLORS.text }}>NT$ {nf(currentTwValue)}</span></span>
-          {showUsFields && <span><UiLabel zh="美股資產" inline /> <span style={{ color: COLORS.text }}>NT$ {nf(currentUsValue)}</span>{usLive?.brokerCalibrationActive && <span className="ml-1" style={{ color: COLORS.gold }}>· <UiLabel zh="已自動校準" inline /></span>}</span>}
-        </div>
-        <div className="inline-flex items-center gap-1 mt-1.5 text-xs mono rounded-full px-2 py-0.5"
+        {/* 主數字下方只放兩項次資訊：今日漲跌、累積報酬；台股／美股拆分移到其後（內容與數值不變）。 */}
+        <div className="forma-hero-change inline-flex items-center gap-1 mt-1.5 text-xs mono rounded-full px-2 py-0.5"
           style={{ color: up ? COLORS.gain : COLORS.loss, background: "transparent" }}>
           {up ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
           {UI_SHOW_ENGLISH
@@ -6849,6 +6892,10 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
             <UiLabel zh="累積報酬" inline /> <span style={{ color: totalReturn >= 0 ? COLORS.gain : COLORS.loss }}>{totalReturn >= 0 ? "+" : ""}NT$ {nf(totalReturn)}（{pf(totalReturnPct)}）</span>
           </div>
         )}
+        <div className="forma-asset-breakdown mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] mono" style={{ color: COLORS.sub }}>
+          <span><UiLabel zh="台股資產" inline /> <span style={{ color: COLORS.text }}>NT$ {nf(currentTwValue)}</span></span>
+          {showUsFields && <span><UiLabel zh="美股資產" inline /> <span style={{ color: COLORS.text }}>NT$ {nf(currentUsValue)}</span>{usLive?.brokerCalibrationActive && <span className="ml-1" style={{ color: COLORS.gold }}>· <UiLabel zh="已自動校準" inline /></span>}</span>}
+        </div>
 
         {/* 目標進度併入總資產 Hero：資產數字 → 目標 → 曲線，同一張卡一次看完。 */}
         {showGoal && goal?.targetAmount > 0 && (() => {
@@ -6950,7 +6997,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
 
       {/* 收盤後還沒記今天：一行提醒，點了直接到「每日紀錄」（那裡會自動帶入數字） */}
       {onGoDaily && !firstRun && needsTodayRecord(dailyRecords) && (
-        <button onClick={onGoDaily} className="w-full rounded-xl px-3 py-2 flex items-center justify-between text-[12px] font-bold"
+        <button onClick={onGoDaily} className="forma-tap w-full rounded-xl px-3 py-2 flex items-center justify-between text-[12px] font-bold"
           style={{ background: COLORS.panel, border: `1px solid ${COLORS.gold}`, color: COLORS.gold }}>
           <span><UiLabel zh="⏳ 今天還沒記錄每日資產" inline /></span>
           <span><UiLabel zh="去記錄 →" inline /></span>

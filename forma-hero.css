@@ -1,0 +1,91 @@
+/* ════ Issue #78 首輪視覺：總覽 hero「晨光／山林／岩土」（只改外觀，不碰資料、計算、報價、API）════
+   - 漸層只用在總覽的總資產大卡（CLAUDE.md：漸層只用在 hero）；其他卡片維持 Forma portfolio 平面色。
+   - 財務資料卡 11px／17px 例外不動（.forma-asset-breakdown 等規則留在 clean.css）。
+   - 載入順序：clean.css → tw.css → 本檔（index.html）。clean.css 的 navy hero 規則保留不改，這裡用較具體的選擇器覆蓋。
+   - 對比（WCAG 2.x，沿漸層每 1/40 取樣的最差點；tests/visual-r1.test.mjs 從 clean.css／index.html／本檔讀實際變數重算）：
+     淺色 #f8f1e2→#f1f1e6→#e9f1e5：文字 --c-ink #19233d 13.47、次要 --c-muted(-2) #5b6780 4.92、重點 --c-accent #3f6b91 4.88、
+       漲紅 --c-bad #cf1d19 4.73、跌綠 --c-good #007a38 4.73、警示 --c-warn #8f6300 4.60、眉標 #4f5b2e 6.34、
+       漲跌箭頭（index.html svg opacity .92）4.40／4.12（非文字 ≥3）
+     深色 #2d2924→#262823→#1d2a24：白字 14.44、一般次要字 --c-muted-2＝color-mix(#fff 82%,#232323)＝#d7d7d7 10.03、
+       粗體次要 --z-sub #fff 14.44、重點 #a8c2ff 8.13、漲紅 #ff9999 7.06、跌綠 #00d26a 7.17、警示 #f5c26b 8.81、眉標 #dfe6c8 11.20、
+       漲跌箭頭 6.21／6.25
+   - 文字不疊在等高線上（右側讓出 ≥ 等高線寬度，兩者都依卡片寬度縮放），所以以上是文字實際所在位置的最差值。 */
+
+html.za-clean{
+  --forma-hero-outdoor-light:linear-gradient(160deg,#f8f1e2 0%,#f1f1e6 50%,#e9f1e5 100%);
+  --forma-hero-outdoor-dark:linear-gradient(160deg,#2d2924 0%,#262823 50%,#1d2a24 100%);
+}
+/* 淺色（data-theme="grey"）：暖晨光米 → 淡山林綠 */
+html.za-clean[data-theme="grey"] [data-forma-theme="portfolio"]{
+  --forma-hero-outdoor:var(--forma-hero-outdoor-light);
+  --forma-hero-base:#f8f1e2;
+  --forma-hero-line:rgba(79,91,46,.16);
+  --forma-hero-eyebrow:#4f5b2e;
+  --forma-hero-contour:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 112 56' fill='none' stroke='%235d6b45' stroke-opacity='.32' stroke-width='1'%3E%3Cpath d='M112 10c-9 1-15 5-23 3s-11-9-19-10'/%3E%3Cpath d='M112 22c-14 2-25 9-38 6S56 14 44 12 30 4 26 0'/%3E%3Cpath d='M112 35c-18 2-33 12-50 8S36 24 22 21 6 9 2 0'/%3E%3Cpath d='M112 48c-22 3-40 9-60 4S22 36 10 30 0 16 0 12'/%3E%3C/svg%3E");
+}
+/* 深色（data-theme="navy"，也是沒設定時的預設）：深岩土 → 深林綠，低彩度 */
+html.za-clean:not([data-theme="grey"]) [data-forma-theme="portfolio"]{
+  --forma-hero-outdoor:var(--forma-hero-outdoor-dark);
+  --forma-hero-base:#2d2924;
+  --forma-hero-line:rgba(255,255,255,.08);
+  --forma-hero-eyebrow:#dfe6c8;
+  --forma-hero-contour:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 112 56' fill='none' stroke='%23c9d4b8' stroke-opacity='.2' stroke-width='1'%3E%3Cpath d='M112 10c-9 1-15 5-23 3s-11-9-19-10'/%3E%3Cpath d='M112 22c-14 2-25 9-38 6S56 14 44 12 30 4 26 0'/%3E%3Cpath d='M112 35c-18 2-33 12-50 8S36 24 22 21 6 9 2 0'/%3E%3Cpath d='M112 48c-22 3-40 9-60 4S22 36 10 30 0 16 0 12'/%3E%3C/svg%3E");
+}
+
+/* hero 本體：唯一的漸層卡 */
+html.za-clean [data-forma-theme="portfolio"] .premium-dashboard>.premium-asset-hero{
+  position:relative;isolation:isolate;overflow:hidden;
+  background-color:var(--forma-hero-base)!important;
+  background-image:var(--forma-hero-outdoor)!important;
+  border-color:var(--forma-hero-line)!important;
+}
+/* 等高線：右上角最大 112×56（2:1），往左、往下淡出；不可點、在內容後面、不承載資料。
+   寬度＝min(112px, 卡片寬 22%)：窄卡片或 200% 放大時跟著縮，不會吃掉大半寬度；
+   卡片（含內距）窄於 248px 時直接收成 0（純裝飾，不顯示）。
+   (100% - 248px)*999 是「開關」：寬度夠時是很大的數、不影響 min()；不夠時 ≤0，被 max(0px,…) 收成 0。 */
+html.za-clean [data-forma-theme="portfolio"] .premium-dashboard>.premium-asset-hero::after{
+  content:"";display:block!important;position:absolute;top:0;right:0;z-index:-1;pointer-events:none;
+  width:min(112px,22%,max(0px,(100% - 248px)*999));height:auto;aspect-ratio:2/1;
+  background:var(--forma-hero-contour) right top/100% 100% no-repeat;
+  -webkit-mask-image:radial-gradient(130% 130% at 100% 0%,#000 30%,transparent 78%);
+  mask-image:radial-gradient(130% 130% at 100% 0%,#000 30%,transparent 78%);
+  border-top-right-radius:inherit;
+}
+html.za-clean [data-forma-theme="portfolio"] .premium-dashboard>.premium-asset-hero::before{display:none!important}
+/* 眉標與標題列（hero 的直接子元素）右側讓出 min(112px, 內容寬 22%)；內容寬 <200px 時不讓（此時等高線已隱藏）。
+   不重疊：文字右緣到卡片右緣＝內距 p＋讓出寬度；等高線寬 ≤ 0.22×(內容＋2p) ≤ p＋0.22×內容，
+   且等高線開關門檻（含內距 248px）≥ 文字開關門檻 200px＋最大內距 2×24px，所以內距＋讓出寬度 ≥ 等高線寬。 */
+html.za-clean [data-forma-theme="portfolio"] .premium-asset-hero :is(.forma-hero-eyebrow,.forma-asset-heading){padding-right:min(112px,22%,max(0px,(100% - 200px)*999))}
+/* 「總資產合計」原本 85% 透明度，疊在漸層上會掉到 AA 以下；改用完整的次要字色（層級靠字級區分） */
+html.za-clean [data-forma-theme="portfolio"] .premium-asset-hero .forma-asset-heading>div{opacity:1!important}
+
+/* 白話眉標：小標層級（比主數字小很多），可縮放的 rem 字級，長了就換行 */
+html.za-clean [data-forma-theme="portfolio"] .forma-hero-eyebrow{
+  display:block;margin:0 0 4px;font-size:.875rem;line-height:1.43;font-weight:600;letter-spacing:.04em;
+  color:var(--forma-hero-eyebrow);text-wrap:balance;
+}
+/* 主數字下方兩項次資訊：今日漲跌（顏色＋上下箭頭圖示）、累積報酬；拆分明細退到第三層 */
+html.za-clean [data-forma-theme="portfolio"] .forma-hero-change{margin-top:10px!important;padding-left:0!important;font-weight:600}
+html.za-clean [data-forma-theme="portfolio"] .premium-asset-hero .forma-asset-breakdown{
+  margin-top:12px!important;padding-top:10px;border-top:1px dashed var(--forma-hero-line);
+}
+/* 寬螢幕多一點留白 */
+@media(min-width:768px){
+  html.za-clean [data-forma-theme="portfolio"] .premium-dashboard>.premium-asset-hero{padding:24px!important}
+}
+
+/* 其他卡片：不加漸層，只讓節奏開闊一點（間距、收合卡高度與標題字重） */
+html.za-clean [data-forma-theme="portfolio"] .premium-dashboard{gap:14px!important}
+html.za-clean [data-forma-theme="portfolio"] .premium-dashboard .forma-expand-card{min-height:56px;padding:14px 16px!important}
+html.za-clean [data-forma-theme="portfolio"] .premium-dashboard .forma-expand-card .font-bold{font-weight:700;letter-spacing:.01em}
+
+/* 鍵盤 focus：總覽內可點元素一律 3px 重點色外框（淺色 #3f6b91 對漸層最差 4.88:1、深色 #a8c2ff 最差 8.13:1） */
+html.za-clean [data-forma-theme="portfolio"] .premium-dashboard :is(button,a,[role="tab"],[tabindex]):focus-visible{
+  outline:3px solid var(--c-accent)!important;outline-offset:2px!important;
+}
+
+/* 減少動態效果：hero 與其內容完全靜態（本檔本身沒有新增任何動畫） */
+@media (prefers-reduced-motion:reduce){
+  html.za-clean [data-forma-theme="portfolio"] .premium-dashboard>.premium-asset-hero,
+  html.za-clean [data-forma-theme="portfolio"] .premium-dashboard>.premium-asset-hero *{transition:none!important;animation:none!important;scroll-behavior:auto!important}
+}
