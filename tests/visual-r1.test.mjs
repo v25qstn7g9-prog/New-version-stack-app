@@ -94,7 +94,7 @@ test("--c-muted-2 really is what the hero's regular sub text uses", () => {
 
 test("AA contrast of the real hero foregrounds at the worst sampled gradient / contour position", (t) => {
   const svgOpacity = Number(rules(indexCss).find((r) => r.sel === ".premium-dashboard>.premium-asset-hero svg")?.decl.opacity ?? 1);
-  // 「總資產合計」原本 opacity .85；hero 範圍內被 forma-hero.css 改回 1（下面一併確認）
+  // 主數字旁的副標（「全部持股合計」／「台股＋美股合計」）原本 opacity .85；hero 範圍內被 forma-hero.css 改回 1（下面一併確認）
   assert.ok(rules(heroCss).some((r) => r.sel.includes(".forma-asset-heading>div") && /^1(!important)?$/.test(r.decl.opacity || "")));
   for (const [theme, vars, gradVar] of [["light", lightVars, "--forma-hero-outdoor-light"], ["dark", darkVars, "--forma-hero-outdoor-dark"]]) {
     const stops = gradientStops(gradVar);
@@ -289,4 +289,201 @@ test("AnimatedNumber: missing or throwing matchMedia falls back to the normal an
 test("reduced motion: forma-hero.css adds no animation and stops hero transitions", () => {
   assert.doesNotMatch(heroCss, /@keyframes/);
   assert.match(heroCss, /prefers-reduced-motion:\s*reduce/);
+});
+
+// ---------- 美股開關（showUsFields）與主數字標籤 ----------
+// 從 src/app.jsx 抽出「真的」Dashboard（連同 COLORS／UI_EN／uiText／UiLabel／nf／pf／AnimatedNumber），
+// 用 build 同一版 Babel 轉譯，在 vm 裡以極簡 React 替身（createElement＋同步 hooks）實際渲染成 HTML 字串。
+// 沒有 react-dom/server 可用（vendor/ 只有瀏覽器用的 react-dom），所以自己做最小的靜態渲染器；
+// Dashboard 用到、但不屬於 hero 的子元件與工具函式只換成「明確清單」DASHBOARD_STUBS 裡回傳 null 的替身，並記下收到的 props；
+// 清單外的依賴會讓測試失敗。驗證範圍只到 hero 大卡，不代表整個總覽頁。
+const block = (src, start, end = "\n};\n") => { const a = src.indexOf(start); assert.ok(a >= 0, start); return src.slice(a, src.indexOf(end, a) + end.length); };
+const fnSrc = (src, name) => block(src, `function ${name}(`, "\n}\n");
+const lineOf = (src, start) => { const a = src.indexOf(start); assert.ok(a >= 0, start); return src.slice(a, src.indexOf("\n", a) + 1); };
+
+// Dashboard 實際用到、但不屬於本次驗證範圍的子元件／圖示／工具函式（一律回傳 null）。新增依賴時要在這裡明確加上。
+const DASHBOARD_STUBS = [
+  // 日期／交易日工具
+  "changeLabelDate", "todayStr", "isNonTradingDay",
+  // hero 以外的子區塊（另有各自的測試）
+  "DashboardCollapsibleSection", "FactorBacktest", "LivePricePanel", "NewsCarousel", "PortfolioPerformanceCard", "TrendRadar",
+  // lucide 圖示
+  "TrendingUp", "TrendingDown",
+  // 資產曲線（Recharts 與刻度工具；圖表本身不在本測試驗證範圍）
+  "ResponsiveContainer", "AreaChart", "Area", "CartesianGrid", "XAxis", "YAxis", "Tooltip", "ReferenceLine", "pickEvenTimeTicks", "formatTickDate",
+];
+
+const renderDashboard = (props, { english = false } = {}) => {
+  const Babel = createRequire(import.meta.url)("@babel/standalone");
+  const parts = [
+    block(jsx, "const COLORS = {"), block(jsx, "const UI_EN = {"), block(jsx, "const CHART_RANGES = [", "\n];\n"),
+    fnSrc(jsx, "uiText"), fnSrc(jsx, "UiLabel"), lineOf(jsx, "const nf = "), lineOf(jsx, "const pf = "),
+    fnSrc(jsx, "prefersReducedMotion"), fnSrc(jsx, "AnimatedNumber"), fnSrc(jsx, "Dashboard"),
+  ];
+  const code = Babel.transform(parts.join("\n"), { presets: ["react"] }).code;
+  const Fragment = Symbol("Fragment");
+  const React = { Fragment, createElement: (type, p, ...children) => ({ type, props: { ...(p || {}), children } }) };
+  const hooks = {
+    useState: (init) => [typeof init === "function" ? init() : init, () => {}],
+    useMemo: (fn) => fn(), useCallback: (fn) => fn, useRef: (v) => ({ current: v }), useEffect: () => {}, useLayoutEffect: () => {},
+  };
+  const stubCalls = [];
+  const known = { React, ...hooks, UI_SHOW_ENGLISH: english, window: {}, performance: { now: () => 0 }, requestAnimationFrame: () => 0, cancelAnimationFrame: () => {} };
+  const stub = (name) => (p) => { stubCalls.push([name, p]); return null; };
+  const stubs = new Map(DASHBOARD_STUBS.map((name) => [name, stub(name)]));
+  // 只有明確列在 DASHBOARD_STUBS 的依賴會換成回傳 null 的替身；JS 內建（Math、Number…）照用。
+  // 清單外的識別字一律記下，渲染後讓測試失敗並列出名稱（不默默補成空元件）。
+  const unknown = new Set();
+  const env = new Proxy({}, {
+    has: (_t, k) => typeof k === "string" && k !== "__out" && (k in known || stubs.has(k) || !(k in globalThis)),
+    get: (_t, k) => {
+      if (k === Symbol.unscopables) return undefined;
+      if (k in known) return known[k];
+      if (stubs.has(k)) return stubs.get(k);
+      unknown.add(k);
+      return undefined;
+    },
+  });
+  const ctx = vm.createContext({ __env: env, __out: {} });
+  vm.runInContext(`with (__env) { ${code}\n__out.Dashboard = Dashboard; }`, ctx);
+  const failUnknown = () => assert.deepEqual([...unknown].sort(), [], "Dashboard uses dependencies not in DASHBOARD_STUBS");
+  const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  let hero = null;
+  const render = (n) => {
+    if (n == null || n === false || n === true) return "";
+    if (Array.isArray(n)) return n.map(render).join("");
+    if (typeof n !== "object") return esc(n);
+    const { type, props: p } = n;
+    if (type === Fragment) return render(p.children);
+    if (typeof type === "function") return render(type(p));
+    const attrs = Object.entries(p).filter(([k, v]) => /^(className|role|title|aria-[\w-]+)$/.test(k) && v != null && v !== false)
+      .map(([k, v]) => ` ${k === "className" ? "class" : k}="${esc(v)}"`).join("");
+    const html = `<${type}${attrs}>${render(p.children)}</${type}>`;
+    if (/\bpremium-asset-hero\b/.test(p.className || "")) hero = html;
+    return html;
+  };
+  let html;
+  try { html = render(ctx.__out.Dashboard(props)); } catch (e) { failUnknown(); throw e; }
+  failUnknown();
+  assert.ok(hero, "hero card rendered");
+  const text = (h) => h.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  return { html, hero, heroText: text(hero), text: text(html), stubCalls };
+};
+
+const dashProps = (over = {}) => ({
+  totalToday: 1500000, currentTwValue: 1200000, currentUsValue: 300000, dailyChange: 1234, dailyChangePct: 0.08,
+  capitalGain: 0, totalDividends: 0, totalReturn: 50000, totalReturnPct: 3.4, twTotalReturn: 30000, twTotalReturnPct: 2.5,
+  usTotalReturn: 20000, usTotalReturnPct: 7, hasUsAssets: true, showUsFields: false, showGoal: false,
+  highPoint: { value: -Infinity, date: null }, drawdown: 0, ytdGain: 0, ytdPct: 0, chartData: [], goal: null, goalDate: null,
+  totalInvested: 0, holdings: [], dailyRecords: [], dividends: [], yesterdayTwValue: 0, yesterdayUsValue: 0,
+  usHoldings: [{ symbol: "VOO", shares: 3 }], usLive: { brokerCalibrationActive: true }, firstRun: false, ...over,
+});
+const US_WORDS_ZH = /美股|已自動校準/;
+const US_WORDS_EN = /\bUS\b|Auto-calibrated/;
+const childUsFlags = (r) => r.stubCalls.filter(([n]) => n === "LivePricePanel" || n === "PortfolioPerformanceCard");
+
+test("showUsFields default is off: initial state false, only a stored value === true turns it on", () => {
+  assert.match(jsx, /const \[showUsFields, setShowUsFields\] = useState\(false\);/);
+  // 載入：Promise.all 的第幾個 loadKey 就是解構的第幾個變數 → 找出 showUsFields 對應的變數名
+  const m = jsx.match(/const \[([^\]]+)\] = await Promise\.all\(\[([\s\S]*?)\]\);/);
+  assert.ok(m, "load block found");
+  const names = m[1].split(",").map((s) => s.trim());
+  // 每一行一個陣列元素；取該行第一個 loadKey 的 key
+  const keys = m[2].split("\n").map((l) => l.trim()).filter(Boolean).map((l) => (l.match(/^loadKey\("([^"]+)"/) || [])[1] ?? "(other)");
+  const idx = keys.indexOf("showUsFields");
+  assert.ok(idx >= 0 && names.length === keys.length, "showUsFields is loaded in the same Promise.all");
+  assert.match(m[2], /loadKey\("showUsFields", null\)/, "missing key loads as null (not true)");
+  const v = names[idx];
+  const setCalls = [...jsx.matchAll(/setShowUsFields\??\.?\(([^)]*)\)/g)].map((c) => c[1].trim());
+  const loadExpr = setCalls.find((c) => new RegExp(`^${v}\\b`).test(c));
+  assert.equal(loadExpr, `${v} === true`);
+  // 實際執行同一個判斷式：只有 boolean true 會打開
+  const decide = vm.runInNewContext(`(${v}) => (${loadExpr})`);
+  for (const stored of [null, undefined, false, "true", 1, "1", {}, [], "yes"]) assert.equal(decide(stored), false, `stored ${JSON.stringify(stored)} keeps it off`);
+  assert.equal(decide(true), true);
+  // 其他會改到開關的只有每日紀錄頁的 checkbox（使用者自己勾）
+  assert.deepEqual(setCalls.filter((c) => c !== loadExpr), ["e.target.checked"]);
+  assert.match(jsx, /<input type="checkbox" checked=\{showUsFields\} onChange=\{\(e\) => setShowUsFields\?\.\(e\.target\.checked\)\} \/>/);
+  // Dashboard 自己的預設也是關
+  assert.match(fnSrc(jsx, "Dashboard"), /showUsFields = false/);
+});
+
+// 驗證範圍只到 hero 大卡（其餘子區塊是替身，這裡不宣稱整個總覽）
+test("US switch off (default): the hero card has no TW / US split row and no US content, even when US holdings exist", () => {
+  const cases = [
+    ["US holdings, switch off", {}],
+    ["switch not passed", { omit: true }],
+    ["no US holdings", { hasUsAssets: false, currentUsValue: 0, usHoldings: [], usLive: null }],
+  ];
+  for (const english of [false, true]) {
+    for (const [label, over] of cases) {
+      const { omit, ...rest } = over;
+      const props = dashProps(rest);
+      if (omit) delete props.showUsFields; // 沒傳 → 元件預設 false
+      const r = renderDashboard(props, { english });
+      const tag = `${english ? "en" : "zh"} / ${label}`;
+      assert.doesNotMatch(r.hero, /forma-asset-breakdown/, `${tag}: split row rendered`);
+      assert.doesNotMatch(r.heroText, english ? /TW Assets/ : /台股資產/, `${tag}: ${r.heroText}`);
+      assert.doesNotMatch(r.heroText, english ? US_WORDS_EN : US_WORDS_ZH, `${tag}: ${r.heroText}`);
+      assert.doesNotMatch(r.heroText, english ? /TW \+ US/ : /台股＋美股/, tag);
+      assert.doesNotMatch(r.heroText, /1,200,000|300,000/, `${tag}: no TW / US sub-amounts`);
+      // 主數字照常顯示（數值不變）
+      assert.match(r.heroText, /NT\$ 1,500,000|NT\$ 1,200,000/);
+      // 交給子區塊的 hasUsAssets 旗標也跟著關（只檢查傳入的 props）
+      for (const [name, p] of childUsFlags(r)) assert.equal(p.hasUsAssets, false, `${tag}: ${name}`);
+    }
+  }
+});
+
+test("hero card with goal and chart branches renders using only the listed dependencies", () => {
+  for (const showUsFields of [false, true]) {
+    const r = renderDashboard(dashProps({
+      showUsFields, showGoal: true, goal: { targetAmount: 3000000, targetYear: 2030 }, goalDate: "2030-01",
+      dailyChange: -500, dailyChangePct: -0.03,
+      chartData: [{ date: "2026-11-05", total: 1400000, tw: 1100000, us: 300000 }, { date: "2026-11-06", total: 1500000, tw: 1200000, us: 300000 }],
+    }));
+    assert.match(r.heroText, /距目標 NT\$ 1,500,000/);
+    assert.equal(/forma-asset-breakdown/.test(r.hero), showUsFields);
+  }
+  // 清單不放多餘的名字：每一個替身都真的出現在 Dashboard 原始碼
+  const dash = fnSrc(jsx, "Dashboard");
+  for (const name of DASHBOARD_STUBS) assert.match(dash, new RegExp(`\\b${name}\\b`), `${name} listed but not used by Dashboard`);
+});
+
+test("US switch on with US holdings: hero card shows the split row (TW + US + calibrated) and 台股＋美股合計", () => {
+  const zh = renderDashboard(dashProps({ showUsFields: true }));
+  assert.match(zh.hero, /class="forma-asset-breakdown[^"]*"/);
+  assert.match(zh.heroText, /台股＋美股合計/);
+  assert.match(zh.heroText, /台股資產 NT\$ 1,200,000/);
+  assert.match(zh.heroText, /美股資產 NT\$ 300,000/);
+  assert.match(zh.heroText, /已自動校準/);
+  assert.doesNotMatch(zh.heroText, /全部持股合計/);
+  assert.ok(zh.hero.indexOf("台股資產") < zh.hero.indexOf("美股資產"));
+  const en = renderDashboard(dashProps({ showUsFields: true }), { english: true });
+  assert.match(en.heroText, /TW \+ US Combined/);
+  assert.match(en.heroText, /TW Assets NT\$ 1,200,000/);
+  assert.match(en.heroText, /US Assets NT\$ 300,000/);
+  assert.ok(childUsFlags(zh).length >= 1);
+  for (const [name, p] of childUsFlags(zh)) assert.equal(p.hasUsAssets, true, name);
+});
+
+test("hero headline is 持股總市值 / Total Holdings Value (sums TW + US holdings value only), no 總資產 wording in the hero", () => {
+  // 主數字 totalToday 只由台股、美股持股市值相加（無現金或其他資產）
+  assert.match(jsx, /const totalToday = currentTwValue \+ currentUsValue;/);
+  const zh = renderDashboard(dashProps());
+  assert.match(zh.heroText, /^讓資產安排，更有條理 持股總市值 全部持股合計 NT\$ 1,500,000/);
+  assert.doesNotMatch(zh.hero, /總資產/);
+  const en = renderDashboard(dashProps(), { english: true });
+  assert.match(en.heroText, /Total Holdings Value All holdings combined NT\$ 1,500,000/);
+  assert.doesNotMatch(en.hero, /Total Assets|Current Total/);
+  const on = renderDashboard(dashProps({ showUsFields: true }), { english: true });
+  assert.match(on.heroText, /Total Holdings Value TW \+ US Combined/);
+  // 英文與既有的 TW／US Holdings Value 用詞一致
+  const uiEn = block(jsx, "const UI_EN = {");
+  assert.match(uiEn, /"持股總市值": "Total Holdings Value"/);
+  assert.match(uiEn, /"全部持股合計": "All holdings combined"/);
+  assert.match(uiEn, /"台股持股市值": "TW Holdings Value"/);
+  assert.match(uiEn, /"美股持股市值": "US Holdings Value"/);
+  // 送給 AI 的提示字串不是畫面標籤，維持原樣
+  assert.equal((jsx.match(/lines\.push\(`目前總資產：/g) || []).length, 2);
 });

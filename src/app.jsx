@@ -120,7 +120,7 @@ const UI_EN = {
   "收盤提醒與自動記錄": "Closing Reminder & Auto-Record",
   "合計市值": "Total Market Value",
   "全市場上漲廣度": "Market-Wide Advance Breadth",
-  "總資產合計": "Total Assets",
+  "全部持股合計": "All holdings combined",
   "每股配息（新台幣）": "Dividend / Share (NT$)",
   "即時股價": "Live Quotes",
   "投資體質": "Portfolio Health",
@@ -234,7 +234,7 @@ const UI_EN = {
   "持股新聞": "Holding News",
   "持股快訊": "Holding News Ticker",
   "查看新聞": "View News",
-  "目前總資產": "Current Total Assets",
+  "持股總市值": "Total Holdings Value",
   "台股＋美股合計": "TW + US Combined",
   "台股合計": "TW Total",
   "台股資產": "TW Assets",
@@ -779,7 +779,7 @@ function loadXLSXLibrary() {
 }
 
 // Animates a number counting up/down to its new value instead of jumping
-// instantly — used for the big "目前總資產" figure so a live-price refresh
+// instantly — used for the big "持股總市值" figure so a live-price refresh
 // feels like something happened rather than a silent swap.
 // 減少動態效果（prefers-reduced-motion）時不播動畫：直接顯示最新值（只影響顯示，不改數值）。
 function prefersReducedMotion() {
@@ -6873,13 +6873,13 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
         {/* Issue #78：白話眉標（比主數字小、不暗示報酬）；右上角極淡等高線只是裝飾（forma-hero.css 的 ::after，不承載資料）。 */}
         <p className="forma-hero-eyebrow"><UiLabel zh="讓資產安排，更有條理" /></p>
         <div className="forma-asset-heading flex items-center gap-2">
-          <div className="text-xs" style={{ color: COLORS.sub }}><UiLabel zh="目前總資產" /></div>
+          <div className="text-xs" style={{ color: COLORS.sub }}><UiLabel zh="持股總市值" /></div>
           <div className="text-[10px]" style={{ color: COLORS.sub, opacity: 0.85 }}>
-            <UiLabel zh={showUsFields && hasUsAssets ? "台股＋美股合計" : "總資產合計"} />
+            <UiLabel zh={showUsFields && hasUsAssets ? "台股＋美股合計" : "全部持股合計"} />
           </div>
         </div>
         <div className="forma-asset-total text-3xl font-black mono mt-1"><AnimatedNumber value={totalToday} prefix="NT$ " /></div>
-        {/* 主數字下方只放兩項次資訊：今日漲跌、累積報酬；台股／美股拆分移到其後（內容與數值不變）。 */}
+        {/* 主數字下方只放兩項次資訊：今日漲跌、累積報酬；台股／美股拆分（只在開啟美股功能時顯示）移到其後，數值不變。 */}
         <div className="forma-hero-change inline-flex items-center gap-1 mt-1.5 text-xs mono rounded-full px-2 py-0.5"
           style={{ color: up ? COLORS.gain : COLORS.loss, background: "transparent" }}>
           {up ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
@@ -6892,10 +6892,13 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
             <UiLabel zh="累積報酬" inline /> <span style={{ color: totalReturn >= 0 ? COLORS.gain : COLORS.loss }}>{totalReturn >= 0 ? "+" : ""}NT$ {nf(totalReturn)}（{pf(totalReturnPct)}）</span>
           </div>
         )}
-        <div className="forma-asset-breakdown mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] mono" style={{ color: COLORS.sub }}>
-          <span><UiLabel zh="台股資產" inline /> <span style={{ color: COLORS.text }}>NT$ {nf(currentTwValue)}</span></span>
-          {showUsFields && <span><UiLabel zh="美股資產" inline /> <span style={{ color: COLORS.text }}>NT$ {nf(currentUsValue)}</span>{usLive?.brokerCalibrationActive && <span className="ml-1" style={{ color: COLORS.gold }}>· <UiLabel zh="已自動校準" inline /></span>}</span>}
-        </div>
+        {/* 台／美拆分只給開啟美股功能的人看；關閉（預設）時整列不顯示。 */}
+        {showUsFields && (
+          <div className="forma-asset-breakdown mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] mono" style={{ color: COLORS.sub }}>
+            <span><UiLabel zh="台股資產" inline /> <span style={{ color: COLORS.text }}>NT$ {nf(currentTwValue)}</span></span>
+            <span><UiLabel zh="美股資產" inline /> <span style={{ color: COLORS.text }}>NT$ {nf(currentUsValue)}</span>{usLive?.brokerCalibrationActive && <span className="ml-1" style={{ color: COLORS.gold }}>· <UiLabel zh="已自動校準" inline /></span>}</span>
+          </div>
+        )}
 
         {/* 目標進度併入總資產 Hero：資產數字 → 目標 → 曲線，同一張卡一次看完。 */}
         {showGoal && goal?.targetAmount > 0 && (() => {
