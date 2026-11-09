@@ -199,6 +199,14 @@ function indexDeps(env) {
   };
 }
 
+const FX_SYMBOL = "USDTWD";
+
+// 持股代號不是數字開頭就當美股（跟 bg-core.js buildRecord 的 isUS 判斷一致）。
+function isUsHoldingSymbol(symbol) {
+  const s = String(symbol || "").trim();
+  return Boolean(s) && !/^[0-9]/.test(s);
+}
+
 function n(v) {
   const x = Number(v);
   return Number.isFinite(x) ? x : null;
@@ -432,15 +440,28 @@ async function liveSnapshot(env, syncToken, force) {
   const summary = portfolio.summary;
   const rawHoldings = Array.isArray(summary.holdings) ? summary.holdings : [];
   const symbols = [...new Set(rawHoldings.map((h) => String(h?.symbol || "").trim().toUpperCase()).filter(Boolean))];
+  // 美股報價是美元，要乘 USD→TWD 才能跟台股加總（同 bg-core.js buildRecord）。
+  const hasUS = symbols.some(isUsHoldingSymbol);
   // 跟前端一樣把 TAIEX 跟持股放在同一次 /quote（同一組 symbols → 共用 quote.js 的回應快取）。
-  const requestSymbols = symbols.length ? [...new Set([...symbols, INDEX_SYMBOL])] : [];
+  // 只有持有美股時才多要 USDTWD；純台股的 symbols 維持原樣，quote 快取鍵不變。
+  const requestSymbols = symbols.length
+    ? [...new Set([...symbols, INDEX_SYMBOL, ...(hasUS ? [FX_SYMBOL] : [])])]
+    : [];
   const quoteData = await readQuotes(env, requestSymbols, Boolean(force));
   const quotes = quoteData?.quotes && typeof quoteData.quotes === "object" ? quoteData.quotes : {};
   const index = await readMarketIndex(indexDeps(env), { force: Boolean(force), quoteData });
+  const fxQuote = hasUS ? (quotes[FX_SYMBOL] || null) : null;
+  const fxPrice = n(fxQuote?.price);
+  const fxRate = fxPrice != null && fxPrice > 0 ? fxPrice : null;
+  // 匯率缺失或無效（null／0／負數）時：美股的 marketValue／dailyChange 設為 null，不默默把美元當台幣，
+  // 也不計入 covered 合計；把 "USDTWD" 列進 missingQuotes，quoteStatus 不可宣稱 complete，note 會說明缺匯率。
+  const fxMissing = hasUS && fxRate == null;
   // 大盤抓不到不影響「持股報價是否完整」（前端也是這樣算）。
   const holdingSet = new Set(symbols);
   const missingQuotes = Array.isArray(quoteData?.missing) ? quoteData.missing.filter((s) => holdingSet.has(s)) : [];
-  const quoteStatus = quoteData?.status === "partial" && missingQuotes.length === 0 ? "complete" : (quoteData?.status || null);
+  if (fxMissing && !missingQuotes.includes(FX_SYMBOL)) missingQuotes.push(FX_SYMBOL);
+  let quoteStatus = quoteData?.status === "partial" && missingQuotes.length === 0 ? "complete" : (quoteData?.status || null);
+  if (fxMissing && quoteStatus === "complete") quoteStatus = "partial";
 
   let coveredMarketValue = 0;
   let coveredDailyChange = 0;
@@ -453,8 +474,13 @@ async function liveSnapshot(env, syncToken, force) {
     const q = quotes[symbol] || null;
     const price = n(q?.price);
     const prevClose = n(q?.prevClose);
-    const marketValue = shares != null && price != null ? shares * price : null;
-    const dailyChange = shares != null && price != null && prevClose != null ? shares * (price - prevClose) : null;
+    const isUS = isUsHoldingSymbol(symbol);
+    // 台股維持原公式（不乘任何係數，數值與修改前完全相同）；美股乘匯率換成台幣，缺匯率則一律 null。
+    // 刻意不套用 usBrokerCalibration：這裡是「報價 × 股數」的即時估值，跟原本一樣不做券商校正。
+    const toTwd = (usd) => (isUS ? (fxRate != null ? usd * fxRate : null) : usd);
+    const marketValue = shares != null && price != null ? toTwd(shares * price) : null;
+    const dailyChange = shares != null && price != null && prevClose != null ? toTwd(shares * (price - prevClose)) : null;
+    // 百分比與幣別無關，不受匯率影響。
     const dailyChangePct = price != null && prevClose != null && prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : null;
 
     if (marketValue != null) {
@@ -462,9 +488,11 @@ async function liveSnapshot(env, syncToken, force) {
       coveredCount += 1;
     }
     if (dailyChange != null) coveredDailyChange += dailyChange;
-    if (shares != null && prevClose != null) coveredPrevValue += shares * prevClose;
+    // 前收市值也用台幣，避免 coveredDailyChangePct 混用美元與台幣；缺匯率的美股不計入。
+    const prevValue = shares != null && prevClose != null ? toTwd(shares * prevClose) : null;
+    if (prevValue != null) coveredPrevValue += prevValue;
 
-    return {
+    const row = {
       symbol,
       name: String(h?.name || ""),
       shares,
@@ -478,9 +506,22 @@ async function liveSnapshot(env, syncToken, force) {
       quoteAsOf: q?.asOfDate || null,
       stale: q?.isStale ?? q?.stale ?? null,
     };
+    // 稽核欄位只加在美股那一筆（latestPrice／prevClose 是美元原價，marketValue／dailyChange 是台幣或 null）；
+    // 台股物件的 key 與值跟修改前完全相同，不加任何新欄位。
+    if (isUS) {
+      row.isUS = true;
+      row.currency = "USD";
+      row.fxRate = fxRate;
+    }
+    return row;
   });
 
-  return {
+  const baseNote =
+    coveredCount === holdings.length
+      ? "全部持股皆有可用報價。"
+      : "報價涵蓋不完整；總市值與當日損益只計入有可用報價的持股，不補猜缺失數字。";
+
+  const result = {
     ok: true,
     found: true,
     syncedAt: summary.syncedAt || null,
@@ -497,11 +538,15 @@ async function liveSnapshot(env, syncToken, force) {
     holdings,
     missingQuotes,
     index,
-    note:
-      coveredCount === holdings.length
-        ? "全部持股皆有可用報價。"
-        : "報價涵蓋不完整；總市值與當日損益只計入有可用報價的持股，不補猜缺失數字。",
+    note: fxMissing
+      ? `${baseNote}缺少 USDTWD 匯率，美股市值與當日損益無法換算成台幣，已設為 null 且不計入合計。`
+      : baseNote,
   };
+  // 頂層 fx 只在持股含美股時才出現；純台股回應的 key 集合維持修改前的樣子。
+  if (hasUS) {
+    result.fx = { symbol: FX_SYMBOL, rate: fxRate, source: fxQuote?.source || null, asOf: fxQuote?.asOfDate || null, missing: fxMissing };
+  }
+  return result;
 }
 
 async function readHealthCards(env) {
