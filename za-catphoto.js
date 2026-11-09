@@ -323,7 +323,16 @@
   place();
   // 先載入空間規劃；若新模組失敗，保留原本的雙貓顯示，不影響 App。
   if (!window.__zaNoRoam) {
-    function loadPair(){var sc=document.createElement("script");sc.src="/za-catpair.js?v=7";sc.defer=true;sc.onload=function(){var life=document.createElement("script");life.src="/za-catlife.js?v=8";life.defer=true;document.body.appendChild(life);};document.body.appendChild(sc);}
+    // 寫實影片小貓（za-catvideo.js）：最後才載，而且「減少動態效果」時完全不載（也就不會下載任何影片）；
+    // 之後若關掉減少動態效果才補載。省流量、記憶體不足、手動關閉、先前失敗等其他條件由 za-catvideo.js 自己判斷，不符合就不建立任何影片。
+    var rmq = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null, videoQueued = false;
+    function loadVideo() {
+      if (videoQueued) return;
+      if (rmq && rmq.matches) { if (!loadVideo.waiting && rmq.addEventListener) { loadVideo.waiting = true; rmq.addEventListener("change", function () { if (!rmq.matches) loadVideo(); }); } return; }
+      videoQueued = true;
+      var v = document.createElement("script"); v.src = "/za-catvideo.js?v=1"; v.defer = true; document.body.appendChild(v);
+    }
+    function loadPair(){var sc=document.createElement("script");sc.src="/za-catpair.js?v=8";sc.defer=true;sc.onload=function(){var life=document.createElement("script");life.src="/za-catlife.js?v=9";life.defer=true;life.onload=loadVideo;life.onerror=loadVideo;document.body.appendChild(life);};document.body.appendChild(sc);}
     var spaceScript=document.createElement("script");spaceScript.src="/za-catspace.js?v=3";spaceScript.defer=true;spaceScript.onload=loadPair;spaceScript.onerror=loadPair;document.body.appendChild(spaceScript);
   }
 })();

@@ -161,3 +161,15 @@ test('visual viewport origin changes never shift the visible arena before it has
  assert.equal(h.rt.arena.style.top,'0px','measurements must not shift the visible arena');assert.equal(h.rt.arena.style.opacity,'0');
  h.advance(140);assert.equal(h.rt.arena.style.top,'100px');assert.equal(h.rt.arena.style.height,'744px');assert.equal(h.rt.arena.style.opacity,'1');assert.equal(h.rafs.size,1);
 });
+
+test('video mode: hiding the cats, background tab and pause all stop the loop and pause videos; taps on a free cat react',()=>{
+ const h=harness();let sleeps=0;h.rt.video={active:true,sleep(){sleeps++;}};
+ assert.equal(h.rt.isCollapsed(),false);
+ h.click('收起小貓');assert.equal(h.rt.isCollapsed(),true);assert.equal(h.rafs.size,0);assert.ok(sleeps>=1,'collapse pauses videos');
+ h.click('顯示小貓');h.flush();assert.equal(h.rafs.size,1);
+ const before=sleeps;h.visibility(true);assert.equal(h.rafs.size,0);assert.ok(sleeps>before,'hidden tab pauses videos');
+ h.visibility(false);h.flush();const mid=sleeps;h.pause(true);assert.equal(h.rafs.size,0);assert.ok(sleeps>mid,'manual pause pauses videos');h.pause(false);
+ const i=h.life.actors.findIndex(a=>!a.hidden&&!a.route);assert.ok(i>=0);const a=h.life.actors[i];a.mode='sleep';
+ h.frame(1000);(i?h.rt.tabby:h.rt.white).listeners.click.forEach(f=>f());assert.equal(a.mode,'wake','tap wakes a sleeping cat');
+ h.pause(true);a.mode='observe';(i?h.rt.tabby:h.rt.white).listeners.click.forEach(f=>f());assert.equal(a.mode,'observe','paused cats are click-through');
+});

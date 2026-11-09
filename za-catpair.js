@@ -3,8 +3,10 @@
 (function () {
   'use strict';
   if (window.__zaCatPairCore) return;
-  var phases = ['greet','approach','play','chaseRight','turn','chaseLeft','settle','sleep','wake'];
-  var durations = [3,4,4,5,1.5,6,3,34,3];
+  // 標題列循環 2026-11-09：睡覺從 34 秒縮成 12 秒，追跑後多了理毛（groom）與東張西望／歪頭（look）兩段，
+  // 一輪 50.5 秒、睡覺約佔 24%（原本 63.5 秒裡睡 34 秒）。精靈圖與影片模式都用同一個循環。
+  var phases = ['greet','approach','play','chaseRight','turn','chaseLeft','groom','look','settle','sleep','wake'];
+  var durations = [3,4,4,5,1.5,6,5,4,3,12,3];
   function ease(q) { q=Math.max(0,Math.min(1,q)); return q*q*(3-2*q); }
   function create(width) {
     var s={width:width,size:72,phase:'greet',time:0,cycle:0,reduced:false,approachFrom:null,wakeFrom:null,white:{x:0,y:0,facing:1,mode:'sit',frame:0},tabby:{x:0,y:0,facing:-1,mode:'sit',frame:0}};
@@ -27,6 +29,7 @@
     else {
       if(s.phase==='chaseRight') { x=mid+(right-mid)*q;distance=(right-mid)*q;mode='walk'; }
       if(s.phase==='turn') x=right;
+      if(s.phase==='groom'||s.phase==='look') x=left;
       if(s.phase==='chaseLeft') { x=right+(left-right)*q;distance=(right-left)*q;mode='walk'; }
       if(s.phase==='settle') { x=left+(mid-left)*q;distance=(mid-left)*q;mode=q<.8?'walk':'settle'; }
       if(s.phase==='sleep') mode='sleep';
@@ -35,6 +38,9 @@
       a.x=x;b.x=x+gap;if(s.phase==='wake'&&s.wakeFrom){a.x=s.wakeFrom[0];b.x=s.wakeFrom[1];}
     }
     a.y=b.y=0; a.mode=b.mode=mode;
+    // 不同步：一隻理毛時另一隻坐著看；東張西望時狸花先歪頭回應再理毛。
+    if(s.phase==='groom'){a.mode='groom';b.mode='observe';}
+    if(s.phase==='look'){a.mode='observe';b.mode=s.time<2.5?'react':'groom';}
     a.clock=b.clock=s.time;a.index=0;b.index=1;
     if(s.phase==='approach') { a.facing=-1;b.facing=1;distance=Math.abs(a.x-left); }
     else if(s.phase==='chaseRight'||s.phase==='settle') a.facing=b.facing=-1;
@@ -68,6 +74,7 @@
     else if(mode==='wake')frame=48+Math.min(7,Math.floor(p*8));
     else if(mode==='sleep')frame=47;
     else if(mode==='turn')frame=30;
+    else if(mode==='react')frame=clock%2.6<1.3?28:30;
     else if(mode==='pounce'||mode==='respond'||mode==='invite'||mode==='play')frame=56+Math.min(7,Math.floor(clock/1.6*8));
     else {
       var blink=(clock+offset)%6.7,look=(clock+offset)%17;
@@ -175,13 +182,16 @@
   var lastLabel='';
   function render() {
     [[white,state.white],[tabby,state.tabby]].forEach(function(p){p[0].style.width=state.size+'px';p[0].style.height=state.size+'px';p[0].style.transform='translate3d('+p[1].x.toFixed(2)+'px,'+(p[1].y||0).toFixed(2)+'px,0)';});
-    function drawCat(ctx,c,name,isTabby){paint(ctx,assets[name+'Actions']||assets[name],c,isTabby,!!assets[name+'Actions']);}
+    // 影片模式（za-catvideo.js）畫得出來就用影片，精靈圖畫布藏起來；否則照原本畫精靈圖。
+    function drawCat(ctx,c,name,isTabby){var v=runtime.video,cv=isTabby?tc:wc,on=!!(v&&v.active&&v.draw(name,c,isTabby?tabby:white,state.size));
+      if(cv.style.visibility!==(on?'hidden':''))cv.style.visibility=on?'hidden':'';
+      if(!on)paint(ctx,assets[name+'Actions']||assets[name],c,isTabby,!!assets[name+'Actions']);}
     drawCat(wctx,state.white,'white',false);drawCat(tctx,state.tabby,'tabby',true);
-    var text=state.phase==='sleep'?'白貓和狸花 · 一起睡覺':state.phase==='play'?'白貓和狸花 · 陪你玩':/^chase/.test(state.phase)?'白貓和狸花 · 你追我跑':'白貓和狸花 · 一起陪你';
+    var text=state.phase==='sleep'?'白貓和狸花 · 一起睡覺':state.phase==='play'?'白貓和狸花 · 陪你玩':state.phase==='groom'?'白貓和狸花 · 理理毛':state.phase==='look'?'白貓和狸花 · 東張西望':/^chase/.test(state.phase)?'白貓和狸花 · 你追我跑':'白貓和狸花 · 一起陪你';
     if(!runtime.external&&text!==lastLabel&&assets.tabby){label.textContent=text;lastLabel=text;}
   }
   function canRun(){return !runtime.external&&!document.hidden&&!manualPause&&!state.reduced&&visible&&host.isConnected;}
-  function stop(){if(raf)cancelAnimationFrame(raf);raf=0;last=0;}
+  function stop(){if(raf)cancelAnimationFrame(raf);raf=0;last=0;if(runtime.video)runtime.video.sleep();}
   function tick(ts){raf=0;if(!canRun())return;if(!last||ts-last>=1000/30){step(state,last?(ts-last)/1000:0);last=ts;render();}raf=requestAnimationFrame(tick);}
   function resume(){if(canRun()&&!raf){last=0;raf=requestAnimationFrame(tick);}else if(!canRun())stop();}
   function mount(){if(runtime.external){if(runtime.onLayout)runtime.onLayout();return;}var header=document.querySelector('.premium-header');if(!header)return;if(host.parentNode!==header)header.appendChild(host);resize(state,arena.clientWidth||320);white.style.display='';render();resume();}
