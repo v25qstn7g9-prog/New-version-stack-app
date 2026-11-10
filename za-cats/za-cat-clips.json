@@ -1,0 +1,250 @@
+{
+ "version": 1,
+ "fps": 24,
+ "cats": {
+  "white": {
+   "idle": {
+    "src": "za-white-idle.mp4",
+    "w": 188,
+    "h": 278,
+    "frames": 96,
+    "duration": 4.0,
+    "loop": true,
+    "anchorX": 87.6,
+    "groundY": 267.6,
+    "facing": "left",
+    "bytes": 20094
+   },
+   "look": {
+    "src": "za-white-look.mp4",
+    "w": 214,
+    "h": 270,
+    "frames": 96,
+    "duration": 4.0,
+    "loop": true,
+    "anchorX": 113.6,
+    "groundY": 259.6,
+    "facing": "left",
+    "bytes": 28568
+   },
+   "groom": {
+    "src": "za-white-groom.mp4",
+    "w": 212,
+    "h": 266,
+    "frames": 96,
+    "duration": 4.0,
+    "loop": true,
+    "anchorX": 111.6,
+    "groundY": 255.6,
+    "facing": "left",
+    "bytes": 41626
+   },
+   "play": {
+    "src": "za-white-play.mp4",
+    "w": 202,
+    "h": 284,
+    "frames": 96,
+    "duration": 4.0,
+    "loop": true,
+    "anchorX": 101.6,
+    "groundY": 273.6,
+    "facing": "left",
+    "bytes": 35176
+   },
+   "react": {
+    "src": "za-white-react.mp4",
+    "w": 188,
+    "h": 284,
+    "frames": 72,
+    "duration": 3.0,
+    "loop": true,
+    "anchorX": 87.6,
+    "groundY": 274.9,
+    "facing": "left",
+    "bytes": 19436
+   },
+   "walk": {
+    "src": "za-white-walk.mp4",
+    "w": 348,
+    "h": 204,
+    "frames": 72,
+    "duration": 3.0,
+    "loop": true,
+    "anchorX": 194.4,
+    "groundY": 194.6,
+    "facing": "right",
+    "bytes": 63876
+   },
+   "trot": {
+    "src": "za-white-trot.mp4",
+    "w": 352,
+    "h": 206,
+    "frames": 48,
+    "duration": 2.0,
+    "loop": true,
+    "anchorX": 197.2,
+    "groundY": 194.6,
+    "facing": "right",
+    "bytes": 44220
+   },
+   "liedown": {
+    "src": "za-white-liedown.mp4",
+    "w": 246,
+    "h": 280,
+    "frames": 97,
+    "duration": 4.042,
+    "loop": false,
+    "anchorX": 123.6,
+    "groundY": 260.8,
+    "facing": "left",
+    "bytes": 42379
+   },
+   "sleep": {
+    "src": "za-white-sleep.mp4",
+    "w": 236,
+    "h": 166,
+    "frames": 96,
+    "duration": 4.0,
+    "loop": true,
+    "anchorX": 127.6,
+    "groundY": 156.5,
+    "facing": "left",
+    "bytes": 15053
+   },
+   "wake": {
+    "src": "za-white-wake.mp4",
+    "w": 276,
+    "h": 284,
+    "frames": 97,
+    "duration": 4.042,
+    "loop": false,
+    "anchorX": 157.6,
+    "groundY": 264.5,
+    "facing": "left",
+    "bytes": 46404
+   }
+  },
+  "tabby": {
+   "idle": {
+    "src": "za-tabby-idle.mp4",
+    "w": 284,
+    "h": 268,
+    "frames": 96,
+    "duration": 4.0,
+    "loop": true,
+    "anchorX": 92.9,
+    "groundY": 256.4,
+    "facing": "left",
+    "bytes": 43298
+   },
+   "look": {
+    "src": "za-tabby-look.mp4",
+    "w": 232,
+    "h": 264,
+    "frames": 96,
+    "duration": 4.0,
+    "loop": true,
+    "anchorX": 110.9,
+    "groundY": 256.4,
+    "facing": "left",
+    "bytes": 56075
+   },
+   "groom": {
+    "src": "za-tabby-groom.mp4",
+    "w": 234,
+    "h": 268,
+    "frames": 96,
+    "duration": 4.0,
+    "loop": true,
+    "anchorX": 112.9,
+    "groundY": 258.4,
+    "facing": "left",
+    "bytes": 69193
+   },
+   "play": {
+    "src": "za-tabby-play.mp4",
+    "w": 326,
+    "h": 338,
+    "frames": 96,
+    "duration": 4.0,
+    "loop": true,
+    "anchorX": 134.9,
+    "groundY": 328.4,
+    "facing": "left",
+    "bytes": 81814
+   },
+   "react": {
+    "src": "za-tabby-react.mp4",
+    "w": 286,
+    "h": 268,
+    "frames": 72,
+    "duration": 3.0,
+    "loop": true,
+    "anchorX": 94.9,
+    "groundY": 260.4,
+    "facing": "left",
+    "bytes": 42102
+   },
+   "walk": {
+    "src": "za-tabby-walk.mp4",
+    "w": 386,
+    "h": 206,
+    "frames": 72,
+    "duration": 3.0,
+    "loop": true,
+    "anchorX": 212.0,
+    "groundY": 193.4,
+    "facing": "right",
+    "bytes": 92235
+   },
+   "trot": {
+    "src": "za-tabby-trot.mp4",
+    "w": 378,
+    "h": 208,
+    "frames": 48,
+    "duration": 2.0,
+    "loop": true,
+    "anchorX": 212.0,
+    "groundY": 193.4,
+    "facing": "right",
+    "bytes": 59850
+   },
+   "liedown": {
+    "src": "za-tabby-liedown.mp4",
+    "w": 316,
+    "h": 276,
+    "frames": 97,
+    "duration": 4.042,
+    "loop": false,
+    "anchorX": 124.9,
+    "groundY": 258.7,
+    "facing": "left",
+    "bytes": 69106
+   },
+   "sleep": {
+    "src": "za-tabby-sleep.mp4",
+    "w": 308,
+    "h": 168,
+    "frames": 96,
+    "duration": 4.0,
+    "loop": true,
+    "anchorX": 131.7,
+    "groundY": 159.5,
+    "facing": "left",
+    "bytes": 44013
+   },
+   "wake": {
+    "src": "za-tabby-wake.mp4",
+    "w": 322,
+    "h": 278,
+    "frames": 97,
+    "duration": 4.042,
+    "loop": false,
+    "anchorX": 145.7,
+    "groundY": 265.5,
+    "facing": "left",
+    "bytes": 70959
+   }
+  }
+ }
+}

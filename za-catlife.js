@@ -67,7 +67,7 @@
  function next(s,a){if(a.next){var n=a.next,w=a.nextWait;a.next=null;a.nextWait=null;idle(s,a,n,w||(n==='settle'?1.7:3.6));return;}
   if(a.mode==='settle'){idle(s,a,'sleep',((a.index?18:42)+s.rng()*(a.index?24:48))*moodOf(s).rest);return;}
   if(a.mode==='sleep'){act(s,a,'wake',1.5+a.index*.5);return;}
-  if(a.mode==='invite'||a.mode==='respond'||a.mode==='pounce'||a.mode==='groom'){idle(s,a,'observe',a.index?1.8:3.2);return;}
+  if(a.mode==='invite'||a.mode==='respond'||a.mode==='pounce'||a.mode==='groom'||a.mode==='react'){idle(s,a,'observe',a.index?1.8:3.2);return;}
   if(a.follow){var goal=a.follow;a.follow=null;if(roam(s,a,goal))return;}
   var m=moodOf(s),r=s.rng(),rest=(a.index?.12:.36)*m.rest;
   if(r<rest){act(s,a,'settle',1.8+s.rng()*.6);return;}
@@ -96,7 +96,14 @@
    if(s.social&&s.social.time>25)endSocial(s);}
   if(s.socialWait<=0&&!s.social){gather(s);s.socialWait=(16+s.rng()*24)*moodOf(s).wait;}
  }
- var core=window.__zaCatLifeCore={create:create,step:step,relayout:relayout,wake:wake,reduce:reduce,setMood:setMood,decisionWeights:decisionWeights,overlap:overlap,actorLayout:actorLayout};
+ // 點貓：睡著（或正在趴下）→ 叫醒；坐著 → 輪流歪頭回應（react）與理毛（groom）。走路中、隱藏或減少動態效果時不理。
+ function tap(s,index){var a=s.actors[index];if(s.reduced||!a||a.hidden||a.route)return null;endSocial(s);
+  if(a.mode==='sleep'||a.mode==='settle'){wake(s,index);return 'wake';}
+  a.taps=(a.taps||0)+1;var m=a.taps%2?'react':'groom';idle(s,a,m,m==='react'?2.6:3.4);a.hold=0;log(s,'tap',{who:index,mode:m});return m;}
+ // 這隻貓的框可以點嗎？蓋到任何受保護的按鈕／控制項（layout.forbid）時不行，讓下面的按鈕照常可以按。
+ function hitTestable(s,a,paused){if(!s||s.reduced||paused||!a||a.hidden)return false;var f=s.layout.footprint,box={x:a.x,y:a.y,w:f.w,h:f.h};
+  return !s.layout.forbid.some(function(r){return box.x<r.x+r.w&&box.x+box.w>r.x&&box.y<r.y+r.h&&box.y+box.h>r.y;});}
+ var core=window.__zaCatLifeCore={create:create,step:step,relayout:relayout,wake:wake,reduce:reduce,setMood:setMood,decisionWeights:decisionWeights,overlap:overlap,actorLayout:actorLayout,tap:tap,hitTestable:hitTestable};
  if(typeof document==='undefined')return;
  // DOM integration below is opt-in only once the existing renderer is ready.
  var pair=window.__zaCatPairCore,rt=pair&&pair.runtime;if(!rt)return;
@@ -104,6 +111,8 @@
  var css=document.createElement('style');css.textContent=
  '.za-cat-arena.za-cat-fullscreen{position:fixed;inset:0;width:100%;height:100%;z-index:18;pointer-events:none;overflow:hidden;border:0;contain:layout paint}' +
  'html .za-cat-arena.za-cat-fullscreen button.za-photocat{top:0!important;bottom:auto!important;pointer-events:none!important;cursor:default}' +
+ // 只有貓自己的框可以點（整片覆蓋層仍然點得穿）；蓋到受保護按鈕時不加這個 class。
+ 'html .za-cat-arena.za-cat-fullscreen button.za-photocat.za-cat-tappable{pointer-events:auto!important;cursor:pointer}' +
  '.za-cat-pair{contain:layout style}.za-cat-pair-bar{height:auto;min-height:34px;flex-wrap:wrap;justify-content:flex-end}.za-cat-pair-bar>span{margin-right:auto}' +
  'html .premium-header button.za-cat-control{min-width:44px!important;min-height:34px!important;font-size:10px!important;padding:4px 8px!important;border-radius:999px;background:transparent!important;border:1px solid currentColor!important;color:inherit!important}' +
  '.za-cat-safe{position:fixed;pointer-events:none;visibility:hidden;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}';document.head.appendChild(css);
@@ -138,16 +147,21 @@
   var hr=rt.host.getBoundingClientRect();if(hr.width&&hr.height)forbid.push(localRect(hr));
   return {width:w,height:h,viewportLeft:ox,viewportTop:oy,allowTextTransit:true,footprint:{w:size,h:size},safeTop:parseFloat(insets.paddingTop)||0,safeBottom:parseFloat(insets.paddingBottom)||0,safeLeft:parseFloat(insets.paddingLeft)||0,safeRight:parseFloat(insets.paddingRight)||0,protect:protect,forbid:forbid};
  }
+ var tappable=[false,false];
+ function setTappable(i,on){if(tappable[i]===on)return;tappable[i]=on;var cl=(i?rt.tabby:rt.white).classList;if(cl&&cl.toggle)cl.toggle('za-cat-tappable',on);}
+ rt.isCollapsed=function(){return userHidden;};
  function assetsReady(){return ['white','tabby'].every(function(n){return !!rt.assets[n];});}
  function draw(){if(!life)return;setMood(life,rt.white.getAttribute&&rt.white.getAttribute('data-mood'));pair.state.size=life.layout.footprint.w;pair.state.time=life.elapsed;pair.state.reduced=life.reduced;
-  life.actors.forEach(function(a,i){var p=i?pair.state.tabby:pair.state.white;p.x=a.x;p.y=a.y;p.mode=a.mode;p.frame=a.gait;p.progress=a.progress;p.facing=a.facing;p.clock=a.clock;p.index=i;p.jumpPhase=a.jumpPhase;(i?rt.tabby:rt.white).style.visibility=a.hidden?'hidden':'';});
+  life.actors.forEach(function(a,i){var p=i?pair.state.tabby:pair.state.white;p.x=a.x;p.y=a.y;p.mode=a.mode;p.frame=a.gait;p.progress=a.progress;p.facing=a.facing;p.clock=a.clock;p.index=i;p.jumpPhase=a.jumpPhase;p.hidden=!!a.hidden;(i?rt.tabby:rt.white).style.visibility=a.hidden?'hidden':'';setTappable(i,hitTestable(life,a,rt.isPaused()||userHidden||assetError));});
   pair.state.phase=life.actors.every(function(a){return a.mode==='sleep';})?'sleep':life.social?'play':'roaming';rt.render();
   var label=assetError?'部分動作素材載入失敗，活動已暫停':userHidden?'小貓已收起':life.actors.every(function(a){return a.hidden;})?'暫時沒有安全空位':life.social?'小貓正在互相陪伴':'白貓悠閒 · 狸花好奇';
   if(rt.label.textContent!==label)rt.label.textContent=label;
  }
- function running(){return life&&!document.hidden&&!userHidden&&!rt.isPaused()&&!life.reduced&&!assetError&&assetsReady()&&!dirty;}
- function stop(){if(raf)cancelAnimationFrame(raf);raf=0;last=0;}
- function tick(ts){raf=0;if(!running())return;if(!last||ts-last>=1000/30){step(life,last?(ts-last)/1000:0);last=ts;draw();}raf=requestAnimationFrame(tick);}
+ // 兩隻貓都因為沒有安全空位而藏起來時也停下迴圈（影片一起暫停）；之後的 relayout／remeasure 會再呼叫 resume。
+ function anyVisible(){return life.actors.some(function(a){return !a.hidden;});}
+ function running(){return life&&!document.hidden&&!userHidden&&!rt.isPaused()&&!life.reduced&&!assetError&&assetsReady()&&!dirty&&anyVisible();}
+ function stop(){if(raf)cancelAnimationFrame(raf);raf=0;last=0;if(rt.video)rt.video.sleep();}
+ function tick(ts){raf=0;if(!running()){stop();return;}if(!last||ts-last>=1000/30){step(life,last?(ts-last)/1000:0);last=ts;draw();}if(running())raf=requestAnimationFrame(tick);else stop();}
  function resume(){if(running()&&!raf){last=0;raf=requestAnimationFrame(tick);}else if(!running())stop();}
  function applyLayout(l,key){
   rt.arena.style.left=l.viewportLeft+'px';rt.arena.style.top=l.viewportTop+'px';rt.arena.style.width=l.width+'px';rt.arena.style.height=l.height+'px';
@@ -182,9 +196,11 @@
   timer=setTimeout(function(){remeasure(true);},180);
  }
  window.__zaPhotoCat.roam.ignoreMutation=function(target){return rt.host.contains(target)||rt.arena.contains(target)||target===safe;};
- rt.onLayout=invalidate;rt.onControl=resume;rt.onMotion=function(on){if(life){reduce(life,on);draw();resume();}};rt.onAssetError=function(){assetError=true;rt.arena.style.visibility='hidden';stop();draw();};
+ rt.onLayout=invalidate;rt.onControl=function(){draw();resume();};rt.onMotion=function(on){if(life){reduce(life,on);draw();resume();}};rt.onAssetError=function(){assetError=true;rt.arena.style.visibility='hidden';stop();draw();};
  hide.addEventListener('click',function(){userHidden=!userHidden;hide.textContent=userHidden?'顯示小貓':'收起小貓';hide.setAttribute('aria-pressed',String(userHidden));rt.arena.style.visibility=userHidden||!assetsReady()||assetError?'hidden':'';if(!userHidden)invalidate(true);draw();resume();});
  pet.addEventListener('click',function(){if(life){wake(life,life.rng()<.7?1:0);draw();resume();}});
+ // 點全螢幕的貓（白貓原本的心情反應照舊，由 za-catphoto.js 處理）：睡著就叫醒，否則輪流歪頭／理毛。
+ [rt.white,rt.tabby].forEach(function(el,i){el.addEventListener('click',function(){if(!life||!tappable[i])return;if(tap(life,i)){draw();resume();}});});
  document.addEventListener('visibilitychange',function(){if(document.hidden)stop();else invalidate(true);});
  window.addEventListener('scroll',invalidateViewport,{passive:true,capture:true});window.addEventListener('resize',invalidateViewport,{passive:true});
  if(window.visualViewport){window.visualViewport.addEventListener('resize',invalidateViewport,{passive:true});window.visualViewport.addEventListener('scroll',invalidateViewport,{passive:true});}
