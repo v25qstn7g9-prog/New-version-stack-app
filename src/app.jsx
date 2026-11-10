@@ -3013,6 +3013,7 @@ function AssetTracker() {
                     onFillDailyUs={(value) => { setDailyPrefill({ usValue: value }); goToTab("daily"); }}
                     onGoDaily={() => goToTab("daily")}
                     firstRun={firstRun}
+                    zinfSyncToken={zinfSyncToken}
                     onAddHolding={() => {
                       setHoldingsMarket("tw"); goToTab("holdings");
                       // 換頁動畫結束後捲到「新增持股標的」並把游標放進代號欄
@@ -6191,7 +6192,7 @@ function calcPortfolioHealth(records, dividends) {
 function PortfolioPerformanceCard({
   records, dividends, capitalGain, totalDividends, totalReturn, totalReturnPct,
   twTotalReturn, twTotalReturnPct, usTotalReturn, usTotalReturnPct, hasUsAssets,
-  ytdGain, ytdPct, totalInvested
+  ytdGain, ytdPct, totalInvested, zinfSyncToken = ""
 }) {
   const m = useMemo(() => calcPortfolioHealth(records, dividends), [records, dividends]);
   const pctOrDash = (v) => Number.isFinite(v) ? pf(v) : uiText("資料不足");
@@ -6278,6 +6279,7 @@ function PortfolioPerformanceCard({
       if (!res.ok || !data?.ok || !data?.reply) throw new Error(data?.error || "AI unavailable");
       setAiRiskComment(cleanAiDisplayText(data.reply).replace(/\n+/g, " ").trim());
     } catch (e) {
+      console.warn("[AI risk comment] failed:", e?.message || String(e));
       setAiRiskError(uiText("AI 暫時無法評論"));
     } finally {
       setAiRiskLoading(false);
@@ -6836,7 +6838,7 @@ function FirstRunGuide({ onAddHolding, onOpenBackup }) {
 function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, dailyChangePct, capitalGain, totalDividends,
   totalReturn, totalReturnPct, twTotalReturn, twTotalReturnPct, usTotalReturn, usTotalReturnPct, hasUsAssets, showUsFields = false, showGoal = false,
   highPoint, drawdown, ytdGain, ytdPct, chartData, goal, goalDate, totalInvested, holdings,
-  dailyRecords, dividends, yesterdayTwValue, yesterdayUsValue, onFillDailyTw, onFillDailyUs, usHoldings = [], usLive, onGoUsSettings, onGoDaily, firstRun = false, onAddHolding, onOpenBackup }) {
+  dailyRecords, dividends, yesterdayTwValue, yesterdayUsValue, onFillDailyTw, onFillDailyUs, usHoldings = [], usLive, onGoUsSettings, onGoDaily, firstRun = false, onAddHolding, onOpenBackup, zinfSyncToken = "" }) {
   const up = dailyChange >= 0;
   // dailyChange：交易日是每檔「(現價 − 昨收) × 股數」的加總（App 的 quoteDay，和下面每檔的今日損益加起來一樣），標「今日」；
   // 盤前或報價不全時才是「現在的總資產 − 今天之前最近一筆紀錄」；
@@ -7046,6 +7048,7 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
             ytdGain={ytdGain}
             ytdPct={ytdPct}
             totalInvested={totalInvested}
+            zinfSyncToken={zinfSyncToken}
           />
         </div>
       </DashboardCollapsibleSection>
