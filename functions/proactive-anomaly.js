@@ -357,6 +357,9 @@ export function deliveryDecision(record, nowMs) {
   if (!record) return "send";
   const lease = Date.parse(record.leaseUntil || "");
   if (Number.isFinite(lease) && lease > nowMs) return "in_flight";
+  // LINE 預先持久化的保守保留期：結果寫入遺失也不能只因 lease 到期就重送。
+  const reserved = Date.parse(record.reservedUntil || "");
+  if (Number.isFinite(reserved) && nowMs < reserved) return "cooldown";
   if ((Number(record.attempts) || 0) >= MAX_ATTEMPTS) return "exhausted";
   if (record.deliveredAt) {
     const parsed = Date.parse(record.cooldownUntil || "");
@@ -386,6 +389,7 @@ function loadState(raw) {
       deliveredAt: typeof rec.deliveredAt === "string" ? rec.deliveredAt : null,
       cooldownUntil: typeof rec.cooldownUntil === "string" ? rec.cooldownUntil : null,
       leaseUntil: typeof rec.leaseUntil === "string" ? rec.leaseUntil : null,
+      reservedUntil: typeof rec.reservedUntil === "string" ? rec.reservedUntil : null,
     };
   }
   state.seenPending = Array.isArray(data.seenPending)
@@ -695,6 +699,16 @@ async function saveRisk(env, key, state) {
   } catch { console.warn("portfolio risk state write failed"); return false; }
 }
 
+/** 結果最多寫三次；即使遇 429／暫時失敗也不在一秒內連續寫同 key。 */
+async function saveRiskResult(env, key, state, lastAttemptAt) {
+  for (const gap of [1100, 1100, 2200]) {
+    await new Promise((resolve) => setTimeout(resolve, Math.max(0, gap - (Date.now() - lastAttemptAt))));
+    if (await saveRisk(env, key, state)) return true;
+    lastAttemptAt = Date.now();
+  }
+  return false;
+}
+
 async function sendRiskLine(env, incident, fetchImpl) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
@@ -757,8 +771,14 @@ async function runOwnerAlerts(env, deps) {
     const decision = deliveryDecision(line.incidents[incident.event_id], now.getTime());
     if (decision !== "send") { state.line.withheld.push(decision); continue; }
     noteLease(line, incident, now);
+    // 不是 deliveredAt：先保留本次掃描起 20 小時，寧可漏報也不在結果遺失後重送。
+    // 成功結果改存正式 cooldown；已知失敗結果則由 noteFailure 恢復原重試規則。
+    line.incidents[incident.event_id].reservedUntil = new Date(now.getTime() + COOLDOWN_MS).toISOString();
     batch.push(incident);
   }
+  // 重疊掃描若整批仍在發送，不能覆寫對方 ledger 或搶走其結果寫入的 KV 配額。
+  if (incidents.length && state.line.withheld.length === incidents.length
+      && state.line.withheld.every((decision) => decision === "in_flight")) return { skipped: null, ...state.line };
   // App 狀態與整批 lease 合併一次寫入；寫入成功前絕不送 LINE。
   state.lineIncidents = boundIncidents(line.incidents);
   if (!(await saveRisk(env, key, state))) return { skipped: "state_write_failed" };
@@ -773,10 +793,8 @@ async function runOwnerAlerts(env, deps) {
     }
   }
   if (batch.length) {
-    // Workers KV 同 key 每秒僅可寫一次。只再寫一次結果，且有上限地等待剩餘間隔。
-    await new Promise((resolve) => setTimeout(resolve, Math.max(0, 1100 - (Date.now() - leasedAt))));
     state.lineIncidents = boundIncidents(line.incidents);
-    if (!(await saveRisk(env, key, state))) return { skipped: "state_write_failed" };
+    if (!(await saveRiskResult(env, key, state, leasedAt))) return { skipped: "state_write_failed" };
   }
   return { skipped: null, ...state.line };
 }

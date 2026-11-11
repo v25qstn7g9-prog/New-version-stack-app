@@ -2,7 +2,7 @@
 
 這份文件描述既有選用 webhook；第一階段新增的擁有者 App 內＋LINE 管線另見 [portfolio-risk.md](./portfolio-risk.md)。Webhook 接收端與正式通知尚未驗證，兩個 webhook Secret 缺一個時只停用 webhook，不影響 App／LINE 管線。
 
-它不預測、不建議買賣、也不下單。老大已核准：投資組合與個股跌幅預設 3%，可由各自的百分比環境變數覆蓋；不以金額門檻觸發。
+它不預測、不建議買賣、也不下單。既有 webhook 的跌幅通知保持 opt-in，投資組合與個股門檻獨立，可用百分比或 TWD 金額啟用；未設門檻不送該類跌幅事件。老大核准的預設 3% 只適用 App／LINE，不套用到舊 webhook，也不做門檻遷移。
 
 ## 共同契約
 
@@ -64,14 +64,16 @@
 
 ### 門檻
 
-百分比環境變數（未設或空白使用程式常數 3%；格式錯誤時關閉該條件並只記變數名稱）：
+Webhook 環境變數（未設或空白不啟用該條件；格式錯誤時關閉該條件並只記變數名稱；投資組合與個股各自獨立）：
 
 | 變數 | 意義 |
 | --- | --- |
 | `PROACTIVE_PORTFOLIO_DECLINE_PCT` | 投資組合跌幅百分比 |
 | `PROACTIVE_STOCK_DECLINE_PCT` | 單一持股跌幅百分比 |
+| `PROACTIVE_PORTFOLIO_DECLINE_TWD` | 投資組合價差損失金額（TWD） |
+| `PROACTIVE_STOCK_DECLINE_TWD` | 單一持股價差損失金額（TWD） |
 
-只接受大於 0、至多 100 的一般十進位正數；不接受負數、百分號或科學記號。剛好達門檻會通知。舊的 `PROACTIVE_PORTFOLIO_DECLINE_TWD`／`PROACTIVE_STOCK_DECLINE_TWD` 不再作為觸發條件。
+百分比只接受大於 0、至多 100，TWD 金額大於 0、至多 1e12 的一般十進位正數；不接受負數、百分號或科學記號。同類事件的百分比或 TWD 任一達門檻就通知，剛好達門檻也會通知。只設 portfolio 不會額外啟用 stock。App／LINE 另讀百分比覆蓋（未設／空白預設 3%，忽略 TWD），不影響此處 opt-in 行為。
 
 沒有沿用計畫頁的年化報酬、雷達門檻或蜘蛛圖 0.3% 情緒線。那些不是通知設定。
 

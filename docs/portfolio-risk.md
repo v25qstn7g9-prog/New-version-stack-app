@@ -78,7 +78,7 @@ MCP request 範例：
 
 沿用 `auto-daily.js::pushLine` 與相同 LINE 收件人。不足設定時不送，將固定原因 `line_not_configured` 記在 App 可讀狀態；沒有 owner token 時回傳 `owner_not_configured`。LINE 摘要只說事件類別，不帶代號、金額、股數、帳戶或同步 token。是否擴大摘要內容需另請老大決定。
 
-App／LINE 各有獨立冷卻，不因 App 已記錄就吞掉 LINE 重試。20 小時冷卻、45 秒 lease、失敗至少隔 15 分鐘重試、最多 3 次；集中度穩定 id 失敗滿 3 次後，下一個 20 小時週期可再試。每個通道最多保留 40 個事件紀錄，KV 14 天 TTL。App 狀態與整批 LINE lease 合併一次寫入，成功後才送；所有送出結果合併第二次寫入，距第一次至少 1.1 秒（最多等待剩餘 1.1 秒），遵守 KV 同 key 每秒一次寫入限制。lease 寫入失敗不送；結果寫入失敗保留已存 lease 並回報 state_write_failed，不宣稱成功持久化。LINE timeout 3 秒／非 2xx／網路錯誤只記固定類別與狀態，不影響 App 或其他 cron。KV 不是交易，重疊 cron 仍可能重複，不保證 exactly-once。
+App／LINE 各有獨立冷卻，不因 App 已記錄就吞掉 LINE 重試。20 小時冷卻、45 秒 lease、失敗至少隔 15 分鐘重試、最多 3 次；集中度穩定 id 失敗滿 3 次後，下一個 20 小時週期可再試。每個通道最多保留 40 個事件紀錄，KV 14 天 TTL。App 狀態與整批 LINE lease／保守保留期 `reservedUntil` 合併一次寫入，成功後才送；重疊掃描若全部事件都是 `in_flight`，完全不寫 KV。結果合併寫入，最多嘗試 3 次：距 lease 寫入先等至少 1.1 秒；失敗後再分別等至少 1.1、2.2 秒（總額外等待上限 4.4 秒，不含 KV／LINE I/O），遵守同 key 每秒一次限制。lease 寫入失敗不送；結果重試仍失敗回報 `state_write_failed`，不宣稱成功持久化。LINE timeout 3 秒／非 2xx／網路錯誤只記固定類別與狀態，不影響 App 或其他 cron。KV 不是交易，重疊 cron 仍可能重複，不保證 exactly-once。
 
 ### 部署前由老大確認（本 PR 未設定任何環境值）
 
@@ -99,6 +99,14 @@ App／LINE 各有獨立冷卻，不因 App 已記錄就吞掉 LINE 重試。20 �
 
 ## 本機驗證
 
-依 CI 使用 `ci/package-lock.json` 安裝相依套件後，`npm test`：**817 passed、0 failed、0 skipped**（Node v24.22.1）；`git diff --check` 通過。GitHub CI 使用 Node 20，PR 開立後另看 CI。測試涵蓋邊界、缺價／缺匯率、異常型別、權限隔離、App／MCP 一致、LINE 缺設定／失敗與冷卻；皆為假資料與 stub，未連正式 LINE。
+依 CI 使用 `ci/package-lock.json` 安裝相依套件後，`npm test`：**820 passed、0 failed、0 skipped**（Node v24.22.1）；`git diff --check` 通過。GitHub CI 使用 Node 20，PR 開立後另看 CI。測試涵蓋邊界、缺價／缺匯率、異常型別、權限隔離、App／MCP 一致、LINE 缺設定／失敗與冷卻；皆為假資料與 stub，未連正式 LINE。
 
 審查修正回歸：同 key 1 秒內第二次 put 會拋 429 的 KV stub 驗證整批 lease／結果寫入（4 則 LINE、2 次寫入、0 次限速）；FX 舊／缺／無效時間及股價／FX 較舊時間；舊 webhook opt-in 與 *_TWD；雙 token 的 API／MCP 通知隔離。將通知讀取故意改成 owner key 的 mutant 已被新增測試抓到；測完還原。`build:app`、`build:css` 均通過。
+
+### 結果遺失與剩餘重送風險
+
+- 每次送出前把 `reservedUntil = 本次掃描 now + 20 小時` 持久化，這是「可能已送」的保守保留，不是假造 `deliveredAt`。即使 LINE 成功後結果三次都存失敗，45 秒 lease 到期後仍禁止同 event_id 重送，直到該保留期；結果成功存入才改用既有成功冷卻或失敗重試規則。代價是 lease 存好但送出前中斷，也可能漏報至保留期結束。
+- 精確邊界：已讀到保留紀錄時，`now < reservedUntil` 不重送，`now >= reservedUntil` 才可再評估；20 小時從掃描起算，不是從每則 LINE 實際抵達起算。因此最後一則送達後的完整 20 小時不受額外保證。仍須同時符合收盤／資料新鮮度等門檻，不代表期滿立即送。
+- 尚非 exactly-once：兩個 cron 若在 lease 傳播前都讀到舊／空 KV，仍可能在同一輪重送；KV 最終一致性沒有本程式可保證的固定重送時間上限（常見跨區可見延遲約 60 秒，不能當作嚴格界限）。其他 writer 覆寫或紀錄遺失亦無法由此鎖住。若 LINE 實際收到了，但回應遺失／逾時被判失敗，且失敗狀態成功寫入，仍沿用至少 15 分鐘後可重試的舊規則；可能重送直到最多 3 次嘗試。此次修正不引入交易式鎖或 LINE 接收端冪等機制。
+
+第二輪審查回歸：成功送達但結果三次持久化全失敗時，46 秒後不重送並驗證 20 小時邊界；單次 429 後退避可恢復；重疊整批 in_flight 零寫入且不干擾原結果寫入。完整測試 820 passed／0 failed／0 skipped；兩項 build 與 diff --check 通過。

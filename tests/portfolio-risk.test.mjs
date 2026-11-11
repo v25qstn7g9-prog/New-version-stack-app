@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { calculateConcentration } from "../functions/concentration.js";
 import { onRequestGet, RISK_PREFIX } from "../functions/portfolio-risk.js";
-import { runProactiveAnomalies, HOOK_AFTER_CLOSE, HOOK_DAILY_HEALTH, COOLDOWN_MS } from "../functions/proactive-anomaly.js";
+import { runProactiveAnomalies, HOOK_AFTER_CLOSE, HOOK_DAILY_HEALTH, COOLDOWN_MS, deliveryDecision } from "../functions/proactive-anomaly.js";
 import { handlePreparedAssetMcp } from "../functions/ai-connector-prepared.js";
 import worker from "../worker.js";
 
@@ -329,4 +329,92 @@ test("FX valuation time is the older price/FX timestamp, fresh rates allow LINE"
   const calls = [];
   await runProactiveAnomalies(envFor(kv({ [`portfolio-sync:${TOKEN}`]: snap })), deps(calls));
   assert.equal(calls.length, 2);
+});
+
+function decliningSnapshot() {
+  const snap = snapshot([100]);
+  snap.dataset.livePrices.map["1000"].price = 97;
+  return snap;
+}
+
+test("successful LINE with permanently lost result keeps reservation past 45s lease and throughout cooldown", async () => {
+  const store = kv({ [`portfolio-sync:${TOKEN}`]: decliningSnapshot() });
+  const put = store.put;
+  const attempts = [];
+  let blockResults = true;
+  store.put = async (key, value) => {
+    attempts.push(Date.now());
+    if (attempts.length > 1 && blockResults) throw new Error("KV unavailable");
+    return put(key, value);
+  };
+  const calls = [];
+  const first = await runProactiveAnomalies(envFor(store), deps(calls));
+  assert.equal(first.owner.skipped, "state_write_failed");
+  assert.equal(calls.length, 4);
+  assert.equal(attempts.length, 4); // lease + bounded three result attempts
+  assert.ok(attempts.slice(1).every((at, i) => at - attempts[i] >= 1000));
+  const persisted = JSON.parse(store.map.get(RISK_PREFIX + TOKEN));
+  for (const record of Object.values(persisted.lineIncidents)) {
+    assert.equal(record.deliveredAt, null); // reservation is never a fabricated success
+    assert.equal(Date.parse(record.reservedUntil), CLOSE.getTime() + COOLDOWN_MS);
+    assert.equal(deliveryDecision(record, CLOSE.getTime() + 46000), "cooldown");
+    assert.equal(deliveryDecision(record, CLOSE.getTime() + COOLDOWN_MS - 1), "cooldown");
+    assert.equal(deliveryDecision(record, CLOSE.getTime() + COOLDOWN_MS), "send");
+  }
+  blockResults = false;
+  const next = await runProactiveAnomalies(envFor(store), deps(calls, { now: () => new Date(CLOSE.getTime() + 46000) }));
+  assert.deepEqual(next.owner.withheld, ["cooldown", "cooldown", "cooldown", "cooldown"]);
+  assert.equal(calls.length, 4); // the old 46-second resend reproduction is closed
+});
+
+test("result save retries a transient 429 with bounded per-key backoff, without resending LINE", async () => {
+  const store = kv({ [`portfolio-sync:${TOKEN}`]: decliningSnapshot() });
+  const put = store.put;
+  const attempts = [];
+  store.put = async (key, value) => {
+    const at = Date.now();
+    if (attempts.length) assert.ok(at - attempts.at(-1) >= 1000);
+    attempts.push(at);
+    if (attempts.length === 2) throw Object.assign(new Error("429 Too Many Requests"), { status: 429 });
+    return put(key, value);
+  };
+  const calls = [];
+  const result = await runProactiveAnomalies(envFor(store), deps(calls));
+  assert.equal(result.owner.skipped, null);
+  assert.equal(result.owner.sent.length, 4);
+  assert.equal(attempts.length, 3);
+  assert.equal(calls.length, 4);
+  assert.ok(Object.values(JSON.parse(store.map.get(RISK_PREFIX + TOKEN)).lineIncidents).every((r) => r.deliveredAt && !r.leaseUntil && !r.reservedUntil));
+});
+
+test("overlapping all-in-flight scan performs no writes and cannot rate-limit original result", async () => {
+  const store = kv({ [`portfolio-sync:${TOKEN}`]: decliningSnapshot() });
+  const put = store.put;
+  let last = -Infinity;
+  let rejected = 0;
+  store.put = async (key, value) => {
+    const at = Date.now();
+    if (at - last < 1000) { rejected++; throw Object.assign(new Error("429"), { status: 429 }); }
+    last = at;
+    return put(key, value);
+  };
+  const calls = [];
+  let overlap;
+  const result = await runProactiveAnomalies(envFor(store), deps(calls, { fetch: async () => {
+    calls.push(1);
+    if (!overlap) {
+      const before = store.map.get(RISK_PREFIX + TOKEN);
+      overlap = await runProactiveAnomalies(envFor(store), deps(calls, { now: () => new Date(CLOSE.getTime() + 100) }));
+      assert.equal(store.map.get(RISK_PREFIX + TOKEN), before);
+      assert.equal(store.writes.length, 1);
+      assert.deepEqual(overlap.owner.withheld, ["in_flight", "in_flight", "in_flight", "in_flight"]);
+    }
+    return { ok: true, status: 200 };
+  } }));
+  assert.equal(overlap.owner.skipped, null);
+  assert.equal(result.owner.sent.length, 4);
+  assert.equal(result.owner.skipped, null);
+  assert.equal(calls.length, 4);
+  assert.equal(store.writes.length, 2);
+  assert.equal(rejected, 0);
 });
