@@ -30,7 +30,7 @@
 - 備份／匯入、交易、持股、配息、計畫、資產曲線保留
 
 ## Cloudflare
-- `functions/quote.js`：`4.7-quote-schedule-6-us-live`
+- `functions/quote.js`：`4.7-quote-schedule-7-closing-sync`（台股 13:45–14:05 每分鐘收盤校準；保留來源時間）
 - 支援一般台股代號 + `TAIEX`
 - TAIEX 使用 TWSE `tse_t00.tw`，Yahoo fallback 使用 `^TWII`
 - `functions/ask.js`：`4.7-personal-advisor-v3.2-bounded-learning`（Cloudflare GPT-OSS 20B + Gemini 3.6 Flash fallback）

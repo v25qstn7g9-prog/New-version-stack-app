@@ -1,10 +1,10 @@
 {
-  "app": "2.47.27",
-  "lastUpdated": "2026-11-03",
-  "status": "header-settings",
+  "app": "2.47.28",
+  "lastUpdated": "2026-11-11",
+  "status": "closing-sync",
   "cloudflare": {
-    "index.html": "4.7-personal-advisor-v2.47.27-header-settings",
-    "quote.js": "4.7-quote-schedule-6-us-live",
+    "index.html": "4.7-personal-advisor-v2.47.28-closing-sync",
+    "quote.js": "4.7-quote-schedule-7-closing-sync",
     "ask.js": "4.7-personal-advisor-v3.4-claude-primary",
     "news.js": "4.6-news-stable-6",
     "health-check.js": "4.6-health-check-2",
@@ -28,5 +28,5 @@
     "trendRadar": "非阻塞即時計算；資料來源時間檢查、盤後日線重新更新、夜盤／盤前延續；真正收盤才驗證；同版本及時段校準、基準命中／覆蓋／Brier；歷史波動價格參考區間（非保證目標價）",
     "factorBacktest": "研究用因子回測（總覽頁，雷達卡片下方）：把雷達用到的每個原始因子跟實際漲跌幅算皮爾森相關係數，樣本數不足時不顯示係數，用來判斷哪些因子真的有解釋力"
   },
-  "package": "2.47.25"
+  "package": "2.47.28"
 }
