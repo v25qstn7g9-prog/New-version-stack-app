@@ -104,6 +104,7 @@ import {
   onRequestPost as pendingTradesPostHandler,
   onRequestResolve as pendingTradesResolveHandler,
 } from "./functions/pending-trades.js";
+import { onRequestGet as portfolioRiskGetHandler } from "./functions/portfolio-risk.js";
 import { runProactiveAnomalies, HOOK_AFTER_CLOSE, HOOK_DAILY_HEALTH } from "./functions/proactive-anomaly.js";
 
 function apiJson(data, status = 200, extraHeaders = {}) {
@@ -134,6 +135,7 @@ const API_METHODS = new Map([
   ["/api/health-cards", ["GET", "POST"]],
   ["/api/health-check", ["GET"]],
   ["/api/portfolio-sync", ["GET", "POST"]],
+  ["/api/portfolio-risk", ["GET"]],
   ["/api/auto-daily", ["GET"]],
   ["/api/owner-status", ["GET"]],
   ["/api/system-stats", ["GET"]],
@@ -282,6 +284,9 @@ export default {
         return apiJson({ error: "Unauthorized" }, 401, { "WWW-Authenticate": "Bearer" });
       }
       return healthPostHandler({ request, env, ctx });
+    }
+    if (url.pathname === "/api/portfolio-risk" && request.method === "GET") {
+      return portfolioRiskGetHandler({ request, env, ctx });
     }
     if (url.pathname === "/api/portfolio-sync" && request.method === "GET") {
       return portfolioSyncGetHandler({ request, env, ctx });

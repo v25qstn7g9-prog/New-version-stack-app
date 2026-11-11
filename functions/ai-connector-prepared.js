@@ -11,6 +11,7 @@
  * - 所有 Assets MCP 工具維持唯讀。
  */
 import { onRequestGet as portfolioSyncGet } from "./portfolio-sync.js";
+import { onRequestGet as portfolioRiskGet } from "./portfolio-risk.js";
 import { factorCollectionStatus } from "./factor-status.js";
 import { probeFactorSources } from "./factor-sources.js";
 import { claudeAskStatus } from "./ask.js";
@@ -36,6 +37,11 @@ const READ_ONLY = {
 };
 
 export const PREPARED_ASSET_TOOLS = [
+  {
+    name: "portfolio_risk", title: "持股集中度與收盤警示", annotations: READ_ONLY,
+    description: "唯讀同步快照的集中度（單檔 >30%、前三大 >60%）、台美股占比與既有收盤排程警示。缺價或匯率時回資料不足，不把台股小計當全組合。非即時、非投資建議。",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
   {
     name: "asset_summary",
     title: "資產存股摘要",
@@ -742,6 +748,11 @@ async function stockQuote(env, args) {
 }
 
 async function callTool(name, args, env, syncToken) {
+  if (name === "portfolio_risk") {
+    const res = await portfolioRiskGet({ request: new Request("https://asset-app.local/api/portfolio-risk", { headers: { authorization: `Bearer ${syncToken}` } }), env });
+    const data = await res.json();
+    return toolResult(data, !res.ok || data?.ok === false);
+  }
   if (name === "asset_summary") {
     const data = await readPortfolio(env, syncToken);
     return toolResult(data, data?.ok === false);
