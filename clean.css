@@ -511,20 +511,18 @@ html.za-clean .premium-tabbar{opacity:1!important;-webkit-backdrop-filter:none!i
 /* 深色選中分頁：只留膠囊底＋粗體白字，拿掉會疊在圖示上的頂端亮線。 */
 html.za-clean[data-theme="navy"] .premium-tabbar button[data-active="true"]::before{content:none!important;display:none!important}
 
-/* ════ AI 浮動按鈕：可愛貓咪頭（2026-11-11，Johnny「能不能做可愛一點」；只改外觀） ════ */
-/* 60×60、位置沿用 .premium-ai-launcher 的 bottom 規則；圓底與圓形陰影拿掉，改由 SVG 畫貓頭。
-   顏色只用主題變數：淺色 --c-btn（=--c-accent）＋--c-btn-ink；深藍／系統深色的 --c-btn、--c-btn-ink 由各主題定義。 */
-html.za-clean .premium-ai-launcher.za-ai-cat{background:transparent!important;box-shadow:none!important;border:0!important;color:var(--c-btn-ink)!important;
-  --ai-cat-face:var(--c-btn);--ai-cat-ink:var(--c-btn-ink);overflow:visible}
-.za-ai-cat .za-ai-cat-svg{display:block;overflow:visible;filter:drop-shadow(0 4px 6px rgba(15,23,42,.35))}
-.za-ai-cat .za-ai-cat-head,.za-ai-cat .za-ai-cat-ear{transform-box:fill-box;transform-origin:50% 100%}
-/* 輕微動畫：每 6 秒耳朵抖一下、頭輕晃一下；減少動態效果時完全沒有動畫（規則只放在 no-preference 裡）。 */
+/* ════ AI 浮動按鈕：白貓鈴鐺吊牌（2026-11-11 設計 C；只改外觀） ════ */
+/* 60×60、位置沿用 .premium-ai-launcher 的 bottom 規則；圓底與圓形陰影拿掉，由 SVG 本身（米白貼紙邊＋深棕描邊）畫出外形。 */
+html.za-clean .premium-ai-launcher.za-ai-cat{background:transparent!important;box-shadow:none!important;border:0!important;overflow:visible}
+/* 貼紙感的柔和陰影（跟著貓咪外形） */
+.za-ai-cat .za-ai-cat-svg{display:block;overflow:visible;filter:drop-shadow(0 3px 4px rgba(15,23,42,.28))}
+html.za-clean[data-theme="navy"] .za-ai-cat .za-ai-cat-svg{filter:drop-shadow(0 3px 5px rgba(0,0,0,.6))}
+/* 鍵盤焦點外框（貓咪外面一圈，深淺色都看得到） */
+html.za-clean .premium-ai-launcher.za-ai-cat:focus-visible{outline:2px solid var(--c-accent)!important;outline-offset:3px}
+.za-ai-cat .za-ai-cat-body{transform-box:fill-box;transform-origin:50% 100%}
+/* 輕微動畫：每 6 秒以底部為軸左右輕晃幾度；減少動態效果時完全沒有動畫（規則只放在 no-preference 裡）。 */
 @media (prefers-reduced-motion:no-preference){
-  .za-ai-cat .za-ai-cat-ear-l{animation:za-ai-cat-ear-l 6s ease-in-out infinite}
-  .za-ai-cat .za-ai-cat-ear-r{animation:za-ai-cat-ear-r 6s ease-in-out .12s infinite}
-  .za-ai-cat .za-ai-cat-head{animation:za-ai-cat-sway 6s ease-in-out infinite}
+  .za-ai-cat .za-ai-cat-body{animation:za-ai-cat-sway 6s ease-in-out infinite}
 }
-@keyframes za-ai-cat-ear-l{0%,84%,100%{transform:none}88%{transform:rotate(-12deg)}92%{transform:rotate(6deg)}96%{transform:none}}
-@keyframes za-ai-cat-ear-r{0%,84%,100%{transform:none}88%{transform:rotate(12deg)}92%{transform:rotate(-6deg)}96%{transform:none}}
-@keyframes za-ai-cat-sway{0%,40%,58%,100%{transform:none}46%{transform:rotate(-4deg)}52%{transform:rotate(3deg)}}
-@media (prefers-reduced-motion:reduce){.za-ai-cat .za-ai-cat-head,.za-ai-cat .za-ai-cat-ear{animation:none!important}}
+@keyframes za-ai-cat-sway{0%,70%,100%{transform:none}76%{transform:rotate(-4deg)}82%{transform:rotate(3deg)}88%{transform:rotate(-1.5deg)}94%{transform:none}}
+@media (prefers-reduced-motion:reduce){.za-ai-cat .za-ai-cat-body{animation:none!important}}

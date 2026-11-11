@@ -30,66 +30,80 @@ test('Esc and Tab are handled at the document level while open, focus is pulled 
   assert.match(widget, /ref=\{launcherRef\}/);
 });
 
-test('the floating AI launcher is a cute 60px cat head with "AI": same aria-label, theme colours, reduced motion, no external assets', () => {
+test('the floating AI launcher is the white bell-tag cat (design C): 60px, same aria-label, sticker outline contrast, reduced motion, no external assets', () => {
   const i = widget.indexOf('<button ref={launcherRef}');
   const launcher = widget.slice(i, widget.indexOf('</button>', i));
-  // 行為不變：aria-label、點擊打開對話框
+  // 行為不變：aria-label、點擊打開對話框、右側含 safe-area
   assert.match(launcher, /aria-label=\{UI_SHOW_ENGLISH \? "Open investment assistant" : "開啟投資助手"\}/);
   assert.match(launcher, /onClick=\{\(\) => setOpen\(true\)\}/);
   assert.match(launcher, /className="premium-ai-launcher za-ai-cat /);
-  // 尺寸：60×60（可點範圍 ≥ 44px）
-  const size = launcher.match(/width: (\d+), height: (\d+)/);
-  assert.ok(size && Number(size[1]) >= 56 && Number(size[1]) <= 60 && size[1] === size[2], 'button is 56–60px square');
-  // 圖形：inline SVG（aria-hidden）＋貓耳＋臉＋「AI」；沒有外部資源
-  const svg = launcher.slice(launcher.indexOf('<svg'), launcher.indexOf('</svg>'));
-  assert.match(svg, /aria-hidden="true"/);
-  assert.match(svg, /za-ai-cat-ear-l/);
-  assert.match(svg, /za-ai-cat-ear-r/);
-  assert.match(svg, /<ellipse /);
-  assert.match(svg, />AI<\/text>/);
-  assert.doesNotMatch(launcher, /<img|href=|src=|url\(|https?:|<MessageCircle/);
-  // 顏色只用主題變數（不新增色碼）
-  assert.doesNotMatch(svg, /#[0-9a-f]{3,6}\b/i);
-  assert.match(svg, /fill="var\(--ai-cat-face\)"/);
-  assert.match(svg, /fill="var\(--ai-cat-ink\)"/);
+  assert.match(launcher, /right: "calc\(14px \+ env\(safe-area-inset-right, 0px\)\)"/);
+  // 尺寸：按鈕 60×60（可點範圍 ≥ 60×60），SVG 也是 60×60
+  assert.match(launcher, /width: 60, height: 60/);
+  const svg = launcher.slice(launcher.indexOf('<svg'), launcher.indexOf('</svg>') + 6);
+  assert.match(svg, /<svg className="za-ai-cat-svg" viewBox="-4 -4 108 108" width="60" height="60" aria-hidden="true" focusable="false">/);
+  // 沒有外部資源、沒有可能撞名的 id、沒有舊式屬性寫法
+  assert.doesNotMatch(launcher, /<image|<script|<foreignObject|href=|xlink|url\(|https?:|<img|\bid="/i);
+  assert.doesNotMatch(svg, /stroke-width=|stroke-linecap=|stroke-linejoin=/, 'JSX camelCase attributes');
+  // 小尺寸修正：「A」內洞放大（筆畫 5.8、橫槓壓低）、鈴鐺細刻線與小亮點、眼睛小亮點都已移除
+  assert.match(svg, /<path d="M34\.9,91 L44\.2,72 L53\.5,91"\/>/);
+  assert.match(svg, /strokeWidth="5\.8"/);
+  assert.doesNotMatch(svg, /M25\.5,63\.5|r="1\.1"|r="1\.2"/);
+  // 「A」內洞在 60px 時的大小（幾何計算）：橫槓上緣到兩腳內緣交會點的高度、底寬都要 ≥ 2.5px
+  const px = 60 / 108, half = 9.3, h = 19, sw = 5.8, barY = 86.2, barSw = 3.6, apexY = 72;
+  const slope = half / h, off = (sw / 2) / Math.cos(Math.atan(slope));
+  const holeTop = apexY + off / slope, holeBottom = barY - barSw / 2;
+  const holeH = (holeBottom - holeTop) * px, holeW = 2 * (slope * (holeBottom - apexY) - off) * px;
+  assert.ok(holeH >= 2.5 && holeW >= 2.5, `A counter ${holeH.toFixed(2)}×${holeW.toFixed(2)}px`);
 
-  const css = fs.readFileSync(new URL('../clean.css', import.meta.url), 'utf8');
-  const cat = css.slice(css.indexOf('/* ════ AI 浮動按鈕：可愛貓咪頭'));
-  assert.match(cat, /html\.za-clean \.premium-ai-launcher\.za-ai-cat\{background:transparent!important;box-shadow:none!important;border:0!important;color:var\(--c-btn-ink\)!important;\s*--ai-cat-face:var\(--c-btn\);--ai-cat-ink:var\(--c-btn-ink\)/);
-  assert.doesNotMatch(cat, /url\(|https?:/, 'no external resources in the cat CSS');
-  // 動畫只在 no-preference 裡；reduce 時明確關掉
-  const motion = cat.match(/@media \(prefers-reduced-motion:no-preference\)\{([\s\S]*?)\n\}/);
-  assert.ok(motion, 'animations live inside prefers-reduced-motion:no-preference');
-  assert.match(motion[1], /animation:za-ai-cat-ear-l 6s/);
-  assert.match(motion[1], /animation:za-ai-cat-sway 6s/);
-  assert.equal((cat.replace(motion[0], '').match(/animation:za-ai-cat/g) || []).length, 0, 'no animation outside the no-preference block');
-  assert.match(cat, /@media \(prefers-reduced-motion:reduce\)\{\.za-ai-cat \.za-ai-cat-head,\.za-ai-cat \.za-ai-cat-ear\{animation:none!important\}\}/);
-
-  // 各主題實際顏色（從 CSS 變數取出）計算對比：AI 字 ≥ 4.5:1、貓臉對頁面背景與卡片 ≥ 3:1
+  // 顏色從 SVG 本身取：深棕描邊、米白貼紙邊、吊牌底色
+  const brown = svg.match(/<g fill="(#[0-9a-f]{6})" stroke="\1" strokeWidth="6\.2">/i)[1];
+  const rim = svg.match(/<g fill="(#[0-9a-f]{6})" stroke="\1" strokeWidth="14\.6"/i)[1];
+  const tag = svg.match(/<path d="M38,65 h24[^"]*" fill="(#[0-9a-f]{6})"/i)[1];
+  const aiInk = svg.match(/<g fill="none" stroke="(#[0-9a-f]{6})" strokeWidth="5\.8"/i)[1];
+  // 外描邊在 60px 時至少約 1.5px：深棕剪影 6.2 → 外側 3.1 ＋ 填色描邊內側 1.3 = 4.4 單位
+  assert.ok((6.2 / 2 + 2.6 / 2) * px >= 1.5);
   const lum = (hex) => {
     const [r, g, b] = [0, 2, 4].map((k) => parseInt(hex.replace('#', '').slice(k, k + 2), 16) / 255)
       .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
     return 0.2126 * r + 0.7152 * g + 0.0722 * b;
   };
   const contrast = (x, y) => { const [m, n] = [lum(x), lum(y)].sort((p, q) => q - p); return (m + 0.05) / (n + 0.05); };
-  const varOf = (block, name) => (block.match(new RegExp(`${name}:(#[0-9a-f]{6})`, 'i')) || [])[1];
+  assert.ok(contrast(aiInk, tag) >= 4.5, `AI ${aiInk} on tag ${tag} = ${contrast(aiInk, tag).toFixed(2)}:1`);
+  // 有效外緣對比：淺色背景靠深棕描邊、深色背景靠米白貼紙邊（兩層取較高者）
+  const css = fs.readFileSync(new URL('../clean.css', import.meta.url), 'utf8');
+  const hero = fs.readFileSync(new URL('../forma-hero.css', import.meta.url), 'utf8');
+  const stops = (name) => [...hero.match(new RegExp(`--forma-hero-outdoor-${name}:linear-gradient\\(([^;]+)\\);`))[1].matchAll(/#[0-9a-f]{6}/gi)].map((m) => m[0]);
   const base = css.match(/html\.za-clean\{[\s\S]*?\n\}/)[0];
-  const light = { btn: varOf(base, '--c-accent'), ink: varOf(base, '--c-btn-ink'), bg: varOf(base, '--c-bg'), card: varOf(base, '--c-card') };
-  assert.match(base, /--c-btn:var\(--c-accent\)/);
-  const navyBlock = css.match(/html\.za-clean\[data-theme="navy"\]\{[\s\S]*?--c-btn-ink:#[0-9a-f]{6};/i)[0];
-  const sysBlock = css.match(/html\.za-clean:not\(\[data-theme\]\)\{[\s\S]*?--c-btn-ink:#[0-9a-f]{6};/i)[0];
-  const dark = (b) => ({ btn: varOf(b, '--c-btn'), ink: varOf(b, '--c-btn-ink'), bg: varOf(b, '--c-bg'), card: varOf(b, '--c-card') });
-  for (const [name, t] of [['light', light], ['navy', dark(navyBlock)], ['system dark', dark(sysBlock)]]) {
-    for (const v of Object.values(t)) assert.match(String(v), /^#[0-9a-f]{6}$/i, `${name} colour resolved`);
-    assert.ok(contrast(t.ink, t.btn) >= 4.5, `${name}: AI text ${t.ink} on ${t.btn} = ${contrast(t.ink, t.btn).toFixed(2)}:1`);
-    assert.ok(contrast(t.btn, t.bg) >= 3, `${name}: cat face ${t.btn} on page ${t.bg} = ${contrast(t.btn, t.bg).toFixed(2)}:1`);
-    assert.ok(contrast(t.btn, t.card) >= 3, `${name}: cat face ${t.btn} on card ${t.card} = ${contrast(t.btn, t.card).toFixed(2)}:1`);
+  const navy = css.match(/html\.za-clean\[data-theme="navy"\]\{[\s\S]*?--c-card:(#[0-9a-f]{6})/i);
+  const bgs = [base.match(/--c-bg:(#[0-9a-f]{6})/i)[1], base.match(/--c-card:(#[0-9a-f]{6})/i)[1], ...stops('light'),
+    css.match(/html\.za-clean\[data-theme="navy"\]\{[\s\S]*?--c-bg:(#[0-9a-f]{6})/i)[1], navy[1], ...stops('dark')];
+  assert.ok(bgs.includes('#f1f0ec') && bgs.includes('#ffffff') && bgs.includes('#171717') && bgs.includes('#232323'));
+  for (const bg of bgs) {
+    const eff = Math.max(contrast(brown, bg), contrast(rim, bg));
+    assert.ok(eff >= 3, `cat outline on ${bg} = ${eff.toFixed(2)}:1`);
   }
-  // 深藍主題舊的「白底圓鈕」規則會被貓咪規則蓋掉（背景透明、無圓形陰影）
+
+  // CSS：舊貓頭（耳朵動畫）規則已移除；整隻貓輕晃只在 no-preference；reduce 明確關掉；焦點外框；貼紙陰影
+  const cat = css.slice(css.indexOf('/* ════ AI 浮動按鈕：白貓鈴鐺吊牌'));
+  assert.ok(cat.length > 0);
+  assert.doesNotMatch(css, /za-ai-cat-ear|--ai-cat-face|za-ai-cat-head/);
+  assert.match(cat, /html\.za-clean \.premium-ai-launcher\.za-ai-cat\{background:transparent!important;box-shadow:none!important;border:0!important/);
+  assert.match(cat, /\.za-ai-cat \.za-ai-cat-svg\{[^}]*filter:drop-shadow\(/);
+  assert.match(cat, /\.premium-ai-launcher\.za-ai-cat:focus-visible\{outline:2px solid var\(--c-accent\)!important/);
+  const motion = cat.match(/@media \(prefers-reduced-motion:no-preference\)\{([\s\S]*?)\n\}/);
+  assert.ok(motion, 'animation lives inside prefers-reduced-motion:no-preference');
+  assert.match(motion[1], /\.za-ai-cat \.za-ai-cat-body\{animation:za-ai-cat-sway 6s/);
+  assert.equal((cat.replace(motion[0], '').match(/animation:za-ai-cat/g) || []).length, 0);
+  assert.match(cat, /@media \(prefers-reduced-motion:reduce\)\{\.za-ai-cat \.za-ai-cat-body\{animation:none!important\}\}/);
+  assert.match(cat, /transform-origin:50% 100%/);
+  assert.doesNotMatch(cat, /url\(|https?:/);
+  // 新貓咪樣式排在舊的深藍白圓底規則後面（才蓋得掉）
   assert.ok(css.indexOf('html.za-clean .premium-ai-launcher.za-ai-cat{') > css.lastIndexOf('.premium-ai-launcher{background:#ffffff!important'));
-  // index.html 換了 clean.css 的快取版本，避免新按鈕配到舊樣式
+  // 快取參數
   const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-  assert.match(html, /href="\/clean\.css\?v=ai-cat-1"/);
+  assert.match(html, /href="\/clean\.css\?v=ai-cat-c-1"/);
+  assert.match(html, /<script src="\/app\.js\?v=8"><\/script>/);
 });
 
 // 「即時股價」重新整理鈕不能落在右下角 AI 按鈕那一欄（捲到同高時會被蓋住、點不到）。

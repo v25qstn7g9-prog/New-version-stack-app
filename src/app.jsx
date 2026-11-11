@@ -11491,27 +11491,30 @@ function AiChatWidget({ advancedUse = true, holdings, goal, totalToday, totalInv
           right: "calc(14px + env(safe-area-inset-right, 0px))", bottom: "calc(64px + env(safe-area-inset-bottom, 4px))",
           width: 60, height: 60, padding: 0, background: "transparent", border: 0,
         }}>
-        {/* 可愛貓咪頭＋「AI」：純 inline SVG（不載入任何外部資源）；顏色用主題變數 --c-btn／--c-btn-ink（clean.css .za-ai-cat）。
-            讀螢幕軟體讀 aria-label；動畫只在 prefers-reduced-motion: no-preference 時才有。 */}
-        <svg className="za-ai-cat-svg" viewBox="0 0 60 60" width="60" height="60" aria-hidden="true" focusable="false">
-          <g className="za-ai-cat-head">
-            <g className="za-ai-cat-ear za-ai-cat-ear-l">
-              <path d="M7 27 L10.5 4.5 L27 15 Z" fill="var(--ai-cat-face)" stroke="var(--ai-cat-face)" strokeWidth="3" strokeLinejoin="round" />
-              <path d="M12.5 21 L14 10.5 L21.5 15.5 Z" fill="var(--ai-cat-ink)" opacity="0.28" />
+        {/* 白貓鈴鐺吊牌（設計 C，/workspace/puter-login/cute-design/cat-c-final.svg）：純 inline SVG、不載入外部資源；
+            讀螢幕軟體讀按鈕的 aria-label。動畫（整隻貓輕晃）只在 prefers-reduced-motion: no-preference 時才有。 */}
+        <svg className="za-ai-cat-svg" viewBox="-4 -4 108 108" width="60" height="60" aria-hidden="true" focusable="false">
+          <g className="za-ai-cat-body">
+            <g strokeLinecap="round" strokeLinejoin="round">
+            <g fill="#fffaf2" stroke="#fffaf2" strokeWidth="14.6" opacity=".96"><path d="M17,29 Q11,11 16,6 Q21,3 40,11Z"/><path d="M83,29 Q89,11 84,6 Q79,3 60,11Z"/><path d="M14,37 a36,28 0 1,0 72,0 a36,28 0 1,0 -72,0Z"/><path d="M25,80 a25,15 0 1,0 50,0 a25,15 0 1,0 -50,0Z"/><path d="M38,65 h24 q9,0 9,9 v13 q0,9 -9,9 h-24 q-9,0 -9,-9 v-13 q0,-9 9,-9Z"/><path d="M73,88 Q91,88 89,70" strokeWidth="16.5" fill="none"/></g>
+            <g fill="#4a2c1a" stroke="#4a2c1a" strokeWidth="6.2"><path d="M17,29 Q11,11 16,6 Q21,3 40,11Z"/><path d="M83,29 Q89,11 84,6 Q79,3 60,11Z"/><path d="M14,37 a36,28 0 1,0 72,0 a36,28 0 1,0 -72,0Z"/><path d="M25,80 a25,15 0 1,0 50,0 a25,15 0 1,0 -50,0Z"/><path d="M38,65 h24 q9,0 9,9 v13 q0,9 -9,9 h-24 q-9,0 -9,-9 v-13 q0,-9 9,-9Z"/><path d="M73,88 Q91,88 89,70" strokeWidth="13.7" fill="none"/></g>
+            <path d="M73,88 Q91,88 89,70" fill="none" stroke="#fff7ec" strokeWidth="7.5"/>
+            <path d="M87,80 Q90,75 89,70" fill="none" stroke="#e6ded4" strokeWidth="5"/>
+            <path d="M25,80 a25,15 0 1,0 50,0 a25,15 0 1,0 -50,0Z" fill="#fff7ec" stroke="#4a2c1a" strokeWidth="2.6"/>
+            <path d="M28,86 Q50,98 72,86 Q70,93 50,95 Q30,93 28,86Z" fill="#e6ded4"/>
+            <path d="M17,29 Q11,11 16,6 Q21,3 40,11Z" fill="#fff7ec" stroke="#4a2c1a" strokeWidth="2.6"/>
+            <path d="M83,29 Q89,11 84,6 Q79,3 60,11Z" fill="#fff7ec" stroke="#4a2c1a" strokeWidth="2.6"/>
+            <path d="M21,24 Q18,13 20,10 Q23,9 33,14Z" fill="#ffb9c2"/>
+            <path d="M79,24 Q82,13 80,10 Q77,9 67,14Z" fill="#ffb9c2"/>
+            <path d="M14,37 a36,28 0 1,0 72,0 a36,28 0 1,0 -72,0Z" fill="#fff7ec" stroke="#4a2c1a" strokeWidth="2.6"/>
+            <path d="M18,48 Q50,72 82,48 Q80,62 50,64.5 Q20,62 18,48Z" fill="#e6ded4"/>
+            <ellipse cx="36" cy="38" rx="6.3" ry="7.4" fill="#4a2c1a"/><circle cx="37.9" cy="35.6" r="2.6" fill="#fff"/><ellipse cx="64" cy="38" rx="6.3" ry="7.4" fill="#4a2c1a"/><circle cx="65.9" cy="35.6" r="2.6" fill="#fff"/><ellipse cx="28" cy="46.5" rx="5.6" ry="3.4" fill="#ff9eab" opacity=".85"/><ellipse cx="72" cy="46.5" rx="5.6" ry="3.4" fill="#ff9eab" opacity=".85"/><path d="M48.2,43.9 h3.6 q0,2 -1.8,2.6 q-1.8,-.6 -1.8,-2.6Z" fill="#ffb9c2" stroke="#4a2c1a" strokeWidth="1" strokeLinejoin="round"/><path d="M45,47.1 q2.5,3.4 5,0 q2.5,3.4 5,0" fill="none" stroke="#4a2c1a" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M21,52 Q50,67 79,52 L79,58 Q50,74 21,58Z" fill="#d9505f" stroke="#4a2c1a" strokeWidth="2.6"/>
+            <path d="M38,65 h24 q9,0 9,9 v13 q0,9 -9,9 h-24 q-9,0 -9,-9 v-13 q0,-9 9,-9Z" fill="#ffe3ea" stroke="#4a2c1a" strokeWidth="2.6"/>
+            <circle cx="29" cy="64" r="5.2" fill="#f7c948" stroke="#4a2c1a" strokeWidth="2.6"/>
+            <circle cx="50" cy="68.4" r="1.6" fill="#4a2c1a"/>
+            <g fill="none" stroke="#4a2c1a" strokeWidth="5.8" strokeLinecap="round" strokeLinejoin="round"><path d="M34.9,91 L44.2,72 L53.5,91"/><path d="M37.25,86.2 H51.15" strokeWidth="3.6"/><path d="M64.8,72 V91"/></g>
             </g>
-            <g className="za-ai-cat-ear za-ai-cat-ear-r">
-              <path d="M53 27 L49.5 4.5 L33 15 Z" fill="var(--ai-cat-face)" stroke="var(--ai-cat-face)" strokeWidth="3" strokeLinejoin="round" />
-              <path d="M47.5 21 L46 10.5 L38.5 15.5 Z" fill="var(--ai-cat-ink)" opacity="0.28" />
-            </g>
-            <ellipse cx="30" cy="35" rx="25.5" ry="22" fill="var(--ai-cat-face)" />
-            <circle className="za-ai-cat-eye" cx="21" cy="27.5" r="2.4" fill="var(--ai-cat-ink)" />
-            <circle className="za-ai-cat-eye" cx="39" cy="27.5" r="2.4" fill="var(--ai-cat-ink)" />
-            <g stroke="var(--ai-cat-ink)" strokeWidth="1.6" strokeLinecap="round" fill="none">
-              <path d="M5.5 35.5 L12.5 36.5" /><path d="M6.5 41 L13 39.5" />
-              <path d="M54.5 35.5 L47.5 36.5" /><path d="M53.5 41 L47 39.5" />
-            </g>
-            <text x="30" y="46" textAnchor="middle" fill="var(--ai-cat-ink)" fontSize="16" fontWeight="800" letterSpacing="0.5"
-              style={{ fontFamily: "inherit" }}>AI</text>
           </g>
         </svg>
       </button>
