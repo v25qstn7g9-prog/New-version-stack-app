@@ -1533,6 +1533,31 @@ function trackedAutoSave(key, value, restoringRef, pending, save) {
   p.then(done, done);
   return p;
 }
+// <autosave-fail-state>
+// 自動存檔失敗提示：saveKey 回傳 false（window.storage 與 localStorage 都寫失敗）才算失敗。
+// 狀態是「失敗中的 key 清單」：同一 key 連續失敗不重複加入、回傳同一個陣列（React 不重繪）；該 key 下次成功就移除。
+function applyAutoSaveResult(prev, key, saved) {
+  const list = Array.isArray(prev) ? prev : [];
+  const has = list.includes(key);
+  if (saved === false) return has ? list : [...list, key];
+  if (saved === true && has) return list.filter((k) => k !== key);
+  return list;
+}
+// 包住 save：只有真的送出寫入時才回報結果（還原鎖、損壞保護跳過的 key 不會走到這裡，不算失敗）；回傳值不變。
+// seqs 是跨 render 的「每個 key 的寫入序號」（useRef Map）：送出時同步取號，完成時只有該 key 目前最新一筆才回報，
+// 較舊的寫入晚到（不論成功或失敗）一律忽略，避免舊成功清掉新失敗、或舊失敗讓已恢復的提示重新出現。
+function reportingSave(save, report, seqs) {
+  return async (key, value) => {
+    const seq = (seqs.get(key) || 0) + 1;
+    seqs.set(key, seq);
+    const saved = await save(key, value);
+    if (seqs.get(key) === seq) {
+      try { report(key, saved); } catch (e) { console.warn("autosave report failed", key, e); }
+    }
+    return saved;
+  };
+}
+// </autosave-fail-state>
 async function waitForPendingAutoSaves(pending, tick = (fn) => setTimeout(fn, 0)) {
   // 先讓已排入的 effect 跑完（此時 restoringRef 已擋住，不會再送出新寫入），再等已送出的寫入結束。
   await new Promise((resolve) => tick(resolve));
@@ -1707,12 +1732,16 @@ function AssetTracker() {
   // 讀檔損壞的使用者紀錄 key：這次執行不自動寫回（保護原始資料），並顯示提示橫幅。
   const [corruptLoads, setCorruptLoads] = useState([]);
   const corruptKeysRef = useRef(new Set());
+  // 自動存檔寫入失敗（兩個儲存管道都失敗）的 key：顯示「本機儲存失敗」提示，該 key 下次存成功就清除。
+  const [saveFailKeys, setSaveFailKeys] = useState([]);
+  const reportAutoSave = (key, saved) => setSaveFailKeys((prev) => applyAutoSaveResult(prev, key, saved));
   // <restore-lock>
   // 損壞狀態下的 JSON還原一開始就設為 true，之後本次執行所有自動存檔都跳過（成功→重新載入；失敗→請重新整理）。
   const restoringRef = useRef(false);
   const pendingAutoSavesRef = useRef(new Set());
+  const autoSaveSeqRef = useRef(new Map()); // 每個 key 的自動存檔寫入序號（失敗提示只看最新一筆）
   const canPersist = (key) => !restoringRef.current && !corruptKeysRef.current.has(key);
-  const persistKey = (key, value) => trackedAutoSave(key, value, restoringRef, pendingAutoSavesRef.current, saveKey);
+  const persistKey = (key, value) => trackedAutoSave(key, value, restoringRef, pendingAutoSavesRef.current, reportingSave(saveKey, reportAutoSave, autoSaveSeqRef.current));
   // </restore-lock>
   const [tab, setTab] = useState("dashboard");
   const [showEnglish, setShowEnglish] = useState(() => {
@@ -3223,6 +3252,7 @@ function AssetTracker() {
       <div ref={headerRef}>
         <Header goal={goal} totalToday={totalToday} goalDate={goalDate} backupOverdue={showBackupBanner} backupAgeDays={backupAgeDays} showEnglish={showEnglish} onToggleBilingual={toggleBilingual} onOpenBackup={openBackup} />
         <CorruptLoadBanner items={corruptLoads} onOpenBackup={openBackup} syncPaused={!!zinfSyncToken} />
+        <SaveFailBanner keys={saveFailKeys} onOpenBackup={openBackup} />
         <ClosingReminderBanner />
         <MissedDaysBanner days={missedHiddenDay === todayStr() ? [] : missedDays} busy={missedBusy} msg={missedMsg} onFill={fillMissedDays} onLater={hideMissedToday} />
         {pendingTrades.length > 0 && (
@@ -9737,6 +9767,48 @@ function CorruptLoadBanner({ items, onOpenBackup, syncPaused = false }) {
     </div>
   );
 }
+// <save-fail-banner>
+// 自動存檔寫入失敗（例如 iPhone 空間不足 QuotaExceededError）時的提示：不擋操作、不用 alert、沒有動畫；
+// 同一組失敗項目只顯示一個橫幅，全部恢復後消失。
+const SAVE_FAIL_LABELS = {
+  holdings: ["持股", "Holdings"], usHoldings: ["持股", "Holdings"], trades: ["交易", "Trades"],
+  dailyRecords: ["每日紀錄", "Daily Records"], dividends: ["配息", "Dividends"],
+  planItems: ["存股計畫", "Plan"], planSchedule: ["存股計畫", "Plan"], goal: ["目標", "Goal"],
+  costBasis: ["成本", "Cost Basis"], lastBackupAt: ["備份時間", "Backup Time"],
+  aiFallbackConfig: ["設定", "Settings"], zinfSyncToken: ["設定", "Settings"], showUsFields: ["設定", "Settings"],
+  advancedMode: ["設定", "Settings"], usBrokerCalibration: ["設定", "Settings"],
+};
+function saveFailLabels(keys) {
+  const zh = [], en = [];
+  for (const k of keys || []) {
+    const [z, e] = SAVE_FAIL_LABELS[k] || ["其他資料", "Other data"];
+    if (!zh.includes(z)) zh.push(z);
+    if (!en.includes(e)) en.push(e);
+  }
+  return { zh: zh.join("／"), en: en.join(" / ") };
+}
+function SaveFailBanner({ keys, onOpenBackup }) {
+  if (!keys || !keys.length) return null;
+  const { zh, en } = saveFailLabels(keys);
+  return (
+    <div className="mx-4 mb-3 rounded-xl p-3" role="status" aria-live="polite" data-save-fail-banner
+      style={{ background: COLORS.panel, border: "1px solid var(--c-warn, #9c6c00)", overflowWrap: "anywhere" }}>
+      <div className="forma-note-title text-[11px] font-bold" style={{ color: "var(--c-warn, #9c6c00)" }}>
+        {UI_SHOW_ENGLISH ? `⚠️ Couldn't save ${en} on this device` : `⚠️ 本機儲存失敗：${zh}`}
+      </div>
+      <div className="forma-note mt-1 text-[11px] leading-5" style={{ color: COLORS.text }}>
+        {UI_SHOW_ENGLISH
+          ? `Saving to this device failed (the phone may be out of space). Before reopening the app, go to Settings and tap "JSON Backup", or recent changes may be lost.`
+          : `本機儲存失敗（可能是手機空間不足），重開前請先到設定按「JSON備份」，否則剛才的修改可能不見。`}
+      </div>
+      <button type="button" onClick={onOpenBackup} className="forma-tap mt-2 w-full rounded-lg py-1.5 text-[11px] font-bold"
+        style={{ background: COLORS.gold, color: COLORS.bg, minHeight: 44 }}>
+        {UI_SHOW_ENGLISH ? "Go to JSON Backup" : "前往設定按「JSON備份」"}
+      </button>
+    </div>
+  );
+}
+// </save-fail-banner>
 function MissedDaysBanner({ days, busy, msg, onFill, onLater }) {
   if (!days.length && !msg) return null;
   const label = (d) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
