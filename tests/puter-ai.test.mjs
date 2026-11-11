@@ -5,6 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { createRequire } from 'node:module';
 
 const src = fs.readFileSync(new URL('../src/app.jsx', import.meta.url), 'utf8');
 const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
@@ -36,7 +37,7 @@ function loadHelpers(extra = {}) {
       puterSendGate, puterAutoLoadOnce, puterStore, puterSetState, puterQuestionSymbols,
       PUTER_REQUEST_TOKEN_LIMIT, PUTER_QUESTION_TOKEN_LIMIT, PUTER_MAX_TOOL_CALLS_PER_ROUND, PUTER_DATA_OPEN, PUTER_DATA_CLOSE, PUTER_SETTINGS_TOKEN_LIMIT,
       computePuterHoldingValues, buildPuterSettingsSnapshot, puterMaskDatesAndAmounts, fitPuterRequest, puterRequestTokens,
-      puterOptionsTokens, puterChatOptions };`, ctx);
+      puterOptionsTokens, puterChatOptions, puterRiskCommentFlow, buildPuterRiskMessages, PUTER_RISK_LOGIN_REQUIRED, createPuterSingleFlight, puterMarkSignedOut };`, ctx);
   return { ...ctx.api, fetchCalls, document, ctx };
 }
 const json = (x) => JSON.parse(JSON.stringify(x));
@@ -316,7 +317,7 @@ test('[P2-5/B2] not signed in: send gate shows the login prompt with zero networ
   assert.ok(gate.length > 0);
   assert.doesNotMatch(gate, /ensurePuterSdk|loadPuterSdk|fetch|setInput|setMessages|puterAskFlow/);
   assert.ok(send.indexOf('puterSendGate') < send.indexOf('setInput("")'), 'text stays in the input');
-  assert.match(widget, /\{needLogin && !puter\.signedIn && !puterCardOpen && \([\s\S]{0,200}\{PUTER_LOGIN_REQUIRED\}[\s\S]{0,80}<PuterAccountCard \/>/);
+  assert.match(widget, /\{needLogin && !puterCardOpen && \([\s\S]{0,200}\{PUTER_LOGIN_REQUIRED\}[\s\S]{0,80}<PuterAccountCard \/>/);
   // SDK 重載只在「重新載入 Puter」按鈕
   const reloads = (src.match(/ensurePuterSdk\(\)/g) || []).length;
   assert.equal(reloads, 3, 'its own definition + auto-load-once helper + the explicit reload button');
@@ -352,7 +353,8 @@ test('[B4] settings: dual-fallback UI is gone, replaced by a Puter note; owner m
   assert.doesNotMatch(planPanel, /AI 雙層備援|allowPrivate|Gemini 3\.6 Flash（Worker 伺服器端）|PuterAccountCard/);
   assert.match(planPanel, /<Panel title="AI 問答（Puter）">/);
   assert.match(planPanel, /AI 問答已改用你自己的 Puter 帳號/);
-  assert.match(planPanel, /\/api\/owner-model/, 'owner model still affects /ask used by the AI risk comment');
+  // Owner Gemini 模型區塊已隱藏：前端不再讀寫 /api/owner-model（後端保留）
+  assert.doesNotMatch(planPanel.replace(/\{\/\*[\s\S]*?\*\/\}/g, ''), /\/api\/owner-model|ownerModel/);
 });
 
 test('signIn is called synchronously inside the click (no await before it)', () => {
@@ -709,8 +711,9 @@ test('[tool results] read-tool results are capped and marked, with a notice', as
   assert.match(ui.replies[0].notice, /查詢結果較長，已截斷部分內容/);
 });
 
-test('settings + leftovers: owner Gemini note says it does not affect Puter chat; no stale Gemini-permission comment', () => {
-  assert.match(planPanel, /只影響「AI 一句話評論」等仍走後端的功能[\s\S]{0,60}不影響 Puter 的 AI 問答/);
+test('settings + leftovers: owner Gemini block is replaced by a one-line Puter note; no stale Gemini-permission comment', () => {
+  assert.match(planPanel, /AI 問答與 AI 評論都已改用 Puter；後端 Gemini 設定暫時保留不動。/);
+  assert.doesNotMatch(planPanel, /我的 Gemini 模型（只有 Owner）<\/div>/);
   assert.doesNotMatch(src, /Gemini 備援權限只控制是否把私人持股 context 交給 Gemini/);
   assert.doesNotMatch(src, /function buildPortfolioContext\(/);
 });
@@ -1101,4 +1104,271 @@ test('[6-nb] settings snapshot with symbols puts the requested targets first so 
   assert.ok(snap.indexOf('3079') < snap.indexOf('資產成長計畫假設'));
   assert.match(snap, /年化報酬率假設 7\.5%/);
   assert.ok(api.estimatePuterTokens(snap) <= api.PUTER_SETTINGS_TOKEN_LIMIT);
+});
+
+// ---------------- 老大 17:31 同意事項 ----------------
+const riskMetrics = { maxDrawdown: -12.345, volatility: 18.2, sharpe: 0.91, sortino: 1.3, xirr: 9.87 };
+function riskUi() {
+  const ui = { loading: true, needLogin: 0, replies: [], issues: [], doneCount: 0 };
+  ui.onNeedLogin = () => { ui.needLogin += 1; };
+  ui.onReply = (t) => ui.replies.push(t);
+  ui.onIssue = (i) => ui.issues.push(json(i));
+  ui.done = () => { ui.doneCount += 1; ui.loading = false; };
+  return ui;
+}
+
+test('[AI 評論] not signed in / SDK not loaded: login prompt only — no chat call, no request, no SDK load', async () => {
+  const api = loadHelpers();
+  for (const p of [undefined, fakePuter({ signedIn: false })]) {
+    const ui = riskUi();
+    const r = await api.puterRiskCommentFlow(riskMetrics, { getPuter: () => p }, ui, {});
+    assert.equal(r.needLogin, true);
+    assert.equal(ui.needLogin, 1);
+    assert.equal(ui.loading, false, 'loading recovers');
+    assert.equal(ui.doneCount, 1);
+    if (p) assert.equal(p.calls.chat.length, 0, 'puter.ai.chat is never called');
+  }
+  assert.equal(api.fetchCalls.length, 0);
+  assert.equal(api.document.appended.length, 0, 'no SDK script injected');
+  assert.equal(api.PUTER_RISK_LOGIN_REQUIRED, '請先用 Puter 帳號登入才能使用 AI 評論。');
+  // 卡片：未登入時顯示提示＋登入按鈕；SDK 已載入就在點擊當下同步 signIn，沒載入就引導到 AI 問答
+  const card = src.slice(src.indexOf('function PortfolioPerformanceCard('), src.indexOf('function DashboardCollapsibleSection('));
+  assert.match(card, /\{PUTER_RISK_LOGIN_REQUIRED\}/);
+  assert.match(card, /onClick=\{puterAccount\.sdk === "ready" \? signInForRiskComment : openAiChatForLogin\}/);
+  const signIn = block(card, 'const signInForRiskComment = () => {');
+  assert.doesNotMatch(signIn, /\bawait\b|async/);
+  assert.match(signIn, /puterSignInClick\(window,/);
+  assert.match(block(card, 'const openAiChatForLogin = () => {'), /dispatchEvent\(new CustomEvent\("zinf-open-ai-chat"/);
+  assert.doesNotMatch(card, /ensurePuterSdk|loadPuterSdk|puterAutoLoadOnce/);
+  assert.match(widget, /window\.addEventListener\("zinf-open-ai-chat", onOpen\)/);
+});
+
+test('[AI 評論] signed in: only risk metrics go straight to Puter (no tools, fallback:false); reply shown; no fetch', async () => {
+  const api = loadHelpers();
+  const p = fakePuter({ rounds: [[{ type: 'text', text: '風險與報酬大致\n匹配。' }]] });
+  const ui = riskUi();
+  const r = await api.puterRiskCommentFlow(riskMetrics, { getPuter: () => p }, ui, { timeoutMs: 1000 });
+  assert.equal(r.ok, true);
+  assert.deepEqual(ui.replies, ['風險與報酬大致 匹配。']);
+  assert.equal(ui.loading, false);
+  const call = p.calls.chat[0];
+  assert.equal(call.opts.fallback, false);
+  assert.equal(call.opts.model, 'gpt-5-nano');
+  assert.equal(call.opts.tools, undefined, 'no tools');
+  assert.equal(call.messages.length, 2);
+  const user = call.messages[1].content;
+  assert.match(user, /最大回撤 -12\.35%；年化波動 18\.20%；Sharpe 0\.91；Sortino 1\.30；XIRR 9\.87%/);
+  assert.doesNotMatch(JSON.stringify(call.messages), /持股|股數|成本|NT\$|0050|APP_DATA/, 'only risk metrics, no holdings');
+  assert.ok(api.puterRequestTokens(call.messages, call.opts) < 1000, 'tiny request within budget');
+  assert.equal(api.fetchCalls.length, 0);
+  // English UI 照舊用英文提示句
+  assert.match(api.buildPuterRiskMessages(riskMetrics, true)[1].content, /^Based only on these portfolio risk metrics/);
+});
+
+test('[AI 評論] 402 / 429 / network / timeout: Traditional Chinese message only — no retry, no /ask, no built-in AI', async () => {
+  const api = loadHelpers();
+  for (const [round, kind] of [[{ reject: { error: 'insufficient_funds', code: 402 } }, 'quota'], [{ reject: { error: 'too_many_requests', code: 429 } }, 'rate_limit'], [{ reject: { code: 'network_error' } }, 'network'], ['hang', 'timeout']]) {
+    const p = fakePuter({ rounds: [round] });
+    const ui = riskUi();
+    await api.puterRiskCommentFlow(riskMetrics, { getPuter: () => p }, ui, { timeoutMs: 30 });
+    assert.equal(ui.issues.length, 1);
+    assert.equal(ui.issues[0].kind, kind);
+    assert.doesNotMatch(ui.issues[0].message, /內建 AI/);
+    assert.equal(p.calls.chat.length, 1, 'no automatic retry');
+    assert.equal(ui.loading, false);
+  }
+  assert.equal(api.fetchCalls.length, 0);
+});
+
+test('[/ask] the whole frontend source has no /ask call anymore', () => {
+  assert.doesNotMatch(src, /["'`]\/ask["'`?]/);
+  assert.doesNotMatch(src, /fetch(?:WithTimeout)?\(\s*["'`][^"'`]*\/ask\b/);
+  assert.doesNotMatch(html, /["'`]\/ask["'`?]/);
+  const card = src.slice(src.indexOf('function PortfolioPerformanceCard('), src.indexOf('function DashboardCollapsibleSection('));
+  assert.doesNotMatch(card, /fetchWithTimeout|fetch\(|x-device-id|zinfSyncToken/);
+  assert.match(block(card, 'const askAiRiskComment = () => {'), /puterRiskCommentFlow\(m, \{ getPuter: \(\) => window\.puter \}/);
+});
+
+test('[query_app_data] schema limit text matches the real cap (validator + executeReadTool)', () => {
+  const api = loadHelpers();
+  const run = loadReadTool();
+  const tool = api.puterAiTools(TODAY).find((t) => t.function.name === 'query_app_data');
+  const desc = tool.function.parameters.properties.limit.description;
+  assert.match(desc, new RegExp(`預設 ${api.PUTER_TOOL_RECORD_LIMIT}、上限 ${api.PUTER_TOOL_RECORD_LIMIT}`));
+  assert.doesNotMatch(JSON.stringify(api.puterAiTools(TODAY)), /120|200/);
+  assert.equal(api.PUTER_TOOL_RECORD_LIMIT, 30);
+  assert.equal(api.validatePuterToolCall({ name: 'query_app_data', arguments: { source: 'trades', limit: 1000 } }, {}).args.limit, 30);
+  assert.equal(api.validatePuterToolCall({ name: 'query_app_data', arguments: { source: 'trades' } }, {}).args.limit, 30);
+  // 實際查詢函式的上限也是 30（就算直接傳 200）
+  const trades = Array.from({ length: 100 }, (_, i) => ({ date: `2026-01-${String((i % 28) + 1).padStart(2, '0')}`, symbol: '0050', action: 'buy', shares: 1, price: 1, amount: 1, currency: 'TWD' }));
+  const out = run({ name: 'query_app_data', arguments: { source: 'trades', limit: 200 } }, { trades, dailyRecords: [], dividends: [], holdings: [] }).split('\n');
+  assert.equal(out.length, 31);
+  assert.match(out[0], /只列最近 30 筆/);
+});
+
+// ---------------- Codex 第八輪 ----------------
+// 極簡、有狀態的 React 替身：實際渲染 src/app.jsx 裡的元件（hooks 會跨次渲染保留、effect 會執行、卸載會跑 cleanup），
+// 讓測試檢查「畫面上真的出現了什麼」，而不是只檢查 callback。
+function mountComponent(componentName, props, extraEnv = {}) {
+  const Babel = createRequire(import.meta.url)('@babel/standalone');
+  const take = (start, end) => { const a = src.indexOf(start); assert.ok(a >= 0, start); return src.slice(a, src.indexOf(end, a) + end.length); };
+  const parts = [
+    take('const COLORS = {', '\n};\n'), take('const UI_EN = {', '\n};\n'),
+    take('function uiText(', '\n}\n'), take('function UiLabel(', '\n}\n'), take('const pf = ', '\n'), take('const nf = ', '\n'),
+    take('function cleanAiDisplayText(', '\n}\n'),
+    helpers, src.slice(src.indexOf(END), src.indexOf('// AI 問答裡的 Puter 帳號區塊')),
+    take(`function ${componentName}(`, '\n}\n'),
+  ];
+  const code = Babel.transform(parts.join('\n'), { presets: ['react'] }).code;
+  const Fragment = Symbol('Fragment');
+  let slots = [], cursor = 0, effects = [], cleanups = new Map(), dirty = false;
+  const React = { Fragment, createElement: (type, p, ...children) => ({ type, props: { ...(p || {}), children } }) };
+  const useState = (init) => {
+    const i = cursor++;
+    if (!(i in slots)) slots[i] = typeof init === 'function' ? init() : init;
+    return [slots[i], (v) => { const nv = typeof v === 'function' ? v(slots[i]) : v; if (nv !== slots[i]) { slots[i] = nv; dirty = true; } }];
+  };
+  const useRef = (v) => { const i = cursor++; if (!(i in slots)) slots[i] = { current: v }; return slots[i]; };
+  const useEffect = (fn, deps) => {
+    const i = cursor++;
+    const prev = slots[i];
+    const changed = !prev || !deps || deps.length !== prev.length || deps.some((d, k) => d !== prev[k]);
+    slots[i] = deps;
+    if (changed) effects.push([i, fn]);
+  };
+  const fetchCalls = [];
+  const doc = fakeDoc();
+  const win = { fetch: (...a) => { fetchCalls.push(a); return Promise.reject(new Error('no fetch')); }, dispatched: [], dispatchEvent(e) { this.dispatched.push(e); }, addEventListener() {}, removeEventListener() {}, ...(extraEnv.window || {}) };
+  const ctx = vm.createContext({
+    React, useState, useRef, useEffect, useMemo: (fn) => fn(), useCallback: (fn) => fn, useLayoutEffect: () => {},
+    UI_SHOW_ENGLISH: false, window: win, document: doc, navigator: { userAgent: 'test' }, fetch: win.fetch,
+    console: { warn() {}, log() {}, error() {} }, setTimeout, clearTimeout, AbortController, Promise, Symbol, JSON,
+    CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init && init.detail; } },
+    ...(extraEnv.globals || {}), __out: {},
+  });
+  vm.runInContext(`${code}\n__out.C = ${componentName}; __out.store = puterStore; __out.set = puterSetState;`, ctx);
+  const esc = (x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  let nodes = [];
+  const renderNode = (n) => {
+    if (n == null || n === false || n === true) return '';
+    if (Array.isArray(n)) return n.map(renderNode).join('');
+    if (typeof n !== 'object') return esc(n);
+    const { type, props: p } = n;
+    if (type === Fragment) return renderNode(p.children);
+    if (typeof type === 'function') return renderNode(type(p));
+    const inner = renderNode(p.children);
+    nodes.push({ type, props: p, text: inner.replace(/<[^>]+>/g, '').trim() });
+    return `<${type}>${inner}</${type}>`;
+  };
+  let html = '';
+  const render = () => {
+    for (let pass = 0; pass < 10; pass++) {
+      cursor = 0; effects = []; nodes = []; dirty = false;
+      html = renderNode(ctx.__out.C(props));
+      for (const [i, fn] of effects) { const c = cleanups.get(i); if (c) c(); const r = fn(); if (typeof r === 'function') cleanups.set(i, r); }
+      if (!dirty) return;
+    }
+  };
+  render();
+  return {
+    get html() { return html; },
+    text: () => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
+    button: (label) => nodes.find((n) => n.type === 'button' && n.text.includes(label)),
+    rerender: render,
+    unmount: () => { for (const c of cleanups.values()) c(); cleanups.clear(); },
+    store: ctx.__out.store, setStore: ctx.__out.set, fetchCalls, doc, win,
+  };
+}
+const riskCardProps = { records: [], dividends: [], capitalGain: 0, totalDividends: 0, totalReturn: 0, totalReturnPct: 0, twTotalReturn: 0, twTotalReturnPct: 0, usTotalReturn: 0, usTotalReturnPct: 0, hasUsAssets: false, ytdGain: 0, ytdPct: 0, totalInvested: 0 };
+const riskHealth = () => ({ maxDrawdown: -10, volatility: 15, sharpe: 1.1, sortino: 1.4, xirr: 8, annualReturn: 9 });
+
+test('[8-1] stale store says signed in but SDK says no: the login prompt and button really appear; zero requests', async () => {
+  const p = fakePuter({ signedIn: false });
+  const card = mountComponent('PortfolioPerformanceCard', riskCardProps, { window: { puter: p }, globals: { calcPortfolioHealth: riskHealth } });
+  card.setStore({ signedIn: true, userName: 'old', sdk: 'ready' });   // 舊狀態
+  card.rerender();
+  assert.doesNotMatch(card.text(), /請先用 Puter 帳號登入才能使用 AI 評論/);
+  card.button('請 AI 評論').props.onClick();
+  await new Promise((r) => setTimeout(r, 0));
+  card.rerender();
+  assert.match(card.text(), /請先用 Puter 帳號登入才能使用 AI 評論/, 'prompt is visible');
+  assert.ok(card.button('用 Puter 帳號登入'), 'login button is visible (SDK ready → sign in right here)');
+  assert.equal(card.store.state.signedIn, false, 'shared store corrected');
+  assert.equal(card.store.state.userName, '');
+  assert.equal(p.calls.chat.length, 0);
+  assert.equal(card.fetchCalls.length, 0);
+  assert.equal(card.doc.appended.length, 0);
+  // 再按一次仍然可以繼續（不會卡住）：按登入 → 點擊當下同步 signIn
+  card.button('用 Puter 帳號登入').props.onClick();
+  assert.equal(p.calls.signIn, 1);
+  // SDK 還沒載入：按鈕改成引導到 AI 問答，按下只送出開啟事件，不發請求
+  const card2 = mountComponent('PortfolioPerformanceCard', riskCardProps, { globals: { calcPortfolioHealth: riskHealth } });
+  card2.setStore({ signedIn: true, sdk: 'idle' });
+  card2.rerender();
+  card2.button('請 AI 評論').props.onClick();
+  await new Promise((r) => setTimeout(r, 0));
+  card2.rerender();
+  assert.match(card2.text(), /請先用 Puter 帳號登入才能使用 AI 評論/);
+  card2.button('到 AI 問答登入 Puter').props.onClick();
+  assert.equal(card2.win.dispatched[0].type, 'zinf-open-ai-chat');
+  assert.equal(card2.fetchCalls.length + card2.doc.appended.length, 0);
+});
+
+test('[8-1] chat send gate also corrects a stale store, and the prompt does not depend on it', () => {
+  const api = loadHelpers({ window: { puter: fakePuter({ signedIn: false }) } });
+  api.puterSetState({ signedIn: true, userName: 'old' });
+  assert.equal(api.puterSendGate(api.ctx.window), 'login');
+  api.puterMarkSignedOut();
+  assert.equal(api.puterStore.state.signedIn, false);
+  assert.equal(api.puterStore.state.userName, '');
+  const send = block(widget, 'const send = () => {');
+  assert.match(send, /if \(puterSendGate\(window\) !== "ask"\) \{\s*puterMarkSignedOut\(\);\s*setNeedLogin\(true\);/);
+  assert.match(widget, /\{needLogin && !puterCardOpen && \(/);
+  assert.doesNotMatch(widget + src.slice(src.indexOf('function PortfolioPerformanceCard('), src.indexOf('function DashboardCollapsibleSection(')), /needLogin && !puter(?:Account)?\.signedIn/i);
+});
+
+test('[8-2] risk card: repeated clicks while loading are ignored; unmount aborts the in-flight request', async () => {
+  // 單一請求鎖
+  const api = loadHelpers();
+  const flight = api.createPuterSingleFlight();
+  let runs = 0, release;
+  const first = flight.run(() => { runs += 1; return new Promise((r) => { release = r; }); });
+  assert.equal(flight.run(() => { runs += 1; }), null);
+  assert.equal(flight.busy, true);
+  release(); await first;
+  assert.equal(flight.busy, false);
+  flight.run(() => { runs += 1; });
+  assert.equal(runs, 2);
+  // 實際渲染卡片：Puter 一直沒回應
+  const p = fakePuter({ rounds: ['hang'] });
+  const card = mountComponent('PortfolioPerformanceCard', riskCardProps, { window: { puter: p }, globals: { calcPortfolioHealth: riskHealth } });
+  card.button('請 AI 評論').props.onClick();
+  card.button('請 AI 評論').props.onClick();   // 同一輪 React 還沒更新就連按
+  await new Promise((r) => setTimeout(r, 0));
+  card.rerender();
+  assert.ok(card.button('AI 評論中…'), 'loading is shown');
+  card.button('AI 評論中…').props.onClick();   // loading 中再按
+  assert.equal(p.calls.chat.length, 1, 'only one request in flight');
+  const signal = p.calls.chat[0].opts.signal;
+  assert.equal(signal.aborted, false);
+  card.unmount();   // 收合「進階績效分析」＝卡片卸載
+  assert.equal(signal.aborted, true, 'unmount aborts the request');
+  await new Promise((r) => setTimeout(r, 0));
+  // 重新掛上（重開）是全新的卡片，可以再送一次；不會和舊請求並行
+  const card2 = mountComponent('PortfolioPerformanceCard', riskCardProps, { window: { puter: p }, globals: { calcPortfolioHealth: riskHealth } });
+  card2.button('請 AI 評論').props.onClick();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(p.calls.chat.length, 2);
+  assert.equal(p.calls.chat[0].opts.signal.aborted, true);
+  card2.unmount();
+  // 流程本身：使用者取消不顯示錯誤
+  const api2 = loadHelpers();
+  let ctrl = null;
+  const ui = riskUi();
+  const pending = api2.puterRiskCommentFlow(riskMetrics, { getPuter: () => fakePuter({ rounds: ['hang'] }) }, ui, { timeoutMs: 5000, onController: (c) => { ctrl = c; } });
+  ctrl.abort();
+  const r = await pending;
+  assert.equal(r.info.kind, 'aborted');
+  assert.equal(ui.issues.length, 0);
+  assert.equal(ui.loading, false);
 });
