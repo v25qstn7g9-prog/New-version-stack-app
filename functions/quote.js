@@ -11,10 +11,9 @@
  * 4. Retry TWSE once for 500/502/503/504/522/524 (520 excluded — observed to
  *    fail identically on retry, so it only adds latency for this endpoint).
  * 5. ?debug=1 surfaces raw TWSE fields + which fallback path was used.
- * 6. Auto refresh is limited to 15s cadence during trading hours; after 13:45 Taiwan time,
- *    auto refresh stops. Manual refresh remains available via ?force=1.
- * 7. The most recent successful quote payload is kept as the final cached snapshot for
- *    manual reads after trading hours.
+ * 6. Intraday responses use a 15s cache. After 13:45, closing checks can
+ *    advance once per minute until 14:05; on-demand reads remain available.
+ * 7. An intraday snapshot is never frozen as the final closing price.
  * 8. A small set of global symbols (US indices / FX) is also served, purely
  *    via Yahoo (TWSE has no such data) — used by the Trend Radar as an
  *    overnight leading signal ahead of the next TWSE session.
@@ -22,8 +21,9 @@
 
 const SYMBOL_PATTERN = /^[0-9]{4,6}[A-Z]?$/;
 const US_SYMBOL_PATTERN = /^[A-Z][A-Z0-9.-]{0,9}$/;
-const QUOTE_VERSION = "4.7-quote-schedule-6-us-live";
+const QUOTE_VERSION = "4.7-quote-schedule-7-closing-sync";
 const QUOTE_REFRESH_INTERVAL_MS = 15 * 1000;
+const POST_CLOSE_CACHE_MS = 5 * 60 * 1000;
 const QUOTE_AUTO_STOP_HOUR = 13;
 const QUOTE_AUTO_STOP_MINUTE = 45;
 
@@ -56,13 +56,23 @@ function shouldAutoStopQuoteRequests(now = new Date()) {
   return minutes >= QUOTE_AUTO_STOP_HOUR * 60 + QUOTE_AUTO_STOP_MINUTE;
 }
 
+// Providers may publish the closing snapshot after the last intraday poll.
+// Reconcile each minute through 14:05, then cache only briefly for readers
+// opening the app later. This never changes the quote's own asOfDate.
+function closingCheckpointMs(now = new Date()) {
+  const day = taiwanDateStr(now);
+  const start = Date.parse(day + 'T13:45:00+08:00');
+  const end = Date.parse(day + 'T14:05:00+08:00');
+  return Math.max(start, Math.min(Math.floor(now.getTime() / 60000) * 60000, end));
+}
+
 function isManualForceRefresh(url) {
   return String(url.searchParams.get("force") || "").toLowerCase() === "1";
 }
 
 function quoteCacheKey(symbols, day) {
   const keySymbols = Array.isArray(symbols) ? [...new Set(symbols)].sort().join(",") : "";
-  return keySymbols ? `https://quote-cache.local/response/${day}/${encodeURIComponent(keySymbols)}` : null;
+  return keySymbols ? `https://quote-cache.local/response/${QUOTE_VERSION}/${day}/${encodeURIComponent(keySymbols)}` : null;
 }
 
 async function readQuoteResponseCache(symbols, day) {
@@ -496,11 +506,17 @@ async function fetchYahooPrice(symbol) {
       }
     }
 
-    if (!Number.isFinite(price)) {
-      const metaPrice = Number(r?.meta?.regularMarketPrice);
-      if (Number.isFinite(metaPrice) && metaPrice > 0) {
-        price = metaPrice;
-      }
+    // The 13:30 closing auction can be newer than Yahoo's last one-minute
+    // bar. Prefer it only when its real trade timestamp is at least as new.
+    const metaPrice = Number(r?.meta?.regularMarketPrice);
+    const metaTs = Number(r?.meta?.regularMarketTime);
+    if (Number.isFinite(metaPrice) && metaPrice > 0 && Number.isFinite(metaTs) && metaTs > 0
+        && (!priceAsOf || metaTs * 1000 >= Date.parse(priceAsOf))) {
+      price = metaPrice;
+      priceAsOf = new Date(metaTs * 1000).toISOString();
+      intradayFresh = taipeiDateStr(metaTs) === taiwanDateStr();
+    } else if (!Number.isFinite(price) && Number.isFinite(metaPrice) && metaPrice > 0) {
+      price = metaPrice;
     }
   }
 
@@ -587,6 +603,9 @@ export async function fillTwseFromLastTrades(quotes, day, store = { read: readLa
     if (taipeiDayOf(q.asOfDate) !== day && !(q.asOfDate == null && marketOpen())) continue;
     if (q.price != null && q.priceSource === "last") { await store.write(sym, day, { price: q.price, asOfDate: q.asOfDate }); continue; }
     if (q.price != null) continue;
+    // A prior intraday observation/open is not a verified closing price.
+    // Leave it missing after hours so the newer Yahoo feed is actually tried.
+    if (!marketOpen()) continue;
     const last = await store.read(sym, day);
     if (last) { q.price = Number(last.price); q.priceSource = "last-seen"; q.isStale = false; q.lastTradeAt = last.asOfDate || null; q.asOfDate = q.asOfDate || new Date().toISOString(); continue; }
     if (Number(q.open) > 0) { q.price = Number(q.open); q.priceSource = "open"; q.isStale = false; q.asOfDate = q.asOfDate || new Date().toISOString(); }
@@ -678,27 +697,17 @@ export async function onRequestGet(context) {
     const debug = url.searchParams.get("debug") === "1";
     const day = taiwanDateStr();
 
-    // 台股 13:45 收盤後停止自動查詢；但美股個股與隔夜指標（S&P500、費半、美元／台幣）在台股收盤後
-    // 才開始變動，晚上和隔天早上都要能讀，所以它們不受這個時間限制。
+    // 台股盤後改為收盤校準快取；美股與隔夜指標沿用即時刷新。
     const liveAfterTwClose = symbols.some((s) => isUsEquitySymbol(s) || isGlobalSymbol(s));
     const autoStopped = shouldAutoStopQuoteRequests() && !liveAfterTwClose;
 
     const cachedQuick = await readQuoteResponseCache(symbols, day);
-    if (cachedQuick && !forceRefresh && !autoStopped && (Date.now() - new Date(cachedQuick.fetchedAt || 0).getTime()) < QUOTE_REFRESH_INTERVAL_MS) {
-      return jsonResponse({ ...cachedQuick, fromCache: true, version: QUOTE_VERSION });
-    }
-
-    if (!forceRefresh && autoStopped) {
-      if (cachedQuick) {
-        return jsonResponse({ ...cachedQuick, fromCache: true, stale: true, autoStopped: true, version: QUOTE_VERSION });
-      }
-      return jsonResponse({
-        ok: false,
-        error: "已停用自動查詢，且目前沒有可用快取資料。請使用 ?force=1 手動查詢。",
-        autoStopped: true,
-        day,
-        version: QUOTE_VERSION,
-      }, 200);
+    const cachedAt = Date.parse(cachedQuick?.fetchedAt || '');
+    const cacheAge = Date.now() - cachedAt;
+    const cacheTtl = autoStopped ? POST_CLOSE_CACHE_MS : QUOTE_REFRESH_INTERVAL_MS;
+    const closingCacheReady = !autoStopped || cachedAt >= closingCheckpointMs();
+    if (cachedQuick && !forceRefresh && cacheAge >= 0 && cacheAge < cacheTtl && closingCacheReady) {
+      return jsonResponse({ ...cachedQuick, fromCache: true, ...(autoStopped ? { autoStopped: true } : {}), version: QUOTE_VERSION });
     }
 
     const quotes = {};
@@ -829,6 +838,7 @@ export async function onRequestGet(context) {
     const payload = {
       ok: true,
       version: QUOTE_VERSION,
+      ...(autoStopped ? { autoStopped: true } : {}),
       status: complete ? "complete" : "partial",
       complete,
       requestedCount: symbols.length,
