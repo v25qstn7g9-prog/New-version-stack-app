@@ -1,22 +1,14 @@
 /**
- * proactive-anomaly.js — 主動異常 webhook（設計＋最小實作）
- *
- * 接收端（小助）還沒做。這裡只在既有排程裡「偵測 → 條件成立才送」。
- * 不新增 cron、不新增公開網址、不改持股／每日紀錄／下單。
- *
- * 既有排程（wrangler.jsonc，不在這支檔案改）：
- *   - 每天 08:00（台北）健康檢查 cron：待確認交易、系統／同步異常
- *   - 週一到週五 14:00（台北）收盤記帳 cron：再加上「單日跌幅」（只在門檻有設定時）
- * 盤中每分鐘 cron 不跑這支，避免多打 KV、也避免把盤中波動當成單日跌幅。
- *
- * 單日跌幅沒有沿用任何現成使用者設定：App 裡沒有「跌幾 %／幾元要通知」的欄位。
- * 年化報酬、雷達權重、蜘蛛圖情緒門檻都不是風險承受度，這裡不拿來當門檻。
- * 環境變數沒設、或格式不對 → 該條件關閉，不會自己挑一個百分比。
- *
- * Webhook 失敗只記在自己的狀態裡，不會讓健康檢查、自動記帳或同步 API 失敗。
- * KV 不是交易；重疊的排程仍可能各送一次。這不是 exactly-once。
+ * 既有 08:00／14:00 排程的主動異常偵測。
+ * 14:00：擁有者 App 內＋既有 LINE 推播；百分比跌幅預設 3%。
+ * 舊 webhook 仍為選用，摘要只含事件類別，不帶代號、金額或個資。
+ * 不新增 cron、不使用盤中每分鐘資料；通知失敗不影響自動記帳。
+ * KV 非交易儲存，lease/cooldown 為 best effort，並非 exactly-once。
  */
 import { marketClosed as defaultMarketClosed } from "./market-calendar.js";
+import { lineConfigured, pushLine } from "./auto-daily.js";
+import { calculateConcentration } from "./concentration.js";
+import { RISK_PREFIX } from "./portfolio-risk.js";
 
 export const SOURCE = "New-version-stack-app";
 export const SCHEMA_VERSION = 1;
@@ -41,6 +33,7 @@ export const SYNC_STALE_MINUTES = 72 * 60;
 /** 收盤後才把報價當成「單日」：13:30 台北，對齊 App 收盤提醒。 */
 export const CLOSE_FRESH_MINUTE = 13 * 60 + 30;
 export const PCT_MAX = 100;
+export const DEFAULT_DECLINE_PCT = 3;
 /** 輸入檢查上限，不是風險承受度。超過視為設定無效。 */
 export const MONEY_MAX = 1e12;
 
@@ -53,6 +46,8 @@ const PENDING_KEY_RE = /^pending-trades:[A-Za-z0-9_-]+$/;
 export const SUMMARIES = Object.freeze({
   portfolio_day_decline: "Portfolio same-day price change crossed a configured decline threshold.",
   stock_day_decline: "An individual holding's same-day price change crossed a configured decline threshold.",
+  concentration_single: "A holding crossed the single-position concentration threshold.",
+  concentration_top3: "The top three holdings crossed the concentration threshold.",
   pending_trade_open: "A trade is waiting for confirmation in the app.",
   pending_trade_cleared: "A trade left the pending-confirmation queue.",
   system_ai_health: "The AI health check has an open system card.",
@@ -91,11 +86,10 @@ export function parseOptInNumber(raw, { max = MONEY_MAX } = {}) {
 }
 
 export function readThresholds(env) {
+  // 老大核准百分比門檻；不再把舊的 *_TWD 當成觸發條件。
   const specs = [
     ["portfolio", "pct", "PROACTIVE_PORTFOLIO_DECLINE_PCT", PCT_MAX],
-    ["portfolio", "twd", "PROACTIVE_PORTFOLIO_DECLINE_TWD", MONEY_MAX],
     ["stock", "pct", "PROACTIVE_STOCK_DECLINE_PCT", PCT_MAX],
-    ["stock", "twd", "PROACTIVE_STOCK_DECLINE_TWD", MONEY_MAX],
   ];
   const out = {
     portfolio: { pct: null, twd: null, enabled: false },
@@ -103,7 +97,7 @@ export function readThresholds(env) {
     invalid: [],
   };
   for (const [group, field, name, max] of specs) {
-    const parsed = parseOptInNumber(env?.[name], { max });
+    const parsed = parseOptInNumber(env?.[name] == null || String(env[name]).trim() === "" ? DEFAULT_DECLINE_PCT : env[name], { max });
     if (parsed.ok) out[group][field] = parsed.value;
     else if (parsed.reason === "invalid") out.invalid.push(name);
   }
@@ -677,11 +671,107 @@ async function runInner(env, deps) {
   };
 }
 
-export async function runProactiveAnomalies(env, deps = {}) {
+const LINE_SUMMARIES = Object.freeze({
+  portfolio_day_decline: "⚠️ 投資組合收盤跌幅達設定門檻。",
+  stock_day_decline: "⚠️ 有持股收盤跌幅達設定門檻。",
+  concentration_single: "⚠️ 有單一持股集中度超過設定門檻。",
+  concentration_top3: "⚠️ 前三大持股集中度超過設定門檻。",
+});
+
+async function saveRisk(env, key, state) {
   try {
-    return await runInner(env, deps);
+    await env.health_kv.put(key, JSON.stringify(state), { expirationTtl: STATE_TTL_SECONDS });
+    return true;
+  } catch { console.warn("portfolio risk state write failed"); return false; }
+}
+
+async function sendRiskLine(env, incident, fetchImpl) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
+  try {
+    return await pushLine(env, LINE_SUMMARIES[incident.event_type] + "\n請開啟資產 App 查看。僅供自我追蹤，非投資建議。",
+      (url, options) => fetchImpl(url, { ...options, signal: controller.signal, redirect: "manual" }));
+  } catch { return { ok: false, status: 0 }; }
+  finally { clearTimeout(timer); }
+}
+
+/** 只處理明確設定的擁有者；絕不能把其他同步帳號的資料推到擁有者 LINE。 */
+async function runOwnerAlerts(env, deps) {
+  if (deps.hook !== HOOK_AFTER_CLOSE) return { skipped: "not_close_hook" };
+  const token = String(env?.LINE_REMINDER_SYNC_TOKEN || "").trim();
+  if (!/^[A-Za-z0-9_-]{16,128}$/.test(token)) return { skipped: "owner_not_configured" };
+  if (!env?.health_kv) return { skipped: "no_kv" };
+  const now = deps.now ? deps.now() : new Date();
+  const t = taipeiParts(now);
+  if (t.weekday === 0 || t.weekday === 6 || t.minuteOfDay < CLOSE_FRESH_MINUTE) return { skipped: "outside_close_window" };
+  let closed = null;
+  try { closed = await (deps.marketClosed || defaultMarketClosed)(t.date); } catch { /* fail closed */ }
+  if (closed !== false) return { skipped: closed === true ? "holiday" : "calendar_unknown" };
+  // KV read failures must not be interpreted as an empty delivery ledger (would duplicate LINE).
+  const raw = await env.health_kv.get(`portfolio-sync:${token}`);
+  if (!raw) return { skipped: "no_snapshot" };
+  const snapshot = typeof raw === "string" ? JSON.parse(raw) : raw;
+  const concentration = calculateConcentration(snapshot);
+  const thresholds = readThresholds(env);
+  const compact = compactSnapshot(JSON.stringify(snapshot));
+  const decline = evaluateDeclines({ now, marketClosed: false, thresholds, snapshots: compact ? [compact] : [], hook: deps.hook });
+  const incidents = [...decline.incidents];
+  // 舊快照可以在唯讀 API 明示來源，但不能拿來發今天的集中度超標通知。
+  if (freshClock(snapshot.syncedAt, t.date) && concentration.status === "complete"
+      && concentration.holdings.every((h) => freshClock(h.asOf, t.date))) {
+    if (concentration.breaches.single) incidents.push(makeIncident("concentration_single", "concentration:single", "warning"));
+    if (concentration.breaches.top3) incidents.push(makeIncident("concentration_top3", "concentration:top3", "warning"));
+  }
+  const key = RISK_PREFIX + token;
+  const previous = await env.health_kv.get(key);
+  const stored = previous ? JSON.parse(previous) : {};
+  if (!stored || typeof stored !== "object" || Array.isArray(stored)) throw new Error("invalid risk state");
+  const app = loadState(JSON.stringify({ incidents: stored.appIncidents || {} }));
+  const line = loadState(JSON.stringify({ incidents: stored.lineIncidents || {} }));
+  const alerts = [];
+  for (const incident of incidents) {
+    if (deliveryDecision(app.incidents[incident.event_id], now.getTime()) === "send") noteSuccess(app, incident, now);
+    // App 顯示當次偵測到的 active 類別，但冷卻內保留首次產生時間，不製造新事件。
+    const occurred = app.incidents[incident.event_id]?.deliveredAt;
+    alerts.push(buildPayload(incident, occurred ? new Date(occurred) : now));
+  }
+  const state = { updatedAt: now.toISOString(), sourceSyncedAt: snapshot.syncedAt || null,
+    alerts, decline: { reason: decline.reason, invalidThresholds: thresholds.invalid },
+    appIncidents: boundIncidents(app.incidents), lineIncidents: boundIncidents(line.incidents),
+    line: { sent: [], withheld: [], failed: [], skipped: lineConfigured(env) ? null : "line_not_configured" } };
+  if (!(await saveRisk(env, key, state))) return { skipped: "state_write_failed" };
+  if (!lineConfigured(env)) return { skipped: null, ...state.line };
+  for (const incident of incidents) {
+    const record = line.incidents[incident.event_id];
+    // 集中度 event_id 是穩定類別；失敗三次後下一個冷卻週期仍可再試，不能永遠停送。
+    if (record && Number(record.attempts) >= MAX_ATTEMPTS && now.getTime() - Date.parse(record.lastAttemptAt || "") >= COOLDOWN_MS) delete line.incidents[incident.event_id];
+    const decision = deliveryDecision(line.incidents[incident.event_id], now.getTime());
+    if (decision !== "send") { state.line.withheld.push(decision); continue; }
+    noteLease(line, incident, now);
+    state.lineIncidents = boundIncidents(line.incidents);
+    if (!(await saveRisk(env, key, state))) return { skipped: "state_write_failed" };
+    const sent = await sendRiskLine(env, incident, deps.fetch || fetch);
+    if (sent.ok) { noteSuccess(line, incident, now); state.line.sent.push(incident.event_type); }
+    else {
+      noteFailure(line, incident, now);
+      state.line.failed.push(incident.event_type);
+      console.warn(`portfolio risk LINE delivery failed type=${safeType(incident.event_type)} status=${Number(sent.status) || "network"}`);
+    }
+    state.lineIncidents = boundIncidents(line.incidents);
+    if (!(await saveRisk(env, key, state))) return { skipped: "state_write_failed" };
+  }
+  await saveRisk(env, key, state);
+  return { skipped: null, ...state.line };
+}
+
+export async function runProactiveAnomalies(env, deps = {}) {
+  let owner;
+  try { owner = await runOwnerAlerts(env, deps); }
+  catch { console.warn("portfolio risk scan failed"); owner = { skipped: "scan_error" }; }
+  try {
+    return { ...await runInner(env, deps), owner };
   } catch {
     console.warn("proactive anomaly scan failed");
-    return { ok: false, skipped: "scan_error", sent: [], withheld: [], failed: [], decline: null, invalidThresholds: [] };
+    return { ok: false, skipped: "scan_error", sent: [], withheld: [], failed: [], decline: null, invalidThresholds: [], owner };
   }
 }

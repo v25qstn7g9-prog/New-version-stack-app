@@ -100,7 +100,7 @@ function assertClean(text) {
   assert.doesNotMatch(text, /CANARY|2330|VOO|888888|999999|test-proactive-key|receiver\.example/);
 }
 
-test("opt-in numbers: unset and invalid stay off, exact bounds stay on", () => {
+test("decline defaults are 3 percent, invalid overrides stay off, monetary env is ignored", () => {
   assert.equal(parseOptInNumber(undefined).reason, "unset");
   assert.equal(parseOptInNumber("").reason, "unset");
   assert.equal(parseOptInNumber("  ").reason, "unset");
@@ -113,13 +113,16 @@ test("opt-in numbers: unset and invalid stay off, exact bounds stay on", () => {
   assert.equal(parseOptInNumber("1000000000000").value, 1e12);
   assert.equal(parseOptInNumber("1000000000001").reason, "invalid");
   const none = readThresholds({});
-  assert.equal(none.portfolio.enabled, false);
-  assert.equal(none.stock.enabled, false);
+  assert.equal(none.portfolio.pct, 3);
+  assert.equal(none.portfolio.enabled, true);
+  assert.equal(none.stock.pct, 3);
+  assert.equal(none.stock.enabled, true);
   assert.deepEqual(none.invalid, []);
   const mixed = readThresholds({ PROACTIVE_PORTFOLIO_DECLINE_PCT: "nope-SECRET", PROACTIVE_STOCK_DECLINE_TWD: "30" });
   assert.equal(mixed.portfolio.enabled, false);
   assert.equal(mixed.stock.enabled, true);
-  assert.equal(mixed.stock.twd, 30);
+  assert.equal(mixed.stock.twd, null);
+  assert.equal(mixed.stock.pct, 3);
   assert.deepEqual(mixed.invalid, ["PROACTIVE_PORTFOLIO_DECLINE_PCT"]);
   assert.doesNotMatch(JSON.stringify(mixed), /nope-SECRET/);
 });
@@ -253,8 +256,8 @@ test("a real decline payload is category-only and uses the contract", async () =
       return { status: 200 };
     },
   }));
-  assert.deepEqual(result.sent, ["portfolio_day_decline"]);
-  assert.equal(calls.length, 1);
+  assert.deepEqual(result.sent, ["portfolio_day_decline", "stock_day_decline"]);
+  assert.equal(calls.length, 2);
   const { url, init, body } = calls[0];
   assert.equal(url, HOOK_URL);
   assert.equal(init.method, "POST");
@@ -305,11 +308,11 @@ test("runner keeps portfolio and stock apart, including when US shares are prese
 test("invalid thresholds and closed or stale sessions do not send", async () => {
   const kv = fakeKv({ [`portfolio-sync:${TOKEN}`]: rawSnapshot({ price: 50 }) });
   const fetch = async () => { throw new Error("should not send"); };
-  const invalid = await runProactiveAnomalies(enabled(kv, { PROACTIVE_PORTFOLIO_DECLINE_PCT: "nope-SECRET" }), {
+  const invalid = await runProactiveAnomalies(enabled(kv, { PROACTIVE_PORTFOLIO_DECLINE_PCT: "nope-SECRET", PROACTIVE_STOCK_DECLINE_PCT: "nope-SECRET" }), {
     hook: HOOK_AFTER_CLOSE, now: () => CLOSE, marketClosed: async () => false, fetch,
   });
   assert.equal(invalid.decline, "thresholds_disabled");
-  assert.deepEqual(invalid.invalidThresholds, ["PROACTIVE_PORTFOLIO_DECLINE_PCT"]);
+  assert.deepEqual(invalid.invalidThresholds, ["PROACTIVE_PORTFOLIO_DECLINE_PCT", "PROACTIVE_STOCK_DECLINE_PCT"]);
   assert.doesNotMatch(JSON.stringify(invalid), /nope-SECRET/);
   const holiday = await runProactiveAnomalies(enabled(kv, { PROACTIVE_PORTFOLIO_DECLINE_PCT: "3" }), {
     hook: HOOK_AFTER_CLOSE, now: () => CLOSE, marketClosed: async () => true, fetch,
