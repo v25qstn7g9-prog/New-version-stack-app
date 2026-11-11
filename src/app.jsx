@@ -3647,19 +3647,8 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
 
   return (
     <Panel title="即時股價">
-      <div className="flex items-center justify-between gap-2 mb-2 live-status-row" style={{ flexWrap: "nowrap" }}>
-        <div className={`live-status-line text-[11px] ${marketClosedNow ? "is-closed" : ""}`} style={{ color: COLORS.sub, minWidth: 0, flex: "1 1 auto" }}>
-          {/* 休市日（週末、國定假日、補假）提醒：v2.46 原有，10/05 美股改版時被拿掉，這裡補回 */}
-          {marketClosedNow && <span className="live-closed-note">{UI_SHOW_ENGLISH
-            ? `${todayClosure?.name || "Market holiday"} · Taiwan market closed, auto refresh paused${staleOne ? ` · showing ${staleOne.asOfDate.getMonth() + 1}/${staleOne.asOfDate.getDate()} close` : ""}`
-            : `${todayClosure?.name || "今日休市"}・台股休市，已停止自動更新${staleOne ? `・顯示 ${staleOne.asOfDate.getMonth() + 1}/${staleOne.asOfDate.getDate()} 收盤價` : ""}`}</span>}
-          {!marketClosedNow && <span>{UI_SHOW_ENGLISH ? "TW: 15s when open" : "台股開盤每 15 秒"}</span>}
-          {activeHoldings.some((h) => !isTaiwanSymbol(h.symbol)) && <span>{UI_SHOW_ENGLISH ? " · US: 30s when open" : "・美股開盤每 30 秒"}</span>}
-          {liveAt && <span>・{liveAt.toLocaleTimeString("zh-TW", { hour12: false })}</span>}
-          {liveStatus === "error" && <span>・{UI_SHOW_ENGLISH ? "TW quote unavailable" : "台股報價暫時失敗"}</span>}
-          {liveStatus === "done" && failedSymbols.length > 0 && <span>・{UI_SHOW_ENGLISH ? "TW: previous price used" : "台股部分沿用上次報價"}</span>}
-          {usLive?.state?.failed?.length > 0 && <span>・{UI_SHOW_ENGLISH ? "US: previous price used" : "美股部分沿用上次報價"}</span>}
-        </div>
+      {/* 重新整理鈕放在這一列的最左邊：右下角的 AI 貓咪按鈕（固定在畫面右側）捲到同一高度時才不會蓋住它。 */}
+      <div className="flex items-center justify-start gap-2 mb-2 live-status-row" style={{ flexWrap: "nowrap" }}>
         <button
           onClick={() => { fetchAllLive(true); usLive?.refresh?.(); }}
           disabled={liveStatus === "loading" || usLive?.state?.status === "loading" || !activeHoldings.length}
@@ -3678,6 +3667,18 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
             </span>
           )}
         </button>
+        <div className={`live-status-line text-[11px] ${marketClosedNow ? "is-closed" : ""}`} style={{ color: COLORS.sub, minWidth: 0, flex: "1 1 auto" }}>
+          {/* 休市日（週末、國定假日、補假）提醒：v2.46 原有，10/05 美股改版時被拿掉，這裡補回 */}
+          {marketClosedNow && <span className="live-closed-note">{UI_SHOW_ENGLISH
+            ? `${todayClosure?.name || "Market holiday"} · Taiwan market closed, auto refresh paused${staleOne ? ` · showing ${staleOne.asOfDate.getMonth() + 1}/${staleOne.asOfDate.getDate()} close` : ""}`
+            : `${todayClosure?.name || "今日休市"}・台股休市，已停止自動更新${staleOne ? `・顯示 ${staleOne.asOfDate.getMonth() + 1}/${staleOne.asOfDate.getDate()} 收盤價` : ""}`}</span>}
+          {!marketClosedNow && <span>{UI_SHOW_ENGLISH ? "TW: 15s when open" : "台股開盤每 15 秒"}</span>}
+          {activeHoldings.some((h) => !isTaiwanSymbol(h.symbol)) && <span>{UI_SHOW_ENGLISH ? " · US: 30s when open" : "・美股開盤每 30 秒"}</span>}
+          {liveAt && <span>・{liveAt.toLocaleTimeString("zh-TW", { hour12: false })}</span>}
+          {liveStatus === "error" && <span>・{UI_SHOW_ENGLISH ? "TW quote unavailable" : "台股報價暫時失敗"}</span>}
+          {liveStatus === "done" && failedSymbols.length > 0 && <span>・{UI_SHOW_ENGLISH ? "TW: previous price used" : "台股部分沿用上次報價"}</span>}
+          {usLive?.state?.failed?.length > 0 && <span>・{UI_SHOW_ENGLISH ? "US: previous price used" : "美股部分沿用上次報價"}</span>}
+        </div>
       </div>
 
       {hasLive && (
@@ -11485,15 +11486,34 @@ function AiChatWidget({ advancedUse = true, holdings, goal, totalToday, totalInv
       <button ref={launcherRef} onClick={() => setOpen(true)}
         aria-label={UI_SHOW_ENGLISH ? "Open investment assistant" : "開啟投資助手"}
         aria-haspopup="dialog" aria-expanded={open}
-        className="premium-ai-launcher fixed z-40 rounded-full flex items-center justify-center"
+        className="premium-ai-launcher za-ai-cat fixed z-40 rounded-full flex items-center justify-center"
         style={{
-          right: 14, bottom: "calc(64px + env(safe-area-inset-bottom, 4px))",
-          width: 46, height: 46, background: COLORS.gold, color: "#FFFFFF",
-          border: `1.5px solid ${COLORS.gold}`,
-          boxShadow: "0 6px 18px rgba(0,0,0,0.28)",
+          right: "calc(14px + env(safe-area-inset-right, 0px))", bottom: "calc(64px + env(safe-area-inset-bottom, 4px))",
+          width: 60, height: 60, padding: 0, background: "transparent", border: 0,
         }}>
-        {/* 按鈕只顯示「AI」兩個字；讀螢幕軟體仍讀 aria-label。顏色沿用按鈕本身（currentColor）。 */}
-        <span aria-hidden="true" style={{ fontSize: 16, fontWeight: 800, lineHeight: 1, letterSpacing: "0.02em" }}>AI</span>
+        {/* 可愛貓咪頭＋「AI」：純 inline SVG（不載入任何外部資源）；顏色用主題變數 --c-btn／--c-btn-ink（clean.css .za-ai-cat）。
+            讀螢幕軟體讀 aria-label；動畫只在 prefers-reduced-motion: no-preference 時才有。 */}
+        <svg className="za-ai-cat-svg" viewBox="0 0 60 60" width="60" height="60" aria-hidden="true" focusable="false">
+          <g className="za-ai-cat-head">
+            <g className="za-ai-cat-ear za-ai-cat-ear-l">
+              <path d="M7 27 L10.5 4.5 L27 15 Z" fill="var(--ai-cat-face)" stroke="var(--ai-cat-face)" strokeWidth="3" strokeLinejoin="round" />
+              <path d="M12.5 21 L14 10.5 L21.5 15.5 Z" fill="var(--ai-cat-ink)" opacity="0.28" />
+            </g>
+            <g className="za-ai-cat-ear za-ai-cat-ear-r">
+              <path d="M53 27 L49.5 4.5 L33 15 Z" fill="var(--ai-cat-face)" stroke="var(--ai-cat-face)" strokeWidth="3" strokeLinejoin="round" />
+              <path d="M47.5 21 L46 10.5 L38.5 15.5 Z" fill="var(--ai-cat-ink)" opacity="0.28" />
+            </g>
+            <ellipse cx="30" cy="35" rx="25.5" ry="22" fill="var(--ai-cat-face)" />
+            <circle className="za-ai-cat-eye" cx="21" cy="27.5" r="2.4" fill="var(--ai-cat-ink)" />
+            <circle className="za-ai-cat-eye" cx="39" cy="27.5" r="2.4" fill="var(--ai-cat-ink)" />
+            <g stroke="var(--ai-cat-ink)" strokeWidth="1.6" strokeLinecap="round" fill="none">
+              <path d="M5.5 35.5 L12.5 36.5" /><path d="M6.5 41 L13 39.5" />
+              <path d="M54.5 35.5 L47.5 36.5" /><path d="M53.5 41 L47 39.5" />
+            </g>
+            <text x="30" y="46" textAnchor="middle" fill="var(--ai-cat-ink)" fontSize="16" fontWeight="800" letterSpacing="0.5"
+              style={{ fontFamily: "inherit" }}>AI</text>
+          </g>
+        </svg>
       </button>
 
       {open && (
