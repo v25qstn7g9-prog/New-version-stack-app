@@ -54,7 +54,7 @@ const PencilIcon = ({ size = 15, style }) => (
 );
 
 // ---------- constants ----------
-const APP_VERSION = "4.7-personal-advisor-v2.47.27-header-settings";
+const APP_VERSION = "4.7-personal-advisor-v2.47.28-closing-sync";
 const APP_DISPLAY_VERSION = APP_VERSION.match(/v(\d+\.\d+\.\d+)/i)?.[1] || APP_VERSION.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || APP_VERSION;
 const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
@@ -890,6 +890,31 @@ function isTwseTradingHours(date = new Date()) {
   return minutes >= 9 * 60 && minutes <= 13 * 60 + 45;
 }
 
+// During the bounded closing window, make one reconciliation per minute.
+// Afterward a reopen with an older snapshot still gets one final refresh.
+function twCloseRefreshDue(lastFetchedAt, date = new Date()) {
+  const tw = new Date(date.getTime() + 8 * 3600000);
+  if (tw.getUTCDay() === 0 || tw.getUTCDay() === 6) return false;
+  const day = tw.toISOString().slice(0, 10);
+  const start = Date.parse(day + 'T13:45:00+08:00');
+  const end = Date.parse(day + 'T14:05:00+08:00');
+  if (date.getTime() < start) return false;
+  const checkpoint = Math.min(Math.floor(date.getTime() / 60000) * 60000, end);
+  return !Number.isFinite(Number(lastFetchedAt)) || Number(lastFetchedAt) < checkpoint;
+}
+
+function twQuotesCompleteAt(quotes, symbols, acquiredAt) {
+  const acquired = Date.parse(acquiredAt || '');
+  if (!Number.isFinite(acquired) || !symbols.length) return 0;
+  const day = new Date(acquired + 8 * 3600000).toISOString().slice(0, 10);
+  return symbols.every(symbol => {
+    const q = quotes?.[symbol], at = Date.parse(q?.asOfDate || '');
+    return Number(q?.price) > 0 && !q.isStale && Number.isFinite(at)
+      && new Date(at + 8 * 3600000).toISOString().slice(0, 10) === day
+      && !['prev', 'bid', 'ask', 'open', 'last-seen'].includes(q.priceSource);
+  }) ? acquired : 0;
+}
+
 // Market-closure calendar:
 // 1) weekends are known immediately;
 // 2) official TWSE holiday schedule is loaded/cached from TWSE OpenAPI;
@@ -1248,6 +1273,8 @@ async function fetchQuotesWithFallback(symbols, forceRefresh = false) {
   const missing = Array.isArray(data.missing) ? data.missing : unique.filter((sym) => !data.quotes[sym]);
   return {
     quotes: data.quotes,
+    fetchedAt: data.fetchedAt || null,
+    fromCache: Boolean(data.fromCache),
     missing,
     complete: data.status === "complete" || missing.length === 0,
     status: data.status || (missing.length ? "partial" : "complete"),
@@ -3456,6 +3483,8 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
   const liveRef = useRef({});
   const isFetchingRef = useRef(false);
   const lastFetchAtRef = useRef(0);
+  const lastCompleteQuoteAtRef = useRef(0);
+  const closingRetriesRef = useRef(0);
 
   useEffect(() => {
     liveRef.current = live;
@@ -3502,6 +3531,7 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
   // A stable key so the auto-refresh effect only resets its interval when
   // the set of symbols actually changes, not on every render.
   const activeSymbolsKey = activeHoldings.filter((h) => isTaiwanSymbol(h.symbol)).map((h) => h.symbol).sort().join(",");
+  const checkedSymbolSetRef = useRef(activeSymbolsKey);
 
   // On first mount, load whatever was fetched last time from storage so
   // switching tabs or reopening the app shows the last known prices right
@@ -3527,6 +3557,12 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
       const cachedAt = cached.at ? new Date(cached.at) : null;
       setLiveAt(cachedAt);
       if (cachedAt) lastFetchAtRef.current = cachedAt.getTime();
+      // Old caches have no success watermark; never assume their fetch time
+      // proves a closing calibration completed.
+      const checked = new Date(Number(cached.closingCheckedAt) || 0);
+      const wanted = [...activeRef.current.map(h => h.symbol), 'TAIEX'];
+      lastCompleteQuoteAtRef.current = Number.isFinite(checked.getTime())
+        ? twQuotesCompleteAt({ ...cached.map, TAIEX: cached.marketIndex }, wanted, checked.toISOString()) : 0;
       setLiveStatus(Object.keys(revived).length ? "done" : "idle");
       setCacheLoaded(true);
     })();
@@ -3564,6 +3600,9 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
     const failed = allMissing.filter((s) => s !== "TAIEX");
     const freshIndex = quotes?.TAIEX || null;
     const now = new Date();
+    const quoteAt = Number.isFinite(Date.parse(quoteResult?.fetchedAt || '')) ? new Date(quoteResult.fetchedAt) : now;
+    const completeAt = twQuotesCompleteAt(quotes, requestSymbols, quoteAt.toISOString());
+    if (completeAt) { lastCompleteQuoteAtRef.current = completeAt; closingRetriesRef.current = 0; }
     const closedVerdict = detectMarketClosed(quotes, now);
     if (closedVerdict !== null) setMarketClosedToday(closedVerdict, now);
     // Merge this refresh with the last known successful price for any
@@ -3572,8 +3611,8 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
     const mergedMap = {};
     targets.forEach((h) => {
       if (quotes && quotes[h.symbol]) {
-        // Stamp with "now" only for a genuinely fresh fetch this round.
-        mergedMap[h.symbol] = { ...quotes[h.symbol], fetchedAt: now.toISOString() };
+        // Preserve the server's acquisition time, including cache hits.
+        mergedMap[h.symbol] = { ...quotes[h.symbol], fetchedAt: quoteAt.toISOString() };
       } else if (liveRef.current[h.symbol]) {
         // Carry over the old entry as-is, fetchedAt included — so the UI
         // can tell "this is what we showed last time" from "this just came in".
@@ -3584,21 +3623,22 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
     setLive(mergedMap);
     setFailedSymbols(failed);
     if (freshIndex) {
-      setMarketIndex({ ...freshIndex, fetchedAt: now.toISOString() });
+      setMarketIndex({ ...freshIndex, fetchedAt: quoteAt.toISOString() });
     }
     setLiveStatus(Object.keys(mergedMap).length ? "done" : "error");
-    setLiveAt(now);
+    if (quotes) setLiveAt(quoteAt);
     lastFetchAtRef.current = now.getTime();
     // Persist the merged map so failed symbols also survive an app reopen.
     if (Object.keys(mergedMap).length) {
       const indexForCache = freshIndex
-        ? { ...freshIndex, fetchedAt: now.toISOString() }
+        ? { ...freshIndex, fetchedAt: quoteAt.toISOString() }
         : marketIndex;
       saveKey("livePrices", {
         map: mergedMap,
         failedSymbols: failed,
         marketIndex: indexForCache || null,
-        at: now.toISOString(),
+        at: quotes ? quoteAt.toISOString() : liveAt?.toISOString() || null,
+        closingCheckedAt: lastCompleteQuoteAtRef.current,
       });
       // Feed Trend Radar from the real 15-second quote stream.  Store at most
       // one snapshot per minute and keep several trading days, so 5/15/60m
@@ -3638,21 +3678,35 @@ function LivePricePanel({ holdings, usLive, onFillDailyTw, yesterdayTwValue, yes
     isFetchingRef.current = false;
   };
 
-  // Auto-refresh when the panel is ready, then every 15 seconds, but only on
-  // an actual TWSE trading day during trading hours. Once quote data confirms
+  // Intraday refresh is every 15 seconds; closing reconciliation is once per
+  // minute through 14:05. Once quote data confirms
   // today is a market holiday / closure, automatic quote requests stop for
   // the rest of the Taiwan calendar day. Manual refresh remains available.
   // A fresh browser that has not detected the closure yet may make one quote
   // request after 09:15; that request is what establishes the closed-day flag.
   useEffect(() => {
     if (!cacheLoaded || !activeSymbolsKey || !marketCalendarReady) return;
-    const isFresh = Date.now() - lastFetchAtRef.current < 12000;
-    const shouldAutoFetch = () => isTwseTradingHours() && !(marketClosure && marketClosure.date === taipeiDateKey(new Date())) && !isMarketClosedToday();
-    if (!isFresh && shouldAutoFetch()) fetchAllLive();
-    const timer = setInterval(() => {
-      if (shouldAutoFetch()) fetchAllLive();
-    }, 15000);
-    return () => clearInterval(timer);
+    if (checkedSymbolSetRef.current !== activeSymbolsKey) {
+      checkedSymbolSetRef.current = activeSymbolsKey;
+      lastCompleteQuoteAtRef.current = 0; closingRetriesRef.current = 0;
+    }
+    const refresh = () => {
+      if (document.visibilityState === 'hidden') return;
+      if ((marketClosure && marketClosure.date === taipeiDateKey(new Date())) || isMarketClosedToday()) return;
+      const trading = isTwseTradingHours();
+      if (Date.now() - lastFetchAtRef.current < (trading ? 12000 : 60000)) return;
+      const closingDue = twCloseRefreshDue(lastCompleteQuoteAtRef.current);
+      if (!trading && closingDue) {
+        const end = Date.parse(taipeiDateKey(new Date()) + 'T14:05:00+08:00');
+        if (Date.now() >= end && closingRetriesRef.current++ >= 3) return;
+      }
+      if (trading || closingDue) fetchAllLive(closingDue);
+    };
+    refresh();
+    const timer = setInterval(refresh, 15000);
+    const resume = () => { if (document.visibilityState === 'visible') { closingRetriesRef.current = 0; refresh(); } };
+    document.addEventListener('visibilitychange', resume);
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', resume); };
   }, [cacheLoaded, activeSymbolsKey, marketCalendarReady, marketClosure?.date, dayKey]);
 
   const todayClosure = marketClosure && marketClosure.date === taipeiDateKey(new Date()) ? marketClosure : null;
