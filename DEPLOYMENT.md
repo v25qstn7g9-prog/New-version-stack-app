@@ -59,7 +59,7 @@ cp .env.example .env.local
 2. 進入 Settings → Bindings
 3. 建立新 Binding → AI (Cloudflare AI)
 4. 命名為 `AI` (要與 wrangler.jsonc 的 binding 名稱一致)
-5. 選擇模型（預設 `@cf/mistral/mistral-7b-instruct-v0.1`）
+5. 模型不用在 Dashboard 選，由 `functions/ask.js` 指定：主模型 `@cf/openai/gpt-oss-120b`（推理強度 low），出錯時改用 `@cf/openai/gpt-oss-20b`（2026-11-10 因 `@cf/zai-org/glm-5.3-flash` 於 2026-11-20 下架而換）
 
 - [ ] AI binding 已在 Dashboard 建立
 - [ ] wrangler.jsonc 的 binding 名稱是 `AI`

@@ -8996,8 +8996,8 @@ function PlanPanel({ advanced = false, setAdvancedMode, planItems, setPlanItems,
         {aiFallbackExpanded && <div className="mt-3">
         <div className="text-[11px] leading-5" style={{ color: COLORS.sub }}>
           {UI_SHOW_ENGLISH
-            ? <>Primary AI: <span style={{ color: COLORS.gold }}>Cloudflare GLM (light) / GPT-OSS (complex tasks)</span>. If it hits a quota limit, 429, timeout or service error, the same Cloudflare Worker <span style={{ color: COLORS.gold }}>switches directly to Gemini 3.6 Flash</span> — no Vercel needed, and the Gemini API key never touches your phone.</>
-            : <>主 AI：<span style={{ color: COLORS.gold }}>Cloudflare GLM（輕量）／GPT-OSS（複雜任務）</span>。如果遇到額度用完、429、逾時或服務錯誤，會由同一個 Cloudflare Worker <span style={{ color: COLORS.gold }}>直接切到 Gemini 3.6 Flash</span>，不再需要 Vercel，也不會把 Gemini API Key 放在手機。</>}
+            ? <>Primary AI: <span style={{ color: COLORS.gold }}>Cloudflare GPT-OSS 120B</span>. If it hits a quota limit, 429, timeout or service error, the same Cloudflare Worker <span style={{ color: COLORS.gold }}>switches directly to Gemini 3.6 Flash</span> — no Vercel needed, and the Gemini API key never touches your phone.</>
+            : <>主 AI：<span style={{ color: COLORS.gold }}>Cloudflare GPT-OSS 120B</span>。如果遇到額度用完、429、逾時或服務錯誤，會由同一個 Cloudflare Worker <span style={{ color: COLORS.gold }}>直接切到 Gemini 3.6 Flash</span>，不再需要 Vercel，也不會把 Gemini API Key 放在手機。</>}
         </div>
         <div className="mt-2 rounded-xl p-3 text-[11px] leading-5" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, color: COLORS.sub }}>
           <div><span style={{ color: COLORS.loss }}>①</span> Cloudflare AI</div>

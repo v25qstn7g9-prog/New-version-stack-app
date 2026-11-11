@@ -8,6 +8,7 @@
 - 正負數顏色只代表漲跌（`--forma-positive`／`--forma-negative`），不當裝飾。
 - 外觀調整不可影響資產計算、交易紀錄與報價邏輯。
 - **Claude 模型（使用者 2026-11-05「11/11 開始…其他都降到 Sonnet 5.5」；使用者 2026-11-08「延長到12/10」：第二筆促銷額度到 12/10，Opus 5.5 與先用 Anthropic_api_key 延到 12/10（含），12/11 起 Sonnet 5.5；之後若有新額度再延長）**：`functions/ask.js` 的 `claudeModelFor` 每次呼叫才依台北日期決定：2026-12-10（含）以前 `claude-opus-5-5`，2026-12-11 起 `claude-sonnet-5-5`；`ANTHROPIC_MODEL` 有設仍優先。**12/10 之後 Owner 問答仍以 Claude 為主力**（使用者 2026-11-05「延長，改用 Sonnet 5.5」，用每月 US$100 API 額度）：`claudePrimaryActive` 沒有預設結束日，`CLAUDE_PRIMARY=off` 立即關、`CLAUDE_PRIMARY_UNTIL=YYYY-MM-DD` 可設結束日；Claude 失敗仍照原本順序（Cloudflare → Gemini）接手。金鑰：台北 12/10（含）以前先用 `Anthropic_api_key`，12/11 起先用 `ANTHROPIC_API_KEY`／`ANTHROPIC_KEY`、沒有才用 `Anthropic_api_key`；一把回 401／402／403（地區被擋除外）或額度不足就同一題換下一把（`claudeKeyEntries`）。測試固定時間，不看真的時鐘。改完跑 `npm run sync:fallback` 同步 `fallback-vercel/lib/ask-core.js`。
+- **Cloudflare Workers AI 模型**：主模型 `@cf/openai/gpt-oss-120b`、推理強度 low（`CF_REASONING_EFFORT`，三處 `ai.run` 都經 `cloudflareInputs`），備援 `@cf/openai/gpt-oss-20b`；2026-11-10 因 `glm-5.3-flash` 2026-11-20 下架而換。推理 token 算在 `MAX_TOKENS`（1600）內，不要調回 1000。
 - **編譯**：前端原始碼是 `src/app.jsx`，改完跑 `npm run build:app`（產生最小化的 `app.js`，含用到的 lucide 圖示；新增圖示先跑 `node scripts/gen-icons.mjs`）；改到 Tailwind class 再跑 `npm run build:css`（產生 `tw.css`，不再用 cdn.tailwindcss.com）。兩者都有測試檢查是否同步。
 
 ## 外觀與配色：照 Forma Design System
