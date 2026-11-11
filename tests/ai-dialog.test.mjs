@@ -29,3 +29,16 @@ test('Esc and Tab are handled at the document level while open, focus is pulled 
   assert.match(widget, /launcherRef\.current\?\.focus/);
   assert.match(widget, /ref=\{launcherRef\}/);
 });
+
+test('the floating AI launcher shows the text "AI" (no icon) and keeps its aria-label, size and colors', () => {
+  const i = widget.indexOf('<button ref={launcherRef}');
+  const launcher = widget.slice(i, widget.indexOf('</button>', i));
+  assert.match(launcher, /aria-label=\{UI_SHOW_ENGLISH \? "Open investment assistant" : "開啟投資助手"\}/);
+  assert.match(launcher, /<span aria-hidden="true"[^>]*>AI<\/span>/);
+  assert.doesNotMatch(launcher, /<MessageCircle/);
+  assert.match(launcher, /width: 46, height: 46/);
+  // 文字跟著按鈕顏色（currentColor）：淺色 #ffffff on #3f6b91（5.6:1）、深藍 #1f2b4d on #ffffff（13.9:1）
+  const css = fs.readFileSync(new URL('../clean.css', import.meta.url), 'utf8');
+  assert.match(css, /html\.za-clean \.premium-ai-launcher\{background:var\(--c-btn\)!important;color:var\(--c-btn-ink\)!important/);
+  assert.match(css, /html\.za-clean\[data-theme="navy"\] \.premium-ai-launcher\{background:#ffffff!important;color:#1f2b4d!important\}/);
+});
