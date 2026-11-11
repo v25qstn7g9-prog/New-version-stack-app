@@ -38,7 +38,7 @@ test("concentration: strict greater-than, TW/US in TWD and duplicate symbols agg
   const snap = snapshot([31, 19, 10, 10]);
   snap.holdings.push({ symbol: "AAPL", shares: 1 }, { symbol: "AAPL", shares: 1 });
   snap.dataset.livePrices.map.AAPL = { price: 0.5, asOfDate: ASOF };
-  snap.dataset.livePrices.map.USDTWD = { price: 30 };
+  snap.dataset.livePrices.map.USDTWD = { price: 30, asOfDate: ASOF };
   const r = calculateConcentration(snap);
   assert.equal(r.totalMarketValueTwd, 100);
   assert.equal(r.holdings.length, 5);
@@ -257,4 +257,76 @@ test("LINE timeout is caught without leaking credentials or preventing App alert
   }) }));
   assert.equal(result.owner.failed.length, 2);
   assert.equal(JSON.parse(store.map.get(RISK_PREFIX + TOKEN)).alerts.length, 2);
+});
+
+test("API and MCP isolate notification state for two real sync tokens", async () => {
+  const owner = { updatedAt: ASOF, alerts: [{ event_type: "concentration_single", event_id: "owner-only" }], line: { sent: ["owner-only"] } };
+  const other = { updatedAt: CLOSE.toISOString(), alerts: [{ event_type: "stock_day_decline", event_id: "other-only" }], line: { failed: ["other-only"] } };
+  const store = kv({ [`portfolio-sync:${TOKEN}`]: snapshot(), [`portfolio-sync:${OTHER}`]: snapshot([10]), [RISK_PREFIX + TOKEN]: owner, [RISK_PREFIX + OTHER]: other });
+  for (const [token, expected, forbidden] of [[TOKEN, owner, "other-only"], [OTHER, other, "owner-only"]]) {
+    const data = await (await onRequestGet({ request: req(token), env: envFor(store) })).json();
+    assert.deepEqual(data.notifications.alerts, expected.alerts);
+    assert.deepEqual(data.notifications.line, expected.line);
+    assert.equal(data.notifications.updatedAt, expected.updatedAt);
+    const mcp = await handlePreparedAssetMcp(new Request("https://example.test/mcp", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "portfolio_risk", arguments: {} } }) }), envFor(store), { syncToken: token });
+    const content = (await mcp.json()).result.structuredContent;
+    assert.deepEqual(content, data);
+    assert.ok(!JSON.stringify(content).includes(forbidden));
+  }
+  assert.equal(store.writes.length, 0);
+});
+
+test("owner batch leases and results respect KV one write per second, keep cooldown", async () => {
+  const snap = snapshot([100]);
+  snap.dataset.livePrices.map["1000"].price = 97;
+  const store = kv({ [`portfolio-sync:${TOKEN}`]: snap });
+  const put = store.put;
+  const last = new Map();
+  let rejected = 0;
+  store.put = async (key, value) => {
+    if (Date.now() - (last.get(key) ?? -Infinity) < 1000) { rejected++; throw Object.assign(new Error("429 Too Many Requests"), { status: 429 }); }
+    last.set(key, Date.now());
+    return put(key, value);
+  };
+  const calls = [];
+  const result = await runProactiveAnomalies(envFor(store), deps(calls, { fetch: async () => {
+    const state = JSON.parse(store.map.get(RISK_PREFIX + TOKEN));
+    assert.equal(Object.values(state.lineIncidents).filter((r) => r.leaseUntil).length, 4);
+    calls.push(1); return { ok: true, status: 200 };
+  } }));
+  assert.equal(result.owner.skipped, null);
+  assert.equal(result.owner.sent.length, 4);
+  assert.equal(calls.length, 4);
+  assert.equal(rejected, 0);
+  assert.equal(store.writes.length, 2);
+  assert.ok(Object.values(JSON.parse(store.map.get(RISK_PREFIX + TOKEN)).lineIncidents).every((r) => r.deliveredAt && !r.leaseUntil));
+});
+
+for (const fxAt of ["2026-10-01T05:40:00.000Z", "invalid", null, "2026-11-11T04:00:00.000Z"]) {
+  test(`FX timestamp ${fxAt} cannot trigger today's concentration LINE`, async () => {
+    const snap = snapshot([10]);
+    snap.holdings.push({ symbol: "VOO", shares: 1 });
+    snap.dataset.livePrices.map.VOO = { price: 500, asOfDate: ASOF };
+    snap.dataset.livePrices.map.USDTWD = { price: 30, asOfDate: fxAt, isStale: false };
+    const r = calculateConcentration(snap);
+    assert.equal(r.fxAsOf, fxAt);
+    if (fxAt !== "2026-11-11T04:00:00.000Z") assert.equal(r.status, "insufficient_data");
+    else assert.equal(r.holdings.find((h) => h.symbol === "VOO").asOf, fxAt);
+    const calls = [];
+    await runProactiveAnomalies(envFor(kv({ [`portfolio-sync:${TOKEN}`]: snap })), deps(calls));
+    assert.equal(calls.length, 0);
+  });
+}
+test("FX valuation time is the older price/FX timestamp, fresh rates allow LINE", async () => {
+  const snap = snapshot([10]);
+  snap.holdings.push({ symbol: "VOO", shares: 1 });
+  snap.dataset.livePrices.map.VOO = { price: 500, asOfDate: ASOF };
+  const fx = { price: 30, asOfDate: "2026-11-11T05:35:00.000Z" };
+  snap.dataset.livePrices.map.USDTWD = fx;
+  assert.equal(calculateConcentration(snap).holdings[0].asOf, fx.asOfDate);
+  fx.asOfDate = "2026-11-11T05:45:00.000Z";
+  assert.equal(calculateConcentration(snap).holdings[0].asOf, ASOF);
+  const calls = [];
+  await runProactiveAnomalies(envFor(kv({ [`portfolio-sync:${TOKEN}`]: snap })), deps(calls));
+  assert.equal(calls.length, 2);
 });

@@ -4,7 +4,7 @@ import fs from "node:fs";
 import {
   COOLDOWN_MS, RETRY_GAP_MS, STATE_KEY, STATE_TTL_SECONDS, SUMMARIES, SOURCE,
   HOOK_AFTER_CLOSE, HOOK_DAILY_HEALTH, MAX_STATE_INCIDENTS,
-  parseOptInNumber, readThresholds, webhookConfig, portfolioPriceChange,
+  parseOptInNumber, readThresholds, readOwnerThresholds, webhookConfig, portfolioPriceChange,
   evaluateDeclines, evaluateSnapshot, buildPayload, postWebhook, deliveryDecision,
   boundIncidents, runProactiveAnomalies, pendingIdsFromRaw,
 } from "../functions/proactive-anomaly.js";
@@ -100,7 +100,7 @@ function assertClean(text) {
   assert.doesNotMatch(text, /CANARY|2330|VOO|888888|999999|test-proactive-key|receiver\.example/);
 }
 
-test("decline defaults are 3 percent, invalid overrides stay off, monetary env is ignored", () => {
+test("App/LINE decline defaults are 3 percent, invalid overrides stay off, monetary env is ignored", () => {
   assert.equal(parseOptInNumber(undefined).reason, "unset");
   assert.equal(parseOptInNumber("").reason, "unset");
   assert.equal(parseOptInNumber("  ").reason, "unset");
@@ -112,13 +112,13 @@ test("decline defaults are 3 percent, invalid overrides stay off, monetary env i
   assert.equal(parseOptInNumber("100", { max: 100 }).value, 100);
   assert.equal(parseOptInNumber("1000000000000").value, 1e12);
   assert.equal(parseOptInNumber("1000000000001").reason, "invalid");
-  const none = readThresholds({});
+  const none = readOwnerThresholds({});
   assert.equal(none.portfolio.pct, 3);
   assert.equal(none.portfolio.enabled, true);
   assert.equal(none.stock.pct, 3);
   assert.equal(none.stock.enabled, true);
   assert.deepEqual(none.invalid, []);
-  const mixed = readThresholds({ PROACTIVE_PORTFOLIO_DECLINE_PCT: "nope-SECRET", PROACTIVE_STOCK_DECLINE_TWD: "30" });
+  const mixed = readOwnerThresholds({ PROACTIVE_PORTFOLIO_DECLINE_PCT: "nope-SECRET", PROACTIVE_STOCK_DECLINE_TWD: "30" });
   assert.equal(mixed.portfolio.enabled, false);
   assert.equal(mixed.stock.enabled, true);
   assert.equal(mixed.stock.twd, null);
@@ -256,8 +256,8 @@ test("a real decline payload is category-only and uses the contract", async () =
       return { status: 200 };
     },
   }));
-  assert.deepEqual(result.sent, ["portfolio_day_decline", "stock_day_decline"]);
-  assert.equal(calls.length, 2);
+  assert.deepEqual(result.sent, ["portfolio_day_decline"]);
+  assert.equal(calls.length, 1);
   const { url, init, body } = calls[0];
   assert.equal(url, HOOK_URL);
   assert.equal(init.method, "POST");
@@ -585,4 +585,30 @@ test("scheduled hooks stay on the existing daily crons and off the request path"
   assert.match(src, /X-Proactive-Key/);
   assert.doesNotMatch(src, /dailyChangePct|totalAssets/);
   assert.doesNotMatch(src, /pending-trades\/resolve/);
+});
+
+for (const [label, overrides, expected] of [
+  ["unset", {}, []],
+  ["portfolio only", { PROACTIVE_PORTFOLIO_DECLINE_PCT: "3" }, ["portfolio_day_decline"]],
+  ["portfolio TWD", { PROACTIVE_PORTFOLIO_DECLINE_TWD: "30" }, ["portfolio_day_decline"]],
+  ["stock TWD", { PROACTIVE_STOCK_DECLINE_TWD: "30" }, ["stock_day_decline"]],
+  ["below monetary threshold", { PROACTIVE_PORTFOLIO_DECLINE_TWD: "31", PROACTIVE_STOCK_DECLINE_TWD: "31" }, []],
+]) {
+  test(`legacy webhook remains opt-in: ${label}`, async () => {
+    const kv = fakeKv({ [`portfolio-sync:${TOKEN}`]: rawSnapshot() });
+    const calls = [];
+    const result = await runProactiveAnomalies(enabled(kv, overrides), {
+      hook: HOOK_AFTER_CLOSE, now: () => CLOSE, marketClosed: async () => false,
+      fetch: async (_url, init) => { calls.push(JSON.parse(init.body).event_type); return { status: 200 }; },
+    });
+    assert.deepEqual(result.sent, expected);
+    assert.deepEqual(calls, expected);
+  });
+}
+test("legacy unset, invalid and monetary threshold parsing matches main", () => {
+  assert.deepEqual(readThresholds({}), { portfolio: { pct: null, twd: null, enabled: false }, stock: { pct: null, twd: null, enabled: false }, invalid: [] });
+  const r = readThresholds({ PROACTIVE_PORTFOLIO_DECLINE_TWD: "500", PROACTIVE_STOCK_DECLINE_TWD: "bad", PROACTIVE_STOCK_DECLINE_PCT: " " });
+  assert.equal(r.portfolio.twd, 500);
+  assert.equal(r.stock.enabled, false);
+  assert.deepEqual(r.invalid, ["PROACTIVE_STOCK_DECLINE_TWD"]);
 });

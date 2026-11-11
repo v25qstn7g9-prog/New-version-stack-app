@@ -3,6 +3,11 @@ export const CONCENTRATION_THRESHOLDS = Object.freeze({ singlePct: 30, top3Pct: 
 const numeric = (v) => typeof v === "number" || (typeof v === "string" && v.trim() !== "");
 const positive = (v) => numeric(v) && Number.isFinite(Number(v)) && Number(v) > 0;
 
+const older = (a, b) => !Number.isFinite(Date.parse(a || "")) || !Number.isFinite(Date.parse(b || ""))
+  ? null : (Date.parse(a) <= Date.parse(b) ? a : b);
+const taipeiDay = (iso) => Number.isFinite(Date.parse(iso || ""))
+  ? new Date(Date.parse(iso) + 8 * 3600000).toISOString().slice(0, 10) : null;
+
 export function calculateConcentration(snapshot) {
   const holdings = Array.isArray(snapshot?.holdings) ? snapshot.holdings : null;
   const live = snapshot?.dataset?.livePrices;
@@ -11,7 +16,10 @@ export function calculateConcentration(snapshot) {
   const missing = new Set();
   const values = new Map();
   const fxQuote = quotes.USDTWD;
-  const fx = positive(fxQuote?.price) && !fxQuote.isStale && !failed.has("USDTWD") ? Number(fxQuote.price) : null;
+  const fxAsOf = fxQuote?.asOfDate || null;
+  // 不以 live.at 冒充 FX 時間；即使 isStale:false，跨日或無時間仍不完整。
+  const fx = positive(fxQuote?.price) && !fxQuote.isStale && !failed.has("USDTWD")
+    && taipeiDay(fxAsOf) != null && taipeiDay(fxAsOf) === taipeiDay(snapshot?.syncedAt) ? Number(fxQuote.price) : null;
   for (const h of holdings || []) {
     if (numeric(h?.shares) && Number(h.shares) === 0) continue;
     const symbol = String(h?.symbol || "").trim().toUpperCase();
@@ -32,9 +40,9 @@ export function calculateConcentration(snapshot) {
     }
     if (!Number.isFinite(value) || !(value > 0)) { missing.add(symbol); continue; }
     const previous = values.get(symbol);
-    const valueAsOf = quoted ? q.asOfDate || live?.at || null : h.marketValueAsOf || snapshot?.syncedAt || null;
-    const asOf = !previous ? valueAsOf : (!Number.isFinite(Date.parse(previous.asOf || "")) || !Number.isFinite(Date.parse(valueAsOf || ""))
-      ? null : (Date.parse(previous.asOf) <= Date.parse(valueAsOf) ? previous.asOf : valueAsOf));
+    let valueAsOf = quoted ? q.asOfDate || live?.at || null : h.marketValueAsOf || snapshot?.syncedAt || null;
+    if (market === "US" && !alreadyTwd) valueAsOf = older(valueAsOf, fxAsOf);
+    const asOf = !previous ? valueAsOf : older(previous.asOf, valueAsOf);
     values.set(symbol, { symbol, market, marketValueTwd: value + (previous?.marketValueTwd || 0), asOf,
       source: previous && previous.source !== source ? "mixed_snapshot" : source });
   }
@@ -50,7 +58,7 @@ export function calculateConcentration(snapshot) {
     label: complete ? "持股集中度" : "資料不足",
     reason: complete ? null : (!holdings?.length ? "no_holdings" : "incomplete_valuation"),
     source: "portfolio_sync", asOf: snapshot?.syncedAt || null,
-    quoteAsOf: live?.at || null, currency: "TWD", basis: "equity_holdings_market_value",
+    quoteAsOf: live?.at || null, fxAsOf, currency: "TWD", basis: "equity_holdings_market_value",
     thresholds: CONCENTRATION_THRESHOLDS,
     missingSymbols: [...missing].sort(),
     totalMarketValueTwd: complete ? total : null,

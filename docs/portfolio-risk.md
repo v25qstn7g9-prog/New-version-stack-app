@@ -12,7 +12,7 @@
 
 從 `portfolio-sync` 的 `summary.holdings`（symbol、shares）與 `dataset.livePrices.map` 計算；只讀快照，不額外打報價或付費服務。現價優先；缺價時可接受持倉的 `marketValue`／`currentValue`，但絕不使用 `costBasis`。
 
-數字開頭為台股，其他為美股（沿用現有分類）。美股現價是 USD，必須有可用的 `USDTWD` 才換算。保存的美股市值只有明示 `marketValueCurrency: "TWD"` 才可直接使用，否則視為 USD 並要求匯率。
+數字開頭為台股，其他為美股（沿用現有分類）。美股現價是 USD，必須有可用的 `USDTWD` 才換算。FX 必須有自己的 `asOfDate`，且與快照 `syncedAt` 同一台北日期；缺時間、無效或跨日（即使 `isStale:false`）皆資料不足，不用 `livePrices.at` 冒充 FX 時間。回傳 `fxAsOf`；需換匯持股的估值 `asOf` 取股價／保存市值時間與 FX 時間較舊者，集中度通知也必須通過當日 13:30 以後的新鮮度檢查。保存的美股市值只有明示 `marketValueCurrency: "TWD"` 才可直接使用，否則視為 USD 並要求匯率。
 
 缺價、缺匯率、stale／failed 報價、無效股數：`status: "insufficient_data"`、`label: "資料不足"`，列出 `missingSymbols`，所有比例、完整總市值與 breach 均為 null。可列出已涵蓋持倉市值，但不能把它顯示為完整組合。空持股也不是健康的 0% 組合。
 
@@ -78,15 +78,15 @@ MCP request 範例：
 
 沿用 `auto-daily.js::pushLine` 與相同 LINE 收件人。不足設定時不送，將固定原因 `line_not_configured` 記在 App 可讀狀態；沒有 owner token 時回傳 `owner_not_configured`。LINE 摘要只說事件類別，不帶代號、金額、股數、帳戶或同步 token。是否擴大摘要內容需另請老大決定。
 
-App／LINE 各有獨立冷卻，不因 App 已記錄就吞掉 LINE 重試。20 小時冷卻、45 秒 lease、失敗至少隔 15 分鐘重試、最多 3 次；集中度穩定 id 失敗滿 3 次後，下一個 20 小時週期可再試。每個通道最多保留 40 個事件紀錄，KV 14 天 TTL。送 LINE 前先存 lease；狀態寫入失敗不送。LINE timeout 3 秒／非 2xx／網路錯誤只記固定類別與狀態，不影響 App 或其他 cron。KV 不是交易，重疊 cron 仍可能重複，不保證 exactly-once。
+App／LINE 各有獨立冷卻，不因 App 已記錄就吞掉 LINE 重試。20 小時冷卻、45 秒 lease、失敗至少隔 15 分鐘重試、最多 3 次；集中度穩定 id 失敗滿 3 次後，下一個 20 小時週期可再試。每個通道最多保留 40 個事件紀錄，KV 14 天 TTL。App 狀態與整批 LINE lease 合併一次寫入，成功後才送；所有送出結果合併第二次寫入，距第一次至少 1.1 秒（最多等待剩餘 1.1 秒），遵守 KV 同 key 每秒一次寫入限制。lease 寫入失敗不送；結果寫入失敗保留已存 lease 並回報 state_write_failed，不宣稱成功持久化。LINE timeout 3 秒／非 2xx／網路錯誤只記固定類別與狀態，不影響 App 或其他 cron。KV 不是交易，重疊 cron 仍可能重複，不保證 exactly-once。
 
 ### 部署前由老大確認（本 PR 未設定任何環境值）
 
 - 既有 binding：`health_kv`。
 - 沿用 LINE secrets：`LINE_CHANNEL_ACCESS_TOKEN`、`LINE_USER_ID`、`LINE_REMINDER_SYNC_TOKEN`；確認指向正確擁有者與收件人。缺任一必要項目安全跳過。
 - 可選門檻覆蓋名稱：`PROACTIVE_PORTFOLIO_DECLINE_PCT`、`PROACTIVE_STOCK_DECLINE_PCT`。未設／空白走核准預設；非正數、超過上限或格式不對則關閉該項並只記名稱。
-- 舊金額門檻 `PROACTIVE_PORTFOLIO_DECLINE_TWD`、`PROACTIVE_STOCK_DECLINE_TWD` 不再觸發。
-- 舊 webhook 的 `PROACTIVE_WEBHOOK_URL`、`PROACTIVE_WEBHOOK_KEY` 仍為選用，與 App／LINE 無關；若既有部署已啟用，跌幅預設會同時套到舊 webhook，部署前確認是否保留該通道。
+- App／LINE 只讀百分比覆蓋，不套用舊金額門檻。舊 webhook 繼續讀 `PROACTIVE_PORTFOLIO_DECLINE_TWD`、`PROACTIVE_STOCK_DECLINE_TWD`，保持主線既有的百分比或金額達標條件。
+- 舊 webhook 的 `PROACTIVE_WEBHOOK_URL`、`PROACTIVE_WEBHOOK_KEY` 仍為選用，與 App／LINE 無關；webhook 跌幅保持 opt-in：沒設門檻不送跌幅事件，只設 portfolio 不會額外開啟 stock；不套用 App／LINE 的 3% 預設。不做任何遷移，是否將來遷移須另由老大決定。
 - 不需要新增 OAuth secret。未讀取正式 secret、未試送正式 LINE、未部署，真實 LINE 及快照覆蓋率留待核准部署後驗證。
 
 ## 審查重點／回滾／未做
@@ -99,4 +99,6 @@ App／LINE 各有獨立冷卻，不因 App 已記錄就吞掉 LINE 重試。20 �
 
 ## 本機驗證
 
-依 CI 使用 `ci/package-lock.json` 安裝相依套件後，`npm test`：**804 passed、0 failed、0 skipped**（Node v24.22.1）；`git diff --check` 通過。GitHub CI 使用 Node 20，PR 開立後另看 CI。測試涵蓋邊界、缺價／缺匯率、異常型別、權限隔離、App／MCP 一致、LINE 缺設定／失敗與冷卻；皆為假資料與 stub，未連正式 LINE。
+依 CI 使用 `ci/package-lock.json` 安裝相依套件後，`npm test`：**817 passed、0 failed、0 skipped**（Node v24.22.1）；`git diff --check` 通過。GitHub CI 使用 Node 20，PR 開立後另看 CI。測試涵蓋邊界、缺價／缺匯率、異常型別、權限隔離、App／MCP 一致、LINE 缺設定／失敗與冷卻；皆為假資料與 stub，未連正式 LINE。
+
+審查修正回歸：同 key 1 秒內第二次 put 會拋 429 的 KV stub 驗證整批 lease／結果寫入（4 則 LINE、2 次寫入、0 次限速）；FX 舊／缺／無效時間及股價／FX 較舊時間；舊 webhook opt-in 與 *_TWD；雙 token 的 API／MCP 通知隔離。將通知讀取故意改成 owner key 的 mutant 已被新增測試抓到；測完還原。`build:app`、`build:css` 均通過。

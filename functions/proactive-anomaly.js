@@ -86,10 +86,11 @@ export function parseOptInNumber(raw, { max = MONEY_MAX } = {}) {
 }
 
 export function readThresholds(env) {
-  // 老大核准百分比門檻；不再把舊的 *_TWD 當成觸發條件。
   const specs = [
     ["portfolio", "pct", "PROACTIVE_PORTFOLIO_DECLINE_PCT", PCT_MAX],
+    ["portfolio", "twd", "PROACTIVE_PORTFOLIO_DECLINE_TWD", MONEY_MAX],
     ["stock", "pct", "PROACTIVE_STOCK_DECLINE_PCT", PCT_MAX],
+    ["stock", "twd", "PROACTIVE_STOCK_DECLINE_TWD", MONEY_MAX],
   ];
   const out = {
     portfolio: { pct: null, twd: null, enabled: false },
@@ -97,13 +98,22 @@ export function readThresholds(env) {
     invalid: [],
   };
   for (const [group, field, name, max] of specs) {
-    const parsed = parseOptInNumber(env?.[name] == null || String(env[name]).trim() === "" ? DEFAULT_DECLINE_PCT : env[name], { max });
+    const parsed = parseOptInNumber(env?.[name], { max });
     if (parsed.ok) out[group][field] = parsed.value;
     else if (parsed.reason === "invalid") out.invalid.push(name);
   }
   out.portfolio.enabled = out.portfolio.pct != null || out.portfolio.twd != null;
   out.stock.enabled = out.stock.pct != null || out.stock.twd != null;
   return out;
+}
+
+/** App／LINE 預設 3%；舊 webhook 保持 opt-in，不做門檻遷移。 */
+export function readOwnerThresholds(env) {
+  const overrides = {};
+  for (const name of ["PROACTIVE_PORTFOLIO_DECLINE_PCT", "PROACTIVE_STOCK_DECLINE_PCT"]) {
+    overrides[name] = env?.[name] == null || String(env[name]).trim() === "" ? DEFAULT_DECLINE_PCT : env[name];
+  }
+  return readThresholds(overrides);
 }
 
 export function webhookConfig(env) {
@@ -712,7 +722,7 @@ async function runOwnerAlerts(env, deps) {
   if (!raw) return { skipped: "no_snapshot" };
   const snapshot = typeof raw === "string" ? JSON.parse(raw) : raw;
   const concentration = calculateConcentration(snapshot);
-  const thresholds = readThresholds(env);
+  const thresholds = readOwnerThresholds(env);
   const compact = compactSnapshot(JSON.stringify(snapshot));
   const decline = evaluateDeclines({ now, marketClosed: false, thresholds, snapshots: compact ? [compact] : [], hook: deps.hook });
   const incidents = [...decline.incidents];
@@ -739,17 +749,21 @@ async function runOwnerAlerts(env, deps) {
     alerts, decline: { reason: decline.reason, invalidThresholds: thresholds.invalid },
     appIncidents: boundIncidents(app.incidents), lineIncidents: boundIncidents(line.incidents),
     line: { sent: [], withheld: [], failed: [], skipped: lineConfigured(env) ? null : "line_not_configured" } };
-  if (!(await saveRisk(env, key, state))) return { skipped: "state_write_failed" };
-  if (!lineConfigured(env)) return { skipped: null, ...state.line };
-  for (const incident of incidents) {
+  const batch = [];
+  for (const incident of lineConfigured(env) ? incidents : []) {
     const record = line.incidents[incident.event_id];
     // 集中度 event_id 是穩定類別；失敗三次後下一個冷卻週期仍可再試，不能永遠停送。
     if (record && Number(record.attempts) >= MAX_ATTEMPTS && now.getTime() - Date.parse(record.lastAttemptAt || "") >= COOLDOWN_MS) delete line.incidents[incident.event_id];
     const decision = deliveryDecision(line.incidents[incident.event_id], now.getTime());
     if (decision !== "send") { state.line.withheld.push(decision); continue; }
     noteLease(line, incident, now);
-    state.lineIncidents = boundIncidents(line.incidents);
-    if (!(await saveRisk(env, key, state))) return { skipped: "state_write_failed" };
+    batch.push(incident);
+  }
+  // App 狀態與整批 lease 合併一次寫入；寫入成功前絕不送 LINE。
+  state.lineIncidents = boundIncidents(line.incidents);
+  if (!(await saveRisk(env, key, state))) return { skipped: "state_write_failed" };
+  const leasedAt = Date.now();
+  for (const incident of batch) {
     const sent = await sendRiskLine(env, incident, deps.fetch || fetch);
     if (sent.ok) { noteSuccess(line, incident, now); state.line.sent.push(incident.event_type); }
     else {
@@ -757,10 +771,13 @@ async function runOwnerAlerts(env, deps) {
       state.line.failed.push(incident.event_type);
       console.warn(`portfolio risk LINE delivery failed type=${safeType(incident.event_type)} status=${Number(sent.status) || "network"}`);
     }
+  }
+  if (batch.length) {
+    // Workers KV 同 key 每秒僅可寫一次。只再寫一次結果，且有上限地等待剩餘間隔。
+    await new Promise((resolve) => setTimeout(resolve, Math.max(0, 1100 - (Date.now() - leasedAt))));
     state.lineIncidents = boundIncidents(line.incidents);
     if (!(await saveRisk(env, key, state))) return { skipped: "state_write_failed" };
   }
-  await saveRisk(env, key, state);
   return { skipped: null, ...state.line };
 }
 
