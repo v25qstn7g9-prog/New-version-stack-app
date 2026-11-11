@@ -67,5 +67,5 @@ test('wiring: every goal surface is gated by the advanced flag', () => {
 test('wiring: restore never downgrades, AI goal edits switch it on, and it is saved/exported', () => {
   assert.ok(html.includes('setAdvancedMode((cur) => cur || data.advancedMode === true || detectAdvancedUse('));
   assert.ok(html.includes('setGoal={(v) => { setGoal(v); setAdvancedMode(true); }}'));
-  assert.ok(html.includes('saveKey("advancedMode", advancedMode)'));
+  assert.match(html, /(?:saveKey|persistKey)\("advancedMode", advancedMode\)/);
 });
