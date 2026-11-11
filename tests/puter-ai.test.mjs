@@ -35,7 +35,8 @@ function loadHelpers(extra = {}) {
       estimatePuterTokens, truncatePuterText, buildPuterSummary, selectPuterSnippets, composePuterContext, puterQuestionDateRange,
       puterSendGate, puterAutoLoadOnce, puterStore, puterSetState, puterQuestionSymbols,
       PUTER_REQUEST_TOKEN_LIMIT, PUTER_QUESTION_TOKEN_LIMIT, PUTER_MAX_TOOL_CALLS_PER_ROUND, PUTER_DATA_OPEN, PUTER_DATA_CLOSE, PUTER_SETTINGS_TOKEN_LIMIT,
-      computePuterHoldingValues, buildPuterSettingsSnapshot, puterQuoteQuestionSymbols, puterMaskDatesAndAmounts, fitPuterRequest, puterRequestTokens };`, ctx);
+      computePuterHoldingValues, buildPuterSettingsSnapshot, puterMaskDatesAndAmounts, fitPuterRequest, puterRequestTokens,
+      puterOptionsTokens, puterChatOptions };`, ctx);
   return { ...ctx.api, fetchCalls, document, ctx };
 }
 const json = (x) => JSON.parse(JSON.stringify(x));
@@ -726,32 +727,14 @@ function loadReadTool() {
   return ctx.run;
 }
 
-test('[4-1] /quote allowlist: amounts and dates in the question never become quotable symbols', async () => {
+test('[4-1] amounts and dates in the question are never treated as symbols', () => {
   const api = loadHelpers();
-  const known = ['0050', 'VOO'];
-  assert.deepEqual([...api.puterQuoteQuestionSymbols('我投入本金123456元，現在賺多少？', known)], []);
-  assert.deepEqual([...api.puterQuoteQuestionSymbols('成本 654321 的部位', known)], []);
-  assert.deepEqual([...api.puterQuoteQuestionSymbols('2025-12 我買了什麼', known)], []);
-  assert.deepEqual([...api.puterQuoteQuestionSymbols('$100000 夠嗎', known)], []);
-  assert.deepEqual([...api.puterQuoteQuestionSymbols('目前 1234 元', known)], []);
-  assert.deepEqual([...api.puterQuoteQuestionSymbols('2330 今天怎樣', known)], [], 'unknown code without quote wording');
-  assert.deepEqual([...api.puterQuoteQuestionSymbols('2330 股價多少', known)], ['2330'], 'explicit quote request');
-  assert.deepEqual([...api.puterQuoteQuestionSymbols('查 NVDA 報價', known)], ['NVDA']);
-  assert.deepEqual([...api.puterQuoteQuestionSymbols('0050 最近表現', known)], ['0050'], 'known code');
-  assert.deepEqual([...api.puterQuoteQuestionSymbols('AI ETF 怎麼看', known)], [], 'common acronyms are not symbols');
-  // 照 App 的組法跑完整流程：模型想用問題裡的金額查價 → 拒絕、不執行
-  const q = '我投入本金123456元，幫我查一下';
-  const allowed = [...new Set([...known, ...api.puterQuoteQuestionSymbols(q, known)])];
-  const p = fakePuter({ rounds: [[{ type: 'tool_use', id: 'x', name: 'get_live_quotes', input: { symbols: ['123456'] } }], [{ type: 'text', text: 'ok' }]] });
-  let ran = 0;
-  await api.puterAskFlow(q, [], deps(api, p, { validation: { allowedQuoteSymbols: allowed }, runReadTool: async () => { ran += 1; return ''; } }), fakeUi(), { timeoutMs: 1000 });
-  assert.equal(ran, 0);
-  assert.match(p.calls.chat[1].messages.at(-1).content, /123456 不是持股、自選或這一題提到的代號，已拒絕查詢/);
-  // App 端組法：known 包含交易／股利代號；問題代號只經過 puterQuoteQuestionSymbols
-  const send = block(widget, 'const send = () => {');
-  assert.match(send, /\.\.\.aiData\.tradeSymbols,\s*\.\.\.aiData\.dividendSymbols,/);
-  assert.match(send, /const allowedQuoteSymbols = \[\.\.\.new Set\(\[\.\.\.knownSymbols, \.\.\.puterQuoteQuestionSymbols\(text, knownSymbols\)\]\)\];/);
-  assert.doesNotMatch(send, /\.\.\.puterQuestionSymbols\(text\)/);
+  assert.deepEqual([...api.puterQuestionSymbols('我投入本金123456元，現在賺多少？')], []);
+  assert.deepEqual([...api.puterQuestionSymbols('成本 654321 的部位')], []);
+  assert.deepEqual([...api.puterQuestionSymbols('2025-12 我買了什麼')], []);
+  assert.deepEqual([...api.puterQuestionSymbols('$100000 夠嗎')], []);
+  assert.deepEqual([...api.puterQuestionSymbols('AI ETF 怎麼看')], [], 'common acronyms are not symbols');
+  assert.deepEqual([...api.puterQuestionSymbols('0050 最近表現')], ['0050']);
 });
 
 test('[4-2] no quote = unknown: market value "無報價", no fake loss, totals exclude it', () => {
@@ -854,11 +837,12 @@ test('[4-6] request budget: question capped, many tool results trimmed oldest-fi
   let ran = 0;
   const ui = fakeUi();
   await api.puterAskFlow('問'.repeat(3000), Array.from({ length: 10 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: '歷史'.repeat(300) })),
-    deps(api, p, { buildContext: async () => '資料'.repeat(6000), onRequest: (m) => sizes.push(api.puterRequestTokens(m)), runReadTool: async () => { ran += 1; return '結果'.repeat(3000); } }),
+    deps(api, p, { buildContext: async () => '資料'.repeat(6000), onRequest: (m, o) => sizes.push(api.puterRequestTokens(m, o)), runReadTool: async () => { ran += 1; return '結果'.repeat(3000); } }),
     ui, { timeoutMs: 2000 });
   assert.equal(p.calls.chat.length, 3);
   for (const n of sizes) assert.ok(n <= api.PUTER_REQUEST_TOKEN_LIMIT, `request ${n} ≤ ${api.PUTER_REQUEST_TOKEN_LIMIT}`);
-  for (const c of p.calls.chat) assert.ok(api.puterRequestTokens(c.messages) <= api.PUTER_REQUEST_TOKEN_LIMIT);
+  // 實際送給 puter.ai.chat 的 messages＋options（含 tools schema）
+  for (const c of p.calls.chat) assert.ok(api.puterRequestTokens(c.messages, c.opts) <= api.PUTER_REQUEST_TOKEN_LIMIT);
   assert.equal(ran, api.PUTER_MAX_TOOL_CALLS_PER_ROUND * 2, 'at most N tool calls run per round');
   const last = p.calls.chat[2].messages;
   assert.ok(last.some((m) => m.role === 'tool' && /較早的查詢結果（已截斷）/.test(m.content)), 'older tool results trimmed and marked');
@@ -906,8 +890,8 @@ test('[4-7] settings are queryable on demand (bounded): plan assumptions, monthl
   assert.doesNotMatch(snap, /APP_DATA>>>/, 'data boundary markers inside notes are neutralized');
   // 工具接線：get_app_snapshot(settings) 回設定快照
   const runRead = block(widget, 'const send = () => {');
-  assert.match(runRead, /tc\.arguments\?\.section === "settings" \? buildAiSettingsSnapshot\(\)/);
-  assert.match(block(widget, 'const buildAiSettingsSnapshot = () => buildPuterSettingsSnapshot({'), /holdings: \(holdings \|\| \[\]\)\.map\(\(h\) => \(\{ symbol: h\.symbol, name: h\.name, target: h\.target2035, current: h\.current \}\)\)/);
+  assert.match(runRead, /tc\.arguments\?\.section === "settings" \? buildAiSettingsSnapshot\(tc\.arguments\?\.symbols\)/);
+  assert.match(block(widget, 'const buildAiSettingsSnapshot = (symbols) => buildPuterSettingsSnapshot({'), /holdings: \(holdings \|\| \[\]\)\.map\(\(h\) => \(\{ symbol: h\.symbol, name: h\.name, target: h\.target2035, current: h\.current \}\)\)/);
   // 流程：模型查 settings → 結果送回 Puter
   const p = fakePuter({ rounds: [[{ type: 'tool_use', id: 's', name: 'get_app_snapshot', input: { section: 'settings' } }], [{ type: 'text', text: '年化 7.5%' }]] });
   await api.puterAskFlow('我的計畫假設是什麼', [], deps(api, p, { runReadTool: async (tc) => (tc.arguments.section === 'settings' ? snap : '') }), fakeUi(), { timeoutMs: 1000 });
@@ -965,6 +949,156 @@ test('[4-size] huge data end to end: real summary + snippets + real read tool th
   const toolMsg = p.calls.chat[1].messages.find((m) => m.role === 'tool');
   assert.equal(toolMsg.content.split('\n').filter((l) => /^\d{4}-\d{2}-\d{2} /.test(l)).length, 30);
   assert.match(toolMsg.content, /共 5000 筆，只列最近 30 筆/);
-  for (const c of p.calls.chat) assert.ok(api.puterRequestTokens(c.messages) <= api.PUTER_REQUEST_TOKEN_LIMIT);
+  for (const c of p.calls.chat) assert.ok(api.puterRequestTokens(c.messages, c.opts) <= api.PUTER_REQUEST_TOKEN_LIMIT);
   assert.match(ui.replies[0].notice, new RegExp(`相關的 ${snip.count} 筆紀錄`));
+});
+
+// ---------------- Codex 第五輪 ----------------
+test('[6-1] /quote only for App-known symbols + 4 indices; anything from the question alone is refused without a request', async () => {
+  const api = loadHelpers();
+  const app = loadAppTools();
+  // App 組法：allowedQuoteSymbols＝App 已知代號（持股、定期定額、交易、股利），不看問題內容
+  const send = block(widget, 'const send = () => {');
+  assert.match(send, /const allowedQuoteSymbols = knownSymbols;/);
+  assert.match(send, /\.\.\.aiData\.tradeSymbols,\s*\.\.\.aiData\.dividendSymbols,/);
+  assert.doesNotMatch(src, /puterQuoteQuestionSymbols|PUTER_QUOTE_WORDS/);
+  const run = async (question, known, symbols) => {
+    const p = fakePuter({ rounds: [[{ type: 'tool_use', id: 'x', name: 'get_live_quotes', input: { symbols } }], [{ type: 'text', text: 'ok' }]] });
+    const quoteCalls = [];
+    await api.puterAskFlow(question, [], deps(api, p, {
+      validation: { allowedQuoteSymbols: known },
+      // 接上實際的報價函式（fetch 會被記錄）
+      runReadTool: async (tc, signal) => { quoteCalls.push(tc.arguments.symbols); return app.executeLiveQuoteTool(tc, [], signal); },
+    }), fakeUi(), { timeoutMs: 1000 });
+    return { quoteCalls, toolMsg: p.calls.chat[1].messages.find((m) => m.role === 'tool').content };
+  };
+  // 報價單例子、成本例子：拒絕、不發請求
+  for (const [q, sym] of [['幫我看報價單 123456 的內容', '123456'], ['幫我看 123456 的成本', '123456']]) {
+    const r = await run(q, ['0050'], [sym]);
+    assert.equal(r.quoteCalls.length, 0);
+    assert.match(r.toolMsg, new RegExp(`${sym}：這個代號不在你的 App 紀錄裡，無法查即時股價`));
+  }
+  // 「2330 股價」：2330 不是持股 → 拒絕；是持股 → 允許
+  let r = await run('2330 股價', ['0050'], ['2330']);
+  assert.equal(r.quoteCalls.length, 0);
+  assert.match(r.toolMsg, /2330：這個代號不在你的 App 紀錄裡/);
+  r = await run('2330 股價', ['0050', '2330'], ['2330']);
+  assert.deepEqual(r.quoteCalls.map((x) => [...x]), [['2330']]);
+  assert.match(app.fetchCalls.at(-1).url, /^\/quote\?symbols=2330&/);
+  // 「NVDA price」非持股 → 拒絕
+  const before = app.fetchCalls.length;
+  r = await run('NVDA price', ['0050'], ['NVDA']);
+  assert.equal(r.quoteCalls.length, 0);
+  assert.match(r.toolMsg, /NVDA：這個代號不在你的 App 紀錄裡，無法查即時股價/);
+  // 指數一律可查
+  r = await run('加權指數', ['0050'], ['TAIEX']);
+  assert.deepEqual(r.quoteCalls.map((x) => [...x]), [['TAIEX']]);
+  assert.equal(app.fetchCalls.length, before + 1, 'only the index request went out');
+});
+
+test('[5-2] dates without a year: inherit the start year, then roll over, then validate', () => {
+  const api = loadHelpers();
+  const r = (q) => { const x = api.puterQuestionDateRange(q, '2026-11-11'); return x && JSON.parse(JSON.stringify(x)); };
+  assert.deepEqual(r('2026-12-20 到 1月10日'), { from: '2026-12-20', to: '2027-01-10' });
+  assert.deepEqual(r('2024-02-01 到 2月29日'), { from: '2024-02-01', to: '2024-02-29' }, 'leap year is valid');
+  assert.deepEqual(r('2025-02-01 到 2月29日'), { invalid: true, text: '2025-02-29' });
+  assert.deepEqual(r('2025-11 到 2月'), { from: '2025-11-01', to: '2026-02-28' });
+  assert.deepEqual(r('去年12月 到 1月'), { from: '2025-12-01', to: '2026-01-31' });
+  // 跨年範圍真的挑到正確期間的交易
+  const d = { holdings: [], trades: [
+    { date: '2026-01-05', symbol: '0050', action: 'buy', shares: 1, price: 1 },
+    { date: '2026-12-25', symbol: '0050', action: 'buy', shares: 1, price: 1 },
+    { date: '2027-01-08', symbol: '0050', action: 'buy', shares: 1, price: 1 },
+  ], daily: [], dividends: [], planItems: [] };
+  const snip = api.selectPuterSnippets('2026-12-20 到 1月10日 的交易', d, '2026-11-11');
+  const dates = snip.text.split('\n').filter((l) => /^\d{4}-\d{2}-\d{2} /.test(l)).map((l) => l.slice(0, 10));
+  assert.deepEqual(dates, ['2026-12-25', '2027-01-08']);
+});
+
+test('[5-3] request budget counts the tools schema and options actually sent to puter.ai.chat', async () => {
+  const api = loadHelpers();
+  const tools = api.puterAiTools(TODAY);
+  const optTokens = api.puterOptionsTokens(api.puterChatOptions(tools));
+  assert.ok(optTokens > 500, `tools schema is large (${optTokens})`);
+  // 合法 4 工具流程，每個結果都很長：每次實際送出的 messages＋options 都 ≤ 上限
+  const calls = Array.from({ length: 4 }, (_, i) => ({ type: 'tool_use', id: `t${i}`, name: 'query_app_data', input: { source: 'trades', fromDate: `2024-01-0${i + 1}` } }));
+  const p = fakePuter({ rounds: [calls, [{ type: 'text', text: '完成' }]] });
+  await api.puterAskFlow('問'.repeat(900), Array.from({ length: 10 }, () => ({ role: 'user', content: '歷'.repeat(190) })),
+    deps(api, p, { tools, buildContext: async () => '料'.repeat(9000), runReadTool: async () => '果'.repeat(1490) }), fakeUi(), { timeoutMs: 2000 });
+  assert.equal(p.calls.chat.length, 2);
+  for (const c of p.calls.chat) {
+    const total = api.puterRequestTokens(c.messages, c.opts);
+    assert.ok(total <= api.PUTER_REQUEST_TOKEN_LIMIT, `sent ${total} ≤ ${api.PUTER_REQUEST_TOKEN_LIMIT}`);
+  }
+  assert.ok(p.calls.chat[0].opts.tools.length === 7, 'tools really were sent');
+  // 不含 tools 的估算會少算：同一份 messages 加上 tools 一定更大
+  const m = p.calls.chat[1].messages;
+  assert.ok(api.puterRequestTokens(m, p.calls.chat[1].opts) > api.puterRequestTokens(m));
+  // fitPuterRequest 會把 options 預留出來
+  const big = [{ role: 'system', content: '資'.repeat(11800) }, { role: 'user', content: 'hi' }];
+  const fitted = api.fitPuterRequest(big, api.PUTER_REQUEST_TOKEN_LIMIT, api.puterChatOptions(tools));
+  assert.equal(fitted.truncated, true);
+  assert.ok(api.puterRequestTokens(fitted.messages, api.puterChatOptions(tools)) <= api.PUTER_REQUEST_TOKEN_LIMIT);
+});
+
+test('[5-nb] settings snapshot can be filtered by symbols (format-checked, local only)', async () => {
+  const api = loadHelpers();
+  const holdings = [{ symbol: '2330', name: '台積電', target: 2000, current: 500 }, ...Array.from({ length: 80 }, (_, i) => ({ symbol: `${3000 + i}`, target: 100, current: 10 }))];
+  const snap = api.buildPuterSettingsSnapshot({ includeGoal: false, holdings, symbols: ['3079', '9999'] });
+  assert.match(snap, /3079：目標 100 股，目前 10 股/);
+  assert.doesNotMatch(snap, /2330|3000：/);
+  assert.match(snap, /這些代號沒有設定目標股數：9999/);
+  const v = (args) => api.validatePuterToolCall({ name: 'get_app_snapshot', arguments: args }, {});
+  assert.equal(JSON.stringify(v({ section: 'settings', symbols: ['3079', 'voo'] }).args), JSON.stringify({ section: 'settings', symbols: ['3079', 'VOO'] }));
+  assert.equal(v({ section: 'settings', symbols: '3079' }).ok, false);
+  assert.equal(v({ section: 'settings', symbols: ['MY PORTFOLIO 123'] }).ok, false);
+  assert.equal(v({ section: 'settings', symbols: Array.from({ length: 11 }, () => '0050') }).ok, false);
+  // 流程：模型指定代號查設定 → 驗證後的 symbols 交給讀取函式
+  const p = fakePuter({ rounds: [[{ type: 'tool_use', id: 's', name: 'get_app_snapshot', input: { section: 'settings', symbols: ['3079'] } }], [{ type: 'text', text: 'ok' }]] });
+  let got = null;
+  await api.puterAskFlow('3079 目標股數', [], deps(api, p, { runReadTool: async (tc) => { got = tc.arguments.symbols; return api.buildPuterSettingsSnapshot({ holdings, symbols: tc.arguments.symbols }); } }), fakeUi(), { timeoutMs: 1000 });
+  assert.deepEqual([...got], ['3079']);
+  assert.match(p.calls.chat[1].messages.at(-1).content, /3079：目標 100 股/);
+});
+
+// ---------------- Codex 第六輪 ----------------
+test('[6-2] same-month end without a day: roll-over compares the end month’s last day', () => {
+  const api = loadHelpers();
+  const r = (q) => { const x = api.puterQuestionDateRange(q, '2026-11-11'); return x && JSON.parse(JSON.stringify(x)); };
+  assert.deepEqual(r('2026-10-15 到 10月'), { from: '2026-10-15', to: '2026-10-31' });
+  assert.deepEqual(r('2026-10-15 到 10月20日'), { from: '2026-10-15', to: '2026-10-20' });
+  assert.deepEqual(r('2026-10-15 到 10月3日'), { from: '2026-10-15', to: '2027-10-03' }, 'earlier day in the same month → next year');
+  // 上一輪的跨年、閏年案例仍成立
+  assert.deepEqual(r('2026-12-20 到 1月10日'), { from: '2026-12-20', to: '2027-01-10' });
+  assert.deepEqual(r('2024-02-01 到 2月29日'), { from: '2024-02-01', to: '2024-02-29' });
+  assert.deepEqual(r('2025-02-01 到 2月29日'), { invalid: true, text: '2025-02-29' });
+  assert.deepEqual(r('2025-11 到 2月'), { from: '2025-11-01', to: '2026-02-28' });
+  // 挑片段時真的只挑 10/15～10/31
+  const d = { holdings: [], daily: [], dividends: [], planItems: [], trades: [
+    { date: '2026-10-10', symbol: '0050', action: 'buy', shares: 1, price: 1 },
+    { date: '2026-10-20', symbol: '0050', action: 'buy', shares: 1, price: 1 },
+    { date: '2027-10-20', symbol: '0050', action: 'buy', shares: 1, price: 1 },
+  ] };
+  const dates = api.selectPuterSnippets('2026-10-15 到 10月 的交易', d, '2026-11-11').text.split('\n').filter((l) => /^\d{4}-\d{2}-\d{2} /.test(l)).map((l) => l.slice(0, 10));
+  assert.deepEqual(dates, ['2026-10-20']);
+});
+
+test('[6-nb] settings snapshot with symbols puts the requested targets first so truncation cannot hide them', () => {
+  const api = loadHelpers();
+  const st = {
+    includeGoal: true, goal: { targetAmount: 30000000, targetYear: 2035 }, goalDate: '2034-06-01',
+    planSchedule: { startDate: '2024-01-01', initialPrincipal: 1000000, initialAssets: 1200000, monthlyAmount: 30000, annualReturn: 7.5, horizonMonths: 120 },
+    planItems: Array.from({ length: 20 }, (_, i) => ({ symbol: `${1000 + i}`, amount: 3000, note: '這是一段很長的定期定額備註文字，用來把設定快照撐到超過上限的長度喔喔喔喔喔喔喔喔喔喔' })),
+    holdings: Array.from({ length: 80 }, (_, i) => ({ symbol: `${3000 + i}`, name: `股票名稱${i}`, target: 100 + i, current: 10 })),
+  };
+  // 不指定：內容太多會被截斷，3079 落在後面看不到
+  const full = api.buildPuterSettingsSnapshot(st);
+  assert.match(full, /（已截斷）/);
+  assert.doesNotMatch(full, /3079/);
+  // 指定 3079：放在最前面，一定看得到，其餘內容（計畫、定期定額）照樣附在後面
+  const snap = api.buildPuterSettingsSnapshot({ ...st, symbols: ['3079'] });
+  assert.match(snap, /指定代號的個股目標股數（共 1 檔）：\n• 3079 股票名稱79：目標 179 股，目前 10 股/);
+  assert.ok(snap.indexOf('3079') < snap.indexOf('資產成長計畫假設'));
+  assert.match(snap, /年化報酬率假設 7\.5%/);
+  assert.ok(api.estimatePuterTokens(snap) <= api.PUTER_SETTINGS_TOKEN_LIMIT);
 });

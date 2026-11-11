@@ -9822,7 +9822,7 @@ function aiQuickPrompts() {
 // 1. AI 問答只有 Puter 一條路：登入就能用、登出就不能用；不呼叫本 App 的問答端點，也沒有內建 AI 退路。
 // 2. 頁面啟動時不載入 SDK；打開 AI 問答時才載入（loadPuterSdk）。
 // 3. 持股摘要只在瀏覽器組成 prompt、直接送到 Puter；AI 問答流程不可呼叫本 App 的問答或任何 AI 端點。
-//    唯一例外：模型要求 get_live_quotes 時，照 App 平常抓報價的方式打 /quote（只帶驗證過、屬於持股／自選／這一題提到的代號）。
+//    唯一例外：模型要求 get_live_quotes 時，照 App 平常抓報價的方式打 /quote，只帶 App 已知代號（持股、定期定額、交易、股利）或 4 個指數。
 // 4. puter.auth.signIn() 只能在按鈕點擊的同步呼叫堆疊內呼叫（puterSignInClick），不可放在 await 後面。
 // 5. 只有 puter.auth.isSignedIn() 為 true 才呼叫 puter.ai.chat（未登入時 SDK 會自己跳登入視窗）。
 const PUTER_SDK_URL = "https://js.puter.com/v2/";
@@ -9912,8 +9912,9 @@ function puterAiTools(today) {
     }, ["source"]),
     fn("get_app_snapshot", "讀取 App 最新狀態摘要，包括持股、即時行情、Trend Radar 今日/明日預測、KD/法人/新聞狀態、台指近月與隔夜訊號、模型驗證。section=settings 可讀計畫假設（年化報酬、每月投入、投影期間）、定期定額配置、總目標與個股目標股數。", {
       section: { type: "string", enum: ["all", "portfolio", "settings", "market", "radar", "validation"], description: "要讀的區段；不確定時用 all" },
+      symbols: { type: "array", items: { type: "string" }, description: "section=settings 時可指定只看這些代號的個股目標（最多 10 個）" },
     }),
-    fn("get_live_quotes", "查詢特定股票／ETF 的即時／今日最新股價；也可查 TAIEX、SPX、SOX、USDTWD。", {
+    fn("get_live_quotes", "查詢使用者 App 紀錄裡（持股、定期定額、交易、股利）的股票／ETF 即時／今日最新股價；也可查 TAIEX、SPX、SOX、USDTWD。不在 App 紀錄裡的代號無法查。", {
       symbols: { type: "array", items: { type: "string" }, description: "要查詢的股票代號清單；沒指定就查使用者目前全部持股" },
     }),
   ];
@@ -9968,26 +9969,13 @@ function puterQuestionSymbols(question) {
   for (const m of q.matchAll(/(?<![0-9A-Za-z])([A-Z]{2,5}(?:[.-][A-Z]{1,2})?)(?![0-9A-Za-z])/g)) if (!PUTER_NOT_SYMBOLS.has(m[1])) out.add(m[1]);
   return [...out];
 }
-// 這一題「可以拿去查即時股價」的代號：必須是 App 已知代號（持股、定期定額、交易、股利），
-// 或在問題裡明確當成查價對象（例如「2330 股價」「查 NVDA 報價」）。金額、日期旁的數字一律不算。
-function puterQuoteQuestionSymbols(question, knownSymbols) {
-  const known = new Set((knownSymbols || []).map((x) => String(x).trim().toUpperCase()));
-  const masked = puterMaskDatesAndAmounts(question);
-  const out = [];
-  for (const sym of puterQuestionSymbols(question)) {
-    if (known.has(sym)) { out.push(sym); continue; }
-    const esc = sym.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&");
-    const re = new RegExp(`(?:查|看|問)\\s*${esc}(?![0-9A-Za-z])|(?<![0-9A-Za-z])${esc}\\s*(?:的)?\\s*(?:股價|報價|價格|現價|收盤價?|多少錢|行情|漲跌)`, "i");
-    if (re.test(masked)) out.push(sym);
-  }
-  return out;
-}
 function puterCleanText(v) {
   return String(v).replace(/[\u0000-\u001f\u007f]/g, " ").split(PUTER_DATA_OPEN).join("[資料]").split(PUTER_DATA_CLOSE).join("[資料]").trim();
 }
 
 // 回傳 { ok:true, args:乾淨參數 } 或 { ok:false, error:繁中原因 }。永不拋例外。
-// ctx.allowedQuoteSymbols：get_live_quotes 可查的代號（持股、自選、這一題提到的代號）；指數一律可查。
+// ctx.allowedQuoteSymbols：get_live_quotes 可查的代號，只有 App 已知代號（持股、定期定額、交易、股利）；指數一律可查。
+// 問題裡出現、但不在 App 紀錄裡的代號一律不查（不發請求）。
 function validatePuterToolCall(tc, ctx) {
   try {
     const bad = (error) => ({ ok: false, error });
@@ -10068,6 +10056,17 @@ function validatePuterToolCall(tc, ctx) {
           if (!["all", "portfolio", "settings", "market", "radar", "validation"].includes(a.section)) return bad("section 不正確");
           out.section = a.section;
         }
+        if (has("symbols")) {
+          // 只篩選本機設定，不會發請求；格式檢查同 /quote
+          if (!Array.isArray(a.symbols) || a.symbols.length > PUTER_QUOTE_SYMBOLS_MAX) return bad(`symbols 必須是最多 ${PUTER_QUOTE_SYMBOLS_MAX} 個代號的陣列`);
+          const list = [];
+          for (const x of a.symbols) {
+            const sym = typeof x === "string" ? x.trim().toUpperCase() : "";
+            if (!puterQuoteSymbolFormatOk(sym)) return bad("股票代號格式不正確");
+            if (!list.includes(sym)) list.push(sym);
+          }
+          if (list.length) out.symbols = list;
+        }
         return { ok: true, args: out };
       case "get_live_quotes": {
         if (!has("symbols")) return { ok: true, args: out };
@@ -10078,7 +10077,7 @@ function validatePuterToolCall(tc, ctx) {
         for (const s of a.symbols) {
           const sym = typeof s === "string" ? s.trim().toUpperCase() : "";
           if (!puterQuoteSymbolFormatOk(sym)) return bad("股票代號格式不正確，已拒絕查詢。");
-          if (!allowed.has(sym)) return bad(`${sym} 不是持股、自選或這一題提到的代號，已拒絕查詢。`);
+          if (!allowed.has(sym)) return bad(`${sym}：這個代號不在你的 App 紀錄裡，無法查即時股價。`);
           if (!list.includes(sym)) list.push(sym);
         }
         if (list.length) out.symbols = list;
@@ -10264,95 +10263,111 @@ function buildPuterSummary(d) {
 }
 
 // 設定快照（按需讀取、有大小上限）：計畫假設、定期定額、總目標、個股目標股數。
-// s：{ includeGoal, goal, goalDate, planSchedule, planItems, holdings:[{symbol,name,target,current}] }
+// s：{ includeGoal, goal, goalDate, planSchedule, planItems, holdings:[{symbol,name,target,current}], symbols?:[只看這些代號的個股目標] }
 function buildPuterSettingsSnapshot(st) {
-  const L = ["=== App 設定（唯讀快照） ==="];
-  L.push(`進階功能（目標與計畫）：${st.includeGoal ? "已開啟" : "未開啟"}`);
+  const head = ["=== App 設定（唯讀快照） ==="];
+  const general = [`進階功能（目標與計畫）：${st.includeGoal ? "已開啟" : "未開啟"}`];
   if (st.includeGoal) {
     const g = st.goal || {};
-    L.push(`總目標：${g.targetYear || "—"} 年 NT$ ${puterFmt(g.targetAmount)}；預計達成：${st.goalDate || "尚無法推估"}`);
+    general.push(`總目標：${g.targetYear || "—"} 年 NT$ ${puterFmt(g.targetAmount)}；預計達成：${st.goalDate || "尚無法推估"}`);
     const ps = st.planSchedule;
     if (ps) {
-      L.push(`資產成長計畫假設：起始日 ${ps.startDate || "—"}，起始本金 NT$ ${puterFmt(ps.initialPrincipal ?? ps.initialCapital)}，起始資產 NT$ ${puterFmt(ps.initialAssets ?? ps.initialCapital)}，每月投入 NT$ ${puterFmt(ps.monthlyAmount)}，年化報酬率假設 ${puterKnownNumber(ps.annualReturn) != null ? `${Number(ps.annualReturn)}%` : "—"}，投影期間 ${puterKnownNumber(ps.horizonMonths) != null ? `${Number(ps.horizonMonths)} 個月` : "—"}`);
+      general.push(`資產成長計畫假設：起始日 ${ps.startDate || "—"}，起始本金 NT$ ${puterFmt(ps.initialPrincipal ?? ps.initialCapital)}，起始資產 NT$ ${puterFmt(ps.initialAssets ?? ps.initialCapital)}，每月投入 NT$ ${puterFmt(ps.monthlyAmount)}，年化報酬率假設 ${puterKnownNumber(ps.annualReturn) != null ? `${Number(ps.annualReturn)}%` : "—"}，投影期間 ${puterKnownNumber(ps.horizonMonths) != null ? `${Number(ps.horizonMonths)} 個月` : "—"}`);
     }
     const items = st.planItems || [];
     if (items.length) {
-      L.push(`定期定額配置（共 ${items.length} 項${items.length > PUTER_SNIPPET_LIMITS.plan ? `，列前 ${PUTER_SNIPPET_LIMITS.plan} 項` : ""}）：`);
-      for (const x of items.slice(0, PUTER_SNIPPET_LIMITS.plan)) L.push(`• ${String(x.symbol || "").toUpperCase()} 每期 NT$ ${puterFmt(x.amount)}${x.note ? `（${puterCleanText(x.note).slice(0, 40)}）` : ""}`);
+      general.push(`定期定額配置（共 ${items.length} 項${items.length > PUTER_SNIPPET_LIMITS.plan ? `，列前 ${PUTER_SNIPPET_LIMITS.plan} 項` : ""}）：`);
+      for (const x of items.slice(0, PUTER_SNIPPET_LIMITS.plan)) general.push(`• ${String(x.symbol || "").toUpperCase()} 每期 NT$ ${puterFmt(x.amount)}${x.note ? `（${puterCleanText(x.note).slice(0, 40)}）` : ""}`);
     }
   }
-  const targets = (st.holdings || []).filter((h) => h && h.symbol && puterKnownNumber(h.target) > 0);
+  const only = Array.isArray(st.symbols) && st.symbols.length ? new Set(st.symbols.map((x) => String(x).trim().toUpperCase())) : null;
+  const targets = (st.holdings || []).filter((h) => h && h.symbol && puterKnownNumber(h.target) > 0 && (!only || only.has(String(h.symbol).trim().toUpperCase())));
+  const targetLines = [];
+  if (only) {
+    const found = new Set(targets.map((h) => String(h.symbol).trim().toUpperCase()));
+    const none = [...only].filter((x) => !found.has(x));
+    if (none.length) targetLines.push(`這些代號沒有設定目標股數：${none.join("、")}`);
+  }
   if (targets.length) {
-    L.push(`個股目標股數（共 ${targets.length} 檔${targets.length > PUTER_SETTINGS_TARGETS_LIMIT ? `，列前 ${PUTER_SETTINGS_TARGETS_LIMIT} 檔` : ""}）：`);
+    targetLines.push(`${only ? "指定代號的" : ""}個股目標股數（共 ${targets.length} 檔${targets.length > PUTER_SETTINGS_TARGETS_LIMIT ? `，列前 ${PUTER_SETTINGS_TARGETS_LIMIT} 檔` : ""}）：`);
     for (const h of targets.slice(0, PUTER_SETTINGS_TARGETS_LIMIT)) {
       const cur = puterKnownNumber(h.current);
-      L.push(`• ${String(h.symbol).toUpperCase()}${h.name ? ` ${puterCleanText(h.name).slice(0, 20)}` : ""}：目標 ${puterFmtShares(h.target)} 股，目前 ${puterFmtShares(cur)} 股${cur != null ? `（達成 ${Math.min(100, (cur / Number(h.target)) * 100).toFixed(1)}%）` : ""}`);
+      targetLines.push(`• ${String(h.symbol).toUpperCase()}${h.name ? ` ${puterCleanText(h.name).slice(0, 20)}` : ""}：目標 ${puterFmtShares(h.target)} 股，目前 ${puterFmtShares(cur)} 股${cur != null ? `（達成 ${Math.min(100, (cur / Number(h.target)) * 100).toFixed(1)}%）` : ""}`);
     }
-  } else {
-    L.push("個股目標股數：沒有設定");
+  } else if (!only) {
+    targetLines.push("個股目標股數：沒有設定");
   }
+  // 有指定代號時，指定代號的目標放在最前面，避免被後面的計畫／定期定額內容擠到截斷區
+  const L = only ? [...head, ...targetLines, ...general] : [...head, ...general, ...targetLines];
   return truncatePuterText(L.join("\n"), PUTER_SETTINGS_TOKEN_LIMIT).text;
 }
 
-// 從問題找出日期（含位置）。y/m/d 有一個不存在就標 invalid。
-function puterDateTokens(question, today) {
+// 從問題找出日期（含位置），先只記下原始的年／月／日（還不驗證）；沒寫年份的標 implicitYear。
+function puterDateTokens(question) {
   const q = String(question || "");
-  const [ty, tm, td] = String(today || "").split("-").map(Number);
-  const pad = (n) => String(n).padStart(2, "0");
-  const monthEnd = (y, m) => new Date(Date.UTC(y, m, 0)).getUTCDate();
   const tokens = [];
   const taken = [];
-  const free = (i, j) => !taken.some(([a, b]) => i < b && j > a);
+  const free = (i, j) => !taken.some(([x, y]) => i < y && j > x);
   const add = (m, info) => {
     const i = m.index, j = m.index + m[0].length;
     if (!free(i, j)) return;
     taken.push([i, j]);
     tokens.push({ index: i, end: j, ...info });
   };
-  const dayTok = (y, mo, d, implicitYear) => {
-    const v = puterValidYmd(y, mo, d);
-    return v ? { from: v, to: v, y, m: mo, implicitYear } : { invalid: true, text: `${y}-${pad(mo)}-${pad(d)}` };
-  };
-  const monthTok = (y, mo, implicitYear) => (mo >= 1 && mo <= 12)
-    ? { from: `${y}-${pad(mo)}-01`, to: `${y}-${pad(mo)}-${pad(monthEnd(y, mo))}`, y, m: mo, implicitYear }
-    : { invalid: true, text: `${y}-${pad(mo)}` };
-  const relYear = (w) => (w === "去年" ? ty - 1 : w === "前年" ? ty - 2 : w === "明年" ? ty + 1 : ty);
-  // 沒寫年份的月份：比現在晚就算去年
-  const guessYear = (mo, d) => (mo > tm || (mo === tm && d && d > td) ? ty - 1 : ty);
-  for (const m of q.matchAll(/((?:19|20)\d{2})\s*[-/.年]\s*(\d{1,2})\s*[-/.月]\s*(\d{1,2})\s*[日號]?/g)) add(m, dayTok(+m[1], +m[2], +m[3], false));
-  for (const m of q.matchAll(/((?:19|20)\d{2})\s*[-/.年]\s*(\d{1,2})(?!\d)\s*月?/g)) add(m, monthTok(+m[1], +m[2], false));
-  for (const m of q.matchAll(/(去年|今年|前年|明年)\s*(\d{1,2})\s*月(?:\s*(\d{1,2})\s*[日號])?/g)) add(m, m[3] ? dayTok(relYear(m[1]), +m[2], +m[3], false) : monthTok(relYear(m[1]), +m[2], false));
-  for (const m of q.matchAll(/(?<![\d年])(\d{1,2})\s*月\s*(\d{1,2})\s*[日號]/g)) add(m, dayTok(guessYear(+m[1], +m[2]), +m[1], +m[2], true));
-  for (const m of q.matchAll(/(?<![\d年])(\d{1,2})\s*月/g)) add(m, monthTok(guessYear(+m[1]), +m[1], true));
-  for (const m of q.matchAll(/((?:19|20)\d{2})\s*年(?!\s*\d)/g)) add(m, { from: `${m[1]}-01-01`, to: `${m[1]}-12-31`, y: +m[1], implicitYear: false });
+  for (const m of q.matchAll(/((?:19|20)\d{2})\s*[-/.年]\s*(\d{1,2})\s*[-/.月]\s*(\d{1,2})\s*[日號]?/g)) add(m, { y: +m[1], m: +m[2], d: +m[3] });
+  for (const m of q.matchAll(/((?:19|20)\d{2})\s*[-/.年]\s*(\d{1,2})(?!\d)\s*月?/g)) add(m, { y: +m[1], m: +m[2], d: null });
+  for (const m of q.matchAll(/(去年|今年|前年|明年)\s*(\d{1,2})\s*月(?:\s*(\d{1,2})\s*[日號])?/g)) add(m, { rel: m[1], m: +m[2], d: m[3] ? +m[3] : null });
+  for (const m of q.matchAll(/(?<![\d年])(\d{1,2})\s*月\s*(\d{1,2})\s*[日號]/g)) add(m, { m: +m[1], d: +m[2], implicitYear: true });
+  for (const m of q.matchAll(/(?<![\d年])(\d{1,2})\s*月/g)) add(m, { m: +m[1], d: null, implicitYear: true });
+  for (const m of q.matchAll(/((?:19|20)\d{2})\s*年(?!\s*\d)/g)) add(m, { y: +m[1], m: null, d: null, wholeYear: true });
   return tokens.sort((x, y) => x.index - y.index);
+}
+// 把一個日期 token 依指定年份轉成 { from, to }；日期不存在回 { invalid, text }。
+function puterFinalizeDate(t, y) {
+  const pad = (n) => String(n).padStart(2, "0");
+  if (t.wholeYear) return { from: `${y}-01-01`, to: `${y}-12-31` };
+  if (!(t.m >= 1 && t.m <= 12)) return { invalid: true, text: `${y}-${pad(t.m)}${t.d ? `-${pad(t.d)}` : ""}` };
+  if (t.d == null) return { from: `${y}-${pad(t.m)}-01`, to: `${y}-${pad(t.m)}-${pad(new Date(Date.UTC(y, t.m, 0)).getUTCDate())}` };
+  const v = puterValidYmd(y, t.m, t.d);
+  return v ? { from: v, to: v } : { invalid: true, text: `${y}-${pad(t.m)}-${pad(t.d)}` };
 }
 
 // 從問題判斷日期範圍。today：YYYY-MM-DD（台灣日期）。
 // 回傳 { from, to }、{ invalid:true, text }（日期不存在）或 null（沒提到日期）。
-// 支援：完整起訖「A 到／至／~ B」（日或月皆可，B 沒寫年份就沿用 A 的年份）、2026-10、2026/10/5、
-// 去年12月、今年3月、10月、10月5日、2025年、上個月、這個月、今年、去年、最近 N 天／一週／一個月／N 個月。
+// 起訖「A 到／至／~ B」：先做年份繼承（B 沒寫年份→沿用 A 的年份），再判斷跨年（B 早於 A→B 年份 +1），最後才驗證日期真實存在。
+// 也支援 2026-10、2026/10/5、去年12月、今年3月、10月、10月5日、2025年、上個月、這個月、今年、去年、最近 N 天／一週／一個月／N 個月。
 function puterQuestionDateRange(question, today) {
   const q = String(question || "");
-  const [ty, tm] = String(today || "").split("-").map(Number);
+  const [ty, tm, td] = String(today || "").split("-").map(Number);
   if (!ty || !tm) return null;
-  const tokens = puterDateTokens(q, today);
-  const bad = tokens.find((t) => t.invalid);
-  if (bad) return { invalid: true, text: bad.text };
+  const tokens = puterDateTokens(q);
+  const relYear = (w) => (w === "去年" ? ty - 1 : w === "前年" ? ty - 2 : w === "明年" ? ty + 1 : ty);
+  // 單獨出現、沒寫年份的月份：比現在晚就算去年
+  const guessYear = (t) => (t.m > tm || (t.m === tm && t.d && t.d > td) ? ty - 1 : ty);
+  const yearOf = (t) => (t.y != null ? t.y : t.rel ? relYear(t.rel) : guessYear(t));
   if (tokens.length >= 2 && /^\s*(?:到|至|~|～|-|－|—|–|→)\s*$/.test(q.slice(tokens[0].end, tokens[1].index))) {
-    const A = tokens[0];
-    let B = tokens[1];
-    if (B.implicitYear && A.y && B.y !== A.y) {
-      // B 沒寫年份：沿用 A 的年份，早於 A 就算隔年
-      const shift = (dateStr, years) => `${Number(dateStr.slice(0, 4)) + years}${dateStr.slice(4)}`;
-      let delta = A.y - B.y;
-      let to = shift(B.to, delta), from = shift(B.from, delta);
-      if (to < A.from) { delta += 1; to = shift(B.to, delta); from = shift(B.from, delta); }
-      B = { ...B, from, to };
-    }
-    return A.from <= B.to ? { from: A.from, to: B.to } : { from: B.from, to: A.to };
+    const A = tokens[0], B = tokens[1];
+    const ay = yearOf(A);
+    let by;
+    if (B.implicitYear) {
+      by = ay;
+      // 跨年判斷用「終點最晚的一天」比「起點最早的一天」：
+      // 終點只寫月份時用該月月底（31 當上限即可，只用來比大小），所以「2026-10-15 到 10月」不會被推到隔年。
+      const startKey = (t) => (t.m || 0) * 100 + (t.d || 1);
+      const endKey = (t) => (t.m || 0) * 100 + (t.d || 31);
+      if (!A.wholeYear && endKey(B) < startKey(A)) by = ay + 1;
+    } else by = yearOf(B);
+    const fa = puterFinalizeDate(A, ay);
+    if (fa.invalid) return fa;
+    const fb = puterFinalizeDate(B, by);
+    if (fb.invalid) return fb;
+    return fa.from <= fb.to ? { from: fa.from, to: fb.to } : { from: fb.from, to: fa.to };
   }
-  if (tokens.length) return { from: tokens[0].from, to: tokens[0].to };
+  for (const t of tokens) {
+    const f = puterFinalizeDate(t, yearOf(t));
+    if (f.invalid) return f;
+  }
+  if (tokens.length) return puterFinalizeDate(tokens[0], yearOf(tokens[0]));
   const pad = (n) => String(n).padStart(2, "0");
   const monthRange = (y, m) => ({ from: `${y}-${pad(m)}-01`, to: `${y}-${pad(m)}-${pad(new Date(Date.UTC(y, m, 0)).getUTCDate())}` });
   if (/上個?月/.test(q)) return tm === 1 ? monthRange(ty - 1, 12) : monthRange(ty, tm - 1);
@@ -10757,13 +10772,34 @@ function puterPreparePrompt(question, history, context, now) {
 }
 
 // 估算一個完整請求的 token（system＋歷史＋問題＋工具呼叫與結果）。
-function puterRequestTokens(messages) {
-  return (messages || []).reduce((acc, m) => acc + 4 + estimatePuterTokens(typeof m.content === "string" ? m.content : JSON.stringify(m.content || ""))
+// 實際送給 puter.ai.chat 的 options（不含 signal）；預算估算與實際送出用同一份。
+function puterChatOptions(tools) {
+  const options = {
+    model: PUTER_AI_MODEL,
+    stream: true,
+    max_tokens: PUTER_AI_MAX_TOKENS,
+    reasoning_effort: PUTER_AI_REASONING_EFFORT,
+    // 不讓 Puter 在第一個供應商失敗時自動改送其他供應商重試（文件 Providers 段落）：不自動重試、不改送別處。
+    fallback: false,
+  };
+  if (Array.isArray(tools) && tools.length) options.tools = tools;
+  return options;
+}
+// options（含工具定義 schema）本身的估算 token。
+function puterOptionsTokens(options) {
+  const o = { ...(options || {}) };
+  delete o.signal;
+  return estimatePuterTokens(JSON.stringify(o));
+}
+function puterRequestTokens(messages, options) {
+  return (options ? puterOptionsTokens(options) : 0) + (messages || []).reduce((acc, m) => acc + 4 + estimatePuterTokens(typeof m.content === "string" ? m.content : JSON.stringify(m.content || ""))
     + (m.tool_calls ? estimatePuterTokens(JSON.stringify(m.tool_calls)) : 0), 0);
 }
 // 每次呼叫 puter.ai.chat 前把完整請求壓到上限內：先截斷較早的工具結果，再丟最舊的歷史，最後截 system 資料。
 // 不改動 assistant 的 tool_calls 與 tool 訊息的對應關係。回傳 { messages, truncated }。
-function fitPuterRequest(messages, limit) {
+// options：這一輪實際要送的 options（含 tools）；它的 token 也算進上限。
+function fitPuterRequest(messages, limit, options) {
+  limit = limit - (options ? puterOptionsTokens(options) : 0);
   const msgs = messages.map((m) => ({ ...m }));
   let truncated = false;
   const STUB = `（較早的查詢結果${PUTER_TRUNCATED_MARK}，以符合資料量上限）`;
@@ -10793,16 +10829,7 @@ async function runPuterChat(p, messages, opts = {}) {
   if (!puterSdkUsable(p)) throw { code: "sdk_not_ready" };
   // 沒登入就不呼叫：否則 SDK 會自己跳登入視窗。
   if (!puterIsSignedIn(p)) throw { error: "not_signed_in" };
-  const options = {
-    model: PUTER_AI_MODEL,
-    stream: true,
-    max_tokens: PUTER_AI_MAX_TOKENS,
-    reasoning_effort: PUTER_AI_REASONING_EFFORT,
-    // 不讓 Puter 在第一個供應商失敗時自動改送其他供應商重試（文件 Providers 段落）：不自動重試、不改送別處。
-    fallback: false,
-    signal: opts.signal,
-  };
-  if (Array.isArray(opts.tools) && opts.tools.length) options.tools = opts.tools;
+  const options = { ...puterChatOptions(opts.tools), signal: opts.signal };
   const resp = await p.ai.chat(messages, options);
   let text = "";
   const toolCalls = [];
@@ -10852,11 +10879,13 @@ async function runPuterAgent(p, messages, deps = {}) {
     const finalRound = round === PUTER_TOOL_ROUNDS;
     if (finalRound) convo.push({ role: "system", content: "工具資料已經取得完成。現在必須直接用既有資料回答使用者，不要再呼叫任何工具。" });
     // 送出前檢查完整請求（system＋歷史＋問題＋所有工具結果）不超過上限
-    const fitted = fitPuterRequest(convo, PUTER_REQUEST_TOKEN_LIMIT);
+    // 工具定義（tools schema）與 options 也算進同一個上限
+    const roundTools = finalRound ? null : deps.tools;
+    const fitted = fitPuterRequest(convo, PUTER_REQUEST_TOKEN_LIMIT, puterChatOptions(roundTools));
     if (fitted.truncated) requestTruncated = true;
     convo = fitted.messages;
-    if (typeof deps.onRequest === "function") deps.onRequest(convo);
-    const { text, toolCalls } = await runPuterChat(p, convo, { signal, onText: deps.onText, tools: finalRound ? null : deps.tools });
+    if (typeof deps.onRequest === "function") deps.onRequest(convo, puterChatOptions(roundTools));
+    const { text, toolCalls } = await runPuterChat(p, convo, { signal, onText: deps.onText, tools: roundTools });
     checkAbort();
     if (!toolCalls.length) {
       if (!text.trim()) throw { code: "empty_response" };
@@ -11211,15 +11240,15 @@ function AiChatWidget({ advancedUse = true, holdings, goal, totalToday, totalInv
     setConnectionStatus(`${PUTER_PROVIDER_LABEL}回應中…`);
     // 確認卡片不算「文字對話」，送給 AI 的歷史紀錄只留一般文字訊息。
     const history = nextMessages.slice(0, -1).filter((m) => typeof m.content === "string");
-    // get_live_quotes 只能查：App 已知代號（持股、定期定額、交易、股利）、指數白名單，
-    // 以及這一題明確當成查價對象的代號（例如「2330 股價」）。金額、日期旁的數字一律不算。
+    // get_live_quotes 只能查 App 已知代號（持股、定期定額、交易、股利）＋指數白名單；
+    // 問題裡的其他代號或數字一律不查（不發請求）。
     const knownSymbols = [...new Set([
       ...(holdings || []).map((h) => normalizeStockSymbol(h.symbol)),
       ...(planItems || []).map((x) => normalizeStockSymbol(x.symbol)),
       ...aiData.tradeSymbols,
       ...aiData.dividendSymbols,
     ].filter(Boolean))];
-    const allowedQuoteSymbols = [...new Set([...knownSymbols, ...puterQuoteQuestionSymbols(text, knownSymbols)])];
+    const allowedQuoteSymbols = knownSymbols;
     return puterAskFlow(text, history, {
       buildContext: () => buildAiChatContext(text),
       // 送出前已確認登入；這裡不載入 SDK。
@@ -11229,7 +11258,7 @@ function AiChatWidget({ advancedUse = true, holdings, goal, totalToday, totalInv
       runReadTool: (tc, signal) => tc.name === "get_live_quotes"
         ? executeLiveQuoteTool(tc, holdings, signal)
         : tc.name === "get_app_snapshot"
-          ? (tc.arguments?.section === "settings" ? buildAiSettingsSnapshot() : executeAppSnapshotTool(tc, `${lastContextRef.current}\n\n${buildAiSettingsSnapshot()}`))
+          ? (tc.arguments?.section === "settings" ? buildAiSettingsSnapshot(tc.arguments?.symbols) : executeAppSnapshotTool(tc, `${lastContextRef.current}\n\n${buildAiSettingsSnapshot()}`))
           : executeReadTool(tc, { trades, dailyRecords, dividends, holdings }),
     }, {
       onDraft: (t) => setPuterDraft(t),
@@ -11279,7 +11308,8 @@ function AiChatWidget({ advancedUse = true, holdings, goal, totalToday, totalInv
   }, [trades, dividends, dailyRecords]);
 
   // 設定快照（get_app_snapshot settings 時才送；有大小上限）
-  const buildAiSettingsSnapshot = () => buildPuterSettingsSnapshot({
+  const buildAiSettingsSnapshot = (symbols) => buildPuterSettingsSnapshot({
+    symbols,
     includeGoal: advancedUse, goal, goalDate, planSchedule, planItems,
     holdings: (holdings || []).map((h) => ({ symbol: h.symbol, name: h.name, target: h.target2035, current: h.current })),
   });

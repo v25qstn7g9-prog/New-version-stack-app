@@ -41,4 +41,21 @@ test('the floating AI launcher shows the text "AI" (no icon) and keeps its aria-
   const css = fs.readFileSync(new URL('../clean.css', import.meta.url), 'utf8');
   assert.match(css, /html\.za-clean \.premium-ai-launcher\{background:var\(--c-btn\)!important;color:var\(--c-btn-ink\)!important/);
   assert.match(css, /html\.za-clean\[data-theme="navy"\] \.premium-ai-launcher\{background:#ffffff!important;color:#1f2b4d!important\}/);
+  // 從 CSS 取出各主題最終的文字／背景色，實際計算對比（WCAG）
+  const lum = (hex) => {
+    const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.replace('#', '').slice(i, i + 2), 16) / 255)
+      .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const contrast = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
+  const base = css.match(/html\.za-clean\{[\s\S]*?\n\}/)[0];
+  const lightBg = base.match(/--c-accent:(#[0-9a-f]{6})/i)[1];
+  const lightInk = base.match(/--c-btn-ink:(#[0-9a-f]{6})/i)[1];
+  assert.match(base, /--c-btn:var\(--c-accent\)/);
+  const [, navyBg, navyInk] = css.match(/html\.za-clean\[data-theme="navy"\] \.premium-ai-launcher\{background:(#[0-9a-f]{6})!important;color:(#[0-9a-f]{6})!important\}/i);
+  // 系統深色（未選主題）用同一組 --c-btn／--c-btn-ink
+  const sysDark = css.match(/html\.za-clean:not\(\[data-theme\]\)\{[\s\S]*?--c-btn:(#[0-9a-f]{6});--c-btn-ink:(#[0-9a-f]{6});/i);
+  for (const [name, ink, bg] of [['light', lightInk, lightBg], ['navy', navyInk, navyBg], ['system dark', sysDark[2], sysDark[1]]]) {
+    assert.ok(contrast(ink, bg) >= 4.5, `${name}: ${ink} on ${bg} = ${contrast(ink, bg).toFixed(2)}:1`);
+  }
 });
