@@ -283,6 +283,7 @@ function importHarness({ corruptLoads = [], payload, storage = {}, failSetKeys =
     inspectBackupPayload: (p) => ({ ok: true, errors: [], warnings: [], data: p.data, schemaVersion: 2 }),
     corruptLoads, corruptKeysRef: { current: new Set(corruptLoads.map((c) => c.key)) },
     setCorruptLoads: () => setters.push('setCorruptLoads'),
+    reportAutoSave: () => {}, // 自動存檔失敗提示（save-fail-notice）的 state 更新，這裡不需要
     mergeLegacyUsHoldings: (h) => h, defaultPlanSchedule: () => ({}), detectAdvancedUse: () => false, isObject: (x) => !!x && typeof x === 'object',
     advancedMode,
     setLastBackupAt: () => setters.push('setLastBackupAt'),
