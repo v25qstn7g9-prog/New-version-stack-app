@@ -9534,7 +9534,7 @@ function AlertStrip({ alerts = [], quiet = false, status = "" }) {
         </div>
       )}
       {status && <div className="forma-alert-status" role="status" aria-live="polite">{status}</div>}
-      {sheetOpen && (
+      {sheetOpen && portalSheet(
         <div className="forma-sheet-scrim" onClick={(e) => { if (e.target === e.currentTarget) setSheetOpen(false); }}>
           <div ref={sheetRef} className="forma-sheet" role="dialog" aria-modal="true" aria-labelledby="forma-alert-sheet-title" tabIndex={-1}>
             <div className="forma-sheet-h">
@@ -9568,6 +9568,15 @@ function AlertStrip({ alerts = [], quiet = false, status = "" }) {
       )}
     </div>
   );
+}
+// 提醒面板（遮罩＋底部面板）掛到 document.body：首次使用時面板在 Dashboard 裡，分頁祖先有 transform、外層有 overflow:hidden，
+// position:fixed 會以分頁為基準被裁切；掛到 body 才能覆蓋整個視窗。外面包一層 data-forma-theme="portfolio" 讓原本的樣式照樣套用。
+// 沒有 document.body 或 ReactDOM.createPortal（測試／SSR）就原地渲染。
+function portalSheet(node) {
+  const RD = typeof window !== "undefined" ? window.ReactDOM : null;
+  const body = typeof document !== "undefined" ? document.body : null;
+  if (!body || !RD || typeof RD.createPortal !== "function") return node;
+  return RD.createPortal(<div data-forma-theme="portfolio" data-alert-sheet-portal="">{node}</div>, body);
 }
 // </mobile-alert-strip>
 

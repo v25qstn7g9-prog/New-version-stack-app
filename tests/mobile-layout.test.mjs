@@ -247,3 +247,52 @@ test("Codex 第一輪：提醒面板導覽型動作會關面板、模態焦點�
   assert.match(app, /isMobile && !\(firstRun && tab === "dashboard"\) && <MobileAlerts /);
   assert.doesNotMatch(app, /isMobile && !firstRun && <MobileAlerts /);
 });
+
+test("Codex 第二輪：提醒面板用 portal 掛到 document.body（不在分頁容器裡），背景 #root inert、關閉還原，沒有 body 時原地渲染", async () => {
+  const strip = fn("AlertStrip");
+  const portalSrc = fn("portalSheet");
+  // 面板（遮罩＋底部面板）經 portalSheet 渲染，不再直接放在 AlertStrip 的 DOM 裡
+  assert.match(strip, /\{sheetOpen && portalSheet\(\s*<div className="forma-sheet-scrim"/);
+  const { createRequire } = await import("node:module");
+  const Babel = createRequire(import.meta.url)("@babel/standalone");
+  const code = Babel.transform(portalSrc, { presets: ["react"] }).code;
+  const React = { createElement: (type, props, ...children) => ({ type, props: { ...(props || {}), children } }) };
+  const run = (ctx) => vm.runInNewContext(`${code}; portalSheet`, { React, ...ctx });
+  // 1. 有 document.body 與 createPortal：掛到 body 的直接子節點，外包 data-forma-theme="portfolio" 讓原樣式照樣套用
+  const body = { tag: "BODY" };
+  const ReactDOM = { createPortal: (el, container) => ({ portal: true, el, container }) };
+  const sheet = { tag: "scrim" };
+  const out = run({ window: { ReactDOM }, document: { body } })(sheet);
+  assert.equal(out.portal, true);
+  assert.equal(out.container, body, "portal 目標是 document.body");
+  assert.equal(out.el.props["data-forma-theme"], "portfolio");
+  assert.deepEqual(out.el.props.children, [sheet]);
+  // 2. 測試／SSR：沒有 document、沒有 body、沒有 createPortal 都原地渲染，不丟錯
+  assert.equal(run({ window: { ReactDOM } })(sheet), sheet);
+  assert.equal(run({ window: { ReactDOM }, document: {} })(sheet), sheet);
+  assert.equal(run({ window: {}, document: { body } })(sheet), sheet);
+  // 3. 掛到 body 後，既有的 inert 迴圈會讓 #root（含分頁內容）inert，面板本身不受影響；關閉後還原
+  const el = (tag, extra = {}) => ({ tagName: tag, inert: false, children: [], parentElement: null, ...extra });
+  const docBody = el("BODY");
+  const root = el("DIV", { id: "root" });
+  const script = el("SCRIPT");
+  const wrap = el("DIV");
+  const scrim = el("DIV");
+  const sheetEl = el("DIV");
+  const link = (p, ...kids) => { for (const k of kids) { p.children.push(k); k.parentElement = p; } };
+  link(docBody, root, script, wrap); link(wrap, scrim); link(scrim, sheetEl);
+  sheetEl.closest = (sel) => (sel === ".forma-sheet-scrim" ? scrim : null);
+  const loopStart = strip.indexOf("for (let node = sheet?.closest");
+  const loopEnd = strip.indexOf("try { sheet?.focus", loopStart);
+  assert.ok(loopStart > 0 && loopEnd > loopStart);
+  const inerted = vm.runInNewContext(`const inerted = []; ${strip.slice(loopStart, loopEnd)}; inerted`, { sheet: sheetEl, document: { body: docBody } });
+  assert.equal(root.inert, true, "#root 變 inert");
+  assert.equal(wrap.inert, false, "portal 外層不 inert");
+  assert.equal(script.inert, false);
+  assert.deepEqual(Array.from(inerted, (n) => n.id), ["root"]);
+  for (const n of inerted) n.inert = false;
+  assert.equal(root.inert, false, "關閉後還原");
+  // 4. 焦點循環／Esc／焦點歸還仍在
+  assert.match(strip, /if \(e\.key === "Escape"\) \{ setSheetOpen\(false\); return; \}/);
+  assert.match(strip, /\(openerRef\.current \|\| prevFocus\)\?\.focus\?\.\(\{ preventScroll: true \}\)/);
+});
