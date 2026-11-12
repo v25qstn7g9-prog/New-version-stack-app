@@ -102,8 +102,8 @@ test('the floating AI launcher is the white bell-tag cat (design C): 60px, same 
   assert.ok(css.indexOf('html.za-clean .premium-ai-launcher.za-ai-cat{') > css.lastIndexOf('.premium-ai-launcher{background:#ffffff!important'));
   // 快取參數
   const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-  assert.match(html, /href="\/clean\.css\?v=ai-cat-c-1"/);
-  assert.match(html, /<script src="\/app\.js\?v=8"><\/script>/);
+  assert.match(html, /href="\/clean\.css\?v=mobile-layout-1"/);
+  assert.match(html, /<script src="\/app\.js\?v=9"><\/script>/);
 });
 
 // 「即時股價」重新整理鈕不能落在右下角 AI 按鈕那一欄（捲到同高時會被蓋住、點不到）。

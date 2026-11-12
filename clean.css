@@ -526,3 +526,142 @@ html.za-clean .premium-ai-launcher.za-ai-cat:focus-visible{outline:2px solid var
 }
 @keyframes za-ai-cat-sway{0%,70%,100%{transform:none}76%{transform:rotate(-4deg)}82%{transform:rotate(3deg)}88%{transform:rotate(-1.5deg)}94%{transform:none}}
 @media (prefers-reduced-motion:reduce){.za-ai-cat .za-ai-cat-body{animation:none!important}}
+/* ════ 手機版面 2026-11-12（依 stack-app-fable52-design-v2 設計稿；只在 ≤767px，只改外觀與排列）════
+   ≥768px 一律不套用（維持 #86 現況）。顏色全部沿用既有變數（--c-card／--c-line／--c-accent／--c-btn…），
+   深色模式自動換成對應值；淡藍底 --forma-m-tint 由重點色混卡片色算出，淺色／深色各一組。
+   財務密集字維持 11px／17px；可點範圍 ≥44px；分頁列、貓、底部面板都吃 safe-area。 */
+@media (max-width:767px){
+  html.za-clean [data-forma-theme="portfolio"]{--forma-m-tint:color-mix(in srgb,var(--c-accent) 12%,var(--c-card));--forma-m-tab:58px}
+  html.za-clean[data-theme="navy"] [data-forma-theme="portfolio"],
+  html.za-clean:not([data-theme]) [data-forma-theme="portfolio"]{--forma-m-tint:color-mix(in srgb,var(--c-accent) 22%,var(--c-card))}
+
+  /* 頂列變矮（約 56px）：版本號已在設定頁最底 */
+  html.za-clean .premium-app-shell[data-forma-theme="portfolio"]{padding-top:max(env(safe-area-inset-top,0px),8px)!important}
+  html.za-clean [data-forma-theme="portfolio"] .premium-header{padding-top:0!important;padding-bottom:4px!important;border-bottom:0!important}
+
+  /* 內容結尾留約 84px（分頁列之上），最後一張卡捲得到貓的上方 */
+  html.za-clean [data-forma-theme="portfolio"] .premium-main{padding-top:4px!important;padding-bottom:calc(var(--forma-m-tab) + 84px + env(safe-area-inset-bottom,0px))!important}
+
+  /* ── 頂端提醒列：一次只強調一件 ── */
+  html.za-clean [data-forma-theme="portfolio"] .forma-alert-wrap{margin:0 16px 12px}
+  html.za-clean [data-forma-theme="portfolio"] .premium-dashboard .forma-alert-wrap{margin:0}
+  html.za-clean [data-forma-theme="portfolio"] .forma-alert-strip{display:flex;align-items:center;height:48px;background:var(--c-card);
+    border:1px solid var(--c-line);border-radius:14px;box-shadow:0 1px 2px rgba(25,35,61,.04);overflow:hidden}
+  html.za-clean [data-forma-theme="portfolio"] .forma-alert-main{flex:1;min-width:0;height:100%;display:flex;align-items:center;gap:10px;
+    padding:0 4px 0 10px;text-align:left;background:transparent;border:0;color:var(--c-ink)}
+  html.za-clean [data-forma-theme="portfolio"] .forma-alert-ico{width:28px;height:28px;border-radius:9px;background:var(--forma-m-tint);
+    color:var(--c-accent);display:grid;place-items:center;flex:none}
+  html.za-clean [data-forma-theme="portfolio"] .forma-alert-txt{min-width:0;font-size:14px;line-height:20px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  html.za-clean [data-forma-theme="portfolio"] .forma-alert-act{height:100%;min-width:44px;padding:0 6px;display:grid;place-items:center;flex:none;background:transparent!important;border:0}
+  html.za-clean [data-forma-theme="portfolio"] .forma-alert-act>span{height:30px;padding:0 13px;display:grid;place-items:center;border-radius:999px;
+    background:var(--c-btn);color:var(--c-btn-ink);font-size:13px;font-weight:700;white-space:nowrap}
+  html.za-clean [data-forma-theme="portfolio"] .forma-alert-act:disabled>span{background:var(--c-disabled-bg);color:var(--c-disabled-ink)}
+  html.za-clean [data-forma-theme="portfolio"] .forma-alert-more{height:100%;min-width:44px;padding:0 12px 0 8px;display:flex;align-items:center;gap:2px;flex:none;
+    background:transparent;border:0;border-left:1px solid var(--c-line);color:var(--c-muted);font-size:12px;font-weight:600}
+  html.za-clean [data-forma-theme="portfolio"] .forma-alert-more b{min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--forma-m-tint);
+    color:var(--c-accent);font-size:11px;line-height:18px;text-align:center;margin-right:2px}
+  html.za-clean [data-forma-theme="portfolio"] .forma-alert-strip.is-quiet{background:transparent;border-style:dashed;border-color:var(--c-line-2);box-shadow:none}
+  html.za-clean [data-forma-theme="portfolio"] .forma-alert-strip.is-quiet .forma-alert-act>span{background:var(--c-card);color:var(--c-accent);border:1px solid var(--c-line-2)}
+  html.za-clean [data-forma-theme="portfolio"] .forma-alert-status{font-size:12px;line-height:18px;color:var(--c-muted);padding:6px 4px 0}
+
+  /* 提醒底部面板 */
+  html.za-clean [data-forma-theme="portfolio"] .forma-sheet-scrim{position:fixed;inset:0;z-index:1000;background:rgba(15,23,42,.32);display:flex;flex-direction:column;justify-content:flex-end}
+  html.za-clean [data-forma-theme="portfolio"] .forma-sheet{background:var(--c-card);color:var(--c-ink);border-radius:24px 24px 0 0;box-shadow:0 -12px 40px rgba(15,23,42,.2);
+    max-height:90vh;max-height:90dvh;display:flex;flex-direction:column;outline:none;
+    padding:0 env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)}
+  html.za-clean [data-forma-theme="portfolio"] .forma-sheet::before{content:"";width:36px;height:4px;border-radius:2px;background:var(--c-line-2);margin:8px auto 0;flex:none}
+  html.za-clean [data-forma-theme="portfolio"] .forma-sheet-h{display:flex;align-items:center;gap:8px;min-height:52px;padding:4px 6px 4px 18px;border-bottom:1px solid var(--c-line);flex:none}
+  html.za-clean [data-forma-theme="portfolio"] .forma-sheet-h h2{font-size:17px;font-weight:700;margin:0;white-space:nowrap}
+  html.za-clean [data-forma-theme="portfolio"] .forma-sheet-count{font-size:11px;line-height:17px;font-weight:700;padding:1px 8px;border-radius:999px;background:var(--forma-m-tint);color:var(--c-accent);margin-right:auto}
+  html.za-clean [data-forma-theme="portfolio"] .forma-sheet-x{width:44px;height:44px;min-width:44px;display:grid;place-items:center;border-radius:50%;background:transparent;border:0;color:var(--c-muted)}
+  html.za-clean [data-forma-theme="portfolio"] .forma-sheet-b{overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:0 18px 16px}
+  html.za-clean [data-forma-theme="portfolio"] .forma-sheet-item{padding:16px 0;border-top:1px solid var(--c-line)}
+  html.za-clean [data-forma-theme="portfolio"] .forma-sheet-item:first-child{border-top:0}
+  html.za-clean [data-forma-theme="portfolio"] .forma-sheet-item h3{display:flex;align-items:center;gap:8px;font-size:15px;line-height:22px;font-weight:700;margin:0}
+  html.za-clean [data-forma-theme="portfolio"] .forma-sheet-item h3 svg{color:var(--c-accent);flex:none}
+  html.za-clean [data-forma-theme="portfolio"] .forma-sheet-item h3 span{min-width:0}
+  html.za-clean [data-forma-theme="portfolio"] .forma-sheet-item h3 em{margin-left:auto;font-style:normal;font-size:11px;line-height:17px;font-weight:700;color:var(--c-accent);
+    background:var(--forma-m-tint);padding:0 7px;border-radius:999px;white-space:nowrap;flex:none}
+  html.za-clean [data-forma-theme="portfolio"] .forma-sheet-item p{font-size:13px;line-height:20px;color:var(--c-muted);margin:4px 0 12px}
+  html.za-clean [data-forma-theme="portfolio"] .forma-sheet-acts{display:grid;grid-template-columns:1fr;gap:8px}
+  html.za-clean [data-forma-theme="portfolio"] .forma-sheet-acts.is-pair{grid-template-columns:1.7fr 1fr}
+  html.za-clean [data-forma-theme="portfolio"] .forma-sheet-btn{min-height:48px;border-radius:12px;font-size:15px;font-weight:700;padding:0 12px}
+  html.za-clean [data-forma-theme="portfolio"] .forma-sheet-btn.is-primary{background:var(--c-btn);color:var(--c-btn-ink);border:1px solid var(--c-btn)}
+  html.za-clean [data-forma-theme="portfolio"] .forma-sheet-btn.is-tonal{background:var(--forma-m-tint);color:var(--c-accent);border:1px solid transparent}
+  html.za-clean [data-forma-theme="portfolio"] .forma-sheet-btn.is-secondary{background:var(--c-card);color:var(--c-ink);border:1px solid var(--c-line-2)}
+  html.za-clean [data-forma-theme="portfolio"] .forma-sheet-link{min-height:44px;display:inline-flex;align-items:center;margin-top:4px;padding:0;background:transparent;border:0;
+    font-size:13px;color:var(--c-muted);text-decoration:underline;text-underline-offset:3px}
+  html.za-clean [data-forma-theme="portfolio"] .forma-sheet-status{font-size:12px;line-height:18px;color:var(--c-muted);padding-top:8px}
+
+  /* ── 底部分頁：兩字標籤、等寬、最小 44px；選中＝淡色膠囊＋字加粗（不再只靠頂端一小段線） ── */
+  html.za-clean [data-forma-theme="portfolio"] .premium-tabbar{padding-bottom:env(safe-area-inset-bottom,0px)!important;
+    padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
+  html.za-clean [data-forma-theme="portfolio"] .premium-tabbar>div{display:flex}
+  html.za-clean [data-forma-theme="portfolio"] .premium-tabbar button{flex:1 1 0!important;min-width:44px!important;height:var(--forma-m-tab);min-height:var(--forma-m-tab)!important;
+    padding:0!important;gap:2px!important;justify-content:center}
+  html.za-clean [data-forma-theme="portfolio"] .premium-tabbar button>span:first-child{width:44px!important;height:28px!important;border-radius:14px!important}
+  html.za-clean [data-forma-theme="portfolio"] .premium-tabbar>div:has(>button:nth-child(7)) button>span:first-child{width:40px!important}
+  html.za-clean [data-forma-theme="portfolio"] .premium-tabbar svg{width:21px!important;height:21px!important}
+  html.za-clean [data-forma-theme="portfolio"] .premium-tabbar button>span:last-child{font-size:11px!important;line-height:15px!important;font-weight:600;letter-spacing:.04em}
+  html.za-clean [data-forma-theme="portfolio"] .premium-tabbar>div:has(>button:nth-child(7)) button>span:last-child{letter-spacing:0}
+  html.za-clean [data-forma-theme="portfolio"] .premium-tabbar button[data-active="true"]>span:first-child{background:var(--forma-m-tint)!important;box-shadow:none!important}
+  html.za-clean [data-forma-theme="portfolio"] .premium-tabbar button[data-active="true"]>span:last-child{font-weight:700!important}
+  html.za-clean [data-forma-theme="portfolio"] .premium-tabbar button[data-active="true"]::before{content:none!important;display:none!important}
+
+  /* ── AI 貓貼紙：貼著分頁列右上（右邊距 max(10px, 安全區＋10px)、底部高出分頁列 4px），造型與輕晃規則不變 ── */
+  html.za-clean [data-forma-theme="portfolio"] .premium-ai-launcher.za-ai-cat{
+    right:max(10px,calc(env(safe-area-inset-right,0px) + 10px))!important;
+    bottom:calc(var(--forma-m-tab) + env(safe-area-inset-bottom,0px) + 4px)!important}
+
+  /* ── 新增列（交易／配息／持股）：32px 正圓加號＋「新增○○」＋欄位提示，點一下原地展開 ── */
+  html.za-clean [data-forma-theme="portfolio"] .forma-composer{background:var(--c-card);border:1px solid var(--c-line);border-radius:18px;overflow:hidden;box-shadow:var(--c-shadow)}
+  html.za-clean [data-forma-theme="portfolio"] .forma-composer-row{display:flex;align-items:center;gap:12px;width:100%;min-height:56px;padding:0 14px 0 12px;
+    background:transparent!important;border:0;border-radius:0;text-align:left;color:var(--c-ink)}
+  html.za-clean [data-forma-theme="portfolio"] .forma-composer.is-open>.forma-composer-row{border-bottom:1px solid var(--c-line)}
+  html.za-clean [data-forma-theme="portfolio"] .forma-composer-plus{
+    width:32px;height:32px;min-width:32px;max-width:32px;min-height:32px;max-height:32px;aspect-ratio:1;border-radius:50%;
+    flex:0 0 32px;display:grid;place-items:center;padding:0;box-sizing:border-box;
+    background:var(--c-accent);color:var(--c-bg);box-shadow:0 2px 6px rgba(63,107,145,.28)}
+  html.za-clean [data-forma-theme="portfolio"] .forma-composer-plus svg{width:18px;height:18px;stroke-width:2.2}
+  html.za-clean [data-forma-theme="portfolio"] .forma-composer.is-open .forma-composer-plus{background:var(--forma-m-tint);color:var(--c-accent);box-shadow:none;transform:rotate(45deg)}
+  html.za-clean [data-forma-theme="portfolio"] .forma-composer-title{flex:none;font-size:15px;line-height:22px;font-weight:700;white-space:nowrap}
+  html.za-clean [data-forma-theme="portfolio"] .forma-composer-hint{flex:1;min-width:0;font-size:12px;line-height:18px;color:var(--c-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  html.za-clean [data-forma-theme="portfolio"] .forma-composer-chev{flex:none;margin-left:auto;color:var(--c-muted);display:grid;place-items:center}
+  html.za-clean [data-forma-theme="portfolio"] .forma-composer.is-open .forma-composer-chev svg{transform:rotate(180deg)}
+  html.za-clean [data-forma-theme="portfolio"] .premium-main .forma-composer>.forma-composer-body>.premium-panel{
+    border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;padding:14px 16px 16px!important;margin:0!important}
+  html.za-clean [data-forma-theme="portfolio"] .premium-main .forma-composer>.forma-composer-body>.premium-panel>.premium-panel-title{display:none!important}
+
+  /* ── 持股頁：總持有成本＋圓餅＋圖例同一張卡；每檔第一行是預估損益／累積獲利率 ── */
+  html.za-clean [data-forma-theme="portfolio"] .forma-alloc-card{display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px}
+  html.za-clean [data-forma-theme="portfolio"] .forma-alloc-donut{width:92px;height:92px;flex:none}
+  html.za-clean [data-forma-theme="portfolio"] .forma-alloc-r{flex:1 1 0}
+  html.za-clean [data-forma-theme="portfolio"] .forma-alloc-v{font-size:22px;line-height:28px;font-weight:800;letter-spacing:-.01em;white-space:nowrap}
+  html.za-clean [data-forma-theme="portfolio"] .forma-alloc-leg{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:2px}
+  html.za-clean [data-forma-theme="portfolio"] .forma-alloc-leg li{display:grid;grid-template-columns:10px minmax(0,1fr) auto;column-gap:6px;align-items:center;font-size:11px;line-height:17px}
+  html.za-clean [data-forma-theme="portfolio"] .forma-alloc-leg i{width:8px;height:8px;border-radius:50%}
+  html.za-clean [data-forma-theme="portfolio"] .forma-alloc-leg span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  html.za-clean [data-forma-theme="portfolio"] .forma-alloc-leg b{font-weight:600;text-align:right}
+  html.za-clean [data-forma-theme="portfolio"] .forma-alloc-note{flex-basis:100%;border-top:1px solid var(--c-line);padding-top:10px}
+  html.za-clean [data-forma-theme="portfolio"] .forma-holding-key{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:12px;
+    margin-top:6px;padding-bottom:2px}
+  html.za-clean [data-forma-theme="portfolio"] .forma-holding-key-lab{font-size:11px!important;line-height:17px!important}
+  html.za-clean [data-forma-theme="portfolio"] .forma-holding-key b{display:block;font-size:18px;line-height:24px;font-weight:700;white-space:nowrap}
+
+  /* ── AI 面板：「Puter（你的額度）」徽章放標題下方；未登入送出時的黃色提示 ── */
+  html.za-clean [data-forma-theme="portfolio"] .forma-ai-title{flex-direction:column;align-items:flex-start!important;gap:1px!important}
+  html.za-clean [data-forma-theme="portfolio"] .forma-ai-title>div+div{font-size:10.5px!important;line-height:16px!important;padding:0 8px!important;max-width:100%!important}
+  html.za-clean [data-forma-theme="portfolio"] .forma-puter-warn{padding:9px 12px;border-radius:12px;font-size:13px!important;line-height:20px!important;
+    background:color-mix(in srgb,var(--c-warn) 10%,var(--c-card));border:1px solid color-mix(in srgb,var(--c-warn) 35%,var(--c-card));color:var(--c-ink)!important}
+
+  @media (max-width:359px){
+    html.za-clean [data-forma-theme="portfolio"] .forma-alert-wrap{margin:0 12px 12px}
+    html.za-clean [data-forma-theme="portfolio"] .premium-tabbar button>span:last-child{font-size:10.5px!important}
+    html.za-clean [data-forma-theme="portfolio"] .forma-composer-hint{display:none}
+  }
+}
+@media (max-width:767px) and (prefers-reduced-motion:no-preference){
+  html.za-clean [data-forma-theme="portfolio"] .forma-composer-plus,
+  html.za-clean [data-forma-theme="portfolio"] .forma-composer-chev svg{transition:transform .18s ease,background-color .18s ease}
+  html.za-clean [data-forma-theme="portfolio"] .premium-tabbar button>span:first-child{transition:background-color .15s ease}
+}

@@ -31,6 +31,9 @@ const ExternalLink = LR.ExternalLink || FallbackIcon;
 const Newspaper = LR.Newspaper || FallbackIcon;
 const MessageCircle = LR.MessageCircle || FallbackIcon;
 const Send = LR.Send || FallbackIcon;
+const CalendarDays = LR.CalendarDays || FallbackIcon;
+const Bell = LR.Bell || FallbackIcon;
+const ChevronDown = LR.ChevronDown || FallbackIcon;
 
 // Drawn inline instead of pulled from the lucide-react CDN, specifically for
 // edit/delete controls — if that CDN ever fails to load, every icon above
@@ -60,12 +63,13 @@ const BACKUP_SCHEMA_VERSION = 2;
 let UI_SHOW_ENGLISH = false;
 
 const TABS = [
+  // short：手機（≤767px）分頁列用的兩字標籤；完整名稱留在頁面標題與 aria-label。沒寫 short 就沿用 label。
   { id: "dashboard", label: "總覽", en: "Overview", icon: Wallet },
-  { id: "holdings", label: "持股進度", en: "Holdings", icon: ListOrdered },
-  { id: "daily", label: "每日紀錄", en: "Daily", icon: LineChartIcon },
-  { id: "trades", label: "交易紀錄", en: "Trades", icon: Receipt },
+  { id: "holdings", label: "持股進度", short: "持股", en: "Holdings", icon: ListOrdered },
+  { id: "daily", label: "每日紀錄", short: "每日", en: "Daily", icon: LineChartIcon },
+  { id: "trades", label: "交易紀錄", short: "交易", en: "Trades", icon: Receipt },
   { id: "dividends", label: "配息", en: "Dividends", icon: Coins },
-  { id: "progress", label: "計畫進度", en: "Progress", icon: Target },
+  { id: "progress", label: "計畫進度", short: "計畫", en: "Progress", icon: Target },
   { id: "plan", label: "設定", en: "Settings", icon: Settings2 },
 ];
 
@@ -106,6 +110,15 @@ const COLORS = {
 };
 
 const UI_EN = {
+  // 2026-11-12 手機版面
+  "新增持股": "Add holding",
+  "區間查詢": "Date range check",
+  "日期・買賣・代號・股數・價格": "Date · buy/sell · ticker · shares · price",
+  "除息日・代號・股數・每股配息": "Ex-date · ticker · shares · per share",
+  "代號・名稱・股數・起始成本": "Ticker · name · shares · starting cost",
+  "選兩個日期比較資產與損益": "Compare two dates",
+  "資產配置以市值計；抓不到報價時退回用成本。": "Allocation by market value; falls back to cost when a quote is missing.",
+  "資產配置以市值計；* 抓不到即時報價，暫時用持有成本計算佔比": "Allocation by market value; * no live quote, using cost for now",
   // 2026-10-18 複查補上的英文
   "台股持股市值": "TW Holdings Value",
   "美股持股市值": "US Holdings Value",
@@ -767,6 +780,45 @@ function loadXLSXLibrary() {
   }).catch((err) => { xlsxLoadPromise = null; throw err; }); // allow retry on next click if it failed
   return xlsxLoadPromise;
 }
+
+// <mobile-layout>
+// 手機版面（2026-11-12，依 stack-app-fable52-design-v2 設計稿）：只在 ≤767px 換版面；≥768px 維持原樣。
+// 只決定「怎麼排、要不要先收起來」，不碰任何計算、資料或 API。
+const MOBILE_LAYOUT_QUERY = "(max-width: 767px)";
+function isMobileLayout() {
+  try {
+    return typeof window !== "undefined" && typeof window.matchMedia === "function"
+      && window.matchMedia(MOBILE_LAYOUT_QUERY)?.matches === true;
+  } catch (_) { return false; }
+}
+function useIsMobileLayout() {
+  const [mobile, setMobile] = useState(isMobileLayout);
+  useEffect(() => {
+    let mq = null;
+    try { mq = typeof window.matchMedia === "function" ? window.matchMedia(MOBILE_LAYOUT_QUERY) : null; } catch (_) { mq = null; }
+    if (!mq) return undefined;
+    const on = () => setMobile(mq.matches === true);
+    on();
+    if (mq.addEventListener) mq.addEventListener("change", on); else if (mq.addListener) mq.addListener(on);
+    return () => { if (mq.removeEventListener) mq.removeEventListener("change", on); else if (mq.removeListener) mq.removeListener(on); };
+  }, []);
+  return mobile;
+}
+// 提醒列一次只強調一件：補記缺漏紀錄 › 允許收盤通知 › 備份提醒。處理完（條件不成立）下一件自動遞補。
+const ALERT_PRIORITY = ["missed", "closing", "backup"];
+function pickAlertOrder({ missed = false, closing = false, backup = false } = {}) {
+  const on = { missed: Boolean(missed), closing: Boolean(closing), backup: Boolean(backup) };
+  return ALERT_PRIORITY.filter((id) => on[id]);
+}
+// 缺漏紀錄的短標題：只寫最近一天＋天數（提醒列只有一行）。
+function missedAlertTitle(days, english = false) {
+  if (!Array.isArray(days) || !days.length) return "";
+  const last = [...days].sort().pop();
+  const md = `${Number(last.slice(5, 7))}/${Number(last.slice(8, 10))}`;
+  if (english) return days.length > 1 ? `No daily record for ${md} (+${days.length - 1})` : `No daily record for ${md}`;
+  return days.length > 1 ? `${md} 等 ${days.length} 天沒有每日紀錄` : `${md} 沒有每日紀錄`;
+}
+// </mobile-layout>
 
 // Animates a number counting up/down to its new value instead of jumping
 // instantly — used for the big "持股總市值" figure so a live-price refresh
@@ -2556,6 +2608,30 @@ function AssetTracker() {
   };
   const hideMissedToday = () => { const d = todayStr(); setMissedHiddenDay(d); try { localStorage.setItem("missedDaysHidden", d); } catch {} };
 
+  // 手機（≤767px）：三張橫幅收成一條提醒列＋底部面板（MobileAlerts）。行動與「稍後」「不用了」的記憶（localStorage 同一組 key）照舊；
+  // ≥768px 仍是原本的橫幅。收盤通知的狀態仍只在它自己的 hook（MobileAlerts 裡），App 本體不持有推播狀態。
+  const isMobile = useIsMobileLayout();
+  const missedShown = missedHiddenDay === todayStr() ? [] : missedDays;
+  const missedAlert = missedShown.length > 0 ? {
+    id: "missed", icon: CalendarDays, title: missedAlertTitle(missedShown, showEnglish),
+    desc: showEnglish ? "Fill them with each day's closing price and the shares you held that day." : "用那天的收盤價和當天的持股股數補記，補完可以在「每日紀錄」查看或修改。",
+    actShort: missedBusy ? (showEnglish ? "Filling…" : "補記中…") : (showEnglish ? "Fill" : "補記"),
+    actLabel: showEnglish ? "Fill with closing prices" : "用收盤價補記", onAct: fillMissedDays, busy: missedBusy,
+    actions: [
+      { label: missedBusy ? (showEnglish ? "Filling…" : "補記中…") : (showEnglish ? "Fill with closing prices" : "用收盤價補記"), onClick: fillMissedDays, disabled: missedBusy },
+      { label: showEnglish ? "Later" : "稍後", onClick: hideMissedToday },
+    ],
+  } : null;
+  const backupAlert = showBackupBanner ? {
+    id: "backup", icon: ShieldCheck,
+    title: showEnglish
+      ? (backupAgeDays == null ? "Backup: no JSON backup yet" : `Backup: last one ${backupAgeDays} days ago`)
+      : (backupAgeDays == null ? "備份提醒：尚未記錄 JSON 備份" : `備份提醒：上次備份已 ${backupAgeDays} 天前`),
+    desc: showEnglish ? "Keep a JSON backup after important changes." : "重要修改後建議留一份 JSON 備份。",
+    actShort: showEnglish ? "Back up" : "備份", actLabel: showEnglish ? "Go to backup" : "去備份", onAct: openBackup,
+    actions: [{ label: showEnglish ? "Go to backup ›" : "去備份 ›", onClick: openBackup }],
+  } : null;
+
   // ---- Z∞ 背景同步（供 Muse Lite / 舊中控讀取）----
   // Assets App 是持股資料的唯一來源。資料變更後推到 Worker；失敗會保留 pending，
   // 網路恢復、App 回到前景或下一次啟動時自動重試。股價本身不靠這裡持續推送，
@@ -2848,9 +2924,11 @@ function AssetTracker() {
       )}
 
       <div ref={headerRef}>
-        <Header goal={goal} totalToday={totalToday} goalDate={goalDate} backupOverdue={showBackupBanner} backupAgeDays={backupAgeDays} showEnglish={showEnglish} onToggleBilingual={toggleBilingual} onOpenBackup={openBackup} />
-        <ClosingReminderBanner />
-        <MissedDaysBanner days={missedHiddenDay === todayStr() ? [] : missedDays} busy={missedBusy} msg={missedMsg} onFill={fillMissedDays} onLater={hideMissedToday} />
+        <Header goal={goal} totalToday={totalToday} goalDate={goalDate} backupOverdue={showBackupBanner} hideBackupBanner={isMobile} backupAgeDays={backupAgeDays} showEnglish={showEnglish} onToggleBilingual={toggleBilingual} onOpenBackup={openBackup} />
+        {/* 手機：一條提醒列（首次使用時改放在總覽歡迎卡下面）；≥768px：原本的三張橫幅。 */}
+        {isMobile && !firstRun && <MobileAlerts missed={missedAlert} backup={backupAlert} status={missedMsg} />}
+        {!isMobile && <ClosingReminderBanner />}
+        {!isMobile && <MissedDaysBanner days={missedHiddenDay === todayStr() ? [] : missedDays} busy={missedBusy} msg={missedMsg} onFill={fillMissedDays} onLater={hideMissedToday} />}
         {pendingTrades.length > 0 && (
           <PendingTradesBanner trades={pendingTrades} onApply={applyPendingTrade} onDismiss={dismissPendingTrade} showEnglish={showEnglish} />
         )}
@@ -2884,6 +2962,7 @@ function AssetTracker() {
                     onFillDailyUs={(value) => { setDailyPrefill({ usValue: value }); goToTab("daily"); }}
                     onGoDaily={() => goToTab("daily")}
                     firstRun={firstRun}
+                    firstRunAlert={isMobile && firstRun ? <MobileAlerts quiet missed={missedAlert} backup={backupAlert} status={missedMsg} /> : null}
                     onAddHolding={() => {
                       setHoldingsMarket("tw"); goToTab("holdings");
                       // 換頁動畫結束後捲到「新增持股標的」並把游標放進代號欄
@@ -3072,7 +3151,7 @@ function PendingTradesBanner({ trades, onApply, onDismiss, showEnglish }) {
 }
 
 // ---------------- Header ----------------
-function Header({ goal, totalToday, goalDate, backupOverdue, backupAgeDays, showEnglish, onToggleBilingual, onOpenBackup }) {
+function Header({ goal, totalToday, goalDate, backupOverdue, hideBackupBanner = false, backupAgeDays, showEnglish, onToggleBilingual, onOpenBackup }) {
   return (
     <div
       className="premium-header px-4 pb-3"
@@ -3103,8 +3182,8 @@ function Header({ goal, totalToday, goalDate, backupOverdue, backupAgeDays, show
           </button>
           </div>
         </div>
-        {backupOverdue && (
-          // 整塊可點：直接跳到「設定」的備份卡（只做導覽，不會自動備份）
+        {backupOverdue && !hideBackupBanner && (
+          // 手機版改由提醒列處理（hideBackupBanner）。整塊可點：直接跳到「設定」的備份卡（只做導覽，不會自動備份）
           <button type="button" onClick={onOpenBackup} className="forma-note forma-tap mt-2 w-full text-left rounded-lg px-2.5 py-1.5 text-[10px] font-bold flex items-center justify-between gap-2"
             style={{ color: COLORS.gold, background: COLORS.panel, border: `1px solid ${COLORS.gold}` }}>
             <span>{showEnglish
@@ -6740,7 +6819,7 @@ function FirstRunGuide({ onAddHolding, onOpenBackup }) {
 function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, dailyChangePct, capitalGain, totalDividends,
   totalReturn, totalReturnPct, twTotalReturn, twTotalReturnPct, usTotalReturn, usTotalReturnPct, hasUsAssets, showUsFields = false, showGoal = false,
   highPoint, drawdown, ytdGain, ytdPct, chartData, goal, goalDate, totalInvested, holdings,
-  dailyRecords, dividends, yesterdayTwValue, yesterdayUsValue, onFillDailyTw, onFillDailyUs, usHoldings = [], usLive, onGoUsSettings, onGoDaily, firstRun = false, onAddHolding, onOpenBackup }) {
+  dailyRecords, dividends, yesterdayTwValue, yesterdayUsValue, onFillDailyTw, onFillDailyUs, usHoldings = [], usLive, onGoUsSettings, onGoDaily, firstRun = false, firstRunAlert = null, onAddHolding, onOpenBackup }) {
   const up = dailyChange >= 0;
   // dailyChange：交易日是每檔「(現價 − 昨收) × 股數」的加總（App 的 quoteDay，和下面每檔的今日損益加起來一樣），標「今日」；
   // 盤前或報價不全時才是「現在的總資產 − 今天之前最近一筆紀錄」；
@@ -6901,6 +6980,9 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
           </div>
         )}
       </div>
+
+      {/* 首次使用（手機）：收盤提醒降成歡迎卡下方的安靜虛線列，讓「新增第一筆持股」是第一眼。 */}
+      {firstRun && firstRunAlert}
 
       {/* 收盤後還沒記今天：一行提醒，點了直接到「每日紀錄」（那裡會自動帶入數字） */}
       {onGoDaily && !firstRun && needsTodayRecord(dailyRecords) && (
@@ -7315,6 +7397,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, autoFrom, set
         </div>
       </Panel>
 
+      <ComposerFold kind="fold" label="區間查詢" hint="選兩個日期比較資產與損益">
       <Panel title="區間查詢（精算，非AI）">
         <div className="text-[11px] mb-2" style={{ color: COLORS.sub }}>
           {M("Pick two dates and this computes the asset/principal/P&L change directly from your raw records — guaranteed accurate.", "選兩個日期，依已儲存紀錄比較資產、本金與損益變化")}
@@ -7384,6 +7467,7 @@ function DailyPanel({ records, setRecords, prefill, form, setForm, autoFrom, set
           </div>
         )}
       </Panel>
+      </ComposerFold>
 
       {weekKeys.length > 0 && (
         <FoldPanel title="週度損益" foldKey="week" count={M(`${weekKeys.length}`, `${weekKeys.length} 週`)} maxH="21rem" note={weekKeys.some((k) => weeklyStats[k]?.approximate) ? M("* For periods with incomplete cost data, market return and new contributions can't be precisely split — figures are estimates", "* 成本資料不完整的期間，市場報酬與新增投入無法精準拆分，數字為粗估") : null}>
@@ -7739,9 +7823,71 @@ function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldi
   const allocationTotal = allocationData.reduce((s, x) => s + x.value, 0);
   const hasCostFallback = allocationData.some((x) => x.usedCostFallback);
 
+  // 每檔的預估損益／累積獲利率（原本寫在卡片裡的同一段算式，只是搬成函式讓手機版可以把它放到第一行；數字不變）。
+  const holdingPnl = (h) => {
+    const q = isTaiwanSymbol(h.symbol) ? holdingQuotes[h.symbol] : usLive?.state?.quotes?.[h.symbol];
+    const price = Number(q?.price);
+    const prevClose = Number(q?.prevClose);
+    const hasPrice = Number.isFinite(price) && price > 0;
+    const hasPrevClose = Number.isFinite(prevClose) && prevClose > 0;
+    const rate = isTaiwanSymbol(h.symbol) ? 1 : Number(usLive?.state?.fx);
+    const calibrationFactor = !isTaiwanSymbol(h.symbol) && usLive?.brokerCalibrationActive ? Number(usLive.calibrationFactor || 1) : 1;
+    const marketValue = hasPrice && rate > 0
+      ? price * Number(h.current || 0) * rate * calibrationFactor
+      : null;
+    const estimatedPnl = marketValue != null && Number(h.estCostBasis || 0) > 0
+      ? Math.round(marketValue - Number(h.estCostBasis))
+      : null;
+    const cumulativePct = marketValue != null && Number(h.estCostBasis || 0) > 0
+      ? ((marketValue - Number(h.estCostBasis)) / Number(h.estCostBasis)) * 100
+      : null;
+    return { estimatedPnl, cumulativePct };
+  };
+  // 手機（≤767px）：總持有成本＋圓餅＋圖例同一張卡；每檔把預估損益／累積獲利率提到第一行。≥768px 維持原樣。
+  const mobile = useIsMobileLayout();
+
   return (
     <div className="space-y-2">
       <Panel title="持股進度">
+        {mobile && (
+          // 手機：總持有成本＋圓餅＋圖例同一張卡（數字與桌面版相同，只是排在一起）。
+          <div className="forma-alloc-card mb-3" data-alloc-card>
+            {allocationData.length > 0 && (
+              <div className="forma-alloc-donut" aria-hidden="true">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={allocationData} dataKey="value" nameKey="symbol" innerRadius={30} outerRadius={45} paddingAngle={2} isAnimationActive={!prefersReducedMotion()}>
+                      {allocationData.map((_, i) => (
+                        <Cell key={i} fill={ALLOC_COLORS[i % ALLOC_COLORS.length]} stroke={COLORS.bg} />
+                      ))}
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+            <div className="forma-alloc-r min-w-0">
+              <div className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="總持有成本（所有標的合計）" /></div>
+              <div className="forma-alloc-v mono" style={{ color: COLORS.gold }}>NT$ {nf(totalHoldingCost)}</div>
+              {allocationData.length > 0 && (
+                <ul className="forma-alloc-leg mono" aria-label={uiText("資產配置（以市值計，抓不到報價時退回用成本）")}>
+                  {allocationData.map((x, i) => (
+                    <li key={x.symbol}>
+                      <i style={{ background: ALLOC_COLORS[i % ALLOC_COLORS.length] }} aria-hidden="true" />
+                      <span style={{ color: COLORS.text }}>{x.symbol}{x.name ? ` ${x.name}` : ""}</span>
+                      <b style={{ color: COLORS.text }}>{((x.value / allocationTotal) * 100).toFixed(1)}%{x.usedCostFallback ? "*" : ""}</b>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            {allocationData.length > 0 && (
+              <div className="forma-alloc-note text-[11px]" style={{ color: COLORS.sub }}>
+                <UiLabel zh={hasCostFallback ? "資產配置以市值計；* 抓不到即時報價，暫時用持有成本計算佔比" : "資產配置以市值計；抓不到報價時退回用成本。"} />
+              </div>
+            )}
+          </div>
+        )}
+        {!mobile && (<>
         <div className="flex items-center justify-between rounded-xl p-3 mb-3"
           style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
           <div>
@@ -7784,6 +7930,7 @@ function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldi
             )}
           </div>
         )}
+        </>)}
 
         <div className="space-y-3">
           {holdings.map((h) => (
@@ -7835,6 +7982,23 @@ function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldi
                       <button className="holding-action" aria-label={M(`Delete ${h.symbol}`, `刪除 ${h.symbol}`)} onClick={() => remove(h.id, h.symbol)} style={{ color: COLORS.sub }}><TrashIcon size={15} /></button>
                     </div>
                   </div>
+                  {mobile && (() => {
+                    // 手機：最重要的預估損益／累積獲利率放第一行（算式同桌面版，見 holdingPnl）。
+                    const { estimatedPnl, cumulativePct } = holdingPnl(h);
+                    const tone = (v) => (v == null ? COLORS.sub : (v >= 0 ? COLORS.gain : COLORS.loss));
+                    return (
+                      <div className="forma-holding-key mono" data-holding-key>
+                        <div className="min-w-0">
+                          <div className="forma-holding-key-lab" style={{ color: COLORS.sub }}><UiLabel zh="預估損益" inline /></div>
+                          <b style={{ color: tone(estimatedPnl) }}>{estimatedPnl == null ? "--" : `${estimatedPnl >= 0 ? "+" : ""}NT$ ${nf(estimatedPnl)}`}</b>
+                        </div>
+                        <div className="min-w-0 text-right">
+                          <div className="forma-holding-key-lab" style={{ color: COLORS.sub }}><UiLabel zh="累積獲利率" inline /></div>
+                          <b style={{ color: tone(cumulativePct) }}>{cumulativePct == null ? "--" : `${cumulativePct >= 0 ? "+" : ""}${cumulativePct.toFixed(1)}%`}</b>
+                        </div>
+                      </div>
+                    );
+                  })()}
                   <div className="holding-cost-summary text-xs mono mt-2">
                     <div className="holding-cost-primary grid grid-cols-2 gap-2">
                       <div className="min-w-0">
@@ -7857,23 +8021,8 @@ function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldi
                     <span style={{ color: COLORS.sub }}>{M(`Current ${shareFormat(h.current)} shares`, `目前 ${shareFormat(h.current)} 股`)}</span>
                     <span style={{ color: COLORS.sub }}>{M(`Target ${shareFormat(h.target2035)} shares`, `目標 ${shareFormat(h.target2035)} 股`)}</span>
                   </div>
-                  {(() => {
-                    const q = isTaiwanSymbol(h.symbol) ? holdingQuotes[h.symbol] : usLive?.state?.quotes?.[h.symbol];
-                    const price = Number(q?.price);
-                    const prevClose = Number(q?.prevClose);
-                    const hasPrice = Number.isFinite(price) && price > 0;
-                    const hasPrevClose = Number.isFinite(prevClose) && prevClose > 0;
-                    const rate = isTaiwanSymbol(h.symbol) ? 1 : Number(usLive?.state?.fx);
-                    const calibrationFactor = !isTaiwanSymbol(h.symbol) && usLive?.brokerCalibrationActive ? Number(usLive.calibrationFactor || 1) : 1;
-                    const marketValue = hasPrice && rate > 0
-                      ? price * Number(h.current || 0) * rate * calibrationFactor
-                      : null;
-                    const estimatedPnl = marketValue != null && Number(h.estCostBasis || 0) > 0
-                      ? Math.round(marketValue - Number(h.estCostBasis))
-                      : null;
-                    const cumulativePct = marketValue != null && Number(h.estCostBasis || 0) > 0
-                      ? ((marketValue - Number(h.estCostBasis)) / Number(h.estCostBasis)) * 100
-                      : null;
+                  {!mobile && (() => {
+                    const { estimatedPnl, cumulativePct } = holdingPnl(h);
                     return (
                       <div className="flex justify-between text-[11px] mono mt-1">
                         <span style={{ color: COLORS.sub }}>
@@ -7922,6 +8071,7 @@ function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldi
 
       {afterList}
 
+      <ComposerFold label="新增持股" hint="代號・名稱・股數・起始成本" count={holdings.length}>
       <Panel title="新增持股標的">
         {/* 名稱查詢提示放在格子外面（原因同配息表單）：避免把代號欄頂下去。 */}
         <div className="grid grid-cols-2 gap-2">
@@ -7960,6 +8110,7 @@ function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldi
         <MissingHint missing={[!form.symbol && "代號"].filter(Boolean)} />
         <AddButton onClick={add} label="新增標的" disabled={!isStockSymbol(form.symbol)} />
       </Panel>
+      </ComposerFold>
     </div>
   );
 }
@@ -8034,6 +8185,7 @@ function TradesPanel({ trades, setTrades, holdings, setHoldings, usLive, costBas
   return (
     <div className="space-y-2">
 
+      <ComposerFold label="新增交易" hint="日期・買賣・代號・股數・價格" count={trades.length}>
       <Panel title="新增交易">
         <div className="grid grid-cols-2 gap-2">
           <Field label="日期"><input type="date" value={form.date}
@@ -8072,6 +8224,7 @@ function TradesPanel({ trades, setTrades, holdings, setHoldings, usLive, costBas
         <MissingHint missing={[!form.symbol && "代號", !form.shares && "股數", !form.price && "成交價"].filter(Boolean)} />
         <AddButton onClick={add} label="新增交易" disabled={!isStockSymbol(form.symbol) || !(Number(form.shares) > 0) || !(Number(form.price) > 0)} />
       </Panel>
+      </ComposerFold>
 
       <Panel title={M(`Trades (${filtered.length}${q ? ` / ${trades.length} total` : ""})`, `交易紀錄（${filtered.length}${q ? ` / 共${trades.length}` : ""}）`)}>
         <input
@@ -8537,11 +8690,35 @@ function DividendsPanel({ dividends, setDividends, holdings, usLive }) {
   const remove = (id, label) => deleteWithUndo(setDividends, id, label);
   const sorted = [...dividends].sort((a, b) => b.date.localeCompare(a.date));
   const total = dividends.reduce((s, d) => s + d.amount, 0);
+  // 配息紀錄：手機（≤767px）排在股息報表後、歷史圖前（新增列 → 報表 → 紀錄 → 歷史圖）；≥768px 維持原順序（報表 → 歷史圖 → 紀錄）。
+  // 用 DOM 順序調整（不用 CSS order），讀屏與 Tab 順序跟畫面一致。
+  const mobile = useIsMobileLayout();
+  const recordsPanel = (
+      <Panel title={M(`Cumulative Dividends: NT$ ${nf(total)}`, `累積股息：NT$ ${nf(total)}`)}>
+        <div className="space-y-2">
+          {sorted.map((d) => (
+            <Row key={d.id} onDelete={() => remove(d.id, `${d.date} ${d.symbol}`)}>
+              <div className="flex-1">
+                <div className="text-sm mono">{d.date} · {d.symbol}</div>
+                <div className="text-[11px]" style={{ color: COLORS.sub }}>
+                  {Number(d.shares).toLocaleString("en-US", { maximumFractionDigits: 6 })}{M("sh", "股")} × {d.currency === "USD" ? quotePriceText(d.perShare, true) : quotePriceText(d.perShare, false)}
+                </div>
+              </div>
+              <div className="text-right mono text-sm font-bold" style={{ color: COLORS.gold }}>
+                +NT$ {nf(d.amount)}
+              </div>
+            </Row>
+          ))}
+          {dividends.length === 0 && <Empty text="尚無配息紀錄" />}
+        </div>
+      </Panel>
+  );
 
   return (
     <div className="space-y-2">
       <UpcomingDividendReminder holdings={holdings} />
 
+      <ComposerFold label="新增配息" hint="除息日・代號・股數・每股配息" count={dividends.length}>
       <Panel title="新增配息">
         {/* 提示文字放在格子外面：表單格子是「底部對齊」，提示放在代號欄裡面會把同一排的除息日整個頂下去。 */}
         <div className="grid grid-cols-2 gap-2">
@@ -8570,29 +8747,16 @@ function DividendsPanel({ dividends, setDividends, holdings, usLive }) {
         <MissingHint missing={[!form.symbol && "代號", !form.shares && "股數", !form.perShare && "每股配息"].filter(Boolean)} />
         <AddButton onClick={add} label="新增配息紀錄" disabled={!isStockSymbol(form.symbol) || !(Number(form.shares) > 0) || !(Number(form.perShare) > 0)} />
       </Panel>
+      </ComposerFold>
 
       <DividendReport dividends={dividends} holdings={holdings} />
 
+      {mobile && recordsPanel}
+
       <DividendHistoryChart dividends={dividends} />
 
-      <Panel title={M(`Cumulative Dividends: NT$ ${nf(total)}`, `累積股息：NT$ ${nf(total)}`)}>
-        <div className="space-y-2">
-          {sorted.map((d) => (
-            <Row key={d.id} onDelete={() => remove(d.id, `${d.date} ${d.symbol}`)}>
-              <div className="flex-1">
-                <div className="text-sm mono">{d.date} · {d.symbol}</div>
-                <div className="text-[11px]" style={{ color: COLORS.sub }}>
-                  {Number(d.shares).toLocaleString("en-US", { maximumFractionDigits: 6 })}{M("sh", "股")} × {d.currency === "USD" ? quotePriceText(d.perShare, true) : quotePriceText(d.perShare, false)}
-                </div>
-              </div>
-              <div className="text-right mono text-sm font-bold" style={{ color: COLORS.gold }}>
-                +NT$ {nf(d.amount)}
-              </div>
-            </Row>
-          ))}
-          {dividends.length === 0 && <Empty text="尚無配息紀錄" />}
-        </div>
-      </Panel>
+      {!mobile && recordsPanel}
+
     </div>
   );
 }
@@ -9277,6 +9441,148 @@ function ClosingReminderBanner() {
     </div>
   );
 }
+
+// <mobile-alert-strip>
+// 手機頂端提醒列（≤767px）：一條 48px，只放目前最優先的一件＋一顆直接行動＋「N 則」；點文字或「N 則」開底部面板，
+// 面板裡是原本橫幅的全部行動（用收盤價補記／稍後；允許通知／稍後／不用了；去備份），只有第一件用實心主按鈕。
+// alerts 由 AssetTracker 依 pickAlertOrder 排好；quiet＝首次使用時放在歡迎卡下面的安靜虛線列。
+// 收盤通知那一則由這裡自己的 useClosingReminder 決定（跟原本的 ClosingReminderBanner 一樣，App 本體不持有推播狀態），
+// 再和 App 傳進來的「補記缺漏」「備份」照 pickAlertOrder 排好，交給 AlertStrip 顯示。
+function MobileAlerts({ missed = null, backup = null, quiet = false, status = "" }) {
+  const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
+  const r = useClosingReminder();
+  const [hiddenDay, setHiddenDay] = useState(() => { try { return localStorage.getItem("closingReminderBannerHidden") || ""; } catch { return ""; } });
+  const today = taipeiDateKey(new Date());
+  const later = () => { try { localStorage.setItem("closingReminderBannerHidden", today); } catch {} setHiddenDay(today); };
+  const closing = r.status === "needs_allow" && hiddenDay !== today ? {
+    id: "closing", icon: Bell, title: M("Turn on closing reminder & auto-record", "開啟收盤提醒與自動記錄"),
+    desc: M("Your browser needs you to tap Allow once.", "13:45 提醒你記帳，14:00 沒記的話手機會自動幫你記。瀏覽器規定要你按一下「允許」。"),
+    actShort: M("Allow", "允許"), actLabel: M("Allow notifications", "允許通知"), onAct: () => r.enable(),
+    actions: [
+      { label: M("Allow notifications", "允許通知"), onClick: () => r.enable() },
+      { label: M("Later", "稍後"), onClick: later },
+      { label: M("Don't ask again", "不用了，不要再提醒"), onClick: () => r.setWanted(false), link: true },
+    ],
+  } : null;
+  const defs = { missed, closing, backup };
+  const alerts = pickAlertOrder({ missed: Boolean(missed), closing: Boolean(closing), backup: Boolean(backup) }).map((id) => defs[id]);
+  return <AlertStrip alerts={alerts} quiet={quiet} status={[status, r.pushMsg].filter(Boolean).join(" ")} />;
+}
+function AlertStrip({ alerts = [], quiet = false, status = "" }) {
+  const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const sheetRef = useRef(null);
+  const openerRef = useRef(null);
+  useEffect(() => {
+    if (!sheetOpen) return undefined;
+    const prevFocus = document.activeElement;
+    try { sheetRef.current?.focus({ preventScroll: true }); } catch (_) {}
+    const onKey = (e) => { if (e.key === "Escape") setSheetOpen(false); };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      try { (openerRef.current || prevFocus)?.focus?.({ preventScroll: true }); } catch (_) {}
+    };
+  }, [sheetOpen]);
+  useEffect(() => { if (!alerts.length) setSheetOpen(false); }, [alerts.length]);
+  if (!alerts.length && !status) return null;
+  const top = alerts[0];
+  const TopIcon = top?.icon || Bell;
+  return (
+    <div className="forma-alert-wrap" data-alert-strip>
+      {top && (
+        <div className={`forma-alert-strip${quiet ? " is-quiet" : ""}`} data-alert-top={top.id}>
+          <button type="button" ref={openerRef} className="forma-alert-main" onClick={() => setSheetOpen(true)}
+            aria-haspopup="dialog" aria-label={M(`Reminder: ${top.title}. Open all reminders`, `提醒：${top.title}。打開全部提醒`)}>
+            <span className="forma-alert-ico" aria-hidden="true"><TopIcon size={16} /></span>
+            <span className="forma-alert-txt">{top.title}</span>
+          </button>
+          <button type="button" className="forma-alert-act" onClick={quiet ? () => setSheetOpen(true) : top.onAct}
+            disabled={!quiet && top.busy} aria-label={quiet ? M("Set up", "設定") : top.actLabel}>
+            <span>{quiet ? M("Set up", "設定") : top.actShort}</span>
+          </button>
+          {!quiet && (
+            <button type="button" className="forma-alert-more" onClick={() => setSheetOpen(true)} aria-haspopup="dialog"
+              aria-label={M(`${alerts.length} reminders`, `共 ${alerts.length} 則提醒`)}>
+              <b>{alerts.length}</b><span>{M("", "則")}</span><ChevronDown size={14} />
+            </button>
+          )}
+        </div>
+      )}
+      {status && <div className="forma-alert-status" role="status" aria-live="polite">{status}</div>}
+      {sheetOpen && (
+        <div className="forma-sheet-scrim" onClick={(e) => { if (e.target === e.currentTarget) setSheetOpen(false); }}>
+          <div ref={sheetRef} className="forma-sheet" role="dialog" aria-modal="true" aria-labelledby="forma-alert-sheet-title" tabIndex={-1}>
+            <div className="forma-sheet-h">
+              <h2 id="forma-alert-sheet-title">{M("Reminders", "提醒")}</h2>
+              <span className="forma-sheet-count">{M(`${alerts.length}`, `${alerts.length} 則`)}</span>
+              <button type="button" className="forma-sheet-x" onClick={() => setSheetOpen(false)} aria-label={M("Close", "關閉")}><X size={20} /></button>
+            </div>
+            <div className="forma-sheet-b">
+              {alerts.map((a, i) => {
+                const Icon = a.icon || Bell;
+                return (
+                  <section key={a.id} className="forma-sheet-item" data-alert-item={a.id}>
+                    <h3><Icon size={18} aria-hidden="true" /><span>{a.title}</span>{i === 0 && <em>{M("Do this first", "先處理這件")}</em>}</h3>
+                    {a.desc && <p>{a.desc}</p>}
+                    <div className={`forma-sheet-acts${a.actions.filter((x) => !x.link).length > 1 ? " is-pair" : ""}`}>
+                      {a.actions.filter((x) => !x.link).map((x, j) => (
+                        <button key={j} type="button" onClick={x.onClick} disabled={x.disabled}
+                          className={`forma-sheet-btn ${j === 0 ? (i === 0 ? "is-primary" : "is-tonal") : "is-secondary"}`}>{x.label}</button>
+                      ))}
+                    </div>
+                    {a.actions.filter((x) => x.link).map((x, j) => (
+                      <button key={"l" + j} type="button" onClick={x.onClick} className="forma-sheet-link">{x.label}</button>
+                    ))}
+                  </section>
+                );
+              })}
+              {status && <div className="forma-sheet-status" role="status">{status}</div>}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+// </mobile-alert-strip>
+
+// <mobile-composer>
+// 手機（≤767px）的「新增列」：交易／配息／持股的新增表單有紀錄時先收成一列（32px 圓形加號＋「新增○○」＋欄位提示），
+// 點一下原地展開；沒有任何紀錄時預設展開；送出成功（筆數變多）後自動收回。kind="fold" 給其他「收成一列」的卡（區間查詢）。
+// ≥768px 直接回傳原本的表單，不改桌面版。
+let composerSeq = 0;
+function ComposerFold({ label, hint = "", count = 0, kind = "add", children }) {
+  const mobile = useIsMobileLayout();
+  const [open, setOpen] = useState(() => kind === "add" && !(Number(count) > 0));
+  const prevCount = useRef(Number(count) || 0);
+  const idRef = useRef(null);
+  if (!idRef.current) idRef.current = `forma-composer-${++composerSeq}`;
+  useEffect(() => {
+    const n = Number(count) || 0;
+    if (kind === "add") {
+      if (n > prevCount.current) setOpen(false);      // 送出成功 → 收回
+      else if (n === 0 && prevCount.current > 0) setOpen(true); // 全刪光 → 沒有紀錄時展開
+    }
+    prevCount.current = n;
+  }, [count, kind]);
+  if (!mobile) return children;
+  const bodyId = idRef.current;
+  return (
+    <div className={`forma-composer forma-composer-${kind}${open ? " is-open" : ""}`} data-composer={kind} data-open={open ? "true" : "false"}>
+      <button type="button" className="forma-composer-row" aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen((v) => !v)}>
+        {kind === "add"
+          ? <span className="forma-composer-plus" aria-hidden="true"><Plus size={18} /></span>
+          : null}
+        <span className="forma-composer-title"><UiLabel zh={label} inline /></span>
+        {hint && <span className="forma-composer-hint"><UiLabel zh={hint} inline /></span>}
+        {kind === "fold" && <span className="forma-composer-chev" aria-hidden="true"><ChevronDown size={16} /></span>}
+      </button>
+      {open && <div id={bodyId} className="forma-composer-body">{children}</div>}
+    </div>
+  );
+}
+// </mobile-composer>
 
 function AddButton({ onClick, label, disabled = false }) {
   return (
@@ -11533,7 +11839,7 @@ function AiChatWidget({ advancedUse = true, holdings, goal, totalToday, totalInv
           }}>
             <div className="flex items-center justify-between px-4 py-3"
               style={{ borderBottom: `1px solid ${COLORS.panelBorder}`, paddingTop: "max(12px, env(safe-area-inset-top, 0px))" }}>
-              <div className="flex items-center gap-2 min-w-0">
+              <div className="forma-ai-title flex items-center gap-2 min-w-0">
                 <div id="ai-chat-title" className="font-bold text-sm"><UiLabel zh="存股助手 AI" /></div>
                 {providerInfo?.provider === "puter" && (
                   <div className="text-[11px] px-2 py-0.5 rounded-full truncate max-w-[170px]"
@@ -11643,7 +11949,7 @@ function AiChatWidget({ advancedUse = true, holdings, goal, totalToday, totalInv
               {error && <div className="text-xs text-center" style={{ color: COLORS.gain }}>{error}</div>}
               {needLogin && !puterCardOpen && (
                 <div className="forma-puter-login space-y-2" role="alert">
-                  <div className="text-xs font-bold" style={{ color: COLORS.text }}>{PUTER_LOGIN_REQUIRED}</div>
+                  <div className="forma-puter-warn text-xs font-bold" style={{ color: COLORS.text }}>{PUTER_LOGIN_REQUIRED}</div>
                   <PuterAccountCard />
                 </div>
               )}
@@ -11724,6 +12030,7 @@ function ThemeToggle({ showEnglish }) {
 }
 
 function TabBar({ tabs = TABS, tab, setTab, rootRef, showEnglish }) {
+  const mobile = useIsMobileLayout();
   return (
     <div ref={rootRef} className="fixed bottom-0 left-0 right-0 premium-tabbar"
       style={{
@@ -11731,11 +12038,12 @@ function TabBar({ tabs = TABS, tab, setTab, rootRef, showEnglish }) {
         paddingBottom: "env(safe-area-inset-bottom, 4px)",
       }}>
       <div className="max-w-none mx-auto flex px-0">
-        {tabs.map(({ id, label, en, icon: Icon }) => {
+        {tabs.map(({ id, label, short, en, icon: Icon }) => {
           const active = tab === id;
+          const shown = showEnglish ? en : (mobile ? (short || label) : label);
           return (
-            <button key={id} onClick={() => setTab(id)} data-active={active ? "true" : "false"}
-              aria-current={active ? "page" : undefined}
+            <button key={id} onClick={() => setTab(id)} data-active={active ? "true" : "false"} data-tab={id}
+              aria-current={active ? "page" : undefined} aria-label={showEnglish ? en : label}
               className="flex-1 flex flex-col items-center justify-center gap-0.5 py-0.5 px-0.5 min-w-0"
               style={{ color: active ? COLORS.gold : COLORS.sub }}>
               <span className="flex items-center justify-center rounded-full"
@@ -11743,7 +12051,7 @@ function TabBar({ tabs = TABS, tab, setTab, rootRef, showEnglish }) {
                 <Icon size={13} />
               </span>
               <span className="text-[8px] font-medium whitespace-nowrap leading-[1.05] text-center">
-                <span className="block">{showEnglish ? en : label}</span>
+                <span className="block">{shown}</span>
               </span>
             </button>
           );
