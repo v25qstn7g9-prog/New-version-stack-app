@@ -2629,7 +2629,7 @@ function AssetTracker() {
       : (backupAgeDays == null ? "備份提醒：尚未記錄 JSON 備份" : `備份提醒：上次備份已 ${backupAgeDays} 天前`),
     desc: showEnglish ? "Keep a JSON backup after important changes." : "重要修改後建議留一份 JSON 備份。",
     actShort: showEnglish ? "Back up" : "備份", actLabel: showEnglish ? "Go to backup" : "去備份", onAct: openBackup,
-    actions: [{ label: showEnglish ? "Go to backup ›" : "去備份 ›", onClick: openBackup }],
+    actions: [{ label: showEnglish ? "Go to backup ›" : "去備份 ›", onClick: openBackup, nav: true }],
   } : null;
 
   // ---- Z∞ 背景同步（供 Muse Lite / 舊中控讀取）----
@@ -2925,8 +2925,8 @@ function AssetTracker() {
 
       <div ref={headerRef}>
         <Header goal={goal} totalToday={totalToday} goalDate={goalDate} backupOverdue={showBackupBanner} hideBackupBanner={isMobile} backupAgeDays={backupAgeDays} showEnglish={showEnglish} onToggleBilingual={toggleBilingual} onOpenBackup={openBackup} />
-        {/* 手機：一條提醒列（首次使用時改放在總覽歡迎卡下面）；≥768px：原本的三張橫幅。 */}
-        {isMobile && !firstRun && <MobileAlerts missed={missedAlert} backup={backupAlert} status={missedMsg} />}
+        {/* 手機：一條提醒列（首次使用時只有「總覽」改放在歡迎卡下面，其他分頁照常顯示）；≥768px：原本的三張橫幅。 */}
+        {isMobile && !(firstRun && tab === "dashboard") && <MobileAlerts missed={missedAlert} backup={backupAlert} status={missedMsg} />}
         {!isMobile && <ClosingReminderBanner />}
         {!isMobile && <MissedDaysBanner days={missedHiddenDay === todayStr() ? [] : missedDays} busy={missedBusy} msg={missedMsg} onFill={fillMissedDays} onLater={hideMissedToday} />}
         {pendingTrades.length > 0 && (
@@ -9473,17 +9473,41 @@ function AlertStrip({ alerts = [], quiet = false, status = "" }) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const sheetRef = useRef(null);
   const openerRef = useRef(null);
+  // 面板是 aria-modal 對話框：開著時背景設 inert（從面板往上每一層的兄弟節點，只動原本不是 inert 的，關掉時還原），
+  // Tab／Shift+Tab 在面板內循環，Escape 關閉；關閉後焦點回到打開它的按鈕。
   useEffect(() => {
     if (!sheetOpen) return undefined;
     const prevFocus = document.activeElement;
-    try { sheetRef.current?.focus({ preventScroll: true }); } catch (_) {}
-    const onKey = (e) => { if (e.key === "Escape") setSheetOpen(false); };
+    const sheet = sheetRef.current;
+    const inerted = [];
+    for (let node = sheet?.closest(".forma-sheet-scrim"); node && node.parentElement && node !== document.body; node = node.parentElement) {
+      for (const sib of node.parentElement.children) {
+        if (sib === node || sib.inert || sib.tagName === "SCRIPT" || sib.tagName === "STYLE") continue;
+        sib.inert = true; inerted.push(sib);
+      }
+    }
+    try { sheet?.focus({ preventScroll: true }); } catch (_) {}
+    const focusables = () => Array.from(sheet?.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])') || []);
+    const onKey = (e) => {
+      if (e.key === "Escape") { setSheetOpen(false); return; }
+      if (e.key !== "Tab" || !sheet) return;
+      const list = focusables();
+      if (!list.length) { e.preventDefault(); sheet.focus({ preventScroll: true }); return; }
+      const first = list[0], last = list[list.length - 1];
+      const cur = document.activeElement;
+      const inside = sheet.contains(cur);
+      if (e.shiftKey && (cur === first || cur === sheet || !inside)) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && (cur === last || !inside)) { e.preventDefault(); first.focus(); }
+    };
     document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("keydown", onKey);
+      for (const el of inerted) el.inert = false;
       try { (openerRef.current || prevFocus)?.focus?.({ preventScroll: true }); } catch (_) {}
     };
   }, [sheetOpen]);
+  // 導覽型動作（nav: true，例如「去備份」）：先關面板再跳頁，才不會遮住目的地。
+  const runAction = (x) => { if (x.nav) setSheetOpen(false); x.onClick?.(); };
   useEffect(() => { if (!alerts.length) setSheetOpen(false); }, [alerts.length]);
   if (!alerts.length && !status) return null;
   const top = alerts[0];
@@ -9527,12 +9551,12 @@ function AlertStrip({ alerts = [], quiet = false, status = "" }) {
                     {a.desc && <p>{a.desc}</p>}
                     <div className={`forma-sheet-acts${a.actions.filter((x) => !x.link).length > 1 ? " is-pair" : ""}`}>
                       {a.actions.filter((x) => !x.link).map((x, j) => (
-                        <button key={j} type="button" onClick={x.onClick} disabled={x.disabled}
+                        <button key={j} type="button" onClick={() => runAction(x)} disabled={x.disabled}
                           className={`forma-sheet-btn ${j === 0 ? (i === 0 ? "is-primary" : "is-tonal") : "is-secondary"}`}>{x.label}</button>
                       ))}
                     </div>
                     {a.actions.filter((x) => x.link).map((x, j) => (
-                      <button key={"l" + j} type="button" onClick={x.onClick} className="forma-sheet-link">{x.label}</button>
+                      <button key={"l" + j} type="button" onClick={() => runAction(x)} className="forma-sheet-link">{x.label}</button>
                     ))}
                   </section>
                 );
