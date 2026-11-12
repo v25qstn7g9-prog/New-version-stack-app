@@ -1459,6 +1459,104 @@ async function loadKey(key, fallback, strict = false) {
     return fallback;
   }
 }
+// <load-corrupt-guard>
+// 使用者紀錄（持股、交易、每日紀錄、配息）讀檔損壞時不能用預設空值蓋回去：
+// 原始字串另存到 <key>_corrupt_<時間戳>，原 key 一律不動，並回報 corrupt 讓 App 這次執行暫停自動存檔。
+// 沒有這個 key（null）是正常的新使用者狀態，照舊回傳預設值；空字串 "" 算損壞。
+function corruptStampNow(d = new Date()) {
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}T${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+function preserveCorruptRaw(key, raw, now = new Date()) {
+  if (typeof raw !== "string") return null;
+  try {
+    const ls = window.localStorage;
+    if (!ls) return null;
+    const prefix = `${key}_corrupt_`;
+    // 同一份損壞內容重新整理後不要一直多存一份（避免把空間塞滿）。
+    for (let i = 0; i < ls.length; i++) {
+      const k = ls.key(i);
+      if (k && k.startsWith(prefix) && ls.getItem(k) === raw) return k;
+    }
+    let backupKey = prefix + corruptStampNow(now);
+    for (let n = 2; ls.getItem(backupKey) != null; n++) backupKey = `${prefix}${corruptStampNow(now)}_${n}`;
+    ls.setItem(backupKey, raw);
+    return backupKey;
+  } catch (e) {
+    // 空間不足等：另存失敗也不能讓 App 崩潰；原 key 本來就不會被寫。
+    console.warn("corrupt backup save failed", key, e);
+    return null;
+  }
+}
+async function loadKeyGuarded(key, fallback, now = new Date()) {
+  let raw = null, storageFailed = false;
+  try {
+    if (window.storage?.get) {
+      const res = await window.storage.get(key, false);
+      // 有這筆（含空字串 ""）就以它為準；回 null／沒有 value 才算沒有這個 key。
+      if (res != null && res.value != null) raw = typeof res.value === "string" ? res.value : String(res.value);
+    }
+  } catch (e) {
+    console.warn("window.storage read failed", key, e);
+    storageFailed = true;
+  }
+  if (raw == null) {
+    try { raw = window.localStorage?.getItem(key) ?? null; }
+    catch (e) { console.warn("localStorage read failed", key, e); return { value: fallback, corrupt: true, key, backupKey: null, raw: null }; }
+  }
+  if (raw == null) {
+    // window.storage 讀不到時狀態不明，仍要保護；key 真的不存在才是新使用者。
+    // 空字串 "" 是「有這筆但內容無法解析」，往下走 JSON.parse 失敗 → 損壞保護。
+    return storageFailed ? { value: fallback, corrupt: true, key, backupKey: null, raw: null } : { value: fallback, corrupt: false };
+  }
+  try {
+    const value = JSON.parse(raw);
+    if (!storageFailed) return { value, corrupt: false };
+    return { value, corrupt: true, key, backupKey: preserveCorruptRaw(key, raw, now), raw };
+  } catch (e) {
+    console.warn("stored JSON parse failed", key, e);
+    return { value: fallback, corrupt: true, key, backupKey: preserveCorruptRaw(key, raw, now), raw };
+  }
+}
+// 本機紀錄讀取異常時暫停雲端同步「上傳」：避免損壞後的空值（例如配息變 []）蓋掉雲端資料。
+const ZINF_CORRUPT_PAUSE_STATUS = "同步暫停（未上傳，保護雲端資料）：本機紀錄讀取異常，已暫停雲端同步上傳，避免蓋掉雲端資料。請先到設定按「JSON備份」，或聯絡工程師。";
+function zinfUploadPausedByCorrupt(corruptKeys) {
+  return !!corruptKeys && corruptKeys.size > 0;
+}
+// 自動存檔（持久化 effect）一律經過這裡：損壞還原開始後（restoringRef.current = true）全部跳過，
+// 已送出的寫入記在 pending，讓還原先等它們結束再直接寫入，避免舊 state 蓋掉剛還原的資料。
+function trackedAutoSave(key, value, restoringRef, pending, save) {
+  if (restoringRef.current) return Promise.resolve(false);
+  const p = save(key, value);
+  pending.add(p);
+  const done = () => { pending.delete(p); };
+  p.then(done, done);
+  return p;
+}
+async function waitForPendingAutoSaves(pending, tick = (fn) => setTimeout(fn, 0)) {
+  // 先讓已排入的 effect 跑完（此時 restoringRef 已擋住，不會再送出新寫入），再等已送出的寫入結束。
+  await new Promise((resolve) => tick(resolve));
+  while (pending.size) await Promise.allSettled([...pending]);
+}
+// 還原專用寫入（不改 saveKey 的語意）：有 window.storage 時，window.storage 與 localStorage 都要成功才算成功；
+// 重新載入時會先讀 window.storage，只寫成功一邊可能讓舊資料（例如已清掉的 usHoldings）復活。
+async function saveKeyForRestore(key, value) {
+  const payload = JSON.stringify(value);
+  const failed = [];
+  if (window.storage?.set) {
+    try { await window.storage.set(key, payload, false); }
+    catch (e) { console.warn("restore window.storage save failed", key, e); failed.push("storage"); }
+  }
+  try {
+    if (!window.localStorage) throw new Error("localStorage unavailable");
+    window.localStorage.setItem(key, payload);
+  } catch (e) {
+    console.warn("restore localStorage save failed", key, e);
+    failed.push("localStorage");
+  }
+  return { ok: failed.length === 0, failed };
+}
+// </load-corrupt-guard>
 async function saveKey(key, value) {
   const payload = JSON.stringify(value);
   let saved = false;
@@ -1606,6 +1704,16 @@ const DAILY_SEED = [];
 
 function AssetTracker() {
   const [ready, setReady] = useState(false);
+  // 讀檔損壞的使用者紀錄 key：這次執行不自動寫回（保護原始資料），並顯示提示橫幅。
+  const [corruptLoads, setCorruptLoads] = useState([]);
+  const corruptKeysRef = useRef(new Set());
+  // <restore-lock>
+  // 損壞狀態下的 JSON還原一開始就設為 true，之後本次執行所有自動存檔都跳過（成功→重新載入；失敗→請重新整理）。
+  const restoringRef = useRef(false);
+  const pendingAutoSavesRef = useRef(new Set());
+  const canPersist = (key) => !restoringRef.current && !corruptKeysRef.current.has(key);
+  const persistKey = (key, value) => trackedAutoSave(key, value, restoringRef, pendingAutoSavesRef.current, saveKey);
+  // </restore-lock>
   const [tab, setTab] = useState("dashboard");
   const [showEnglish, setShowEnglish] = useState(() => {
     try {
@@ -1918,12 +2026,12 @@ function AssetTracker() {
   // ---- initial load ----
   useEffect(() => {
     (async () => {
-      const [dr, h, uh, t, dv, p, g, ps, cb, lba, afc, lst, suf, ubc, advSaved, goalStored] = await Promise.all([
-        loadKey("dailyRecords", defaultDailyRecords()),
-        loadKey("holdings", defaultHoldings()),
+      const [drRes, hRes, uh, tRes, dvRes, p, g, ps, cb, lba, afc, lst, suf, ubc, advSaved, goalStored] = await Promise.all([
+        loadKeyGuarded("dailyRecords", defaultDailyRecords()),
+        loadKeyGuarded("holdings", defaultHoldings()),
         loadKey("usHoldings", []),
-        loadKey("trades", defaultTrades()),
-        loadKey("dividends", defaultDividends()),
+        loadKeyGuarded("trades", defaultTrades()),
+        loadKeyGuarded("dividends", defaultDividends()),
         loadKey("planItems", defaultPlan()),
         loadKey("goal", { targetAmount: 10000000, targetYear: 2035 }),
         loadKey("planSchedule", defaultPlanSchedule()),
@@ -1936,6 +2044,10 @@ function AssetTracker() {
         loadKey("advancedMode", null),
         loadKey("goal", null),
       ]);
+      const corrupt = [drRes, hRes, tRes, dvRes].filter((r) => r.corrupt);
+      corrupt.forEach((r) => corruptKeysRef.current.add(r.key));
+      if (corrupt.length) setCorruptLoads(corrupt.map(({ key, backupKey, raw }) => ({ key, backupKey, raw })));
+      const dr = drRes.value, h = hRes.value, t = tRes.value, dv = dvRes.value;
       setDailyRecords(dr);
       setHoldings(mergeLegacyUsHoldings(h, Array.isArray(uh) ? uh : [], t));
       setTrades(t);
@@ -2004,17 +2116,18 @@ function AssetTracker() {
   };
 
   // ---- persist on change (after ready) ----
-  useEffect(() => { if (ready) saveKey("dailyRecords", dailyRecords); }, [dailyRecords, ready]);
-  useEffect(() => { if (ready) saveKey("holdings", holdings); }, [holdings, ready]);
-  useEffect(() => { if (ready) saveKey("usHoldings", []); }, [ready]);
-  useEffect(() => { if (ready) saveKey("trades", trades); }, [trades, ready]);
-  useEffect(() => { if (ready) saveKey("dividends", dividends); }, [dividends, ready]);
-  useEffect(() => { if (ready) saveKey("planItems", planItems); }, [planItems, ready]);
-  useEffect(() => { if (ready) saveKey("goal", goal); }, [goal, ready]);
-  useEffect(() => { if (ready) saveKey("planSchedule", planSchedule); }, [planSchedule, ready]);
-  useEffect(() => { if (ready) saveKey("costBasis", costBasis); }, [costBasis, ready]);
-  useEffect(() => { if (ready) saveKey("aiFallbackConfig", aiFallbackConfig); }, [aiFallbackConfig, ready]);
-  useEffect(() => { if (ready) saveKey("zinfSyncToken", zinfSyncToken); }, [zinfSyncToken, ready]);
+  useEffect(() => { if (ready && canPersist("dailyRecords")) persistKey("dailyRecords", dailyRecords); }, [dailyRecords, ready]);
+  useEffect(() => { if (ready && canPersist("holdings")) persistKey("holdings", holdings); }, [holdings, ready]);
+  // 持股讀取損壞時，舊版 usHoldings 還沒成功遷移進 holdings，不可清空。
+  useEffect(() => { if (ready && canPersist("holdings")) persistKey("usHoldings", []); }, [ready]);
+  useEffect(() => { if (ready && canPersist("trades")) persistKey("trades", trades); }, [trades, ready]);
+  useEffect(() => { if (ready && canPersist("dividends")) persistKey("dividends", dividends); }, [dividends, ready]);
+  useEffect(() => { if (ready) persistKey("planItems", planItems); }, [planItems, ready]);
+  useEffect(() => { if (ready) persistKey("goal", goal); }, [goal, ready]);
+  useEffect(() => { if (ready) persistKey("planSchedule", planSchedule); }, [planSchedule, ready]);
+  useEffect(() => { if (ready) persistKey("costBasis", costBasis); }, [costBasis, ready]);
+  useEffect(() => { if (ready) persistKey("aiFallbackConfig", aiFallbackConfig); }, [aiFallbackConfig, ready]);
+  useEffect(() => { if (ready) persistKey("zinfSyncToken", zinfSyncToken); }, [zinfSyncToken, ready]);
   // 標題列小白貓（za-catphoto.js）要讀 /api/spider 的 mood：給它一個「問目前同步 token」的函式（不把 token 存成全域值），
   // 讀到 token 後再發一次事件通知。小貓只把 token 放在 Authorization header。
   const zinfSyncTokenRef = useRef(""); zinfSyncTokenRef.current = zinfSyncToken;
@@ -2023,9 +2136,9 @@ function AssetTracker() {
     window.zaGetSyncToken = () => zinfSyncTokenRef.current || "";
     window.dispatchEvent(new Event("za-sync-token"));
   }, [ready, zinfSyncToken]);
-  useEffect(() => { if (ready) saveKey("showUsFields", showUsFields); }, [showUsFields, ready]);
-  useEffect(() => { if (ready) saveKey("advancedMode", advancedMode); }, [advancedMode, ready]);
-  useEffect(() => { if (ready) saveKey("usBrokerCalibration", usBrokerCalibration); }, [usBrokerCalibration, ready]);
+  useEffect(() => { if (ready) persistKey("showUsFields", showUsFields); }, [showUsFields, ready]);
+  useEffect(() => { if (ready) persistKey("advancedMode", advancedMode); }, [advancedMode, ready]);
+  useEffect(() => { if (ready) persistKey("usBrokerCalibration", usBrokerCalibration); }, [usBrokerCalibration, ready]);
 
   // Owner UI 判定只送現有同步 token 給 Worker 比對；伺服器只回 true/false。
   // 一般使用者即使檢視前端原始碼，也拿不到 Owner Secret。
@@ -2076,6 +2189,8 @@ function AssetTracker() {
       schemaVersion: BACKUP_SCHEMA_VERSION,
       exportedAt,
       data: { dailyRecords, holdings, trades, dividends, planItems, goal, planSchedule, costBasis, usBrokerCalibration, advancedMode },
+      // 讀檔損壞時一併附上原始字串（還原不會讀這欄），方便工程師救回；正常情況不會有這欄。
+      ...(corruptLoads.some((c) => typeof c.raw === "string") ? { corruptStorage: corruptLoads.filter((c) => typeof c.raw === "string").map(({ key, backupKey, raw }) => ({ key, backupKey, raw })) } : {}),
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -2087,7 +2202,7 @@ function AssetTracker() {
     a.remove();
     URL.revokeObjectURL(url);
     setLastBackupAt(exportedAt);
-    saveKey("lastBackupAt", exportedAt);
+    persistKey("lastBackupAt", exportedAt);
   };
 
   const exportExcel = async () => {
@@ -2202,6 +2317,85 @@ function AssetTracker() {
     XLSX.writeFile(wb, `存股資產追蹤_${todayStr()}.xlsx`);
   };
 
+  // <corrupt-restore>
+  // 損壞保護下的「JSON還原」：明確使用者動作，可覆寫受保護的 key，但前提是它的原始字串已成功另存到 _corrupt_ key。
+  // 不經過 React state／自動存檔 effect，直接依序 await saveKeyForRestore 並檢查每筆結果；保護不解除、不觸發雲端上傳。
+  // 開始寫入前先擋住本次執行的所有自動存檔（restoringRef）並等已送出的寫入結束；成功或失敗都不再解除。
+  const restoreBackupOverCorrupt = async (payload, check) => {
+    const data = check.data;
+    const RESTORE_LABELS = {
+      usHoldings: ["舊版美股持股", "Legacy US holdings"], planItems: ["計畫", "Plan items"], goal: ["目標", "Goal"],
+      planSchedule: ["計畫時程", "Plan schedule"], advancedMode: ["進階模式", "Advanced mode"], costBasis: ["成本", "Cost basis"],
+      usBrokerCalibration: ["美股券商校正", "US broker calibration"], lastBackupAt: ["備份時間", "Last backup time"],
+    };
+    const labelOf = (key) => {
+      const l = CORRUPT_LOAD_LABELS[key] || RESTORE_LABELS[key];
+      return (UI_SHOW_ENGLISH ? l?.[1] : l?.[0]) || key;
+    };
+    const loads = new Map(corruptLoads.map((c) => [c.key, c]));
+    const unsafe = [...corruptKeysRef.current].filter((key) => {
+      const backupKey = loads.get(key)?.backupKey;
+      if (!backupKey) return true;
+      try { return window.localStorage?.getItem(backupKey) == null; } catch { return true; }
+    });
+    if (unsafe.length) {
+      const names = unsafe.map(labelOf).join(UI_SHOW_ENGLISH ? " / " : "／");
+      window.alert(UI_SHOW_ENGLISH
+        ? `The original ${names} data couldn't be kept as a separate copy, so nothing was restored to avoid overwriting it. Please contact the engineer.`
+        : `「${names}」的原始資料另存失敗，為了不蓋掉它，這次沒有還原任何資料。請聯絡工程師。`);
+      return false;
+    }
+    const defaultPs = defaultPlanSchedule();
+    const importedPs = data.planSchedule || {};
+    const writes = [
+      ["dailyRecords", data.dailyRecords],
+      ["holdings", mergeLegacyUsHoldings(data.holdings || [], data.usHoldings || [], data.trades || [])],
+      // 持股已寫入成功才清舊版 usHoldings（與正常載入後的清理一致；依序執行，holdings 失敗就不會走到這裡）。
+      ["usHoldings", []],
+      ["trades", data.trades],
+      ["dividends", data.dividends],
+      ["planItems", data.planItems],
+      ["goal", data.goal],
+      ["planSchedule", {
+        ...defaultPs,
+        ...importedPs,
+        initialPrincipal: Number(importedPs.initialPrincipal ?? importedPs.initialCapital ?? defaultPs.initialPrincipal),
+        initialAssets: Number(importedPs.initialAssets ?? importedPs.initialCapital ?? defaultPs.initialAssets),
+      }],
+      ["advancedMode", advancedMode || data.advancedMode === true || detectAdvancedUse({ goal: data.goal, planItems: data.planItems, planSchedule: importedPs })],
+    ];
+    if (check.schemaVersion >= 2 && isObject(data.costBasis)) writes.push(["costBasis", data.costBasis]);
+    if (isObject(data.usBrokerCalibration)) {
+      writes.push(["usBrokerCalibration", {
+        enabled: data.usBrokerCalibration.enabled === true,
+        factor: Number(data.usBrokerCalibration.factor || 1),
+        brokerValue: Number.isFinite(Number(data.usBrokerCalibration.brokerValue)) ? Number(data.usBrokerCalibration.brokerValue) : null,
+        rawValue: Number.isFinite(Number(data.usBrokerCalibration.rawValue)) ? Number(data.usBrokerCalibration.rawValue) : null,
+        calibratedAt: typeof data.usBrokerCalibration.calibratedAt === "string" ? data.usBrokerCalibration.calibratedAt : null,
+        activeKey: typeof data.usBrokerCalibration.activeKey === "string" ? data.usBrokerCalibration.activeKey : "",
+      }]);
+    }
+    if (typeof payload.exportedAt === "string" && Number.isFinite(Date.parse(payload.exportedAt))) writes.push(["lastBackupAt", payload.exportedAt]);
+    // 從這裡起本次執行不再自動存檔（含非受保護的 key），並等已送出的舊寫入結束，之後才直接寫入。
+    restoringRef.current = true;
+    await waitForPendingAutoSaves(pendingAutoSavesRef.current);
+    for (const [key, value] of writes) {
+      let res = { ok: false, failed: ["error"] };
+      try { res = await saveKeyForRestore(key, value); } catch (e) { console.warn("restore write failed", key, e); }
+      if (!res.ok) {
+        const where = res.failed.map((f) => (f === "storage" ? (UI_SHOW_ENGLISH ? "app storage" : "App 儲存區") : f === "localStorage" ? (UI_SHOW_ENGLISH ? "browser storage" : "瀏覽器本機儲存") : (UI_SHOW_ENGLISH ? "unknown error" : "未知錯誤"))).join(UI_SHOW_ENGLISH ? " / " : "／");
+        window.alert(UI_SHOW_ENGLISH
+          ? `Restore failed while saving ${labelOf(key)} (${where}; the device storage may be full). The app was not reloaded; auto-save and cloud sync upload are paused for this session. Some data may already have been written. Please refresh the page or contact the engineer.`
+          : `還原寫入「${labelOf(key)}」時失敗（${where}，可能是手機儲存空間不足），沒有重新載入；這次開啟期間自動存檔與雲端同步上傳都已暫停，部分資料可能已寫入。請重新整理頁面，或聯絡工程師。`);
+        return false;
+      }
+    }
+    window.alert(UI_SHOW_ENGLISH ? "Backup restored and saved to this device. Reloading now." : "備份已還原並存回本機，即將重新載入");
+    window.location.reload();
+    return true;
+  };
+  // </corrupt-restore>
+
   const importBackup = async (file) => {
     if (!file) return;
     try {
@@ -2217,8 +2411,21 @@ function AssetTracker() {
         const shown = check.warnings.map((x) => `• ${x}`).join("\n");
         if (!window.confirm(UI_SHOW_ENGLISH ? `Backup can be imported, but with warnings:\n\n${shown}\n\nContinue anyway?` : `備份檔可匯入，但有提醒：\n\n${shown}\n\n仍要繼續嗎？`)) return;
       }
+      if (Array.isArray(payload.corruptStorage) && payload.corruptStorage.length) {
+        const zh = payload.corruptStorage.map((c) => CORRUPT_LOAD_LABELS[c?.key]?.[0] || String(c?.key || "")).filter(Boolean).join("／");
+        const en = payload.corruptStorage.map((c) => CORRUPT_LOAD_LABELS[c?.key]?.[1] || String(c?.key || "")).filter(Boolean).join(" / ");
+        window.alert(UI_SHOW_ENGLISH
+          ? `This backup contains raw data that couldn't be read (${en}). Restoring will not recover that part automatically — please contact the engineer.`
+          : `這份備份含讀取失敗的原始資料（${zh}），還原不會自動救回該項，請聯絡工程師。`);
+      }
       if (!window.confirm(uiText("匯入會以備份內容取代目前 App 內的資料，確定要繼續嗎？"))) return;
       const data = check.data;
+      // 本機處於讀檔損壞保護：保護本次執行永不解除（自動存檔與雲端上傳閘門一直有效）。
+      // 由這裡依序直接寫入還原資料，全部成功才重新載入；重新載入、資料正常讀取後雲端上傳才自然恢復。
+      if (corruptKeysRef.current.size > 0) {
+        await restoreBackupOverCorrupt(payload, check);
+        return;
+      }
       setDailyRecords(data.dailyRecords);
       setHoldings(mergeLegacyUsHoldings(data.holdings || [], data.usHoldings || [], data.trades || []));
       setTrades(data.trades);
@@ -2760,6 +2967,16 @@ function AssetTracker() {
 
   const runZinfSync = async ({ rebuild = true, force = false } = {}) => {
     if (!ready || !zinfSyncToken || zinfSyncInFlightRef.current) return false;
+    // 安全閘：啟動、資料變動、重連、回前景、定時、重試都經過這裡。有讀取損壞的 key 就不上傳；
+    // 保護本次執行永不解除（JSON還原也不解除），重新載入、資料正常讀取後才會恢復上傳。
+    if (zinfUploadPausedByCorrupt(corruptKeysRef.current)) {
+      zinfSyncPendingRef.current = true;
+      zinfSyncPayloadRef.current = null;
+      if (zinfSyncRetryTimerRef.current) clearTimeout(zinfSyncRetryTimerRef.current);
+      zinfSyncRetryTimerRef.current = null;
+      setZinfSyncStatus(ZINF_CORRUPT_PAUSE_STATUS);
+      return false;
+    }
     zinfSyncInFlightRef.current = true;
     try {
       if (rebuild || !zinfSyncPayloadRef.current) zinfSyncPayloadRef.current = await buildZinfSyncPayload();
@@ -3005,6 +3222,7 @@ function AssetTracker() {
 
       <div ref={headerRef}>
         <Header goal={goal} totalToday={totalToday} goalDate={goalDate} backupOverdue={showBackupBanner} backupAgeDays={backupAgeDays} showEnglish={showEnglish} onToggleBilingual={toggleBilingual} onOpenBackup={openBackup} />
+        <CorruptLoadBanner items={corruptLoads} onOpenBackup={openBackup} syncPaused={!!zinfSyncToken} />
         <ClosingReminderBanner />
         <MissedDaysBanner days={missedHiddenDay === todayStr() ? [] : missedDays} busy={missedBusy} msg={missedMsg} onFill={fillMissedDays} onLater={hideMissedToday} />
         {pendingTrades.length > 0 && (
@@ -3039,7 +3257,8 @@ function AssetTracker() {
                     onFillDailyTw={(value) => { setDailyPrefill({ twValue: value, ...(usAssetLive.totalNtd != null ? { usValue: usAssetLive.totalNtd } : {}) }); goToTab("daily"); }}
                     onFillDailyUs={(value) => { setDailyPrefill({ usValue: value }); goToTab("daily"); }}
                     onGoDaily={() => goToTab("daily")}
-                    firstRun={firstRun}
+                    // 讀檔損壞時不是新使用者，不顯示首次引導（避免在不會存檔的狀態下新增資料）。
+                    firstRun={firstRun && corruptLoads.length === 0}
                     zinfSyncToken={zinfSyncToken}
                     onAddHolding={() => {
                       setHoldingsMarket("tw"); goToTab("holdings");
@@ -9078,7 +9297,7 @@ function PlanPanel({ advanced = false, setAdvancedMode, planItems, setPlanItems,
             ? "Optional: add a private Z∞ sync token to sync holdings, trades, dividends, daily asset records, plan and radar snapshots. Leave blank to disable syncing."
             : "選填：填入 Z∞ 私人同步 token，App 會同步持股、交易、配息、每日資產、計畫與雷達快照供中控查詢。留空便不會傳送資料。同步失敗會顯示在下方。"}
         </div>
-        {zinfSyncStatus && <div className="mt-2 text-[11px]" style={{ color: zinfSyncStatus.startsWith("同步失敗") ? "#b45309" : COLORS.sub }}>{zinfSyncStatus}</div>}
+        {zinfSyncStatus && <div className="mt-2 text-[11px]" style={{ color: zinfSyncStatus.startsWith("同步失敗") || zinfSyncStatus.startsWith("同步暫停") ? "#b45309" : COLORS.sub }}>{zinfSyncStatus}</div>}
         <div className="mt-3 flex gap-2">
           <input type="password" value={zinfSyncToken} onChange={(e) => setZinfSyncToken(e.target.value.trim())}
             placeholder={M("Paste or generate a token", "貼上或產生一組 token")}
@@ -9479,6 +9698,45 @@ function PushReminderPanel() {
   );
 }
 // 漏記的交易日：按一下用收盤價補記（一天提醒一次）。
+// 本機紀錄讀取失敗（JSON 損壞／讀不到）：明顯但不擋操作的提示。原始資料已另存、這幾項暫停自動存檔。
+const CORRUPT_LOAD_LABELS = { holdings: ["持股", "Holdings"], trades: ["交易", "Trades"], dailyRecords: ["每日紀錄", "Daily Records"], dividends: ["配息", "Dividends"] };
+function CorruptLoadBanner({ items, onOpenBackup, syncPaused = false }) {
+  if (!items || !items.length) return null;
+  const zh = items.map((c) => CORRUPT_LOAD_LABELS[c.key]?.[0] || c.key).join("／");
+  const en = items.map((c) => CORRUPT_LOAD_LABELS[c.key]?.[1] || c.key).join(" / ");
+  const backups = items.filter((c) => c.backupKey).map((c) => c.backupKey);
+  const failed = items.some((c) => !c.backupKey && typeof c.raw === "string");
+  return (
+    <div className="mx-4 mb-3 rounded-xl p-3" role="alert" data-corrupt-load-banner
+      style={{ background: COLORS.panel, border: "1px solid var(--c-warn, #9c6c00)", overflowWrap: "anywhere" }}>
+      <div className="forma-note-title text-[11px] font-bold" style={{ color: "var(--c-warn, #9c6c00)" }}>
+        {UI_SHOW_ENGLISH ? `⚠️ Couldn't read local ${en}` : `⚠️ 本機的${zh}紀錄讀取失敗`}
+      </div>
+      <div className="forma-note mt-1 text-[11px] leading-5" style={{ color: COLORS.text }}>
+        {UI_SHOW_ENGLISH
+          ? `The original data has been kept and auto-save is paused for ${en}. Please go to Settings and tap "JSON Backup" first, or contact the engineer. Changes made this time may not be kept after reopening.`
+          : `本機的${zh}紀錄讀取失敗，已保留原始資料、暫停自動存檔；請先到設定按「JSON備份」，或聯絡工程師。這次的修改重開後可能不會保留。`}
+      </div>
+      {syncPaused && (
+        <div className="forma-note mt-1 text-[11px] leading-5" style={{ color: COLORS.text }} data-corrupt-sync-paused>
+          {UI_SHOW_ENGLISH
+            ? "Local records couldn't be read, so cloud sync upload is paused to avoid overwriting your cloud data."
+            : "本機紀錄讀取異常，已暫停雲端同步上傳，避免蓋掉雲端資料。"}
+        </div>
+      )}
+      {(backups.length > 0 || failed) && (
+        <div className="mt-1 text-[11px] leading-5" style={{ color: COLORS.sub }}>
+          {backups.length > 0 && <>{UI_SHOW_ENGLISH ? "Original copy: " : "原始資料另存於："}<span className="mono">{backups.join("、")}</span></>}
+          {failed && <>{backups.length > 0 ? " " : ""}{UI_SHOW_ENGLISH ? "(Some copies couldn't be saved; the original entries were left untouched.)" : "（部分另存失敗，原本的資料沒有被覆寫。）"}</>}
+        </div>
+      )}
+      <button type="button" onClick={onOpenBackup} className="forma-tap mt-2 w-full rounded-lg py-1.5 text-[11px] font-bold"
+        style={{ background: COLORS.gold, color: COLORS.bg }}>
+        {UI_SHOW_ENGLISH ? "Go to JSON Backup" : "前往設定按「JSON備份」"}
+      </button>
+    </div>
+  );
+}
 function MissedDaysBanner({ days, busy, msg, onFill, onLater }) {
   if (!days.length && !msg) return null;
   const label = (d) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
