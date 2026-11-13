@@ -13,7 +13,7 @@ test('US broker calibration stores a factor tied to the current symbol/share com
   assert.match(html, /brokerValue \/ rawValue/);
   assert.match(html, /setUsBrokerCalibration/);
   assert.match(html, /loadKey\("usBrokerCalibration", null\)/);
-  assert.match(html, /saveKey\("usBrokerCalibration", usBrokerCalibration\)/);
+  assert.match(html, /(?:saveKey|persistKey)\("usBrokerCalibration", usBrokerCalibration\)/);
 });
 
 test('calibrated US market value feeds the asset live object used by dashboard and Daily record', () => {

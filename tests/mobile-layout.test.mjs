@@ -114,7 +114,7 @@ test("提醒列優先順序：補記缺漏 › 允許收盤通知 › 備份；�
 
 test("提醒列接線：手機一條列＋面板（既有行動都在），桌面仍是原本三張橫幅；稍後／不用了沿用同一組記憶", () => {
   const app = fn("AssetTracker");
-  assert.match(app, /\{isMobile && !\(firstRun && tab === "dashboard"\) && <MobileAlerts missed=\{missedAlert\} backup=\{backupAlert\} status=\{missedMsg\} \/>\}/);
+  assert.match(app, /\{isMobile && !\(firstRun && corruptLoads\.length === 0 && tab === "dashboard"\) && <MobileAlerts missed=\{missedAlert\} backup=\{backupAlert\} status=\{missedMsg\} \/>\}/);
   assert.match(app, /\{!isMobile && <ClosingReminderBanner \/>\}/);
   assert.match(app, /\{!isMobile && <MissedDaysBanner /);
   assert.match(app, /<Header [^>]*backupOverdue=\{showBackupBanner\} hideBackupBanner=\{isMobile\}/);
@@ -146,7 +146,7 @@ test("提醒列接線：手機一條列＋面板（既有行動都在），桌�
 
 test("首次使用：收盤提醒是歡迎卡下方的安靜虛線列，不放在頂端搶第一眼", () => {
   const app = fn("AssetTracker");
-  assert.match(app, /firstRunAlert=\{isMobile && firstRun \? <MobileAlerts quiet missed=\{missedAlert\} backup=\{backupAlert\} status=\{missedMsg\} \/> : null\}/);
+  assert.match(app, /firstRunAlert=\{isMobile && firstRun && corruptLoads\.length === 0 \? <MobileAlerts quiet missed=\{missedAlert\} backup=\{backupAlert\} status=\{missedMsg\} \/> : null\}/);
   const dash = fn("Dashboard");
   const guide = dash.indexOf("<FirstRunGuide ");
   const hero = dash.indexOf("premium-asset-hero");
@@ -244,7 +244,8 @@ test("Codex 第一輪：提醒面板導覽型動作會關面板、模態焦點�
   assert.match(strip, /!e\.shiftKey && \(cur === last \|\| !inside\)\) \{ e\.preventDefault\(\); first\.focus\(\); \}/);
   assert.ok(strip.indexOf("el.inert = false") < strip.indexOf("(openerRef.current || prevFocus)?.focus"), "先解除 inert 再把焦點還給打開按鈕");
   // 3. 首次使用：只有總覽改放安靜列，其他分頁照常顯示頂端提醒列
-  assert.match(app, /isMobile && !\(firstRun && tab === "dashboard"\) && <MobileAlerts /);
+  // 合併 #87 後：讀檔損壞時不當成首次使用，頂端提醒列不可被藏起來
+  assert.match(app, /isMobile && !\(firstRun && corruptLoads\.length === 0 && tab === "dashboard"\) && <MobileAlerts /);
   assert.doesNotMatch(app, /isMobile && !firstRun && <MobileAlerts /);
 });
 
