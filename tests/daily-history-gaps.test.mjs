@@ -6,6 +6,18 @@ import { findDailyGaps, onRequestGet } from '../functions/daily-history.js';
 globalThis.caches = { default: { match: async () => null, put: async () => {} } };
 const bar = (day, c) => ({ day, open: c, high: c, low: c, close: c });
 
+// onRequestGet 用 taiwanDateStr()（真實時鐘）當 today；固定成台北 2026-10-14，讓 10/13 永遠在 30 天視窗內。
+const FIXED_NOW = Date.parse('2026-10-14T00:00:00.000Z');
+async function withFixedNow(fn) {
+  const RealDate = globalThis.Date;
+  class FixedDate extends RealDate {
+    constructor(...args) { if (args.length === 0) super(FIXED_NOW); else super(...args); }
+    static now() { return FIXED_NOW; }
+  }
+  globalThis.Date = FixedDate;
+  try { return await fn(); } finally { globalThis.Date = RealDate; }
+}
+
 test('findDailyGaps: a day other symbols traded but this one is missing (recent, completed days only)', () => {
   const bars = {
     TAIEX: [bar('2026-10-08', 1), bar('2026-10-12', 1), bar('2026-10-13', 1), bar('2026-10-14', 1)],
@@ -31,7 +43,7 @@ test('/daily-history fills the missing day from the recorded intraday bars, mark
     recorded: { '0050': { lastMinute: '13:45' } }, asked: { symbols, date },
   });
   try {
-    const res = await onRequestGet({ request: new Request('https://x.test/daily-history?symbols=TAIEX,0050'), env: { health_kv: {} }, readIntradayBars: read });
+    const res = await withFixedNow(() => onRequestGet({ request: new Request('https://x.test/daily-history?symbols=TAIEX,0050'), env: { health_kv: {} }, readIntradayBars: read }));
     const body = await res.json();
     const b = body.bars['0050'].find((x) => x.day === '2026-10-13');
     assert.ok(b, 'gap filled');
@@ -50,7 +62,7 @@ test('/daily-history leaves a gap alone when the recorded day is incomplete (nev
   };
   const read = async () => ({ found: true, bars: { '0050': [{ time: '09:00', open: 1, high: 1, low: 1, close: 1 }] }, recorded: { '0050': { lastMinute: '11:00' } } });
   try {
-    const body = await (await onRequestGet({ request: new Request('https://x.test/daily-history?symbols=TAIEX,0050'), env: { health_kv: {} }, readIntradayBars: read })).json();
+    const body = await (await withFixedNow(() => onRequestGet({ request: new Request('https://x.test/daily-history?symbols=TAIEX,0050'), env: { health_kv: {} }, readIntradayBars: read }))).json();
     assert.ok(!body.bars['0050'].some((x) => x.day === '2026-10-13'));
     assert.equal(body.filled, undefined);
   } finally { globalThis.fetch = real; }
