@@ -62,5 +62,6 @@ test('去年同期是 0 時不顯示成長率；沒有配息紀錄就不顯示�
 });
 
 test('股息報表放在配息頁的歷史圖表上方', () => {
-  assert.match(src, /<DividendReport dividends=\{dividends\} holdings=\{holdings\} \/>\s*\n\s*<DividendHistoryChart/);
+  // 2026-11-12 手機版面：手機在報表與歷史圖之間插入配息紀錄（{mobile && recordsPanel}）；桌面報表後仍直接是歷史圖。
+  assert.match(src, /<DividendReport dividends=\{dividends\} holdings=\{holdings\} \/>\s*\n\s*\{mobile && recordsPanel\}\s*\n\s*<DividendHistoryChart/);
 });

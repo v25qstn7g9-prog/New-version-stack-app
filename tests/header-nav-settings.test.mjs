@@ -11,7 +11,7 @@ test("L9: tab is called 設定 and the page order is 備份 → 收盤提醒 →
   const start = jsx.indexOf("function PlanPanel(");
   const body = jsx.slice(start, jsx.indexOf("// ---------------- Progress Panel", start));
   const order = ['<Panel title="資料備份與還原">', "<PushReminderPanel />", '<Panel title="進階使用">', "data-system-group",
-    "{healthCards.length > 0 && (", '<Panel title="AI 雙層備援（自動）">', '{isOwner && <Panel title="系統管理">', '{isOwner && <Panel title="Z∞ 同步">', "data-app-version"]
+    "{healthCards.length > 0 && (", '<Panel title="AI 問答（Puter）">', '{isOwner && <Panel title="系統管理">', '{isOwner && <Panel title="Z∞ 同步">', "data-app-version"]
     .map((m) => { const i = body.indexOf(m); assert.ok(i >= 0, m); return i; });
   for (let i = 1; i < order.length; i++) assert.ok(order[i] > order[i - 1], `out of order at ${i}`);
   assert.match(body, /const \[systemOpen, setSystemOpen\] = useState\(false\);/);

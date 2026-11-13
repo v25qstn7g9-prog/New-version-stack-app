@@ -61,7 +61,7 @@ test('wiring: every goal surface is gated by the advanced flag', () => {
   assert.ok(html.includes('visibleTabsRef.current'), 'swipe uses visible tabs');
   assert.ok(html.includes('<TabBar tabs={visibleTabs}'), 'tab bar uses visible tabs');
   assert.ok(/!advanced && tab === "progress"\) setTab\("dashboard"\)/.test(html), 'leaving the progress tab when switched off');
-  assert.ok(html.includes('perf, advancedUse);'), 'AI context knows whether goals are on');
+  assert.ok(html.includes('includeGoal: advancedUse, goal, goalDate, perf,'), 'AI context knows whether goals are on');
 });
 
 test('wiring: restore never downgrades, AI goal edits switch it on, and it is saved/exported', () => {

@@ -125,8 +125,11 @@ test('valid stored data loads normally and is not flagged', async () => {
 test('app wires the guard into initial load, persistence and onboarding', () => {
   for (const key of ['holdings', 'trades', 'dailyRecords', 'dividends']) {
     assert.match(source, new RegExp(`loadKeyGuarded\\("${key}"`), `${key} must load through the guard`);
-    assert.match(source, new RegExp(`if \\(ready && canPersist\\("${key}"\\)\\) persistKey\\("${key}"`), `${key} persistence must skip corrupt keys`);
+    const call = key === 'holdings' ? 'persistHoldingsThenClearLegacyUs\\(persistKey, holdings' : `persistKey\\("${key}"`;
+    assert.match(source, new RegExp(`if \\(ready && canPersist\\("${key}"\\)\\) ${call}`), `${key} persistence must skip corrupt keys`);
   }
+  // 舊版 usHoldings 不可再用只依賴 [ready] 的獨立 effect 清空（要等持股寫入成功）。
+  assert.doesNotMatch(source, /persistKey\("usHoldings", \[\]\); \}, \[ready\]\)/);
   assert.doesNotMatch(source, /loadKey\("holdings", defaultHoldings\(\)\)/);
   assert.doesNotMatch(source, /loadKey\("trades", defaultTrades\(\)\)/);
   assert.match(source, /firstRun=\{firstRun && corruptLoads\.length === 0\}/);
@@ -190,31 +193,114 @@ test('runZinfSync: no corrupt keys uploads normally (payload untouched)', async 
   assert.equal(calls.fetch[0].init.body, JSON.stringify({ summary }));
 });
 
-function runPersist(corruptKeys) {
+// 使用者紀錄四個 key 的持久化 effect（持股那行改成「持股存成功並讀回確認後才清 usHoldings」）。
+const RECORD_PERSIST_RE = /persistKey\("(dailyRecords|holdings|usHoldings|trades|dividends)"|persistHoldingsThenClearLegacyUs\(persistKey/;
+const recordPersistLines = persistEffects.split('\n').filter((l) => RECORD_PERSIST_RE.test(l)).join('\n');
+
+// 用真正的 src/app.jsx 片段（guard 內的 persistHoldingsThenClearLegacyUs／storedValueMatches ＋ saveKey ＋ effect 行）
+// 跑一次持久化 effect；persistKey 直接用 saveKey（不經排隊），只為了看寫入順序與結果。
+async function runPersist(corruptKeys, { window = { localStorage: memoryStorage() } } = {}) {
   const writes = [];
   const ctx = {
+    window, console: { warn() {}, error() {} }, CustomEvent: class {}, JSON, Promise, String,
     ready: true, useEffect: (fn) => fn(),
     corruptKeysRef: { current: new Set(corruptKeys) },
-    persistKey: (k, v) => writes.push(k),
-    dailyRecords: [], holdings: [], trades: [], dividends: [], planItems: [], goal: {}, planSchedule: {},
+    legacyUsMigrationRef: { current: { done: false } },
+    dailyRecords: [], holdings: [{ symbol: 'AAPL' }], trades: [], dividends: [], planItems: [], goal: {}, planSchedule: {},
   };
   ctx.canPersist = (key) => !ctx.corruptKeysRef.current.has(key);
-  const lines = persistEffects.split('\n').filter((l) => /persistKey\("(dailyRecords|holdings|usHoldings|trades|dividends)"/.test(l));
-  vm.runInNewContext(lines.join('\n'), ctx);
-  return writes;
+  vm.runInNewContext(`${guard}\n${saveFn}\nthis.saveKey = saveKey;`, ctx);
+  ctx.persistKey = async (k, v) => { writes.push(k); return ctx.saveKey(k, v); };
+  vm.runInContext(recordPersistLines, ctx);
+  for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
+  return { writes, ctx };
 }
 
-test('persist effects: corrupt holdings keeps legacy usHoldings (not cleared) and skips holdings', () => {
-  const writes = runPersist(['holdings']);
+test('persist effects: corrupt holdings keeps legacy usHoldings (not cleared) and skips holdings', async () => {
+  const { writes } = await runPersist(['holdings']);
   assert.ok(!writes.includes('usHoldings'), 'usHoldings must not be cleared while holdings is protected');
   assert.ok(!writes.includes('holdings'));
   assert.ok(writes.includes('trades') && writes.includes('dividends') && writes.includes('dailyRecords'));
 });
 
-test('persist effects: healthy load still migrates (clears) legacy usHoldings', () => {
-  const writes = runPersist([]);
+test('persist effects: healthy load still migrates (clears) legacy usHoldings, only after holdings', async () => {
+  const { writes } = await runPersist([]);
   assert.deepEqual([...writes].sort(), ['dailyRecords', 'dividends', 'holdings', 'trades', 'usHoldings']);
-  assert.ok(runPersist(['dividends']).includes('usHoldings'), 'only holdings protection blocks the usHoldings cleanup');
+  assert.ok(writes.indexOf('holdings') < writes.indexOf('usHoldings'), 'usHoldings is cleared only after holdings was written');
+  assert.ok((await runPersist(['dividends'])).writes.includes('usHoldings'), 'only holdings protection blocks the usHoldings cleanup');
+});
+
+// ---- 高 1：清空舊版 usHoldings 必須等「重新載入會讀到的管道」都寫好遷移後的持股 ----
+const LEGACY = '[{"symbol":"AAPL","shares":3}]';
+const MIGRATED = [{ symbol: 'AAPL', initialShares: 3 }];
+function migrationEnv({ withAppStore = true, appFail = [], lsFail = [] } = {}) {
+  const ls = memoryStorage({ holdings: '[]', usHoldings: LEGACY });
+  const realSet = ls.setItem.bind(ls);
+  ls.setItem = (k, v) => { if (lsFail.includes(k)) { const e = new Error('QuotaExceededError'); e.name = 'QuotaExceededError'; throw e; } realSet(k, v); };
+  const appStore = withAppStore ? appStorage({ holdings: '[]', usHoldings: LEGACY }, { failSetKeys: appFail }) : null;
+  const window = { localStorage: ls, dispatchEvent() {}, ...(appStore ? { storage: appStore } : {}) };
+  const ctx = { window, console: { warn() {}, error() {} }, CustomEvent: class {}, JSON, Promise, String };
+  const env = vm.runInNewContext(`${guard}\n${saveFn}\n({ saveKey, persistHoldingsThenClearLegacyUs, loadKeyGuarded })`, ctx);
+  const writes = [];
+  const persist = async (k, v) => { writes.push(k); return env.saveKey(k, v); };
+  return { ls, appStore, env, writes, persist };
+}
+
+test('legacy migration: holdings write fails on both storages → usHoldings is kept', async () => {
+  const m = migrationEnv({ appFail: ['holdings'], lsFail: ['holdings'] });
+  const state = { done: false };
+  assert.equal(await m.env.persistHoldingsThenClearLegacyUs(m.persist, MIGRATED, state), false);
+  assert.deepEqual(m.writes, ['holdings'], 'usHoldings write is never sent');
+  assert.equal(m.appStore.map.get('usHoldings'), LEGACY);
+  assert.equal(m.ls.getItem('usHoldings'), LEGACY);
+  assert.equal(state.done, false);
+  // 只有 localStorage 的環境，寫入失敗也一樣保留
+  const solo = migrationEnv({ withAppStore: false, lsFail: ['holdings'] });
+  assert.equal(await solo.env.persistHoldingsThenClearLegacyUs(solo.persist, MIGRATED, { done: false }), false);
+  assert.equal(solo.ls.getItem('usHoldings'), LEGACY);
+});
+
+test('legacy migration: window.storage holdings fails, localStorage succeeds → usHoldings is kept (reload reads window.storage first)', async () => {
+  const m = migrationEnv({ appFail: ['holdings'] });
+  const state = { done: false };
+  assert.equal(await m.env.persistHoldingsThenClearLegacyUs(m.persist, MIGRATED, state), false);
+  assert.equal(m.ls.getItem('holdings'), JSON.stringify(MIGRATED), 'saveKey still reports success (#88 semantics unchanged)');
+  assert.equal(m.appStore.map.get('holdings'), '[]', 'window.storage still has the old holdings');
+  assert.deepEqual(m.writes, ['holdings']);
+  assert.equal(m.appStore.map.get('usHoldings'), LEGACY);
+  assert.equal(m.ls.getItem('usHoldings'), LEGACY);
+  // 重新載入：先讀 window.storage 的舊持股，舊版美股仍在 usHoldings，可再合併回來（沒有遺失）
+  assert.equal((await m.env.loadKeyGuarded('holdings', [])).value.length, 0);
+  // 反過來（window.storage 成功、localStorage 失敗）也保留，兩個管道都對才清
+  const m2 = migrationEnv({ lsFail: ['holdings'] });
+  assert.equal(await m2.env.persistHoldingsThenClearLegacyUs(m2.persist, MIGRATED, { done: false }), false);
+  assert.equal(m2.appStore.map.get('usHoldings'), LEGACY);
+});
+
+test('legacy migration: both storages hold the migrated holdings → usHoldings is cleared once', async () => {
+  const m = migrationEnv();
+  const state = { done: false };
+  assert.equal(await m.env.persistHoldingsThenClearLegacyUs(m.persist, MIGRATED, state), true);
+  assert.deepEqual(m.writes, ['holdings', 'usHoldings']);
+  assert.equal(m.appStore.map.get('holdings'), JSON.stringify(MIGRATED));
+  assert.equal(m.ls.getItem('holdings'), JSON.stringify(MIGRATED));
+  assert.equal(m.appStore.map.get('usHoldings'), '[]');
+  assert.equal(m.ls.getItem('usHoldings'), '[]');
+  assert.equal(state.done, true);
+  // 之後的持股更新不再重複清
+  await m.env.persistHoldingsThenClearLegacyUs(m.persist, [...MIGRATED, { symbol: '0050' }], state);
+  assert.deepEqual(m.writes, ['holdings', 'usHoldings', 'holdings']);
+});
+
+test('legacy migration: first holdings save fails, a later successful one clears usHoldings', async () => {
+  const m = migrationEnv({ appFail: ['holdings'] });
+  const state = { done: false };
+  await m.env.persistHoldingsThenClearLegacyUs(m.persist, MIGRATED, state);
+  assert.equal(m.appStore.map.get('usHoldings'), LEGACY);
+  m.appStore.failSetKeys.length = 0; // 空間恢復
+  assert.equal(await m.env.persistHoldingsThenClearLegacyUs(m.persist, MIGRATED, state), true);
+  assert.equal(m.appStore.map.get('usHoldings'), '[]');
+  assert.equal(state.done, true);
 });
 
 test('empty string in localStorage is protected, not treated as a new user', async () => {
@@ -244,7 +330,7 @@ function appStorage(initial = {}, { failSetKeys = [] } = {}) {
   const gates = new Map();
   const log = [];
   return {
-    map, log,
+    map, log, failSetKeys,
     gate(key) { let release; const p = new Promise((r) => { release = r; }); gates.set(key, p); return () => { gates.delete(key); release(); }; },
     get: async (k) => (map.has(k) ? { value: map.get(k) } : null),
     async set(k, v) {
@@ -333,7 +419,10 @@ test('corrupt restore: no upload in the same run, including stale online / visib
   const persistWrites = [];
   const pctx = { ready: true, useEffect: (fn) => fn(), corruptKeysRef: h.ctx.corruptKeysRef, persistKey: (k) => persistWrites.push(k), dailyRecords: [], holdings: [], trades: [], dividends: [] };
   pctx.canPersist = (key) => !pctx.corruptKeysRef.current.has(key);
-  vm.runInNewContext(persistEffects.split('\n').filter((l) => /persistKey\("(dailyRecords|holdings|usHoldings|trades|dividends)"/.test(l)).join('\n'), pctx);
+  pctx.persistKey = (k) => { persistWrites.push(k); return Promise.resolve(true); };
+  pctx.persistHoldingsThenClearLegacyUs = (persist, v) => persist('holdings', v);
+  pctx.legacyUsMigrationRef = { current: { done: false } };
+  vm.runInNewContext(recordPersistLines, pctx);
   assert.ok(!persistWrites.includes('dividends'));
   assert.equal(h.ls.getItem('dividends'), '[{"id":1}]');
 });
@@ -518,4 +607,126 @@ test('importBackup without corruption does not engage the restore lock', async (
   const h = importHarness({ payload: { schemaVersion: 2, data: sampleData } });
   await h.run();
   assert.equal(h.ctx.restoringRef.current, false);
+});
+
+// ---- Codex 第 2 輪 高：舊版 usHoldings 讀取失敗（window.storage.get 拋錯）不可當成空陣列，之後也不可被清空 ----
+// 用真正的 src/app.jsx 函式跑「初始載入 → 合併 → 持股自動存檔 → 清 usHoldings」整段流程。
+const mergeSrc = [
+  source.match(/const uid = \(\) => [^\n]*\n/)[0],
+  source.match(/const normalizeStockSymbol = [^\n]*\n/)[0],
+  source.match(/const isStockSymbol = [^\n]*\n/)[0],
+  source.match(/function holdingShareCount\([\s\S]*?\n\}\n/)[0],
+  source.match(/function mergeLegacyUsHoldings\([\s\S]*?\n\}\n/)[0],
+].join('');
+const LEGACY_US = '[{"id":"u1","symbol":"AAPL","name":"Apple","shares":3}]';
+
+function legacyFlowEnv({ app = {}, local = {}, throwGet = [], throwLocalGet = [] } = {}) {
+  const ls = memoryStorage(local);
+  const realGet = ls.getItem;
+  ls.getItem = (k) => { if (throwLocalGet.includes(k)) throw new Error('localStorage read failed'); return realGet(k); };
+  const appStore = appStorage(app);
+  const realAppGet = appStore.get;
+  appStore.get = async (k) => { if (throwGet.includes(k)) throw new Error('storage get failed'); return realAppGet(k); };
+  const window = { localStorage: ls, storage: appStore, dispatchEvent() {} };
+  const ctx = { window, console: { warn() {}, error() {} }, CustomEvent: class {}, JSON, Promise, String, Math, Number };
+  const env = vm.runInNewContext(`${guard}\n${saveFn}\n${mergeSrc}\n({ saveKey, loadKeyGuarded, loadLegacyUsHoldings, persistHoldingsThenClearLegacyUs, mergeLegacyUsHoldings })`, ctx);
+  return { ls, appStore, env };
+}
+
+// 與 src/app.jsx 初始載入同邏輯：blocked = 舊版 usHoldings 讀取不可靠；corrupt 清單含 usHoldings 才會顯示保護提示。
+async function bootLegacyFlow(m) {
+  const hRes = await m.env.loadKeyGuarded('holdings', [], NOW);
+  const tRes = await m.env.loadKeyGuarded('trades', [], NOW);
+  const uhRes = await m.env.loadLegacyUsHoldings(NOW);
+  const state = { done: false, blocked: uhRes.corrupt === true };
+  const corrupt = [hRes, uhRes, tRes].filter((r) => r.corrupt).map((r) => r.key);
+  const holdings = m.env.mergeLegacyUsHoldings(hRes.value, uhRes.value, tRes.value);
+  const writes = [];
+  const persist = async (k, v) => { writes.push(k); return m.env.saveKey(k, v); };
+  let cleared = null;
+  if (!corrupt.includes('holdings')) cleared = await m.env.persistHoldingsThenClearLegacyUs(persist, holdings, state);
+  return { uhRes, state, corrupt, holdings, writes, cleared };
+}
+
+test('app wires legacy usHoldings through the guarded loader and blocks the cleanup when it is unreliable', () => {
+  assert.doesNotMatch(source, /loadKey\("usHoldings"/, 'usHoldings must not use loadKey (read errors would look like [])');
+  assert.match(source, /loadLegacyUsHoldings\(\),/);
+  assert.match(source, /legacyUsMigrationRef\.current\.blocked = uhRes\.corrupt === true;/);
+  assert.match(source, /const corrupt = \[drRes, hRes, uhRes, tRes, dvRes\]\.filter\(\(r\) => r\.corrupt\);/);
+  assert.match(source, /setHoldings\(mergeLegacyUsHoldings\(h, uhRes\.value, t\)\);/);
+  assert.match(source, /if \(saved !== true \|\| state\.done \|\| state\.blocked\) return false;/);
+  assert.match(source, /CORRUPT_LOAD_LABELS = \{[^}]*usHoldings: \["舊版美股持股", "Legacy US holdings"\]/);
+});
+
+test('legacy flow: window.storage.get throws for usHoldings → merges the localStorage copy, saves holdings, keeps usHoldings', async () => {
+  const m = legacyFlowEnv({ app: { holdings: '[]', usHoldings: LEGACY_US }, local: { holdings: '[]', usHoldings: LEGACY_US }, throwGet: ['usHoldings'] });
+  const r = await bootLegacyFlow(m);
+  assert.equal(r.uhRes.corrupt, true, 'read failure is not "no legacy data"');
+  assert.deepEqual(r.corrupt, ['usHoldings'], 'protection banner lists usHoldings');
+  assert.equal(r.state.blocked, true);
+  assert.deepEqual(r.holdings.map((h) => [h.symbol, h.initialShares]), [['AAPL', 3]], 'merge used the localStorage legacy holdings');
+  assert.deepEqual(r.writes, ['holdings'], 'usHoldings clear is never sent');
+  assert.equal(r.cleared, false);
+  assert.equal(JSON.parse(m.appStore.map.get('holdings'))[0].symbol, 'AAPL', 'holdings write succeeded');
+  assert.equal(JSON.parse(m.ls.getItem('holdings'))[0].symbol, 'AAPL');
+  assert.equal(m.appStore.map.get('usHoldings'), LEGACY_US, 'window.storage usHoldings kept');
+  assert.equal(m.ls.getItem('usHoldings'), LEGACY_US, 'localStorage usHoldings kept');
+  assert.equal(m.ls.getItem(r.uhRes.backupKey), LEGACY_US, 'raw copy also kept as usHoldings_corrupt_*');
+  // 之後持股再變動也不清
+  assert.equal(await m.env.persistHoldingsThenClearLegacyUs((k, v) => m.env.saveKey(k, v), r.holdings, r.state), false);
+  assert.equal(m.ls.getItem('usHoldings'), LEGACY_US);
+  // 下次重新開啟、讀取恢復正常：已合併的 AAPL 不重複，才清空 usHoldings
+  m.appStore.get = async (k) => (m.appStore.map.has(k) ? { value: m.appStore.map.get(k) } : null);
+  const r2 = await bootLegacyFlow(m);
+  assert.equal(r2.uhRes.corrupt, false);
+  assert.equal(r2.holdings.length, 1);
+  assert.equal(r2.cleared, true);
+  assert.equal(m.appStore.map.get('usHoldings'), '[]');
+  assert.equal(m.ls.getItem('usHoldings'), '[]');
+});
+
+test('legacy flow: window.storage.get throws and only localStorage has legacy (app store empty) → still merged and kept', async () => {
+  const m = legacyFlowEnv({ app: {}, local: { usHoldings: LEGACY_US }, throwGet: ['usHoldings'] });
+  const r = await bootLegacyFlow(m);
+  assert.equal(r.holdings[0].symbol, 'AAPL');
+  assert.deepEqual(r.writes, ['holdings']);
+  assert.equal(m.ls.getItem('usHoldings'), LEGACY_US);
+  assert.equal(m.appStore.map.has('usHoldings'), false, 'no [] written into window.storage either');
+});
+
+test('legacy flow: both channels fail to read usHoldings → state unknown, never cleared', async () => {
+  const m = legacyFlowEnv({ app: { usHoldings: LEGACY_US }, local: { usHoldings: LEGACY_US }, throwGet: ['usHoldings'], throwLocalGet: ['usHoldings'] });
+  const r = await bootLegacyFlow(m);
+  assert.equal(r.uhRes.corrupt, true);
+  assert.equal(r.state.blocked, true);
+  assert.deepEqual(r.writes, ['holdings']);
+  assert.equal(m.appStore.map.get('usHoldings'), LEGACY_US);
+  assert.equal(m.ls.map.get('usHoldings'), LEGACY_US);
+});
+
+test('legacy flow: corrupt or non-array usHoldings is kept (not cleared) and backed up', async () => {
+  for (const bad of ['[{"symbol":"AAPL",', '{"symbol":"AAPL"}', '']) {
+    const m = legacyFlowEnv({ local: { usHoldings: bad } });
+    const r = await bootLegacyFlow(m);
+    assert.equal(r.uhRes.corrupt, true, `${JSON.stringify(bad)} must be protected`);
+    assert.deepEqual(r.corrupt, ['usHoldings']);
+    assert.deepEqual(r.writes, ['holdings']);
+    assert.equal(m.ls.getItem('usHoldings'), bad, 'original key untouched');
+    assert.equal(m.ls.getItem(r.uhRes.backupKey), bad);
+  }
+});
+
+test('legacy flow: new user without usHoldings still completes the migration normally', async () => {
+  const m = legacyFlowEnv({ app: {}, local: {} });
+  const r = await bootLegacyFlow(m);
+  assert.equal(r.uhRes.corrupt, false);
+  assert.deepEqual(r.corrupt, []);
+  assert.equal(r.state.blocked, false);
+  assert.deepEqual(r.holdings, []);
+  assert.deepEqual(r.writes, ['holdings', 'usHoldings']);
+  assert.equal(r.cleared, true);
+  assert.equal(r.state.done, true);
+  assert.equal(m.appStore.map.get('usHoldings'), '[]');
+  assert.equal(m.ls.getItem('usHoldings'), '[]');
+  assert.equal([...m.ls.map.keys()].some((k) => k.includes('_corrupt_')), false);
 });
