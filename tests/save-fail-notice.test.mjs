@@ -16,6 +16,7 @@ const stateFns = block('autosave-fail-state');
 const bannerJsx = block('save-fail-banner');
 const saveFn = source.match(/async function saveKey\(key, value\) \{[\s\S]*?\n\}/)[0];
 const trackedFn = source.match(/function trackedAutoSave\(key, value, restoringRef, pending, save\) \{[\s\S]*?\n\}/)[0];
+const waitFn = source.match(/async function waitForPendingAutoSaves\(pending, tick = .*\) \{[\s\S]*?\n\}/)[0];
 
 const IS_CI = !!process.env.CI;
 let Babel = null;
@@ -39,15 +40,15 @@ function makeApp({ withWindowStorage = false, windowStorageFails = false } = {})
   const ls = memoryStorage();
   const window = { localStorage: ls, dispatchEvent() {} };
   if (withWindowStorage) window.storage = { set: async () => { if (windowStorageFails) throw new Error('storage down'); } };
-  const ctx = { window, CustomEvent: class {}, console: { warn() {}, error() {} } };
-  const env = vm.runInNewContext(`${stateFns}\n${trackedFn}\n${saveFn}\n({ applyAutoSaveResult, reportingSave, trackedAutoSave, saveKey })`, ctx);
-  const app = { saveFailKeys: [], renders: 0, ls, env, window, restoringRef: { current: false }, pending: new Set(), seqs: new Map() };
+  const ctx = { window, CustomEvent: class {}, console: { warn() {}, error() {} }, setTimeout };
+  const env = vm.runInNewContext(`${stateFns}\n${trackedFn}\n${waitFn}\n${saveFn}\n({ applyAutoSaveResult, reportingSave, queuedSave, trackedAutoSave, waitForPendingAutoSaves, saveKey })`, ctx);
+  const app = { saveFailKeys: [], renders: 0, ls, env, window, restoringRef: { current: false }, pending: new Set(), seqs: new Map(), queues: new Map() };
   const setSaveFailKeys = (updater) => {
     const next = updater(app.saveFailKeys);
     if (next !== app.saveFailKeys) { app.saveFailKeys = next; app.renders++; }
   };
   const reportAutoSave = (key, saved) => setSaveFailKeys((prev) => env.applyAutoSaveResult(prev, key, saved));
-  app.persistKey = (key, value) => env.trackedAutoSave(key, value, app.restoringRef, app.pending, env.reportingSave(env.saveKey, reportAutoSave, app.seqs));
+  app.persistKey = (key, value) => env.trackedAutoSave(key, value, app.restoringRef, app.pending, env.reportingSave(env.queuedSave(env.saveKey, app.queues, app.restoringRef), reportAutoSave, app.seqs));
   return app;
 }
 
@@ -163,65 +164,146 @@ test('saves skipped by the restore lock are not counted as failures', async () =
 });
 
 test('app wiring: persistKey reports results, corrupt-guarded keys still skip, banner rendered once', () => {
-  assert.match(source, /const persistKey = \(key, value\) => trackedAutoSave\(key, value, restoringRef, pendingAutoSavesRef\.current, reportingSave\(saveKey, reportAutoSave, autoSaveSeqRef\.current\)\);/);
+  assert.match(source, /const persistKey = \(key, value\) => trackedAutoSave\(key, value, restoringRef, pendingAutoSavesRef\.current, reportingSave\(queuedSave\(saveKey, autoSaveQueuesRef\.current, restoringRef\), reportAutoSave, autoSaveSeqRef\.current\)\);/);
   assert.match(source, /const autoSaveSeqRef = useRef\(new Map\(\)\);/);
+  assert.match(source, /const autoSaveQueuesRef = useRef\(new Map\(\)\);/);
   assert.match(source, /useEffect\(\(\) => \{ if \(ready && canPersist\("trades"\)\) persistKey\("trades", trades\); \}/);
   assert.equal((source.match(/<SaveFailBanner /g) || []).length, 1);
   assert.doesNotMatch(bannerJsx, /alert\(|confirm\(|animation|animate-/);
 });
 
-// 亂序完成：用可控的 window.storage.set（每次呼叫回傳自己的 deferred），讓舊寫入比新寫入晚結束。
+// 同一 key 的寫入排隊：用可控的 window.storage.set（每次呼叫回傳自己的 deferred）。
 function makeDeferredApp() {
   const app = makeApp({ withWindowStorage: true });
   const calls = [];
-  app.window.storage.set = (key, payload) => new Promise((resolve, reject) => calls.push({ key, payload, resolve, reject }));
+  app.window.storage.map = new Map();
+  app.window.storage.set = (key, payload) => new Promise((resolve, reject) => calls.push({
+    key, payload,
+    resolve: () => { app.window.storage.map.set(key, payload); resolve(); },
+    reject,
+  }));
   return { app, calls };
 }
-const flush = () => new Promise((r) => setImmediate(r));
+const flush = async () => { for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r)); };
 
-test('out of order: older success finishing late does not clear a newer failure', async () => {
+test('same key queue: a newer write does not start until the older one finishes', async () => {
+  const { app, calls } = makeDeferredApp();
+  const a = app.persistKey('trades', ['A']);
+  const b = app.persistKey('trades', ['B']);
+  await flush();
+  assert.equal(calls.length, 1, '同一 key 一次只送一筆');
+  assert.equal(calls[0].payload, '["A"]');
+  assert.equal(app.ls.getItem('trades'), null, 'B 不可先寫進 localStorage');
+  calls[0].resolve();
+  assert.equal(await a, true);
+  await flush();
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].payload, '["B"]');
+  calls[1].resolve();
+  assert.equal(await b, true);
+  assert.equal(app.window.storage.map.get('trades'), '["B"]');
+  assert.equal(app.ls.getItem('trades'), '["B"]');
+});
+
+test('same key queue: old value sent first, new value sent next → both storages end with the new value', async () => {
+  // 原本的重現：新值先完成、舊值晚完成，兩個管道都退回舊值。排隊後舊值一定先寫完，新值最後寫，結果永遠是新值。
+  const { app, calls } = makeDeferredApp();
+  const old = app.persistKey('trades', ['old']);
+  const neu = app.persistKey('trades', ['new']);
+  await flush();
+  assert.equal(calls.length, 1);
+  calls[0].resolve(); // 舊值寫完（此時新值還沒開始，不會被舊值蓋掉）
+  await old; await flush();
+  calls[1].resolve();
+  await neu; await flush();
+  assert.equal(app.window.storage.map.get('trades'), '["new"]');
+  assert.equal(app.ls.getItem('trades'), '["new"]');
+  assert.equal(app.saveFailKeys.length, 0);
+});
+
+test('same key queue: superseded writes waiting in line are skipped, only the latest is written', async () => {
+  const { app, calls } = makeDeferredApp();
+  const a = app.persistKey('trades', ['A']);
+  const b = app.persistKey('trades', ['B']);
+  const c = app.persistKey('trades', ['C']);
+  await flush();
+  calls[0].resolve();
+  assert.equal(await a, true);
+  assert.equal(await b, null, 'B 已被 C 取代，跳過（不算成功也不算失敗）');
+  await flush();
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].payload, '["C"]');
+  calls[1].resolve();
+  assert.equal(await c, true);
+  assert.equal(app.ls.getItem('trades'), '["C"]');
+  assert.equal(app.window.storage.map.get('trades'), '["C"]');
+  assert.equal(app.queues.size, 0, '佇列清乾淨');
+});
+
+test('same key queue: an older failure does not override the newer success notice', async () => {
   const { app, calls } = makeDeferredApp();
   app.ls.failing = new Set(['trades']); // localStorage 一直失敗，結果只看 window.storage
   const a = app.persistKey('trades', ['A']);
   const b = app.persistKey('trades', ['B']);
-  calls[1].reject(new Error('storage down')); // B 兩管道都失敗
-  assert.equal(await b, false);
-  assert.deepEqual([...app.saveFailKeys], ['trades']);
-  calls[0].resolve(); // A（較舊）晚到且成功
-  assert.equal(await a, true, 'saveKey 回傳值不變');
   await flush();
-  assert.deepEqual([...app.saveFailKeys], ['trades'], '舊成功不可清掉較新失敗的提示');
+  calls[0].reject(new Error('storage down')); // A（較舊）兩管道都失敗
+  assert.equal(await a, false, 'saveKey 回傳值不變');
+  assert.equal(app.saveFailKeys.length, 0, 'B 已排在後面，A 的失敗不顯示');
+  await flush();
+  calls[1].resolve(); // B（最新）成功
+  assert.equal(await b, true);
+  await flush();
+  assert.equal(app.saveFailKeys.length, 0, '最新成功 → 沒有失敗提示');
+  assert.equal(app.window.storage.map.get('trades'), '["B"]');
 });
 
-test('out of order: older failure finishing late does not bring back a recovered notice', async () => {
+test('same key queue: a newer failure stays visible after the older success', async () => {
   const { app, calls } = makeDeferredApp();
   app.ls.failing = new Set(['trades']);
-  // 先讓 trades 處於失敗狀態
-  const first = app.persistKey('trades', ['X']);
-  calls[0].reject(new Error('storage down'));
-  assert.equal(await first, false);
-  assert.deepEqual([...app.saveFailKeys], ['trades']);
   const a = app.persistKey('trades', ['A']);
   const b = app.persistKey('trades', ['B']);
-  calls[2].resolve(); // B（最新）成功 → 提示消失
-  assert.equal(await b, true);
-  assert.equal(app.saveFailKeys.length, 0);
-  calls[1].reject(new Error('storage down')); // A（較舊）晚到且失敗
-  assert.equal(await a, false, 'saveKey 回傳值不變');
   await flush();
-  assert.equal(app.saveFailKeys.length, 0, '舊失敗不可讓已恢復的提示重新出現');
+  calls[0].resolve();
+  assert.equal(await a, true);
+  await flush();
+  calls[1].reject(new Error('storage down'));
+  assert.equal(await b, false);
+  await flush();
+  assert.deepEqual([...app.saveFailKeys], ['trades'], '最新失敗要提示');
 });
 
-test('sequence is per key: a newer write on another key does not hide this key\'s result', async () => {
+test('sequence/queue is per key: another key is written in parallel and reports on its own', async () => {
   const { app, calls } = makeDeferredApp();
   app.ls.failAll = true;
   const t = app.persistKey('trades', [1]);
   const h = app.persistKey('holdings', [1]);
+  await flush();
+  assert.equal(calls.length, 2, '不同 key 不互相排隊');
   calls[1].resolve();
   assert.equal(await h, true);
   calls[0].reject(new Error('storage down'));
   assert.equal(await t, false);
   assert.deepEqual([...app.saveFailKeys], ['trades']);
+});
+
+test('restore wait covers the whole queue; queued writes not yet started are skipped once restore begins', async () => {
+  const { app, calls } = makeDeferredApp();
+  const a = app.persistKey('trades', ['A']);
+  const b = app.persistKey('trades', ['B']);
+  await flush();
+  assert.equal(app.pending.size, 2, '排隊中的寫入也記在 pending');
+  app.restoringRef.current = true; // 還原開始
+  let waited = false;
+  const wait = app.env.waitForPendingAutoSaves(app.pending, (fn) => setImmediate(fn)).then(() => { waited = true; });
+  await flush();
+  assert.equal(waited, false, '還在寫的 A 沒結束前不能開始還原');
+  calls[0].resolve();
+  await a; await wait;
+  assert.equal(waited, true);
+  assert.equal(await b, null, 'B 還沒開始就被還原擋下');
+  assert.equal(calls.length, 1, 'B 沒有送出');
+  assert.equal(app.ls.getItem('trades'), '["A"]');
+  assert.equal(app.saveFailKeys.length, 0, '跳過的寫入不算失敗');
 });
 
 test('regression: window.storage succeeds but localStorage fails → not a failure, existing notice clears', async () => {

@@ -1462,6 +1462,28 @@ function reportingSave(save, report, seqs) {
     return saved;
   };
 }
+// 同一 key 的自動存檔排隊（跨 render 的 Map，參考 updateForecastHistory）：後送的一定等前一筆寫完才開始，
+// 舊寫入不可能晚到蓋掉新資料（window.storage 與 localStorage 都一樣）。排隊中若又有更新的值，較舊的直接跳過、由最新那筆寫入；
+// 還原開始後（restoringRef.current = true）排隊中還沒開始的也跳過。跳過回傳 null（不算成功也不算失敗，不改提示）。
+function queuedSave(save, queues, restoringRef) {
+  return (key, value) => {
+    let entry = queues.get(key);
+    const idle = !entry;
+    if (idle) { entry = { tail: Promise.resolve(), latest: 0 }; queues.set(key, entry); }
+    const ticket = ++entry.latest;
+    const run = () => {
+      if (restoringRef && restoringRef.current) return null;
+      if (entry.latest !== ticket) return null;
+      return save(key, value);
+    };
+    // 沒有排隊中的寫入就立刻送出（與原本一樣同步開始）；否則接在前一筆後面。
+    const task = idle ? new Promise((resolve) => resolve(run())) : entry.tail.then(run, run);
+    entry.tail = task.then(() => {}, () => {});
+    const cleanup = () => { if (queues.get(key) === entry && entry.latest === ticket) queues.delete(key); };
+    task.then(cleanup, cleanup);
+    return task;
+  };
+}
 // </autosave-fail-state>
 async function waitForPendingAutoSaves(pending, tick = (fn) => setTimeout(fn, 0)) {
   // 先讓已排入的 effect 跑完（此時 restoringRef 已擋住，不會再送出新寫入），再等已送出的寫入結束。
@@ -1485,6 +1507,30 @@ async function saveKeyForRestore(key, value) {
     failed.push("localStorage");
   }
   return { ok: failed.length === 0, failed };
+}
+// 讀回確認：重新載入時會先讀 window.storage（有 get 時），所以有 window.storage 時它與 localStorage 都要是這個值才算數。
+async function storedValueMatches(key, value) {
+  const expected = JSON.stringify(value);
+  try {
+    if (window.storage?.get) {
+      const res = await window.storage.get(key, false);
+      if (res == null || res.value == null || String(res.value) !== expected) return false;
+    }
+    return window.localStorage?.getItem(key) === expected;
+  } catch (e) {
+    console.warn("stored value check failed", key, e);
+    return false;
+  }
+}
+// 舊版 usHoldings 遷移：持股（已合併舊版美股）自動存檔成功、而且讀回確認每個儲存管道都是新持股後，才清空 usHoldings；
+// 持股寫入失敗或只有部分管道成功就保留 usHoldings（下次持股存檔成功再清）。state.done 為 true 後不再清。
+async function persistHoldingsThenClearLegacyUs(persist, holdings, state) {
+  const saved = await persist("holdings", holdings);
+  if (saved !== true || state.done) return false;
+  if (!(await storedValueMatches("holdings", holdings))) return false;
+  const cleared = await persist("usHoldings", []);
+  if (cleared === true && await storedValueMatches("usHoldings", [])) state.done = true;
+  return cleared === true;
 }
 // </load-corrupt-guard>
 async function saveKey(key, value) {
@@ -1645,8 +1691,10 @@ function AssetTracker() {
   const restoringRef = useRef(false);
   const pendingAutoSavesRef = useRef(new Set());
   const autoSaveSeqRef = useRef(new Map()); // 每個 key 的自動存檔寫入序號（失敗提示只看最新一筆）
+  const autoSaveQueuesRef = useRef(new Map()); // 每個 key 的自動存檔排隊（同一 key 一次只寫一筆）
+  const legacyUsMigrationRef = useRef({ done: false }); // 舊版 usHoldings 是否已確認清空
   const canPersist = (key) => !restoringRef.current && !corruptKeysRef.current.has(key);
-  const persistKey = (key, value) => trackedAutoSave(key, value, restoringRef, pendingAutoSavesRef.current, reportingSave(saveKey, reportAutoSave, autoSaveSeqRef.current));
+  const persistKey = (key, value) => trackedAutoSave(key, value, restoringRef, pendingAutoSavesRef.current, reportingSave(queuedSave(saveKey, autoSaveQueuesRef.current, restoringRef), reportAutoSave, autoSaveSeqRef.current));
   // </restore-lock>
   const [tab, setTab] = useState("dashboard");
   const [showEnglish, setShowEnglish] = useState(() => {
@@ -2043,9 +2091,8 @@ function AssetTracker() {
 
   // ---- persist on change (after ready) ----
   useEffect(() => { if (ready && canPersist("dailyRecords")) persistKey("dailyRecords", dailyRecords); }, [dailyRecords, ready]);
-  useEffect(() => { if (ready && canPersist("holdings")) persistKey("holdings", holdings); }, [holdings, ready]);
-  // 持股讀取損壞時，舊版 usHoldings 還沒成功遷移進 holdings，不可清空。
-  useEffect(() => { if (ready && canPersist("holdings")) persistKey("usHoldings", []); }, [ready]);
+  // 持股讀取損壞時，舊版 usHoldings 還沒成功遷移進 holdings，不可清空；持股存檔成功並讀回確認後才清。
+  useEffect(() => { if (ready && canPersist("holdings")) persistHoldingsThenClearLegacyUs(persistKey, holdings, legacyUsMigrationRef.current); }, [holdings, ready]);
   useEffect(() => { if (ready && canPersist("trades")) persistKey("trades", trades); }, [trades, ready]);
   useEffect(() => { if (ready && canPersist("dividends")) persistKey("dividends", dividends); }, [dividends, ready]);
   useEffect(() => { if (ready) persistKey("planItems", planItems); }, [planItems, ready]);
