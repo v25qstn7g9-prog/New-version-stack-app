@@ -1522,11 +1522,21 @@ async function storedValueMatches(key, value) {
     return false;
   }
 }
+// 舊版 usHoldings 讀取：沿用 loadKeyGuarded（window.storage 讀失敗仍會讀 localStorage 拿舊美股來合併），
+// 但讀取失敗、內容損壞或不是陣列都回 corrupt: true（狀態不明，不可當成「確定沒有舊資料」），
+// 呼叫端要把 state.blocked 設成 true，這次執行不清空 usHoldings，等下次可靠讀取再遷移。
+async function loadLegacyUsHoldings(now = new Date()) {
+  const r = await loadKeyGuarded("usHoldings", [], now);
+  if (Array.isArray(r.value)) return r;
+  const raw = typeof r.raw === "string" ? r.raw : JSON.stringify(r.value);
+  return { value: [], corrupt: true, key: "usHoldings", backupKey: r.backupKey || preserveCorruptRaw("usHoldings", raw, now), raw };
+}
 // 舊版 usHoldings 遷移：持股（已合併舊版美股）自動存檔成功、而且讀回確認每個儲存管道都是新持股後，才清空 usHoldings；
 // 持股寫入失敗或只有部分管道成功就保留 usHoldings（下次持股存檔成功再清）。state.done 為 true 後不再清。
+// state.blocked（舊版 usHoldings 這次讀取失敗／損壞）時只存持股、絕不清 usHoldings。
 async function persistHoldingsThenClearLegacyUs(persist, holdings, state) {
   const saved = await persist("holdings", holdings);
-  if (saved !== true || state.done) return false;
+  if (saved !== true || state.done || state.blocked) return false;
   if (!(await storedValueMatches("holdings", holdings))) return false;
   const cleared = await persist("usHoldings", []);
   if (cleared === true && await storedValueMatches("usHoldings", [])) state.done = true;
@@ -1692,7 +1702,7 @@ function AssetTracker() {
   const pendingAutoSavesRef = useRef(new Set());
   const autoSaveSeqRef = useRef(new Map()); // 每個 key 的自動存檔寫入序號（失敗提示只看最新一筆）
   const autoSaveQueuesRef = useRef(new Map()); // 每個 key 的自動存檔排隊（同一 key 一次只寫一筆）
-  const legacyUsMigrationRef = useRef({ done: false }); // 舊版 usHoldings 是否已確認清空
+  const legacyUsMigrationRef = useRef({ done: false, blocked: false }); // done：舊版 usHoldings 已確認清空；blocked：這次讀取失敗／損壞，不可清
   const canPersist = (key) => !restoringRef.current && !corruptKeysRef.current.has(key);
   const persistKey = (key, value) => trackedAutoSave(key, value, restoringRef, pendingAutoSavesRef.current, reportingSave(queuedSave(saveKey, autoSaveQueuesRef.current, restoringRef), reportAutoSave, autoSaveSeqRef.current));
   // </restore-lock>
@@ -2006,10 +2016,10 @@ function AssetTracker() {
   // ---- initial load ----
   useEffect(() => {
     (async () => {
-      const [drRes, hRes, uh, tRes, dvRes, p, g, ps, cb, lba, lst, suf, ubc, advSaved, goalStored] = await Promise.all([
+      const [drRes, hRes, uhRes, tRes, dvRes, p, g, ps, cb, lba, lst, suf, ubc, advSaved, goalStored] = await Promise.all([
         loadKeyGuarded("dailyRecords", defaultDailyRecords()),
         loadKeyGuarded("holdings", defaultHoldings()),
-        loadKey("usHoldings", []),
+        loadLegacyUsHoldings(),
         loadKeyGuarded("trades", defaultTrades()),
         loadKeyGuarded("dividends", defaultDividends()),
         loadKey("planItems", defaultPlan()),
@@ -2023,12 +2033,14 @@ function AssetTracker() {
         loadKey("advancedMode", null),
         loadKey("goal", null),
       ]);
-      const corrupt = [drRes, hRes, tRes, dvRes].filter((r) => r.corrupt);
+      // 舊版 usHoldings 讀取失敗／損壞：保留原 key（不清空）、跟其他紀錄一樣顯示保護提示。
+      legacyUsMigrationRef.current.blocked = uhRes.corrupt === true;
+      const corrupt = [drRes, hRes, uhRes, tRes, dvRes].filter((r) => r.corrupt);
       corrupt.forEach((r) => corruptKeysRef.current.add(r.key));
       if (corrupt.length) setCorruptLoads(corrupt.map(({ key, backupKey, raw }) => ({ key, backupKey, raw })));
       const dr = drRes.value, h = hRes.value, t = tRes.value, dv = dvRes.value;
       setDailyRecords(dr);
-      setHoldings(mergeLegacyUsHoldings(h, Array.isArray(uh) ? uh : [], t));
+      setHoldings(mergeLegacyUsHoldings(h, uhRes.value, t));
       setTrades(t);
       setDividends(dv);
       setPlanItems(p);
@@ -9690,7 +9702,7 @@ function PushReminderPanel() {
 }
 // 漏記的交易日：按一下用收盤價補記（一天提醒一次）。
 // 本機紀錄讀取失敗（JSON 損壞／讀不到）：明顯但不擋操作的提示。原始資料已另存、這幾項暫停自動存檔。
-const CORRUPT_LOAD_LABELS = { holdings: ["持股", "Holdings"], trades: ["交易", "Trades"], dailyRecords: ["每日紀錄", "Daily Records"], dividends: ["配息", "Dividends"] };
+const CORRUPT_LOAD_LABELS = { holdings: ["持股", "Holdings"], usHoldings: ["舊版美股持股", "Legacy US holdings"], trades: ["交易", "Trades"], dailyRecords: ["每日紀錄", "Daily Records"], dividends: ["配息", "Dividends"] };
 function CorruptLoadBanner({ items, onOpenBackup, syncPaused = false }) {
   if (!items || !items.length) return null;
   const zh = items.map((c) => CORRUPT_LOAD_LABELS[c.key]?.[0] || c.key).join("／");
