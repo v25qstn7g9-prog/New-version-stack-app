@@ -1,6 +1,5 @@
-// 資產總覽「AI 一句話評論」：PortfolioPerformanceCard 用 zinfSyncToken 送 /ask，
-// 以前 props 沒傳進來 → 執行時 ReferenceError 被 catch 吃掉，永遠顯示「AI 暫時無法評論」。
-// 這裡確保 App → Dashboard → PortfolioPerformanceCard 一路都有傳，且整個檔案沒有未宣告就使用的 zinfSyncToken。
+// 資產總覽「AI 一句話評論」：以前用 zinfSyncToken 送 /ask；2026-11-11 起改用使用者自己的 Puter 帳號，
+// 不再需要同步 token，也不再呼叫 /ask。這裡確保 token 不再往下傳給這張卡，且整個檔案沒有未宣告就使用的 zinfSyncToken。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -23,27 +22,20 @@ function jsxOpening(tag) {
   return src.slice(start, end);
 }
 
-test('PortfolioPerformanceCard destructures zinfSyncToken', () => {
-  assert.match(paramsOf('PortfolioPerformanceCard'), /\bzinfSyncToken\b/);
+test('the AI risk comment no longer needs the sync token: PortfolioPerformanceCard / Dashboard do not take it', () => {
+  assert.doesNotMatch(paramsOf('PortfolioPerformanceCard'), /\bzinfSyncToken\b/);
+  assert.doesNotMatch(paramsOf('Dashboard'), /\bzinfSyncToken\b/);
+  assert.doesNotMatch(jsxOpening('PortfolioPerformanceCard'), /zinfSyncToken/);
+  assert.doesNotMatch(jsxOpening('Dashboard'), /zinfSyncToken/);
 });
 
-test('Dashboard destructures zinfSyncToken and passes it to PortfolioPerformanceCard', () => {
-  assert.match(paramsOf('Dashboard'), /\bzinfSyncToken\b/);
-  assert.match(jsxOpening('PortfolioPerformanceCard'), /zinfSyncToken=\{zinfSyncToken\}/);
-});
-
-test('App passes zinfSyncToken to Dashboard', () => {
-  assert.match(jsxOpening('Dashboard'), /zinfSyncToken=\{zinfSyncToken\}/);
-});
-
-test('AI risk comment failure logs the error message (not the token) and still shows the fallback text', () => {
+test('AI risk comment failure logs only the error kind (no token) and shows the Puter message', () => {
   const i = src.indexOf('const askAiRiskComment');
   assert.ok(i >= 0);
   const body = src.slice(i, src.indexOf('const mini =', i));
-  const c = body.slice(body.indexOf('} catch (e) {'));
-  assert.match(c, /console\.warn\([^)]*e\?\.message/);
-  assert.doesNotMatch(c.slice(0, c.indexOf('setAiRiskError')), /zinfSyncToken|headers|authorization/i);
-  assert.match(c, /setAiRiskError\(uiText\("AI 暫時無法評論"\)\)/);
+  assert.match(body, /console\.warn\("\[AI risk comment\] failed:", info\?\.kind \|\| "unknown"\)/);
+  assert.doesNotMatch(body, /zinfSyncToken|authorization|fetch/i);
+  assert.match(body, /setAiRiskError\(info\?\.message \|\| uiText\("AI 暫時無法評論"\)\)/);
 });
 
 let Babel = null;

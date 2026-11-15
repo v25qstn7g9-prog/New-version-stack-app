@@ -20,12 +20,15 @@ test('every functions/*.js file that index.html actually fetches is wired into w
   const worker = fs.readFileSync('worker.js', 'utf8');
   const html = readAppSource();
   // 前端會打的頂層（非 /api/）路徑；/api/* 由各自的 API 測試涵蓋。
-  const topLevelRoutes = ['/quote', '/news', '/ask', '/dividend-schedule', '/daily-history', '/holiday-schedule', '/taifex-tx', '/stock-name'];
+  // /ask：前端（AI 問答、AI 一句話評論）已改用使用者自己的 Puter，不再呼叫；後端路由保留不動。
+  const topLevelRoutes = ['/quote', '/news', '/dividend-schedule', '/daily-history', '/holiday-schedule', '/taifex-tx', '/stock-name'];
   for (const route of topLevelRoutes) {
     const usedByFrontend = html.includes(`\`${route}?`) || html.includes(`"${route}"`) || html.includes(`= "${route}"`);
     assert.ok(usedByFrontend, `expected index.html to call ${route}`);
     assert.match(worker, new RegExp(`url\\.pathname === ["']${route.replace('/', '\\/')}["']`), `expected worker.js to route ${route}`);
   }
+  assert.ok(!html.includes('"/ask"') && !html.includes("'/ask'") && !html.includes('`/ask'), 'frontend no longer calls /ask');
+  assert.match(worker, /url\.pathname === "\/ask"/, 'backend /ask route is kept (not touched)');
 });
 
 test('the taifex-tx handler is a real, callable async function with no required arguments', () => {

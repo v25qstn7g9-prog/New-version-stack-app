@@ -485,5 +485,6 @@ test("hero headline is 持股總市值 / Total Holdings Value (sums TW + US hold
   assert.match(uiEn, /"台股持股市值": "TW Holdings Value"/);
   assert.match(uiEn, /"美股持股市值": "US Holdings Value"/);
   // 送給 AI 的提示字串不是畫面標籤，維持原樣
-  assert.equal((jsx.match(/lines\.push\(`目前總資產：/g) || []).length, 2);
+  // （AI 問答改用瀏覽器整理的資產摘要 buildPuterSummary，提示字串仍用「目前總資產」）
+  assert.equal((jsx.match(/L\.push\(`目前總資產：/g) || []).length, 1);
 });

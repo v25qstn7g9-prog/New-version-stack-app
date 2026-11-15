@@ -67,8 +67,8 @@ test("toast sits above the tab bar, clear of the AI button, 44px undo button, re
   assert.match(css, /@media \(prefers-reduced-motion:no-preference\)\{\.forma-undo-toast\{animation/);
 });
 
-test("openBackup is one shared function (header, first-run guide, dashboard)", () => {
+test("openBackup is one shared function (header, first-run guide, dashboard, corrupt-load banner, save-fail banner)", () => {
   assert.match(jsx, /const openBackup = \(\) => \{/);
-  assert.equal((jsx.match(/onOpenBackup=\{openBackup\}/g) || []).length, 2);
+  assert.equal((jsx.match(/onOpenBackup=\{openBackup\}/g) || []).length, 4);
   assert.equal((jsx.match(/document\.querySelector\("\[data-backup-card\]"\)/g) || []).length, 1);
 });
