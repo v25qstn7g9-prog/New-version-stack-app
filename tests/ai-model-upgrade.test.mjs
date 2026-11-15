@@ -112,3 +112,80 @@ test('reasoning-only output counts as empty and switches to 20B', async () => {
   assert.equal(result.reply, '20B 回答');
   assert.equal(result.model, '@cf/openai/gpt-oss-20b');
 });
+
+// Codex 第 1 輪：GPT-OSS Responses 格式的工具呼叫（output[] 裡 type:"function_call"）不可被忽略。
+const fnCall = (callId, name, args) => ({ type: 'function_call', call_id: callId, name, arguments: JSON.stringify(args), id: 'fc_x', status: 'completed' });
+
+test('Responses-style tool call only: returns toolCalls (id = call_id), no Gemini fallback', async () => {
+  const s = setup(() => ({
+    output: [
+      { type: 'reasoning', content: [{ type: 'reasoning_text', text: 'SECRET_REASONING' }] },
+      fnCall('call_abc', 'get_live_quotes', { symbols: ['2330'] }),
+    ],
+  }));
+  const result = await s.ask('台積電現在多少');
+  assert.equal(result.provider, 'cloudflare');
+  assert.equal(result.model, '@cf/openai/gpt-oss-120b');
+  assert.equal(s.calls.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.toolCalls)), [{ id: 'call_abc', name: 'get_live_quotes', arguments: { symbols: ['2330'] } }]);
+  assert.equal(result.reply, undefined);
+  assert.doesNotMatch(JSON.stringify(result), /SECRET_REASONING/);
+});
+
+test('Responses-style preamble text + tool call: tool call is not dropped', async () => {
+  const s = setup(() => ({
+    output: [
+      { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '我先查一下報價' }] },
+      fnCall('call_q1', 'get_live_quotes', { symbols: ['0050'] }),
+    ],
+  }));
+  const result = await s.ask('0050 現在多少');
+  assert.equal(result.provider, 'cloudflare');
+  assert.equal(result.toolCalls.length, 1);
+  assert.equal(result.toolCalls[0].id, 'call_q1');
+  assert.equal(result.toolCalls[0].name, 'get_live_quotes');
+});
+
+test('Responses-style web_search call runs server-side and feeds chat-format tool messages back', async () => {
+  const s = setup((model, inputs, n) => n === 1
+    ? { output: [fnCall('call_ws', 'web_search', { query: '台股 今天' })] }
+    : { output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '查到了' }] }] });
+  const result = await s.ask('今天台股新聞');
+  assert.equal(result.reply, '查到了');
+  assert.equal(s.calls.length, 2);
+  const msgs = s.calls[1].inputs.messages;
+  const assistant = msgs.find((m) => m.role === 'assistant' && Array.isArray(m.tool_calls));
+  assert.equal(assistant.tool_calls[0].id, 'call_ws');
+  assert.equal(assistant.tool_calls[0].type, 'function');
+  assert.equal(assistant.tool_calls[0].function.name, 'web_search');
+  assert.equal(typeof assistant.tool_calls[0].function.arguments, 'string');
+  const tool = msgs.find((m) => m.role === 'tool');
+  assert.equal(tool.tool_call_id, 'call_ws');
+  assert.equal(typeof tool.content, 'string');
+});
+
+test('empty 120B -> 20B fallback keeps 20B chat-completions tool_calls (no Gemini)', async () => {
+  const s = setup((model) => /120b/.test(model)
+    ? { output: [{ type: 'reasoning', content: [{ type: 'reasoning_text', text: 'SECRET_REASONING' }] }] }
+    : { choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'call_20b', type: 'function', function: { name: 'get_app_snapshot', arguments: '{}' } }] } }] });
+  const result = await s.ask('我的持股');
+  assert.equal(result.provider, 'cloudflare');
+  assert.equal(result.model, '@cf/openai/gpt-oss-20b');
+  assert.equal(result.toolCalls.length, 1);
+  assert.equal(result.toolCalls[0].id, 'call_20b');
+  assert.equal(result.toolCalls[0].name, 'get_app_snapshot');
+  assert.equal(s.calls.length, 2);
+});
+
+test('empty 120B -> 20B fallback with text + tool call returns the tool call, not just text', async () => {
+  const s = setup((model) => /120b/.test(model)
+    ? { output: [{ type: 'reasoning', content: [{ type: 'reasoning_text', text: 'SECRET_REASONING' }] }] }
+    : { output: [
+      { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '先查持股' }] },
+      fnCall('call_20b_r', 'get_app_snapshot', {}),
+    ] });
+  const result = await s.ask('我的持股');
+  assert.equal(result.model, '@cf/openai/gpt-oss-20b');
+  assert.equal(result.toolCalls?.[0]?.id, 'call_20b_r');
+  assert.doesNotMatch(JSON.stringify(result), /SECRET_REASONING/);
+});
