@@ -10169,6 +10169,9 @@ const fmtFieldLine = (obj, signed) => Object.entries(obj)
 // 要查什麼、怎麼把結果講出來，不會有它自己動手算術抄錯數字的風險。
 function executeReadTool(tc, { trades, dailyRecords, dividends, holdings }) {
   const a = tc.arguments || {};
+  // 股數保留零股小數（美股 VOO 4.64047 股不可被四捨五入成 5 股）；交易金額用實際付出的台幣（舊紀錄沒有 amount 就照單價×股數換算）
+  const aiShares = (n) => (Number.isFinite(Number(n)) ? Number(n) : 0).toLocaleString("zh-TW", { maximumFractionDigits: 5 });
+  const aiTradeAmountNtd = (t) => { const v = Number(t?.amount ?? tradeAmountNtd(t, t?.fxRate)); return Number.isFinite(v) ? v : null; };
 
   if (tc.name !== "query_app_data") return null;
   // 每個輸出分支最多回 30 筆（AI 問答的讀取上限）；超過只留最近的並標示「（已截斷）」。
@@ -10270,16 +10273,17 @@ function executeReadTool(tc, { trades, dailyRecords, dividends, holdings }) {
       const sells = list.filter((t) => t.action === "sell");
       const buyShares = buys.reduce((s, t) => s + t.shares, 0);
       const sellShares = sells.reduce((s, t) => s + t.shares, 0);
-      const buyAmount = buys.reduce((s, t) => s + t.amount, 0);
-      const sellAmount = sells.reduce((s, t) => s + t.amount, 0);
-      return `共${list.length}筆交易：買進${buys.length}筆共${nf(buyShares)}股（金額NT$ ${nf(buyAmount)}），` +
-        `賣出${sells.length}筆共${nf(sellShares)}股（金額NT$ ${nf(sellAmount)}）`;
+      const buyAmount = buys.reduce((s, t) => s + (aiTradeAmountNtd(t) || 0), 0);
+      const sellAmount = sells.reduce((s, t) => s + (aiTradeAmountNtd(t) || 0), 0);
+      return `共${list.length}筆交易：買進${buys.length}筆共${aiShares(buyShares)}股（金額NT$ ${nf(Math.round(buyAmount))}），` +
+        `賣出${sells.length}筆共${aiShares(sellShares)}股（金額NT$ ${nf(Math.round(sellAmount))}）`;
     }
     const shown = list.length > limit ? list.slice(-limit) : list;
     const lines = shown.map((t) => {
       const fee = t.fee ? `，手續費${recordValueNtd(t, t.fee) ?? "--"}` : "";
       const tax = t.tax ? `，證交稅${recordValueNtd(t, t.tax) ?? "--"}` : "";
-      return `${t.date} ${t.symbol} ${t.action === "buy" ? "買進" : "賣出"} ${t.shares}股 @NT$ ${formatNtdPrice(recordValueNtd(t, t.price))}${fee}${tax}`;
+      const amt = aiTradeAmountNtd(t);
+      return `${t.date} ${t.symbol} ${t.action === "buy" ? "買進" : "賣出"} ${aiShares(t.shares)}股 @NT$ ${formatNtdPrice(recordValueNtd(t, t.price))}${amt != null ? `，金額NT$ ${nf(Math.round(amt))}` : ""}${fee}${tax}`;
     });
     return (list.length > limit ? [`（共 ${list.length} 筆，只列最近 ${limit} 筆，其餘已截斷）`, ...lines] : lines).join("\n");
   }
@@ -10291,11 +10295,11 @@ function executeReadTool(tc, { trades, dailyRecords, dividends, holdings }) {
     if (!list.length) return "查無符合條件的配息紀錄";
 
     if (a.aggregation === "summary") {
-      const total = list.reduce((s, d) => s + d.amount, 0);
+      const total = list.reduce((s, d) => s + (Number(d.amount) || 0), 0);
       return `共${list.length}筆配息，總金額NT$ ${nf(total)}`;
     }
     const shown = list.length > limit ? list.slice(-limit) : list;
-    const lines = shown.map((d) => `${d.date} ${d.symbol} ${nf(d.shares)}股 @NT$ ${formatNtdPrice(recordValueNtd(d, d.perShare))}/股 = NT$ ${nf(d.amount)}`);
+    const lines = shown.map((d) => `${d.date} ${d.symbol} ${aiShares(d.shares)}股 @NT$ ${formatNtdPrice(recordValueNtd(d, d.perShare))}/股 = NT$ ${nf(d.amount)}`);
     return (list.length > limit ? [`（共 ${list.length} 筆，只列最近 ${limit} 筆，其餘已截斷）`, ...lines] : lines).join("\n");
   }
 
@@ -10305,7 +10309,7 @@ function executeReadTool(tc, { trades, dailyRecords, dividends, holdings }) {
     const { current: shares, estCostBasis: cost, avgCost, missingInitialCost } = holdingCostAt(h, trades, date);
     const caveat = missingInitialCost ? "（期初股數的成本沒有記錄，成本可能不完整）" : "";
     if (shares <= 0) return `截至${date}：${a.symbol} 股數為0或查無資料${caveat}`;
-    return `截至${date}：${a.symbol} 股數${nf(shares)}股，每股平均成本NT$ ${formatNtdPrice(avgCost)}/股，總持有成本NT$ ${nf(cost)}${caveat}`;
+    return `截至${date}：${a.symbol} 股數${aiShares(shares)}股，每股平均成本NT$ ${formatNtdPrice(avgCost)}/股，總持有成本NT$ ${nf(cost)}${caveat}`;
   }
 
   return `不支援的 source：${a.source}`;
@@ -10319,7 +10323,7 @@ async function executeLiveQuoteTool(tc, holdings, signal) {
   if (a.symbols != null && !Array.isArray(a.symbols)) return "股票代號格式不正確，已拒絕查詢";
   let symbols = Array.isArray(a.symbols) && a.symbols.length
     ? a.symbols.map((s) => (typeof s === "string" ? s.trim().toUpperCase() : ""))
-    : (holdings || []).filter((h) => Number(h.initialShares) > 0 || (h.target2035 || 0) > 0).map((h) => normalizeStockSymbol(h.symbol));
+    : (holdings || []).filter((h) => Number(h.current) > 0 || Number(h.initialShares) > 0 || (h.target2035 || 0) > 0).map((h) => normalizeStockSymbol(h.symbol));
   symbols = [...new Set(symbols)];
   if (!symbols.length) return "沒有指定股票代號，也沒有查到任何持股";
   const formatOk = (sym) => ["TAIEX", "SPX", "SOX", "USDTWD"].includes(sym) || /^[0-9]{4,6}[A-Z]?$/.test(sym) || /^[A-Z]{1,5}(?:[.-][A-Z]{1,2})?$/.test(sym);
@@ -10372,7 +10376,7 @@ async function executeAppSnapshotTool(tc, baseContext) {
         const pct=(Number.isFinite(p)&&Number.isFinite(prev)&&prev)?((p-prev)/prev*100):null;
         return `${sym} ${isTaiwanSymbol(sym)?"NT$ "+formatQuotePrice(p):isStockSymbol(sym)?"US$ "+formatQuotePrice(p):formatQuotePrice(p)+" 點"}${pct!=null?` (${pct>=0?"+":""}${pct.toFixed(2)}%)`:""}`;
       });
-      add("即時行情", items.join("\n"));
+      add("即時行情", items.join("\n") + "\n（這裡是台股報價；美股如 VOO 的市值看資產摘要，或用 get_live_quotes 查即時報價）");
       if(live.marketIndex) add("加權指數", live.marketIndex);
     }
     const tx=await loadKey("trendRadarGlobalSignal",null);
@@ -10933,7 +10937,7 @@ function buildPuterSummary(d) {
   const recentShown = recent.slice(0, PUTER_SUMMARY_RECENT_TRADES);
   if (recentShown.length) {
     L.push(`最近交易（共 ${tradeCount} 筆，列最近 ${recentShown.length} 筆）：`);
-    for (const t of recentShown) L.push(`• ${t.date} ${t.action === "sell" ? "賣出" : "買進"} ${t.symbol} ${puterFmtShares(t.shares)} 股 @NT$ ${puterFmtPrice(t.price)}`);
+    for (const t of recentShown) L.push(`• ${t.date} ${t.action === "sell" ? "賣出" : "買進"} ${t.symbol} ${puterFmtShares(t.shares)} 股 @NT$ ${puterFmtPrice(t.price)}${puterKnownNumber(t.amount) != null ? `（金額 NT$ ${puterFmt(t.amount)}）` : ""}`);
   }
   const planItems = d.includeGoal ? (d.planItems || []) : [];
   if (planItems.length) L.push(`定期定額：${planItems.length} 項，每期合計 NT$ ${puterFmt(planItems.reduce((acc, x) => acc + (Number(x.amount) || 0), 0))}`);
@@ -11155,7 +11159,7 @@ function selectPuterSnippets(question, data, today) {
       const all = trades.filter((t) => t && symOk(t.symbol) && inRange(t.date)).sort(byDate);
       const list = recentList(all, PUTER_SNIPPET_LIMITS.trades);
       sections.push({ header: `【交易紀錄】（${scope}）符合 ${all.length} 筆，列出${all.length > list.length ? "最近" : ""} ${list.length} 筆${all.length > list.length ? "（其餘未列出）" : ""}：`,
-        lines: list.map((t) => `${t.date} ${t.action === "sell" ? "賣出" : "買進"} ${up(t.symbol)} ${puterFmtShares(t.shares)} 股 @NT$ ${puterFmtPrice(t.price)}${Number(t.fee) ? `，手續費 ${puterFmt(t.fee)}` : ""}${t.note ? `，備註：${puterCleanText(t.note).slice(0, 40)}` : ""}`) });
+        lines: list.map((t) => `${t.date} ${t.action === "sell" ? "賣出" : "買進"} ${up(t.symbol)} ${puterFmtShares(t.shares)} 股 @NT$ ${puterFmtPrice(t.price)}${puterKnownNumber(t.amount) != null ? `，金額 NT$ ${puterFmt(t.amount)}` : ""}${Number(t.fee) ? `，手續費 ${puterFmt(t.fee)}` : ""}${t.note ? `，備註：${puterCleanText(t.note).slice(0, 40)}` : ""}`) });
     }
   }
   if (cats.has("dividends")) {
@@ -12061,7 +12065,7 @@ function AiChatWidget({ advancedUse = true, holdings, goal, totalToday, totalInv
     const tradesLite = (trades || []).map((t) => {
       const sym = normalizeStockSymbol(t.symbol);
       tradeSymbols.add(sym);
-      return { date: t.date, symbol: sym, action: t.action, shares: t.shares, price: recordValueNtd(t, t.price), fee: recordValueNtd(t, t.fee), note: t.note };
+      return { date: t.date, symbol: sym, action: t.action, shares: t.shares, price: recordValueNtd(t, t.price), amount: Number.isFinite(Number(t.amount ?? tradeAmountNtd(t, t.fxRate))) ? Number(t.amount ?? tradeAmountNtd(t, t.fxRate)) : null, fee: recordValueNtd(t, t.fee), note: t.note };
     });
     const dividendsLite = (dividends || []).map((d) => {
       const sym = normalizeStockSymbol(d.symbol);
