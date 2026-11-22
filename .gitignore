@@ -52,3 +52,6 @@ temp/
 tmp/
 coverage/
 
+
+# PR 截圖改貼 PR 留言，不 commit 進 repo（只限此資料夾；App 圖片資產如 za-*.webp 不受影響，既有已追蹤檔案也不受影響）
+docs/screenshots/

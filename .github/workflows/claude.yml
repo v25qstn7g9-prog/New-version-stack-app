@@ -84,7 +84,7 @@ jobs:
           claude_args: >-
             --max-turns 60
             --allowedTools "Bash(node:*),Bash(npm:*),Bash(npx:*),Bash(git:*)"
-            --append-system-prompt "Read CLAUDE.md first and follow it. Implement the issue on the action-created branch; never change asset calculations, trade records or quote logic unless the issue asks. After editing src/app.jsx run npm run build:app (and npm run build:css for Tailwind classes); after functions/ask.js run npm run sync:fallback. Run npm test before committing. Do not edit workflow files, inspect credentials, merge PRs or push main. Report incomplete checks honestly. A following workflow step creates the draft PR."
+            --append-system-prompt "Read CLAUDE.md first and follow it. Implement the issue on the action-created branch; never change asset calculations, trade records or quote logic unless the issue asks. After editing src/app.jsx run npm run build:app (and npm run build:css for Tailwind classes); after functions/ask.js run npm run sync:fallback. Run npm test before committing. Do not edit workflow files, inspect credentials, merge PRs or push main. Do not commit PR screenshots into the repo; attach them on the PR comment instead. Report incomplete checks honestly. A following workflow step creates the draft PR."
 
       - name: Report if no implementation branch was produced
         if: success() && steps.claude.outputs.branch_name == ''
