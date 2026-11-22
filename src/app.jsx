@@ -591,6 +591,90 @@ const UI_EN = {
   "融資 3日增減 %": "Margin 3D Chg %",
   "券資比 %": "Short/Margin Ratio %",
   "前日全市場廣度": "Prior-Day Market Breadth",
+  // Issue #90 持股紀錄
+  "來源": "Source",
+  "當日漲跌": "Day change",
+  "記交易": "Log a trade",
+  "剛新增": "Just added",
+  "本金進度": "Principal progress",
+  "已投入本金": "Principal contributed",
+  "持倉成本（參考，不當本金）": "Holding cost (reference only, not principal)",
+  "已投入本金＝你設定的起始本金＋計畫開始後的買進減賣出，不是用持有成本回推。": "Principal contributed = the starting principal you set + buys minus sells since the plan started. It is not derived from holding cost.",
+  "儲存這筆交易": "Save this trade",
+  "只會記在你的交易紀錄裡，不會連到券商、也不會下單。": "Saved to your own trade log only. Nothing is sent to a broker and no order is placed.",
+  "股數（可小數）": "Shares (decimals OK)",
+  "台北今天": "Today, Taipei",
+  "交易稅（新台幣）": "Tax (NT$)",
+  "備註（選填）": "Note (optional)",
+  "美元匯率": "USD/TWD rate",
+  "漲跌與買賣分開看": "Price change vs. cash flow",
+  "白話說明": "Plain-language summary",
+  "查看資料來源與時間": "View data sources and times",
+  "未知": "Unknown",
+  "關閉": "Close",
+  "還差：": "Still needed: ",
+  "沒有建立持股，沿用": "No holdings set up; using the",
+  "每日紀錄的金額。": "daily record amount.",
+  "缺美元匯率": "USD/TWD rate missing",
+  "沒有報價": "no quote",
+  "，整個": "; all ",
+  "改用": " use the",
+  "每日紀錄的金額，不拿不完整的報價來加總。": "daily record amount instead of summing incomplete quotes.",
+  "，也沒有每日紀錄可用，所以是未知，不當成 0。": ", and no daily record is available, so the value is unknown (not zero).",
+  "股": "sh",
+  "不明": "unknown",
+  "原始報價時間": "Original quote time",
+  "台灣時間": "Taiwan time",
+  "美股交易日": "US session date",
+  "台灣日期": "Taiwan date",
+  "同一市場裡各檔報價日期不同": "Quotes within one market are from different days",
+  "不是最新": "Not the latest",
+  "已套用券商校準": "Broker calibration applied",
+  "美股市值只用這個匯率換算一次。過去的交易與配息用當時記下的新台幣金額，不會用今天的匯率重算。": "US market value is converted once with this rate. Past trades and dividends keep the NT$ amount recorded at the time and are never re-converted at today's rate.",
+  "當日漲跌（價格變動）": "Day change (price movement)",
+  "算法：每檔（現價 − 昨收）× 目前股數，不含今天買賣的錢。": "Method: (price − previous close) × current shares for each holding; excludes money from today's trades.",
+  "算法：現在的總市值 − ": "Method: current total value − the ",
+  "每日紀錄；這段期間沒有買賣。": "daily record; no trades in between.",
+  "今天買進付出": "Paid for buys today",
+  "今天賣出收回": "Received from sells today",
+  "買賣是現金流，不算賺賠。": "Trades are cash flow, not gains or losses.",
+  "實際入帳（你記下的）": "actually received (as you logged)",
+  "尚無紀錄": "No records yet",
+  "公告或預估的配息只是提醒，不會算進任何金額；只有你在「配息」頁記下的實際入帳（新台幣）才算。": "Announced or estimated dividends are reminders only and never counted; only amounts you logged on the Dividends tab (NT$) count.",
+  "AI 說明中…": "AI is explaining…",
+  "請 AI 用白話說明": "Ask AI to explain",
+  "AI 只能解釋上面已核對的數字，看不到其他資料，也不能新增或修改任何紀錄。": "AI can only explain the verified figures above. It sees nothing else and cannot add or change any record.",
+  "台股": "Taiwan stocks",
+  "美股": "US stocks",
+  "資料來源與時間": "Data sources and times",
+  "即時報價完整": "Live quotes complete",
+  "報價不是最新": "Quotes not the latest",
+  "部分用每日紀錄": "Partly from daily record",
+  "用最近一筆每日紀錄": "From latest daily record",
+  "尚無持股": "No holdings yet",
+  "資料不足，無法比較": "Insufficient data to compare",
+  "報價不完整，不比較": "Quotes incomplete; not compared",
+  "各檔報價日期不同，不比較": "Quote dates differ; not compared",
+  "沒有可比較的前一筆紀錄": "No earlier record to compare with",
+  "期間有買賣，漲跌不含在內": "Trades in between; change not shown",
+  "無法比較": "Cannot compare",
+  "尚未登入 AI，先顯示本機說明。": "Not signed in to AI; showing the on-device summary.",
+  "AI 的回答含有未經核對的內容，已改用本機說明。": "The AI answer contained unverified content; showing the on-device summary instead.",
+  "AI 暫時無法回答，先顯示本機說明。": "AI is unavailable; showing the on-device summary.",
+  "本金進度 vs 同日計畫": "Principal vs. plan (same day)",
+  "資產進度 vs 同日計畫": "Assets vs. plan (same day)",
+  "沒有可比較的實際資料": "No actual data to compare",
+  "資料不完整，不比較": "Data incomplete; not compared",
+  "計畫尚未開始": "Plan has not started",
+  "尚未設定計畫": "No plan set",
+  "請拉長下方「推算年限」": "Extend the projection horizon below",
+  "超過推算年限，沒有精確月數": "Beyond the horizon; no exact month count",
+  "代號格式不對": "Invalid ticker",
+  "日期不正確": "Invalid date",
+  "買賣別不正確": "Invalid side",
+  "手續費不正確": "Invalid fee",
+  "交易稅不正確": "Invalid tax",
+  "費用超過成交金額": "Fees exceed trade amount",
 };
 
 function uiText(zh) {
@@ -2449,6 +2533,41 @@ function AssetTracker() {
     }
   };
 
+  // <ledger-90> 首頁唯一的「＋記交易」：草稿放在這一層，關掉面板、切分頁再回來都還在；送出成功才清空。
+  const [quickTradeOpen, setQuickTradeOpen] = useState(false);
+  const [sourceOpen, setSourceOpen] = useState(false);
+  const [quickDraft, setQuickDraft] = useState(() => ZinfLedger.defaultTradeDraft());
+  const [quickTouched, setQuickTouched] = useState({});
+  const [highlightTradeId, setHighlightTradeId] = useState(null);
+  const quickGateRef = useRef(null);
+  if (!quickGateRef.current) quickGateRef.current = { gate: ZinfLedger.createSubmitGate(), key: uid() };
+  const openQuickTrade = () => {
+    // 重新打開時，沒碰過的欄位（例如日期）更新成台北今天；碰過的不動。
+    setQuickDraft((d) => ZinfLedger.refreshDraft(d, quickTouched, { date: todayStr(), action: "buy" }));
+    setQuickTradeOpen(true);
+  };
+  const changeQuickDraft = (key, value) => {
+    setQuickTouched((t) => (t[key] ? t : { ...t, [key]: true }));
+    setQuickDraft((d) => ({ ...d, [key]: value, ...(key === "action" && value === "buy" ? { tax: "" } : {}) }));
+  };
+  const submitQuickTrade = () => {
+    const slot = quickGateRef.current;
+    // 同一份草稿只成立一次：連點兩下、或畫面還沒更新又按一次，都不會多一筆。
+    const res = slot.gate.submit(slot.key, () => ZinfLedger.buildTrade(quickDraft, uid()));
+    if (!res.accepted) return res.duplicate;
+    const row = res.result;
+    setTrades((t) => (t.some((x) => x.id === row.id) ? t : [...t, row]));
+    ensureHoldingForTrade(row, holdings, setHoldings);
+    quickGateRef.current = { gate: slot.gate, key: uid() };
+    setQuickDraft(ZinfLedger.defaultTradeDraft());
+    setQuickTouched({});
+    setQuickTradeOpen(false);
+    setHighlightTradeId(row.id);
+    goToTab("trades");
+    return true;
+  };
+  // </ledger-90>
+
   // ---- derived ----
   const sortedDaily = useMemo(
     () => [...dailyRecords].sort((a, b) => a.date.localeCompare(b.date)),
@@ -2486,6 +2605,15 @@ function AssetTracker() {
   })();
   const dailyChange = quoteDay ? Math.round(quoteDay.change) : totalPrev != null ? totalToday - totalPrev : 0;
   const dailyChangePct = quoteDay ? quoteDay.pct : totalPrev ? (dailyChange / totalPrev) * 100 : 0;
+  // <ledger-90> Issue #90：總市值的來源／資料時間，以及「可比較」才顯示的當日漲跌（ledger-core.js，純計算、不改上面任何數字）。
+  const ledgerValuation = ZinfLedger.valuation({
+    positions: holdings.map((h) => ({ symbol: h.symbol, name: h.name, shares: holdingShareCount(h, trades) })),
+    quotes: portfolioQuotes, usQuotes: usLive?.state?.quotes || {},
+    fx: { rate: usLive?.state?.fx, asOf: usLive?.state?.fxAsOfDate, source: usLive?.state?.fxSource || null },
+    usFactor: usAssetLive.calibrationFactor, now: new Date(), holidays: { TW: readTwseHolidayCache()?.days || {} }, record: latest || null,
+  });
+  const ledgerChange = ZinfLedger.comparableChange({ valuation: ledgerValuation, quoteDay, prevRecord: yesterdayRecord, trades, today: todayStr() });
+  // </ledger-90>
 
   const tradesInvested = trades.reduce(
     (s, t) => s + (t.action === "buy" ? t.amount : -t.amount), 0
@@ -2668,15 +2796,26 @@ function AssetTracker() {
     () => findCrossing(schedule, "assets", goal.targetAmount), [schedule, goal.targetAmount]
   );
   const goalDate = goalCrossing && !goalCrossing.beyond
-    ? addMonths(planSchedule.startDate, goalCrossing.index) : null;
+    ? ZinfLedger.scheduleLabel(planSchedule.startDate, Math.round(goalCrossing.index)) : null;
   const elapsedMonths = monthsBetween(planSchedule.startDate, latest ? latest.date : todayStr());
   // 分別看「成本進度」「資產進度」各自比「計畫已執行的月數」超前或落後幾個月，
   // 而不是拿這兩個基準點數字不同的東西互相相減（那樣算出來的正負號常常會誤導人）。
   // 正值＝實際數字比排程預期的還早達到（領先），負值＝比預期晚達到（落後）。
-  const costLeadMonths = (principalCrossing && elapsedMonths != null)
+  // Issue #90：超出推算年限時沒有精確的領先月數（以前會用最後一格硬算）。
+  const costLeadMonths = (principalCrossing && !principalCrossing.beyond && elapsedMonths != null)
     ? principalCrossing.index - elapsedMonths : null;
-  const assetLeadMonths = (assetCrossing && elapsedMonths != null)
+  const assetLeadMonths = (assetCrossing && !assetCrossing.beyond && elapsedMonths != null)
     ? assetCrossing.index - elapsedMonths : null;
+  // <ledger-90> 計畫進度：實際與計畫用同一天；即時估值完整才用今天，否則用最近一筆每日紀錄的日期與金額。
+  const progressActual = ledgerValuation.complete
+    ? { date: todayStr(), value: totalToday, complete: true }
+    : latest ? { date: latest.date, value: Number(latest.twValue || 0) + Number(latest.usValue || 0), complete: true } : null;
+  const assetProgress = ZinfLedger.progressCompare({ schedule, startDate: planSchedule.startDate, key: "assets", actual: progressActual });
+  // 已投入本金＝使用者設定的起始本金＋計畫開始後的買賣現金流；不拿持有成本當本金。
+  const contributed = ZinfLedger.contributedPrincipal({ initialPrincipal: planSchedule.initialPrincipal ?? planSchedule.initialCapital, startDate: planSchedule.startDate, trades, asOf: progressActual?.date || todayStr() });
+  const principalProgress = ZinfLedger.progressCompare({ schedule, startDate: planSchedule.startDate, key: "principal",
+    actual: progressActual && contributed.ntd != null ? { date: progressActual.date, value: contributed.ntd, complete: true } : null });
+  // </ledger-90>
 
   // Milestone celebration: show a one-time toast the first time total assets
   // cross 50% / 80% / 100% of the goal. celebratedMilestones is persisted so
@@ -3252,6 +3391,7 @@ function AssetTracker() {
               case "dashboard":
                 return (
                   <Dashboard
+                    ledger={ledgerValuation} ledgerChange={ledgerChange} onQuickTrade={openQuickTrade} onOpenSource={() => setSourceOpen(true)}
                     totalToday={totalToday} currentTwValue={currentTwValue} currentUsValue={currentUsValue}
                     dailyChange={dailyChange} dailyChangePct={dailyChangePct}
                     capitalGain={capitalGain} totalDividends={totalDividends} totalReturn={totalReturn}
@@ -3300,7 +3440,7 @@ function AssetTracker() {
                 );
               case "trades":
                 return (
-                  <TradesPanel trades={trades} setTrades={setTrades} holdings={showUsFields ? holdings : holdings.filter((h) => isTaiwanSymbol(h.symbol))} setHoldings={setHoldings} usLive={usAssetLive}
+                  <TradesPanel highlightId={highlightTradeId} onHighlightDone={() => setHighlightTradeId(null)} trades={trades} setTrades={setTrades} holdings={showUsFields ? holdings : holdings.filter((h) => isTaiwanSymbol(h.symbol))} setHoldings={setHoldings} usLive={usAssetLive}
                     costBasis={costBasis} setCostBasis={setCostBasis} accumulatedCost={accumulatedCost} costTrack={costTrack} twCost={currentTwCost} usCost={currentUsCost}
                   />
                 );
@@ -3324,6 +3464,7 @@ function AssetTracker() {
                     totalInvested={totalInvested} totalToday={totalToday}
                     principalCrossing={principalCrossing} assetCrossing={assetCrossing}
                     elapsedMonths={elapsedMonths} costLeadMonths={costLeadMonths} assetLeadMonths={assetLeadMonths}
+                    assetProgress={assetProgress} principalProgress={principalProgress} contributed={contributed}
                   />
                 );
               default:
@@ -3411,6 +3552,14 @@ function AssetTracker() {
           elapsedMonths, costLeadMonths, assetLeadMonths, startingCost: costTrack.startingCost,
         }} />
 
+      {quickTradeOpen && (
+        <QuickTradeSheet draft={quickDraft} touched={quickTouched} onChange={changeQuickDraft} onSubmit={submitQuickTrade}
+          onClose={() => setQuickTradeOpen(false)} holdings={showUsFields ? holdings : holdings.filter((h) => isTaiwanSymbol(h.symbol))} />
+      )}
+      {sourceOpen && (
+        <SourceDrawer valuation={ledgerValuation} change={ledgerChange} totalToday={totalToday} dailyChange={dailyChange} dailyChangePct={dailyChangePct}
+          trades={trades} dividends={dividends} showUsFields={showUsFields} onClose={() => setSourceOpen(false)} />
+      )}
       <UndoToast />
       <TabBar tabs={visibleTabs} tab={tab} setTab={goToTab} rootRef={tabBarRef} showEnglish={showEnglish} />
     </div>
@@ -4239,7 +4388,8 @@ function mergeUsQuoteSnapshot(previous, incoming, symbols) {
   const freshFx = Number(incoming?.USDTWD?.price);
   if (!(freshFx > 0)) failed.push("USD/TWD");
   return { quotes, fx: freshFx > 0 ? freshFx : previous?.fx || null,
-    fxAsOfDate: freshFx > 0 ? incoming?.USDTWD?.asOfDate || null : previous?.fxAsOfDate || null, failed };
+    fxAsOfDate: freshFx > 0 ? incoming?.USDTWD?.asOfDate || null : previous?.fxAsOfDate || null,
+    fxSource: freshFx > 0 ? incoming?.USDTWD?.source || null : previous?.fxSource || null, failed };
 }
 
 function usSnapshotCanRecord(holdings, snapshot, now = new Date()) {
@@ -7126,7 +7276,7 @@ function FirstRunGuide({ onAddHolding, onOpenBackup }) {
 
 function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, dailyChangePct, capitalGain, totalDividends,
   totalReturn, totalReturnPct, twTotalReturn, twTotalReturnPct, usTotalReturn, usTotalReturnPct, hasUsAssets, showUsFields = false, showGoal = false,
-  highPoint, drawdown, ytdGain, ytdPct, chartData, goal, goalDate, totalInvested, holdings,
+  highPoint, drawdown, ytdGain, ytdPct, chartData, goal, goalDate, totalInvested, holdings, ledger = null, ledgerChange = null, onQuickTrade, onOpenSource,
   dailyRecords, dividends, yesterdayTwValue, yesterdayUsValue, onFillDailyTw, onFillDailyUs, usHoldings = [], usLive, onGoUsSettings, onGoDaily, firstRun = false, firstRunAlert = null, onAddHolding, onOpenBackup }) {
   const up = dailyChange >= 0;
   // dailyChange：交易日是每檔「(現價 − 昨收) × 股數」的加總（App 的 quoteDay，和下面每檔的今日損益加起來一樣），標「今日」；
@@ -7171,13 +7321,30 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
         </div>
         <div className="forma-asset-total text-3xl font-black mono mt-1"><AnimatedNumber value={totalToday} prefix="NT$ " /></div>
         {/* 主數字下方只放兩項次資訊：今日漲跌、累積報酬；台股／美股拆分（只在開啟美股功能時顯示）移到其後，數值不變。 */}
-        <div className="forma-hero-change inline-flex items-center gap-1 mt-1.5 text-xs mono rounded-full px-2 py-0.5"
+        {/* Issue #90：總市值下面直接寫「資料時間・來源」，點了開來源抽屜。 */}
+        {ledger && onOpenSource && (
+          <button type="button" onClick={onOpenSource} className="forma-ledger-asof" data-ledger-asof data-ledger-status={ledger.status}
+            aria-label={uiText("查看資料來源與時間")}>
+            <span className={`forma-ledger-dot is-${ledger.status}`} aria-hidden="true" />
+            <span className="forma-ledger-asof-text">{ZinfLedger.asOfLine(ledger)}</span>
+            <span className="forma-ledger-asof-more"><UiLabel zh="來源" inline /> ›</span>
+          </button>
+        )}
+        {/* 當日漲跌只在「可比較」時顯示（同一批持股、完整報價）；其餘顯示原因，不硬算。 */}
+        {ledgerChange && !ledgerChange.comparable ? (
+          <div className="forma-hero-change inline-flex items-center gap-1 mt-1.5 text-xs rounded-full px-2 py-0.5" data-ledger-change="not-comparable"
+            style={{ color: COLORS.sub, background: "transparent" }}>
+            <UiLabel zh="當日漲跌" inline /> —（{uiText(ZinfLedger.CHANGE_REASON[ledgerChange.reason] || "無法比較")}）
+          </div>
+        ) : (
+        <div className="forma-hero-change inline-flex items-center gap-1 mt-1.5 text-xs mono rounded-full px-2 py-0.5" data-ledger-change="comparable"
           style={{ color: up ? COLORS.gain : COLORS.loss, background: "transparent" }}>
           {up ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
           {UI_SHOW_ENGLISH
             ? <>{pf(dailyChangePct)} NT$ {nf(dailyChange)} {changeDateLabel ? `vs ${changeDateLabel}` : "Today"}</>
             : <>NT$ {nf(dailyChange)}（{pf(dailyChangePct)}）{changeDateLabel ? `較 ${changeDateLabel}` : "今日"}</>}
         </div>
+        )}
         {Number.isFinite(Number(totalReturn)) && (
           <div className="mt-1.5 text-[11px] mono" style={{ color: COLORS.sub }}>
             <UiLabel zh="累積報酬" inline /> <span style={{ color: totalReturn >= 0 ? COLORS.gain : COLORS.loss }}>{totalReturn >= 0 ? "+" : ""}NT$ {nf(totalReturn)}（{pf(totalReturnPct)}）</span>
@@ -7189,6 +7356,13 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
             <span><UiLabel zh="台股資產" inline /> <span style={{ color: COLORS.text }}>NT$ {nf(currentTwValue)}</span></span>
             <span><UiLabel zh="美股資產" inline /> <span style={{ color: COLORS.text }}>NT$ {nf(currentUsValue)}</span>{usLive?.brokerCalibrationActive && <span className="ml-1" style={{ color: COLORS.gold }}>· <UiLabel zh="已自動校準" inline /></span>}</span>
           </div>
+        )}
+
+        {/* Issue #90：首頁唯一的主要動作。 */}
+        {onQuickTrade && !firstRun && (
+          <button type="button" onClick={onQuickTrade} className="forma-ledger-cta forma-tap" data-quick-trade-btn>
+            <Plus size={18} /> <UiLabel zh="記交易" inline />
+          </button>
         )}
 
         {/* 目標進度併入總資產 Hero：資產數字 → 目標 → 曲線，同一張卡一次看完。 */}
@@ -8424,7 +8598,18 @@ function HoldingsPanel({ trades = [], holdings, allHoldings = holdings, setHoldi
 }
 
 // ---------------- Trades Panel ----------------
-function TradesPanel({ trades, setTrades, holdings, setHoldings, usLive, costBasis, setCostBasis, accumulatedCost, costTrack, twCost = 0, usCost = 0, onFillDailyCost }) {
+// 買進一檔還沒建檔的股票時自動建一筆持股（期初 0 股），並查名稱。交易紀錄頁與首頁「記交易」共用。
+function ensureHoldingForTrade(row, holdings, setHoldings) {
+  const symbol = normalizeStockSymbol(row.symbol);
+  if (row.action !== "buy" || !setHoldings || holdings.some((h) => normalizeStockSymbol(h.symbol) === symbol)) return;
+  const id = uid();
+  setHoldings((hs) => hs.some((h) => normalizeStockSymbol(h.symbol) === symbol) ? hs : [...hs, { id, symbol, name: "", initialShares: 0, target2035: 0 }]);
+  fetchWithTimeout(`/stock-name?symbol=${encodeURIComponent(symbol)}`, { cache: "no-store" }, 6000)
+    .then((res) => res.ok ? res.json() : null)
+    .then((data) => { if (data?.found && data.name) setHoldings((hs) => hs.map((h) => h.id === id && !h.name ? { ...h, name: data.name } : h)); })
+    .catch(() => {});
+}
+function TradesPanel({ highlightId = null, onHighlightDone, trades, setTrades, holdings, setHoldings, usLive, costBasis, setCostBasis, accumulatedCost, costTrack, twCost = 0, usCost = 0, onFillDailyCost }) {
   const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
   const [form, setForm] = useState({
     date: todayStr(), symbol: "", action: "buy", shares: "", price: "", fee: "", tax: "", note: "", fxRate: "",
@@ -8432,8 +8617,26 @@ function TradesPanel({ trades, setTrades, holdings, setHoldings, usLive, costBas
   const tradeIsUs = isStockSymbol(form.symbol) && !isTaiwanSymbol(form.symbol);
   const tradeFx = 1; // 複委託成交價、手續費與稅額均由券商台幣明細輸入。
   const [search, setSearch] = useState("");
+  // Issue #90：同一份表單內容只成立一次（連點不會多一筆）。
+  const addGateRef = useRef(null);
+  if (!addGateRef.current) addGateRef.current = { gate: ZinfLedger.createSubmitGate(), key: uid() };
+  // 首頁「記交易」送出後跳到這一頁：用 id 找到剛剛那一筆（同一天有好幾筆也不會認錯），捲到畫面中並標示幾秒。
+  const [flashId, setFlashId] = useState(null);
+  useEffect(() => {
+    if (!highlightId || !trades.some((t) => t.id === highlightId)) return undefined;
+    setSearch("");
+    setFlashId(highlightId);
+    const raf = requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-trade-id="${highlightId}"]`);
+      try { el?.scrollIntoView({ block: "center", behavior: prefersReducedMotion() ? "auto" : "smooth" }); } catch (_) {}
+    });
+    const timer = setTimeout(() => { setFlashId(null); onHighlightDone?.(); }, 4000);
+    return () => { cancelAnimationFrame(raf); clearTimeout(timer); };
+  }, [highlightId, trades?.length]);
   const add = () => {
     if (!isStockSymbol(form.symbol) || !(Number(form.shares) > 0) || !(Number(form.price) > 0)) return;
+    if (!addGateRef.current.gate.submit(addGateRef.current.key, () => true).accepted) return;
+    addGateRef.current = { gate: addGateRef.current.gate, key: uid() };
     const shares = Number(form.shares), price = Number(form.price);
     const fee = Number(form.fee || 0), tax = Number(form.tax || 0);
     const nativeAmount = form.action === "buy" ? shares * price + fee : shares * price - fee - tax;
@@ -8567,9 +8770,10 @@ function TradesPanel({ trades, setTrades, holdings, setHoldings, usLive, costBas
         )}
         <div className="space-y-2 max-h-96 overflow-y-auto">
           {filtered.map((t) => (
-            <Row key={t.id} onDelete={() => remove(t.id, `${t.date} ${t.symbol}`)}>
+            <Row key={t.id} tradeId={t.id} flash={flashId === t.id} onDelete={() => remove(t.id, `${t.date} ${t.symbol}`)}>
               <div className="flex-1">
                 <div className="text-sm mono">
+                  {flashId === t.id && <span className="forma-ledger-new" data-trade-new><UiLabel zh="剛新增" inline /></span>}
                   {t.date} <span style={{ color: COLORS.text, fontWeight: 700 }}>
                     {uiText(t.action === "buy" ? "買" : "賣")}
                   </span> {t.symbol}
@@ -8911,6 +9115,10 @@ function DividendReport({ dividends, holdings }) {
 function DividendsPanel({ dividends, setDividends, holdings, usLive }) {
   const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
   const [form, setForm] = useState({ date: todayStr(), symbol: "", shares: "", perShare: "", fxRate: "", withholdingTax: "" });
+  // Issue #90：公告是非同步查回來的；使用者自己改過的欄位（日期、每股配息）不會被晚到的公告蓋掉，也只認最新一次查詢。
+  const dividendTouchedRef = useRef({});
+  const dividendSeqRef = useRef(0);
+  const touchDividend = (key, value) => { dividendTouchedRef.current = { ...dividendTouchedRef.current, [key]: true }; setForm((f) => ({ ...f, [key]: value })); };
   const dividendIsUs = isStockSymbol(form.symbol) && !isTaiwanSymbol(form.symbol);
   const dividendFx = 1; // 複委託配息與預扣稅一律以台幣入帳明細記錄。
   // Typing/selecting a symbol that matches a holding auto-fills 股數 with
@@ -8920,10 +9128,11 @@ function DividendsPanel({ dividends, setDividends, holdings, usLive }) {
   const handleSymbolChange = (value) => {
     value = normalizeStockSymbol(value);
     const match = holdings.find((h) => h.symbol === value);
+    if (value !== form.symbol) dividendTouchedRef.current = { shares: dividendTouchedRef.current.shares }; // 換代號：公告欄位重新可帶入
     setForm((f) => ({
       ...f,
       symbol: value,
-      shares: match ? String(match.current) : f.shares,
+      shares: match && !dividendTouchedRef.current.shares ? String(match.current) : f.shares,
     }));
   };
 
@@ -8943,6 +9152,7 @@ function DividendsPanel({ dividends, setDividends, holdings, usLive }) {
       return;
     }
     let cancelled = false;
+    const seq = ++dividendSeqRef.current;
     setScheduleStatus("loading");
     const timer = setTimeout(async () => {
       try {
@@ -8955,14 +9165,10 @@ function DividendsPanel({ dividends, setDividends, holdings, usLive }) {
         if (!data.found) { setScheduleStatus("not-found"); setScheduleInfo(null); return; }
         setScheduleStatus("found");
         setScheduleInfo(data);
-        setForm((f) => {
-          if (f.symbol.trim().toUpperCase() !== symbol) return f; // 使用者已經改打別的代號了
-          return {
-            ...f,
-            date: data.date || f.date,
-            perShare: (data.cashDividend != null) ? String(data.cashDividend) : ((data.estimatedDividend != null) ? String(data.estimatedDividend) : f.perShare),
-          };
-        });
+        setForm((f) => ZinfLedger.applyPrefill(f, dividendTouchedRef.current, {
+          date: data.date || null,
+          perShare: (data.cashDividend != null) ? String(data.cashDividend) : ((data.estimatedDividend != null) ? String(data.estimatedDividend) : null),
+        }, { symbol, seq, latestSeq: dividendSeqRef.current }));
       } catch (e) {
         if (!cancelled) { setScheduleStatus("error"); setScheduleInfo(null); }
       }
@@ -8993,6 +9199,7 @@ function DividendsPanel({ dividends, setDividends, holdings, usLive }) {
       id: uid(), date: form.date, symbol: normalizeStockSymbol(form.symbol),
       shares: Number(form.shares), perShare: Number(form.perShare), amount, nativeAmount, withholdingTax: Number(form.withholdingTax || 0), currency: "TWD", fxRate: dividendFx,
     }]);
+    dividendTouchedRef.current = {};
     setForm({ date: todayStr(), symbol: "", shares: "", perShare: "", fxRate: "", withholdingTax: "" });
   };
   const remove = (id, label) => deleteWithUndo(setDividends, id, label);
@@ -9031,7 +9238,7 @@ function DividendsPanel({ dividends, setDividends, holdings, usLive }) {
         {/* 提示文字放在格子外面：表單格子是「底部對齊」，提示放在代號欄裡面會把同一排的除息日整個頂下去。 */}
         <div className="grid grid-cols-2 gap-2">
           <Field label="除息日"><input type="date" value={form.date}
-            onChange={(e) => setForm({ ...form, date: e.target.value })} className="input" /></Field>
+            onChange={(e) => touchDividend("date", e.target.value)} className="input" /></Field>
           <Field label="代號">
             <input value={form.symbol} onChange={(e) => handleSymbolChange(e.target.value)}
               placeholder="0056 / AAPL" list="symbols2" className="input" />
@@ -9043,13 +9250,13 @@ function DividendsPanel({ dividends, setDividends, holdings, usLive }) {
         )}
         <div className="grid grid-cols-2 gap-2 mt-2">
           <Field label="股數（有持股自動帶入）"><input type="number" value={form.shares}
-            onChange={(e) => setForm({ ...form, shares: e.target.value })} className="input" /></Field>
+            onChange={(e) => touchDividend("shares", e.target.value)} className="input" /></Field>
           <Field label={
             scheduleStatus === "found" && scheduleInfo?.cashDividend != null
               ? "每股配息（已用最新公告帶入，請確認後再送出）"
               : "每股配息（新台幣）"
           }><input type="number" step="0.01" value={form.perShare}
-            onChange={(e) => setForm({ ...form, perShare: e.target.value })} className="input" /></Field>
+            onChange={(e) => touchDividend("perShare", e.target.value)} className="input" /></Field>
         </div>
         {dividendIsUs && <div className="mt-2"><Field label="預扣稅（新台幣，選填）"><input type="number" step="any" value={form.withholdingTax} onChange={(e) => setForm({ ...form, withholdingTax: e.target.value })} className="input" /></Field></div>}
         <MissingHint missing={[!form.symbol && "代號", !form.shares && "股數", !form.perShare && "每股配息"].filter(Boolean)} />
@@ -9334,23 +9541,51 @@ function PlanPanel({ advanced = false, setAdvancedMode, planItems, setPlanItems,
 
 // ---------------- Progress Panel ----------------
 function ProgressPanel({ planSchedule, setPlanSchedule, planTotal, schedule, totalInvested, totalToday,
-  principalCrossing, assetCrossing, elapsedMonths, costLeadMonths, assetLeadMonths }) {
+  principalCrossing, assetCrossing, elapsedMonths, costLeadMonths, assetLeadMonths, assetProgress = null, principalProgress = null, contributed = null }) {
   const M = (en, zh) => UI_SHOW_ENGLISH ? en : zh;
-
-  const principalDate = principalCrossing ? addMonths(planSchedule.startDate, principalCrossing.index) : "—";
-  const assetDate = assetCrossing ? addMonths(planSchedule.startDate, assetCrossing.index) : "—";
-  const principalBeyond = principalCrossing?.beyond;
-  const assetBeyond = assetCrossing?.beyond;
+  // Issue #90：月份一律從原始開始日推（1/31 → 2/28 → 3/31）；實際與計畫用同一天比；超出年限不給精確月數；本金不用持有成本代替。
+  const label = (i) => ZinfLedger.scheduleLabel(planSchedule.startDate, Math.round(i));
+  const principalCross = contributed?.ntd != null ? ZinfLedger.crossing(schedule, "principal", contributed.ntd) : null;
+  const assetCross = assetProgress?.status !== "unknown" && assetProgress?.date ? ZinfLedger.crossing(schedule, "assets", assetProgress.planValue + assetProgress.diff) : null;
+  const principalDate = principalCross ? label(principalCross.index) : "—";
+  const assetDate = assetCross ? label(assetCross.index) : "—";
+  const principalBeyond = principalCross?.beyond;
+  const assetBeyond = assetCross?.beyond;
+  const currentIndex = assetProgress?.months != null ? Math.floor(assetProgress.months) : null;
+  const leadCard = (title, pr, aheadZh, behindZh) => {
+    const exact = pr && pr.lead != null;
+    const text = !pr || pr.status === "unknown" ? "—"
+      : pr.status === "beyond_horizon" ? M("Past horizon", "已超出推算年限")
+      : pr.status === "ahead_beyond_horizon" ? M(`> +${pr.leadAtLeast.toFixed(1)} mo`, `領先超過 ${pr.leadAtLeast.toFixed(1)} 個月`)
+      : M(`${pr.lead >= 0 ? "+" : ""}${pr.lead.toFixed(1)} mo`, `${pr.lead >= 0 ? "+" : ""}${pr.lead.toFixed(1)} 個月`);
+    const note = !pr || pr.status === "unknown"
+      ? ({ no_date: "沒有可比較的實際資料", no_value: "沒有可比較的實際資料", incomplete: "資料不完整，不比較", before_start: "計畫尚未開始", no_plan: "尚未設定計畫" })[pr?.reason] || "沒有可比較的實際資料"
+      : pr.status === "beyond_horizon" ? "請拉長下方「推算年限」"
+      : pr.status === "ahead_beyond_horizon" ? "超過推算年限，沒有精確月數"
+      : pr.lead >= 0 ? aheadZh : behindZh;
+    return (
+      <div className="rounded-xl p-3 flex flex-col justify-between" data-progress-card={pr?.status || "unknown"} style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
+        <span className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh={title} /></span>
+        <span className={`${exact ? "text-lg" : "text-sm"} font-bold mono mt-1`}
+          style={{ color: !exact ? COLORS.text : (pr.lead >= 0 ? COLORS.gain : COLORS.loss) }}>{text}</span>
+        <span className="text-[10px] mt-1" style={{ color: COLORS.sub }}><UiLabel zh={note} />
+          {pr?.planValue != null && <span className="mono block">{M("Plan that day", "同日計畫")} NT$ {nf(Math.round(pr.planValue))}</span>}
+        </span>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-2">
       <Panel title="計畫進度追蹤">
         <div className="grid grid-cols-2 gap-3">
           <div className="rounded-xl p-3" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
-            <div className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="成本進度" /></div>
+            <div className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="本金進度" /></div>
             <div className="text-lg font-bold mono mt-1">{principalDate}{principalBeyond ? "+" : ""}</div>
             <div className="text-[11px] mono mt-1" style={{ color: COLORS.sub }}>
-              <div><UiLabel zh="目前持倉成本" inline /></div>
+              <div><UiLabel zh="已投入本金" inline /></div>
+              <div className="whitespace-nowrap" data-contributed-principal>{contributed?.ntd != null ? `NT$ ${nf(contributed.ntd)}` : uiText("未知")}</div>
+              <div className="mt-1" style={{ fontFamily: "inherit" }}><UiLabel zh="持倉成本（參考，不當本金）" inline /></div>
               <div className="whitespace-nowrap">NT$ {nf(totalInvested)}</div>
             </div>
           </div>
@@ -9358,36 +9593,23 @@ function ProgressPanel({ planSchedule, setPlanSchedule, planTotal, schedule, tot
             <div className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="資產進度" /></div>
             <div className="text-lg font-bold mono mt-1">{assetDate}{assetBeyond ? "+" : ""}</div>
             <div className="text-[11px] mono mt-1" style={{ color: COLORS.sub }}>
-              <div><UiLabel zh="實際資產" inline /></div>
-              <div className="whitespace-nowrap">NT$ {nf(totalToday)}</div>
+              <div>{assetProgress?.date ? M(`Actual on ${assetProgress.date}`, `${assetProgress.date} 實際資產`) : <UiLabel zh="實際資產" inline />}</div>
+              <div className="whitespace-nowrap">{assetProgress?.date && assetProgress.planValue != null ? `NT$ ${nf(Math.round(assetProgress.planValue + assetProgress.diff))}` : assetProgress?.status === "beyond_horizon" || !assetProgress ? `NT$ ${nf(totalToday)}` : uiText("未知")}</div>
             </div>
           </div>
         </div>
 
         <div className="mt-3 grid grid-cols-2 gap-3">
-          <div className="rounded-xl p-3 flex flex-col justify-between" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
-            <span className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="成本進度 vs 已執行月數" /></span>
-            <span className="text-lg font-bold mono mt-1"
-              style={{ color: costLeadMonths == null ? COLORS.text : (costLeadMonths >= 0 ? COLORS.gain : COLORS.loss) }}>
-              {costLeadMonths == null ? "—" : M(`${costLeadMonths >= 0 ? "+" : ""}${costLeadMonths.toFixed(1)} mo`, `${costLeadMonths >= 0 ? "+" : ""}${costLeadMonths.toFixed(1)} 個月`)}
-            </span>
-            <span className="text-[10px] mt-1" style={{ color: COLORS.sub }}>
-              {costLeadMonths == null ? "" : <UiLabel zh={costLeadMonths >= 0 ? "投入節奏領先計畫" : "投入節奏落後計畫"} />}
-            </span>
-          </div>
-          <div className="rounded-xl p-3 flex flex-col justify-between" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
-            <span className="text-[11px]" style={{ color: COLORS.sub }}><UiLabel zh="資產進度 vs 已執行月數" /></span>
-            <span className="text-lg font-bold mono mt-1"
-              style={{ color: assetLeadMonths == null ? COLORS.text : (assetLeadMonths >= 0 ? COLORS.gain : COLORS.loss) }}>
-              {assetLeadMonths == null ? "—" : M(`${assetLeadMonths >= 0 ? "+" : ""}${assetLeadMonths.toFixed(1)} mo`, `${assetLeadMonths >= 0 ? "+" : ""}${assetLeadMonths.toFixed(1)} 個月`)}
-            </span>
-            <span className="text-[10px] mt-1" style={{ color: COLORS.sub }}>
-              {assetLeadMonths == null ? "" : <UiLabel zh={assetLeadMonths >= 0 ? "資產成長領先計畫" : "資產成長落後計畫"} />}
-            </span>
-          </div>
+          {leadCard("本金進度 vs 同日計畫", principalProgress, "投入節奏領先計畫", "投入節奏落後計畫")}
+          {leadCard("資產進度 vs 同日計畫", assetProgress, "資產成長領先計畫", "資產成長落後計畫")}
         </div>
         <div className="mt-2 text-[11px] mono" style={{ color: COLORS.sub }}>
-          {M(`Plan has been running ~${elapsedMonths.toFixed(1)} months (since ${planSchedule.startDate})`, `計畫已執行約 ${elapsedMonths.toFixed(1)} 個月（自 ${planSchedule.startDate}）`)}
+          {assetProgress?.months != null
+            ? M(`Plan has been running ~${assetProgress.months.toFixed(1)} months (since ${planSchedule.startDate}, as of ${assetProgress.date})`, `計畫已執行約 ${assetProgress.months.toFixed(1)} 個月（自 ${planSchedule.startDate}，算到 ${assetProgress.date}）`)
+            : M(`Plan starts ${planSchedule.startDate}`, `計畫開始日 ${planSchedule.startDate}`)}
+        </div>
+        <div className="mt-1 text-[11px]" style={{ color: COLORS.sub }}>
+          <UiLabel zh="已投入本金＝你設定的起始本金＋計畫開始後的買進減賣出，不是用持有成本回推。" />
         </div>
         {(principalBeyond || assetBeyond) && (
           <div className="mt-2 text-[11px]" style={{ color: COLORS.gold }}>
@@ -9437,7 +9659,7 @@ function ProgressPanel({ planSchedule, setPlanSchedule, planTotal, schedule, tot
         </div>
         <div className="space-y-1.5 max-h-96 overflow-y-auto">
           {schedule.map((row) => {
-            const isCurrent = Math.round(elapsedMonths) === row.index;
+            const isCurrent = currentIndex === row.index;
             const gap = row.assets - row.principal;
             return (
               <div key={row.index}
@@ -9447,7 +9669,7 @@ function ProgressPanel({ planSchedule, setPlanSchedule, planTotal, schedule, tot
                   border: `1px solid ${isCurrent ? COLORS.gold : COLORS.panelBorder}`,
                 }}>
                 <div style={{ color: isCurrent ? COLORS.gold : COLORS.text }}>
-                  {row.index === 0 ? <UiLabel zh="起點" /> : addMonths(planSchedule.startDate, row.index)}
+                  {row.index === 0 ? <UiLabel zh="起點" /> : ZinfLedger.scheduleLabel(planSchedule.startDate, row.index)}
                   {isCurrent && <span className="ml-1 text-[9px]" style={{ color: COLORS.gold }}><UiLabel zh="●目前" /></span>}
                 </div>
                 <div className="text-right" style={{ color: COLORS.sub }}>{nf(row.principal)}</div>
@@ -10058,9 +10280,9 @@ function UndoToast() {
   );
 }
 // </undo-delete>
-function Row({ children, onDelete }) {
+function Row({ children, onDelete, tradeId = undefined, flash = false }) {
   return (
-    <div className="premium-row flex items-center gap-2 rounded-xl p-2.5" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
+    <div className={`premium-row flex items-center gap-2 rounded-xl p-2.5${flash ? " forma-ledger-flash" : ""}`} data-trade-id={tradeId} style={{ background: COLORS.bg, border: `1px solid ${flash ? COLORS.gold : COLORS.panelBorder}` }}>
       {children}
       <button className="premium-row-delete" onClick={onDelete} style={{ color: COLORS.sub }} aria-label={uiText("刪除")}><TrashIcon size={14} /></button>
     </div>
@@ -10069,6 +10291,207 @@ function Row({ children, onDelete }) {
 function Empty({ text }) {
   return <div className="premium-empty text-center text-xs py-6" style={{ color: COLORS.sub }}><UiLabel zh={text} /></div>;
 }
+
+
+// <ledger-90-ui>
+// Issue #90：底部面板外框（記交易、資料來源共用）。關閉：按叉、點外面、按 Esc；開啟時鎖住背景捲動。
+function LedgerSheet({ title, titleId, onClose, children, footer = null }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    try { ref.current?.focus({ preventScroll: true }); } catch (_) {}
+    return () => { document.body.style.overflow = prev; document.removeEventListener("keydown", onKey); };
+  }, []);
+  return portalSheet(
+    <div className="forma-ledger-scrim" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div ref={ref} className="forma-ledger-sheet" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
+        <div className="forma-ledger-sheet-h">
+          <h2 id={titleId}><UiLabel zh={title} inline /></h2>
+          <button type="button" className="forma-ledger-x" onClick={onClose} aria-label={uiText("關閉")}><X size={20} /></button>
+        </div>
+        <div className="forma-ledger-sheet-b">{children}</div>
+        {footer && <div className="forma-ledger-sheet-f">{footer}</div>}
+      </div>
+    </div>
+  );
+}
+
+// 記交易：預設台北今天＋買進；股數可小數；日期、手續費、交易稅都能改。只寫進你自己的交易紀錄，不會下單。
+function QuickTradeSheet({ draft, touched, onChange, onSubmit, onClose, holdings }) {
+  const check = ZinfLedger.validateTrade(draft);
+  const [busy, setBusy] = useState(false);
+  const submit = () => { if (busy || !check.ok) return; setBusy(true); if (!onSubmit()) setBusy(false); };
+  const set = (key) => (e) => onChange(key, e.target.value);
+  const seg = (value, zh) => (
+    <button type="button" role="radio" aria-checked={draft.action === value} data-action={value}
+      className={`forma-ledger-seg-btn${draft.action === value ? " is-on" : ""}`} onClick={() => onChange("action", value)}><UiLabel zh={zh} inline /></button>
+  );
+  return (
+    <LedgerSheet title="記交易" titleId="forma-quick-trade-title" onClose={onClose}
+      footer={<>
+        {check.ok && (
+          <div className="forma-ledger-sum" data-quick-trade-amount>
+            <span><UiLabel zh={draft.action === "buy" ? "這筆買進金額" : "這筆賣出入帳"} inline /></span>
+            <b>NT$ {nf(Math.round(check.fields.amount))}</b>
+          </div>
+        )}
+        {!check.ok && (check.missing.length > 0 || check.errors.length > 0) && (
+          <div className="forma-ledger-hint" aria-live="polite">
+            {check.missing.length > 0 && <>{uiText("還差：")}{check.missing.map((m) => uiText(m)).join("、")}</>}
+            {check.errors.length > 0 && <span>{check.missing.length > 0 ? "；" : ""}{check.errors.map((m) => uiText(m)).join("、")}</span>}
+          </div>
+        )}
+        <button type="button" className="forma-ledger-primary" data-quick-trade-submit disabled={!check.ok || busy} onClick={submit}>
+          <UiLabel zh="儲存這筆交易" inline />
+        </button>
+        <div className="forma-ledger-foot-note"><UiLabel zh="只會記在你的交易紀錄裡，不會連到券商、也不會下單。" inline /></div>
+      </>}>
+      <div className="forma-ledger-seg" role="radiogroup" aria-label={uiText("買賣")}>
+        {seg("buy", "買進")}{seg("sell", "賣出")}
+      </div>
+      <div className="forma-ledger-form">
+        <label className="forma-ledger-field is-wide"><span><UiLabel zh="代號" inline /></span>
+          <input value={draft.symbol} onChange={(e) => onChange("symbol", normalizeStockSymbol(e.target.value))} placeholder="0050 / AAPL" list="forma-quick-symbols"
+            autoCapitalize="characters" autoCorrect="off" spellCheck={false} data-quick-field="symbol" />
+          <datalist id="forma-quick-symbols">{holdings.map((h) => <option key={h.id} value={h.symbol}>{h.name}</option>)}</datalist>
+        </label>
+        <label className="forma-ledger-field"><span><UiLabel zh="股數（可小數）" inline /></span>
+          <input type="text" inputMode="decimal" value={draft.shares} onChange={set("shares")} placeholder="例如 1000 或 0.5" data-quick-field="shares" /></label>
+        <label className="forma-ledger-field"><span><UiLabel zh="成交價（新台幣）" inline /></span>
+          <input type="text" inputMode="decimal" value={draft.price} onChange={set("price")} placeholder="例如 57.8" data-quick-field="price" /></label>
+        <label className="forma-ledger-field"><span><UiLabel zh="日期" inline />{!touched.date && <em><UiLabel zh="台北今天" inline /></em>}</span>
+          <input type="date" value={draft.date} onChange={set("date")} data-quick-field="date" /></label>
+        <label className="forma-ledger-field"><span><UiLabel zh="手續費（新台幣）" inline /></span>
+          <input type="text" inputMode="decimal" value={draft.fee} onChange={set("fee")} placeholder="0" data-quick-field="fee" /></label>
+        {draft.action === "sell" && (
+          <label className="forma-ledger-field"><span><UiLabel zh="交易稅（新台幣）" inline /></span>
+            <input type="text" inputMode="decimal" value={draft.tax} onChange={set("tax")} placeholder="0" data-quick-field="tax" /></label>
+        )}
+        <label className={`forma-ledger-field${draft.action === "sell" ? "" : " is-wide"}`}><span><UiLabel zh="備註（選填）" inline /></span>
+          <input value={draft.note} onChange={set("note")} data-quick-field="note" /></label>
+      </div>
+    </LedgerSheet>
+  );
+}
+
+// 資料來源：每個數字從哪來、是哪個時間的價格、哪些不完整。只讀，不改任何資料。
+function SourceDrawer({ valuation: v, change, totalToday, dailyChange, dailyChangePct, trades, dividends, showUsFields, onClose }) {
+  const today = todayStr();
+  const flow = ZinfLedger.cashFlow(trades, today, today);
+  const year = today.slice(0, 4);
+  const divYear = (dividends || []).filter((d) => String(d.date || "").startsWith(year));
+  const divKnown = divYear.filter((d) => Number.isFinite(Number(d.amount)));
+  const facts = ZinfLedger.buildFacts({ ...v, totalNtd: v.status === "unknown" ? null : totalToday }, change && change.comparable ? { ...change, change: dailyChange, pct: dailyChangePct } : change, [
+    ...v.rows.map((r) => ({ key: `row:${r.symbol}`, label: `${r.symbol} ${r.name || ""}`.trim(), type: "text", value: r.missing ? "缺報價" : `${r.shares} 股，報價時間 ${r.quoteTime ? `${r.twDate} ${ZinfLedger.hhmm(r.quoteTime)}` : "不明"}，來源 ${r.provider || "不明"}` })),
+    { key: "flowPaid", label: "今天買進付出", type: "ntd", value: flow.paidNtd },
+    { key: "flowReceived", label: "今天賣出收回", type: "ntd", value: flow.receivedNtd },
+  ]);
+  const account = usePuterState();
+  const [ai, setAi] = useState(null); // { source: "ai" | "local", text, note }
+  const [aiBusy, setAiBusy] = useState(false);
+  const abortRef = useRef(null);
+  useEffect(() => () => { try { abortRef.current?.abort(); } catch (_) {} }, []);
+  const local = ZinfLedger.localExplain(facts.filter((f) => !f.key.startsWith("row:")));
+  const askAi = () => {
+    if (aiBusy) return;
+    setAiBusy(true);
+    const useLocal = (note) => setAi({ source: "local", text: local, note });
+    // AI 只拿到上面的事實清單（沒有帳本、沒有任何工具，不能寫入）；回覆裡有清單以外的數字就整段不用。
+    puterRiskCommentFlow(null, { getPuter: () => window.puter }, {
+      onNeedLogin: () => useLocal("尚未登入 AI，先顯示本機說明。"),
+      onReply: (reply) => {
+        const out = ZinfLedger.explainWithGuard(cleanAiDisplayText(reply), facts);
+        if (out.source === "ai") setAi({ source: "ai", text: out.text, note: "" });
+        else useLocal("AI 的回答含有未經核對的內容，已改用本機說明。");
+      },
+      onIssue: () => useLocal("AI 暫時無法回答，先顯示本機說明。"),
+      done: () => { abortRef.current = null; setAiBusy(false); },
+    }, { messages: ZinfLedger.aiExplainMessages(facts), ua: navigator.userAgent, onController: (c) => { abortRef.current = c; } });
+  };
+  const chip = (on, cls, zh) => on ? <span className={`forma-ledger-chip ${cls}`}><UiLabel zh={zh} inline /></span> : null;
+  const part = (p) => p.mode === "none" ? null : (
+    <section className="forma-ledger-sec" data-ledger-part={p.market} data-ledger-mode={p.mode}>
+      <h3><UiLabel zh={p.market === "TW" ? "台股" : "美股"} inline />
+        <b>{p.valueNtd == null ? uiText("未知") : `NT$ ${nf(p.valueNtd)}`}</b></h3>
+      {p.mode === "record" && <p className="forma-ledger-note is-warn">{p.reason === "no_positions"
+        ? `${uiText("沒有建立持股，沿用")} ${p.recordDate} ${uiText("每日紀錄的金額。")}`
+        : `${p.reason === "missing_fx" ? uiText("缺美元匯率") : `${p.missing.join("、")} ${uiText("沒有報價")}`}${uiText("，整個")}${uiText(p.market === "TW" ? "台股" : "美股")}${uiText("改用")} ${p.recordDate} ${uiText("每日紀錄的金額，不拿不完整的報價來加總。")}`}</p>}
+      {p.mode === "unknown" && <p className="forma-ledger-note is-warn">{p.missing.length ? `${p.missing.join("、")} ${uiText("沒有報價")}` : uiText("缺美元匯率")}{uiText("，也沒有每日紀錄可用，所以是未知，不當成 0。")}</p>}
+      {v.rows.filter((r) => r.market === p.market).map((r) => (
+        <div key={r.symbol} className="forma-ledger-row" data-ledger-row={r.symbol}>
+          <div className="forma-ledger-row-top">
+            <span className="forma-ledger-sym">{r.symbol}{r.name ? <i>{r.name}</i> : null}</span>
+            <span className="mono">{r.valueNtd != null ? `NT$ ${nf(Math.round(r.valueNtd))}` : "—"}</span>
+          </div>
+          <div className="forma-ledger-row-meta mono">
+            {r.missing ? uiText("沒有報價") : <>
+              {Number(r.shares).toLocaleString("en-US", { maximumFractionDigits: 6 })} {uiText("股")} × {quotePriceText(r.price, r.market === "US")}
+              {r.market === "US" && r.fxRate ? ` × ${r.fxRate}` : ""}
+            </>}
+          </div>
+          {!r.missing && (
+            <div className="forma-ledger-row-meta">
+              {uiText("來源")} {r.provider || uiText("不明")}・{uiText("原始報價時間")} {r.quoteTime ? `${r.twDate} ${ZinfLedger.hhmm(r.quoteTime)}（${uiText("台灣時間")}）` : uiText("不明")}
+              {r.market === "US" && r.marketDate ? `・${uiText("美股交易日")} ${r.marketDate}` : ""}
+            </div>
+          )}
+          <div className="forma-ledger-chips">
+            {chip(r.missing, "is-bad", "缺報價")}{chip(r.stale, "is-warn", "不是最新")}{chip(r.fallback, "is-warn", "備援價")}
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+  return (
+    <LedgerSheet title="資料來源與時間" titleId="forma-source-title" onClose={onClose}>
+      <section className="forma-ledger-sec is-top" data-ledger-summary={v.status}>
+        <h3><UiLabel zh="持股總市值" inline /><b>{v.status === "unknown" ? uiText("未知") : `NT$ ${nf(totalToday)}`}</b></h3>
+        <p className="forma-ledger-note"><span className={`forma-ledger-dot is-${v.status}`} aria-hidden="true" /> {uiText(ZinfLedger.STATUS_TEXT[v.status])}・{ZinfLedger.asOfLine(v)}</p>
+        <p className="forma-ledger-note">{uiText("台灣日期")} {today}{v.flags.mixedDates ? `・${uiText("同一市場裡各檔報價日期不同")}` : ""}</p>
+      </section>
+      {part(v.tw)}
+      {showUsFields || v.us.mode !== "none" ? part(v.us) : null}
+      {v.fx && v.us.mode !== "none" && (
+        <section className="forma-ledger-sec" data-ledger-fx>
+          <h3><UiLabel zh="美元匯率" inline /><b className="mono">{v.fx.rate ?? uiText("未知")}</b></h3>
+          <p className="forma-ledger-note">{uiText("來源")} {v.fx.source || uiText("不明")}・{uiText("日期")} {v.fx.twDate || uiText("不明")}{v.fx.stale ? `・${uiText("不是最新")}` : ""}{v.usFactor !== 1 ? `・${uiText("已套用券商校準")} ×${v.usFactor}` : ""}</p>
+          <p className="forma-ledger-note">{uiText("美股市值只用這個匯率換算一次。過去的交易與配息用當時記下的新台幣金額，不會用今天的匯率重算。")}</p>
+        </section>
+      )}
+      <section className="forma-ledger-sec" data-ledger-flow>
+        <h3><UiLabel zh="漲跌與買賣分開看" inline /></h3>
+        <div className="forma-ledger-kv"><span>{uiText("當日漲跌（價格變動）")}</span>
+          <b className="mono">{change?.comparable ? `NT$ ${nf(dailyChange)}（${pf(dailyChangePct)}）` : "—"}</b></div>
+        {change && !change.comparable && <p className="forma-ledger-note is-warn">{uiText(ZinfLedger.CHANGE_REASON[change.reason] || "無法比較")}</p>}
+        {change?.comparable && <p className="forma-ledger-note">{change.basis === "prevClose" ? uiText("算法：每檔（現價 − 昨收）× 目前股數，不含今天買賣的錢。") : `${uiText("算法：現在的總市值 − ")}${change.vsDate} ${uiText("每日紀錄；這段期間沒有買賣。")}`}</p>}
+        <div className="forma-ledger-kv"><span>{uiText("今天買進付出")}</span><b className="mono">NT$ {nf(flow.paidNtd)}</b></div>
+        <div className="forma-ledger-kv"><span>{uiText("今天賣出收回")}</span><b className="mono">NT$ {nf(flow.receivedNtd)}</b></div>
+        <p className="forma-ledger-note">{uiText("買賣是現金流，不算賺賠。")}</p>
+      </section>
+      <section className="forma-ledger-sec" data-ledger-dividend>
+        <h3><UiLabel zh="配息" inline /></h3>
+        <div className="forma-ledger-kv"><span>{year} {uiText("實際入帳（你記下的）")}</span>
+          <b className="mono">{divYear.length === 0 ? uiText("尚無紀錄") : divKnown.length < divYear.length ? uiText("未知") : `NT$ ${nf(Math.round(divKnown.reduce((s, d) => s + Number(d.amount), 0)))}`}</b></div>
+        <p className="forma-ledger-note">{uiText("公告或預估的配息只是提醒，不會算進任何金額；只有你在「配息」頁記下的實際入帳（新台幣）才算。")}</p>
+      </section>
+      <section className="forma-ledger-sec" data-ledger-ai>
+        <h3><UiLabel zh="白話說明" inline /></h3>
+        <pre className="forma-ledger-explain" data-ledger-explain={ai?.source || "local"}>{ai ? ai.text : local}</pre>
+        {ai?.note && <p className="forma-ledger-note is-warn">{uiText(ai.note)}</p>}
+        {account.signedIn && (
+          <button type="button" className="forma-ledger-secondary" onClick={askAi} disabled={aiBusy} data-ledger-ask-ai>
+            {aiBusy ? uiText("AI 說明中…") : uiText("請 AI 用白話說明")}
+          </button>
+        )}
+        <p className="forma-ledger-note">{uiText("AI 只能解釋上面已核對的數字，看不到其他資料，也不能新增或修改任何紀錄。")}</p>
+      </section>
+    </LedgerSheet>
+  );
+}
+// </ledger-90-ui>
 
 // ---------------- AI 聊天/問答（浮動按鈕，任何分頁都叫得出來） ----------------
 // 把 AI 提議的動作翻成人看得懂的一句話，讓使用者在按確定前知道到底要發生什麼事。
@@ -11705,7 +12128,7 @@ async function puterRiskCommentFlow(metrics, deps, ui, opts = {}) {
   });
   cancelled.catch(() => {});
   try {
-    const messages = buildPuterRiskMessages(metrics, opts.english);
+    const messages = Array.isArray(opts.messages) ? opts.messages : buildPuterRiskMessages(metrics, opts.english);
     // 與問答同一套預算估算（這裡很小，仍檢查）
     if (puterRequestTokens(messages, puterChatOptions(null)) > PUTER_REQUEST_TOKEN_LIMIT) throw { code: "empty_response" };
     const { text } = await Promise.race([runPuterChat(p, messages, { signal: ctrl ? ctrl.signal : undefined }), deadline, cancelled]);
