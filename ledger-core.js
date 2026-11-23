@@ -328,67 +328,63 @@
     return {ntd:Math.round(Number(initialPrincipal)+flow.netNtd),basis:'initial_plus_net_trades',since:startDate};
   }
 
-  // ---------- AI：只能解釋已核對的事實 ----------
-  const ntdText=v=>v==null?'未知':`NT$ ${Math.round(Number(v)).toLocaleString('en-US')}`;
-  // facts：[{key,label,type:'ntd'|'pct'|'date'|'time'|'count'|'text',value}]；value 為 null＝未知。
-  function buildFacts(v,change,extra=[]){
-    const F=[];
-    const add=(key,label,type,value)=>F.push({key,label,type,value:value===undefined||value===''||(typeof value==='number'&&!Number.isFinite(value))?null:value});
-    add('total','持股總市值','ntd',v?v.totalNtd:null);
-    add('status','估值狀態','text',v?STATUS_TEXT[v.status]:null);
-    add('asOfLine','資料時間','text',v?asOfLine(v):null);
-    if(v&&v.tw.mode!=='none')add('twValue','台股市值','ntd',v.tw.valueNtd);
-    if(v&&v.us.mode!=='none'){add('usValue','美股市值（新台幣）','ntd',v.us.valueNtd);add('fxRate','美元匯率','rate',v.fx?v.fx.rate:null);add('fxDate','匯率日期','date',v.fx?v.fx.twDate:null);}
-    if(v&&v.missing.length)add('missing','缺報價','text',v.missing.join('、'));
-    add('dayChange','當日漲跌','ntd',change&&change.comparable?change.change:null);
-    add('dayChangePct','當日漲跌幅','pct',change&&change.comparable?Number(change.pct.toFixed(2)):null);
-    if(change&&!change.comparable)add('dayChangeReason','漲跌未顯示原因','text',CHANGE_REASON[change.reason]||null);
-    for(const e of extra)add(e.key,e.label,e.type,e.value);
-    return F;
-  }
-  function factText(f){
-    if(!f||f.value==null)return '未知';
-    if(f.type==='ntd')return ntdText(f.value);
-    if(f.type==='pct')return `${Number(f.value)>=0?'+':''}${Number(f.value).toFixed(2)}%`;
-    return String(f.value);
-  }
-  // 本機說明：不靠 AI，只把事實逐條講出來；未知就寫未知。
-  function localExplain(facts){
-    return (facts||[]).map(f=>`${f.label}：${factText(f)}`).join('\n');
-  }
-  const AI_WRITE_CLAIM=/已(?:經)?(?:幫你|為你|替你)?(?:新增|寫入|修改|刪除|下單|買進|賣出|記錄|更新)|幫你(?:下單|買進|賣出)/;
-  // AI 回覆裡的每個數字都必須對得到事實（金額、百分比、日期時間、代號、股數）；對不到＝自己編的，整段不採用。
-  function guardAiText(text,facts){
-    const s=String(text||'');
-    if(!s.trim())return {ok:false,invented:[],reason:'empty'};
-    if(AI_WRITE_CLAIM.test(s))return {ok:false,invented:[],reason:'write_claim'};
-    const allowed=new Set();
-    const allow=n=>{if(Number.isFinite(n)){allowed.add(String(Math.abs(n)));allowed.add(String(Math.abs(Math.round(n))));allowed.add(String(Number(Math.abs(n).toFixed(2))));allowed.add(String(Number(Math.abs(n).toFixed(1))));}};
-    for(const f of facts||[]){
-      if(f.value==null)continue;
-      if(typeof f.value==='number'){allow(f.value);if(f.type==='ntd'){allow(f.value/1e4);allow(f.value/1e8);}}
-      for(const m of String(f.type==='text'||typeof f.value!=='number'?f.value:factText(f)).replace(/,/g,'').match(/\d+(?:\.\d+)?/g)||[]){allow(Number(m));allowed.add(m);}
+  // 抽屜不把舊報價說成「當日」；保留原本的估值與首頁比較演算法。
+  function sourceDrawerChange(v,change){
+    let reasonText=change&&!change.comparable?CHANGE_REASON[change.reason]:null;
+    if(v?.flags?.mixedDates)reasonText=CHANGE_REASON.mixed_dates;
+    else if(v?.status==='stale'||v?.flags?.stale)reasonText=STATUS_TEXT.stale;
+    else if(v?.flags?.fallbackPrice)reasonText='部分使用備援價，暫不比較';
+    if(reasonText||v?.status!=='complete'||!change?.comparable||!Number.isFinite(change.change)||!Number.isFinite(change.pct)||(change.basis==='record'&&!validYmd(change.vsDate))){
+      return {comparable:false,reasonText:reasonText||'無法比較'};
     }
-    const invented=[];
-    for(const m of s.replace(/(\d),(?=\d{3})/g,'$1').match(/\d+(?:\.\d+)?/g)||[]){
-      if(!allowed.has(m)&&!allowed.has(String(Number(m))))invented.push(m);
+    return change;
+  }
+  function sourceDrawerCashFlow(flow){
+    const partial=flow?.unknownCount>0;
+    const subtotal=n=>Number.isFinite(n)&&(!partial||n!==0)?n:null;
+    return {partial,paidNtd:subtotal(flow?.paidNtd),receivedNtd:subtotal(flow?.receivedNtd)};
+  }
+
+  // 來源抽屜的白話摘要，只呈現同一次畫面的既有數值，不重新估值／計算報酬。
+  function sourceDrawerExplanation({valuation:v,totalNtd,change,cashFlow:flow}={}){
+    const known=n=>typeof n==='number'&&Number.isFinite(n);
+    const money=(n,signed=false)=>known(n)?`NT$ ${n>0&&signed?'+':''}${n.toLocaleString('zh-TW',{maximumFractionDigits:0})}`:'未知';
+    const total=v&&v.status!=='unknown'&&known(totalNtd)
+      ? `持股總市值 ${money(totalNtd)}`
+      : '持股總市值目前未知';
+    const context=v?[STATUS_TEXT[v.status],asOfLine(v)].filter(Boolean):[];
+    const lines=[`${total}${context.length?`（${context.join('；')}）`:''}。`];
+
+    const showChange=sourceDrawerChange(v,change);
+    if(showChange.comparable){
+      // 先收斂到顯示精度；避免把四捨五入後的零寫成上漲或下跌。
+      const amount=Math.sign(showChange.change)*Math.round(Math.abs(showChange.change))||0;
+      const pct=Number(showChange.pct.toFixed(2))||0;
+      const pctText=`${pct>0?'+':''}${pct.toFixed(2)}%`;
+      const scope=showChange.basis==='record'?`較 ${showChange.vsDate} 每日紀錄`:'當日';
+      const direction=amount>0&&pct>0?'上漲':amount<0&&pct<0?'下跌':
+        amount===0&&pct===0?'漲跌在顯示精度下為':showChange.basis==='record'?'的差額':'價格變動';
+      lines.push(`${scope}${direction} ${money(amount,true)}（${pctText}）。`);
+    }else{
+      lines.push(`當日漲跌暫不顯示：${showChange.reasonText}。`);
     }
-    return invented.length?{ok:false,invented:[...new Set(invented)],reason:'invented_number'}:{ok:true,invented:[]};
-  }
-  // 給 AI 的提示：只有事實清單；不帶帳本、不帶工具（呼叫端不可提供任何寫入工具）。
-  function aiExplainMessages(facts){
-    return [
-      {role:'system',content:'你只能用繁體中文、白話解釋下面「已核對事實」清單裡的內容。不可以加入清單以外的任何數字、日期、股票或推測；寫「未知」的項目就說目前不知道，不可以當成 0 或自行估計。不給買賣建議，不可聲稱做了任何新增、修改或下單。三句以內。'},
-      {role:'user',content:`已核對事實：\n${localExplain(facts)}\n\n請用白話說明現在的持股總市值是怎麼來的、資料新不新。`},
-    ];
-  }
-  function explainWithGuard(aiText,facts){
-    const g=guardAiText(aiText,facts);
-    return g.ok?{source:'ai',text:String(aiText).trim(),guard:g}:{source:'local',text:localExplain(facts),guard:g};
+
+    if(v?.us&&v.us.mode!=='none'){
+      const fx=v.fx;
+      const detail=[fx?.source,fx?.twDate,fx?.stale?'不是最新':null].filter(Boolean);
+      const rate=known(fx?.rate)&&fx.rate>0?fx.rate:null;
+      lines.push(`美元匯率：${rate??'未知'}${rate!=null&&detail.length?`（${detail.join('；')}）`:''}。`);
+    }
+
+    if(flow){
+      const {partial,paidNtd,receivedNtd}=sourceDrawerCashFlow(flow);
+      lines.push(`${partial?'已知部分：':''}今天買進付出 ${money(paidNtd)}，賣出收回 ${money(receivedNtd)}；這是現金流，不是損益。${partial?'另有交易金額未知，不算入上述小計。':''}`);
+    }
+    return lines.join('\n');
   }
 
   root.ZinfLedger={marketOf,taipeiDay,zoneClock,expectedSessionDay,quoteFact,valuation,asOfLine,STATUS_TEXT,comparableChange,CHANGE_REASON,
     DRAFT_FIELDS,defaultTradeDraft,refreshDraft,parseDecimal,validateTrade,buildTrade,createSubmitGate,sortTradesForDisplay,locateTrade,tradeNtd,cashFlow,
     applyPrefill,dividendFacts,scheduleDate,scheduleLabel,elapsedMonths,planAt,crossing,progressCompare,contributedPrincipal,
-    buildFacts,factText,localExplain,guardAiText,aiExplainMessages,explainWithGuard,validYmd,hhmm};
+    sourceDrawerChange,sourceDrawerCashFlow,sourceDrawerExplanation,validYmd,hhmm};
 })(globalThis);

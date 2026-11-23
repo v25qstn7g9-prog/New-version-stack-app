@@ -631,6 +631,7 @@ const UI_EN = {
   "不是最新": "Not the latest",
   "已套用券商校準": "Broker calibration applied",
   "美股市值只用這個匯率換算一次。過去的交易與配息用當時記下的新台幣金額，不會用今天的匯率重算。": "US market value is converted once with this rate. Past trades and dividends keep the NT$ amount recorded at the time and are never re-converted at today's rate.",
+  "相較每日紀錄": "Compared with daily record",
   "當日漲跌（價格變動）": "Day change (price movement)",
   "算法：每檔（現價 − 昨收）× 目前股數，不含今天買賣的錢。": "Method: (price − previous close) × current shares for each holding; excludes money from today's trades.",
   "算法：現在的總市值 − ": "Method: current total value − the ",
@@ -641,9 +642,10 @@ const UI_EN = {
   "實際入帳（你記下的）": "actually received (as you logged)",
   "尚無紀錄": "No records yet",
   "公告或預估的配息只是提醒，不會算進任何金額；只有你在「配息」頁記下的實際入帳（新台幣）才算。": "Announced or estimated dividends are reminders only and never counted; only amounts you logged on the Dividends tab (NT$) count.",
-  "AI 說明中…": "AI is explaining…",
-  "請 AI 用白話說明": "Ask AI to explain",
-  "AI 只能解釋上面已核對的數字，看不到其他資料，也不能新增或修改任何紀錄。": "AI can only explain the verified figures above. It sees nothing else and cannot add or change any record.",
+  "部分使用備援價，暫不比較": "Some prices use fallback quotes; comparison is unavailable",
+  "已知小計": "Known subtotal",
+  "另有交易金額未知，不算入上述小計。": "Some trade amounts are unknown and excluded from these subtotals.",
+  "由程式依目前畫面資料產生，不呼叫 AI，也不修改紀錄。": "Generated locally from the current figures. No AI is called and no records are changed.",
   "台股": "Taiwan stocks",
   "美股": "US stocks",
   "資料來源與時間": "Data sources and times",
@@ -10384,33 +10386,15 @@ function SourceDrawer({ valuation: v, change, totalToday, dailyChange, dailyChan
   const year = today.slice(0, 4);
   const divYear = (dividends || []).filter((d) => String(d.date || "").startsWith(year));
   const divKnown = divYear.filter((d) => Number.isFinite(Number(d.amount)));
-  const facts = ZinfLedger.buildFacts({ ...v, totalNtd: v.status === "unknown" ? null : totalToday }, change && change.comparable ? { ...change, change: dailyChange, pct: dailyChangePct } : change, [
-    ...v.rows.map((r) => ({ key: `row:${r.symbol}`, label: `${r.symbol} ${r.name || ""}`.trim(), type: "text", value: r.missing ? "缺報價" : `${r.shares} 股，報價時間 ${r.quoteTime ? `${r.twDate} ${ZinfLedger.hhmm(r.quoteTime)}` : "不明"}，來源 ${r.provider || "不明"}` })),
-    { key: "flowPaid", label: "今天買進付出", type: "ntd", value: flow.paidNtd },
-    { key: "flowReceived", label: "今天賣出收回", type: "ntd", value: flow.receivedNtd },
-  ]);
-  const account = usePuterState();
-  const [ai, setAi] = useState(null); // { source: "ai" | "local", text, note }
-  const [aiBusy, setAiBusy] = useState(false);
-  const abortRef = useRef(null);
-  useEffect(() => () => { try { abortRef.current?.abort(); } catch (_) {} }, []);
-  const local = ZinfLedger.localExplain(facts.filter((f) => !f.key.startsWith("row:")));
-  const askAi = () => {
-    if (aiBusy) return;
-    setAiBusy(true);
-    const useLocal = (note) => setAi({ source: "local", text: local, note });
-    // AI 只拿到上面的事實清單（沒有帳本、沒有任何工具，不能寫入）；回覆裡有清單以外的數字就整段不用。
-    puterRiskCommentFlow(null, { getPuter: () => window.puter }, {
-      onNeedLogin: () => useLocal("尚未登入 AI，先顯示本機說明。"),
-      onReply: (reply) => {
-        const out = ZinfLedger.explainWithGuard(cleanAiDisplayText(reply), facts);
-        if (out.source === "ai") setAi({ source: "ai", text: out.text, note: "" });
-        else useLocal("AI 的回答含有未經核對的內容，已改用本機說明。");
-      },
-      onIssue: () => useLocal("AI 暫時無法回答，先顯示本機說明。"),
-      done: () => { abortRef.current = null; setAiBusy(false); },
-    }, { messages: ZinfLedger.aiExplainMessages(facts), ua: navigator.userAgent, onController: (c) => { abortRef.current = c; } });
-  };
+  const currentChange = change?.comparable ? { ...change, change: dailyChange, pct: dailyChangePct } : change;
+  const displayChange = ZinfLedger.sourceDrawerChange(v, currentChange);
+  const displayFlow = ZinfLedger.sourceDrawerCashFlow(flow);
+  const explanation = ZinfLedger.sourceDrawerExplanation({
+    valuation: v,
+    totalNtd: totalToday,
+    change: currentChange,
+    cashFlow: flow,
+  });
   const chip = (on, cls, zh) => on ? <span className={`forma-ledger-chip ${cls}`}><UiLabel zh={zh} inline /></span> : null;
   const part = (p) => p.mode === "none" ? null : (
     <section className="forma-ledger-sec" data-ledger-part={p.market} data-ledger-mode={p.mode}>
@@ -10463,12 +10447,13 @@ function SourceDrawer({ valuation: v, change, totalToday, dailyChange, dailyChan
       )}
       <section className="forma-ledger-sec" data-ledger-flow>
         <h3><UiLabel zh="漲跌與買賣分開看" inline /></h3>
-        <div className="forma-ledger-kv"><span>{uiText("當日漲跌（價格變動）")}</span>
-          <b className="mono">{change?.comparable ? `NT$ ${nf(dailyChange)}（${pf(dailyChangePct)}）` : "—"}</b></div>
-        {change && !change.comparable && <p className="forma-ledger-note is-warn">{uiText(ZinfLedger.CHANGE_REASON[change.reason] || "無法比較")}</p>}
-        {change?.comparable && <p className="forma-ledger-note">{change.basis === "prevClose" ? uiText("算法：每檔（現價 − 昨收）× 目前股數，不含今天買賣的錢。") : `${uiText("算法：現在的總市值 − ")}${change.vsDate} ${uiText("每日紀錄；這段期間沒有買賣。")}`}</p>}
-        <div className="forma-ledger-kv"><span>{uiText("今天買進付出")}</span><b className="mono">NT$ {nf(flow.paidNtd)}</b></div>
-        <div className="forma-ledger-kv"><span>{uiText("今天賣出收回")}</span><b className="mono">NT$ {nf(flow.receivedNtd)}</b></div>
+        <div className="forma-ledger-kv"><span>{displayChange.comparable && displayChange.basis === "record" ? `${uiText("相較每日紀錄")} ${displayChange.vsDate}` : uiText("當日漲跌（價格變動）")}</span>
+          <b className="mono">{displayChange.comparable ? `NT$ ${nf(displayChange.change)}（${pf(displayChange.pct)}）` : "—"}</b></div>
+        {!displayChange.comparable && <p className="forma-ledger-note is-warn">{uiText(displayChange.reasonText)}</p>}
+        {displayChange.comparable && <p className="forma-ledger-note">{displayChange.basis === "prevClose" ? uiText("算法：每檔（現價 − 昨收）× 目前股數，不含今天買賣的錢。") : `${uiText("算法：現在的總市值 − ")}${displayChange.vsDate} ${uiText("每日紀錄；這段期間沒有買賣。")}`}</p>}
+        <div className="forma-ledger-kv"><span>{uiText("今天買進付出")}{displayFlow.partial && `（${uiText("已知小計")}）`}</span><b className="mono">{displayFlow.paidNtd == null ? uiText("未知") : `NT$ ${nf(displayFlow.paidNtd)}`}</b></div>
+        <div className="forma-ledger-kv"><span>{uiText("今天賣出收回")}{displayFlow.partial && `（${uiText("已知小計")}）`}</span><b className="mono">{displayFlow.receivedNtd == null ? uiText("未知") : `NT$ ${nf(displayFlow.receivedNtd)}`}</b></div>
+        {displayFlow.partial && <p className="forma-ledger-note is-warn">{uiText("另有交易金額未知，不算入上述小計。")}</p>}
         <p className="forma-ledger-note">{uiText("買賣是現金流，不算賺賠。")}</p>
       </section>
       <section className="forma-ledger-sec" data-ledger-dividend>
@@ -10477,16 +10462,10 @@ function SourceDrawer({ valuation: v, change, totalToday, dailyChange, dailyChan
           <b className="mono">{divYear.length === 0 ? uiText("尚無紀錄") : divKnown.length < divYear.length ? uiText("未知") : `NT$ ${nf(Math.round(divKnown.reduce((s, d) => s + Number(d.amount), 0)))}`}</b></div>
         <p className="forma-ledger-note">{uiText("公告或預估的配息只是提醒，不會算進任何金額；只有你在「配息」頁記下的實際入帳（新台幣）才算。")}</p>
       </section>
-      <section className="forma-ledger-sec" data-ledger-ai>
+      <section className="forma-ledger-sec" data-ledger-summary-explanation>
         <h3><UiLabel zh="白話說明" inline /></h3>
-        <pre className="forma-ledger-explain" data-ledger-explain={ai?.source || "local"}>{ai ? ai.text : local}</pre>
-        {ai?.note && <p className="forma-ledger-note is-warn">{uiText(ai.note)}</p>}
-        {account.signedIn && (
-          <button type="button" className="forma-ledger-secondary" onClick={askAi} disabled={aiBusy} data-ledger-ask-ai>
-            {aiBusy ? uiText("AI 說明中…") : uiText("請 AI 用白話說明")}
-          </button>
-        )}
-        <p className="forma-ledger-note">{uiText("AI 只能解釋上面已核對的數字，看不到其他資料，也不能新增或修改任何紀錄。")}</p>
+        <pre className="forma-ledger-explain" data-ledger-explain="local">{explanation}</pre>
+        <p className="forma-ledger-note">{uiText("由程式依目前畫面資料產生，不呼叫 AI，也不修改紀錄。")}</p>
       </section>
     </LedgerSheet>
   );
