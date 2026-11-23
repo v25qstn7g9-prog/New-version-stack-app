@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { createRequire } from 'node:module';
 import '../ledger-core.js';
 import { readAppSource } from './_app-source.mjs';
 
@@ -305,51 +306,129 @@ test('已投入本金不從成本回推：只認起始本金＋開始後的買�
 });
 
 // ---------- AI ----------
-test('AI 只能解釋已核對的事實：缺的寫「未知」不寫 0；本機說明不需要 AI', () => {
-  const quotes = clone(fx.quotes); delete quotes['2330'];
-  const v = twOnly({ quotes, record: null });
-  const facts = L.buildFacts(v, L.comparableChange({ valuation: v }));
-  const total = facts.find((f) => f.key === 'total');
-  assert.equal(total.value, null);
-  assert.equal(L.factText(total), '未知');
-  const text = L.localExplain(facts);
-  assert.match(text, /持股總市值：未知/);
-  assert.match(text, /當日漲跌：未知/);
-  assert.doesNotMatch(text, /NT\$ 0/);
-  const msgs = L.aiExplainMessages(facts);
-  assert.equal(msgs.length, 2);
-  assert.match(msgs[0].content, /不可以加入清單以外的任何數字/);
-  assert.match(msgs[1].content, /持股總市值：未知/);
-  assert.doesNotMatch(JSON.stringify(msgs), /t-old-1|定期定額|h-0050/, '帳本內容不會送出去');
+test('來源抽屜的程式說明：虧損保留方向和符號，現金流不是損益，缺匯率不拿別的金額填入', () => {
+  const valuation = twOnly();
+  const v = { ...valuation, fx: null, us: { ...valuation.us, mode: 'unknown' } };
+  const facts = {
+    valuation: v, totalNtd: 1280000,
+    change: { comparable: true, change: -1200, pct: -0.5 },
+    cashFlow: { paidNtd: 4500, receivedNtd: 0, unknownCount: 0 },
+  };
+  const text = L.sourceDrawerExplanation(facts);
+  assert.match(text, /持股總市值 NT\$ 1,280,000/);
+  assert.match(text, /11\/20 13:30 報價/);
+  assert.match(text, /當日下跌 NT\$ -1,200（-0\.50%）/);
+  assert.match(text, /今天買進付出 NT\$ 4,500，賣出收回 NT\$ 0；這是現金流，不是損益/);
+  assert.match(text, /美元匯率：未知/);
+  assert.doesNotMatch(text, /當日上漲|總市值 NT\$ 4,500|匯率[^。]*4,500/);
 });
 
-test('AI 編出來的數字、聲稱已寫入、空回覆 → 一律改用本機說明', () => {
-  const v = twOnly();
-  const facts = L.buildFacts(v, { comparable: true, change: 2100, pct: 0.83 });
-  const total = v.totalNtd.toLocaleString('en-US');
-  const good = `你的持股總市值是 NT$ ${total}，當日漲跌 +0.83%，資料時間是 11/20 13:30。`;
-  assert.equal(L.guardAiText(good, facts).ok, true);
-  assert.equal(L.explainWithGuard(good, facts).source, 'ai');
-  assert.equal(L.guardAiText(`總市值約 ${(v.totalNtd / 1e4).toFixed(1)} 萬`, facts).ok, true, '同一個數字換成萬為單位可以');
-  const invented = L.guardAiText(`總市值 NT$ ${total}，預計明年會到 5,000,000，建議再買 300 股。`, facts);
-  assert.equal(invented.ok, false);
-  assert.deepEqual(invented.invented, ['5000000', '300']);
-  const fallback = L.explainWithGuard('年化報酬 12.5%', facts);
-  assert.equal(fallback.source, 'local');
-  assert.equal(fallback.text, L.localExplain(facts));
-  assert.equal(L.guardAiText('已幫你新增一筆買進。', facts).reason, 'write_claim');
-  assert.equal(L.explainWithGuard('', facts).source, 'local');
+test('程式說明每次使用當前事實，明確區分未知、零、正值與顯示精度以下的變動', () => {
+  const valuation = twOnly();
+  const input = { valuation, totalNtd: 0, cashFlow: { paidNtd: 0, receivedNtd: 750, unknownCount: 1 } };
+  const unknown = L.sourceDrawerExplanation({ ...input, valuation: { ...valuation, status: 'unknown' }, change: { comparable: false, reason: 'unknown' } });
+  assert.match(unknown, /持股總市值目前未知/);
+  assert.match(unknown, /當日漲跌暫不顯示/);
+  assert.match(unknown, /已知部分.*買進付出 未知.*NT\$ 750/);
+  const flat = L.sourceDrawerExplanation({ ...input, change: { comparable: true, change: -0.4, pct: -0.004 } });
+  assert.match(flat, /持股總市值 NT\$ 0/);
+  assert.match(flat, /顯示精度.*NT\$ 0.*0\.00%/);
+  assert.doesNotMatch(flat, /下跌|上漲/);
+  const updated = L.sourceDrawerExplanation({ ...input, totalNtd: 1281200,
+    change: { comparable: true, change: 1200, pct: 0.5 },
+    valuation: { ...valuation, asOf: { ...valuation.asOf, newest: '2026-11-20T05:40:00.000Z' }, us: { ...valuation.us, mode: 'live' }, fx: { rate: 31.25, twDate: '2026-11-20', source: 'fixture' } },
+  });
+  assert.match(updated, /持股總市值 NT\$ 1,281,200/);
+  assert.match(updated, /11\/20 13:40 報價/);
+  assert.match(updated, /當日上漲 NT\$ \+1,200（\+0\.50%）/);
+  assert.match(updated, /美元匯率：31\.25（fixture；2026-11-20）/);
+  assert.doesNotMatch(updated, /目前未知|13:30/);
 });
 
-test('來源抽屜的 AI：不帶工具、不帶帳本，只送事實清單；回覆一定先過核對', () => {
+test('舊報價能算出可比值，也不能在來源摘要說成當日上漲；沒有歷史匯率的買進不顯示為零', () => {
+  const stale = twOnly({ now: new Date('2026-11-23T07:32:00.000Z') });
+  assert.equal(stale.status, 'stale');
+  const change = L.comparableChange({ valuation: stale, quoteDay: { change: 1200, pct: 0.5 } });
+  assert.equal(change.comparable, true, '不改原本漲跌算法，只避免在說明把舊報價寫成當日');
+  const flow = L.cashFlow([{ date: '2026-11-23', action: 'buy', nativeAmount: 10, currency: 'USD' }]);
+  assert.deepEqual(flow, { paidNtd: 0, receivedNtd: 0, netNtd: 0, unknownCount: 1 });
+  const text = L.sourceDrawerExplanation({ valuation: stale, totalNtd: stale.totalNtd, change, cashFlow: flow });
+  assert.match(text, /11\/20 13:30 報價/);
+  assert.match(text, /當日漲跌暫不顯示：報價不是最新/);
+  assert.doesNotMatch(text, /當日上漲|\+0\.50%|NT\$ 0/);
+  assert.match(text, /買進付出 未知.*賣出收回 未知/);
+});
+
+test('來源摘要：用每日紀錄比較要寫日期，正常的台美不同交易日仍可顯示', () => {
+  const v = L.valuation({ positions: [...positions(), { symbol: 'VOO', shares: 2 }], quotes: fx.quotes, usQuotes: fx.usQuotes, fx: fx.fx, now, record: lastRecord });
+  assert.equal(v.status, 'complete');
+  assert.notDeepEqual(v.asOf.marketDates.TW, v.asOf.marketDates.US);
+  const change = L.comparableChange({ valuation: v, prevRecord: { ...lastRecord, date: '2026-11-09' }, trades: [], today: '2026-11-20' });
+  assert.equal(change.basis, 'record');
+  const text = L.sourceDrawerExplanation({ valuation: v, totalNtd: v.totalNtd, change });
+  assert.match(text, /較 2026-11-09 每日紀錄/);
+  assert.doesNotMatch(text, /當日(?:上漲|下跌)|暫不顯示/);
+});
+
+test('來源抽屜不發問、不寫入，只顯示程式生成的當前說明；一般 Puter 問答仍在', () => {
   const a = src.indexOf('function SourceDrawer('), b = src.indexOf('// </ledger-90-ui>');
   const drawer = src.slice(a, b);
-  assert.match(drawer, /messages: ZinfLedger\.aiExplainMessages\(facts\)/);
-  assert.match(drawer, /ZinfLedger\.explainWithGuard\(cleanAiDisplayText\(reply\), facts\)/);
-  assert.doesNotMatch(drawer, /setTrades|setHoldings|setDividends|puterAiTools|fetch\(/, '抽屜唯讀，不寫入、不自己發請求');
-  // 沿用的風險評論流程本來就不帶工具
-  const flow = src.slice(src.indexOf('async function puterRiskCommentFlow('), src.indexOf('function createPuterSingleFlight'));
-  assert.doesNotMatch(flow, /tools:/);
+  assert.match(drawer, /ZinfLedger\.sourceDrawerExplanation\(/);
+  assert.match(drawer, /data-ledger-explain="local">\{explanation\}/);
+  assert.doesNotMatch(drawer, /puter|askAi|aiBusy|useState|useEffect|setTrades|setHoldings|setDividends|fetch\(/i);
+  assert.match(src.slice(0, a) + src.slice(b), /puterRiskCommentFlow\(/, '保留其他 Puter 使用者');
+});
+
+let DrawerBabel;
+try { DrawerBabel = createRequire(import.meta.url)('@babel/standalone'); } catch {}
+test('實際來源抽屜不需要 AI 環境，重新呈現會換成最新快照', {
+  skip: DrawerBabel || process.env.CI ? false : '需要 npm install（@babel/standalone）',
+}, () => {
+  assert.ok(DrawerBabel, 'CI 必須先安裝 @babel/standalone');
+  const source = src.slice(src.indexOf('function SourceDrawer('), src.indexOf('// </ledger-90-ui>'));
+  const compiled = DrawerBabel.transform(source, { presets: ['react'] }).code;
+  const context = vm.createContext({
+    ZinfLedger: L, todayStr: () => '2026-11-20', uiText: text => text,
+    nf: n => n.toLocaleString('zh-TW'), pf: n => n.toFixed(2)+'%', quotePriceText: String,
+    UiLabel: 'label', LedgerSheet: 'sheet',
+    React: { createElement: (tag, props, ...children) => ({ tag, props: props || {}, children }) },
+  });
+  // No React hooks, Puter session or fetch are present. Real component rendering must work without them.
+  const render = vm.runInContext(compiled + '\nSourceDrawer', context);
+  const walk = (node, pred) => {
+    if (Array.isArray(node)) return node.flatMap(child => walk(child, pred));
+    if (!node || typeof node !== 'object') return [];
+    return [...(pred(node) ? [node] : []), ...walk(node.children, pred)];
+  };
+  const valuation = twOnly();
+  const props = { valuation, change: { comparable: true, basis: 'prevClose' },
+    totalToday: 1280000, dailyChange: -1200, dailyChangePct: -0.5, trades: [], dividends: [] };
+  const before = render(props);
+  const after = render({ ...props, totalToday: 1281200, dailyChange: 1200, dailyChangePct: 0.5 });
+  const explanation = n => walk(n, x => x.props['data-ledger-explain'] === 'local')[0].children[0];
+  assert.match(explanation(before), /下跌 NT\$ -1,200（-0\.50%）/);
+  assert.match(explanation(after), /上漲 NT\$ \+1,200（\+0\.50%）/);
+  assert.doesNotMatch(explanation(after), /下跌|1,280,000/);
+  const incomplete = render({ ...props, trades: [{ date: '2026-11-20', action: 'buy', currency: 'USD', nativeAmount: 12 }] });
+  const textOf = n => Array.isArray(n) ? n.map(textOf).join(' ') : typeof n === 'string' ? n : n && typeof n === 'object' ? textOf(n.children) : '';
+  const cash = textOf(walk(incomplete, x => 'data-ledger-flow' in x.props)[0]);
+  assert.match(cash, /今天買進付出.*未知/);
+  assert.match(cash, /今天賣出收回.*未知/);
+  assert.doesNotMatch(cash, /NT\$ 0/);
+  const stale = render({ ...props, valuation: twOnly({ now: new Date('2026-11-23T07:32:00.000Z') }) });
+  const staleCash = textOf(walk(stale, x => 'data-ledger-flow' in x.props)[0]);
+  assert.match(staleCash, /當日漲跌.*—.*報價不是最新/);
+  assert.doesNotMatch(staleCash, /1,200|0\.50%/);
+  assert.match(explanation(stale), /當日漲跌暫不顯示：報價不是最新/);
+  const dated = render({ ...props, change: { comparable: true, basis: 'record', vsDate: '2026-11-09' } });
+  const datedCash = textOf(walk(dated, x => 'data-ledger-flow' in x.props)[0]);
+  assert.match(datedCash, /2026-11-09.*每日紀錄/);
+  assert.doesNotMatch(datedCash, /當日漲跌/);
+  for (const tree of [before, after]) {
+    assert.equal(walk(tree, x => 'data-ledger-ask-ai' in x.props).length, 0);
+    assert.equal(walk(tree, x => 'data-ledger-flow' in x.props).length, 1);
+    assert.equal(walk(tree, x => 'data-ledger-dividend' in x.props).length, 1);
+  }
 });
 
 // ---------- 首頁與版面（靜態檢查；實際 375／390／430 截圖由 scripts/preview-ledger-90.mjs 產生） ----------
@@ -364,7 +443,7 @@ test('首頁只有一個「＋記交易」主要動作；總市值下面有資�
   assert.match(src, /<ComposerFold label="新增交易"/, '交易紀錄頁原本的新增表單保留');
   assert.match(src, /storageKey="dashboardAdvancedPerformanceOpen"/);
   assert.match(src, /function detectAdvancedUse/);
-  assert.match(src, /<script src="\/ledger-core\.js\?v=1"><\/script>/);
+  assert.match(src, /<script src="\/ledger-core\.js\?v=2"><\/script>/);
   assert.match(src, /href="\/forma-ledger\.css\?v=1"/);
 });
 
