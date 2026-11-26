@@ -146,13 +146,14 @@ html.za-clean :is(div,h2,h3,p):is(.font-bold,.font-black):is(.text-xs,.text-sm,.
 
 /* ════ 深藍主題（預設，參考 Blueprint：深石板藍頁面、半透明藍卡片、白字、白色膠囊主要按鈕；切換鈕可改成灰色）════
    深灰頁面、稍亮的卡片、細線框；同一個藍色重點色調亮一點讓字看得清楚；
-   主要按鈕用較深的藍＋白字；紅漲綠跌只用在文字。 */
+   主要按鈕用較深的藍＋白字；紅漲綠跌只用在文字。
+   2026-11-26：次要文字調整為柔和冷灰白 #b5bcc8（卡片上 8.7:1、hero 漸層最差 7.6:1，均高於 AA 4.5:1），讓主數字與標籤層級一眼分明。 */
 /* 由右上角切換鈕決定：<html data-theme="navy">（預設）或 grey */
 html.za-clean[data-theme="navy"]{
-    --c-bg:#171717;--c-card:#232323;--c-ink:#ffffff;--c-ink-2:#ffffff;--c-muted:#ffffff;
+    --c-bg:#171717;--c-card:#232323;--c-ink:#ffffff;--c-ink-2:#ffffff;--c-muted:#b5bcc8;
     --c-line:rgba(255,255,255,.08);--c-line-2:rgba(255,255,255,.16);--c-accent:#a8c2ff;--c-accent-press:#e6ecfa;--c-btn:#ffffff;--c-btn-ink:#1f2b4d;
     --c-good:#00d26a;--c-warn:#f5c26b;--c-bad:#ff9999;--c-disabled-bg:rgba(255,255,255,.08);--c-disabled-ink:#9a9f9c;
-    --c-tabbar:#171717;--c-placeholder:#ffffff;--c-tick:#ffffff;--c-solid-card:#2a2a2a;
+    --c-tabbar:#171717;--c-placeholder:#9ba3b0;--c-tick:#b5bcc8;--c-solid-card:#2a2a2a;
     color-scheme:dark;
   }
   html.za-clean[data-theme="navy"] :is(input,select,textarea):focus,html.za-clean[data-theme="navy"] .premium-tab .input:focus{box-shadow:0 0 0 3px rgba(168,194,255,.3)!important}
@@ -167,10 +168,10 @@ html.za-clean[data-theme="navy"]{
 /* 萬一 <head> 的小程式沒跑到：一樣用深色（預設） */
 @media all{
   html.za-clean:not([data-theme]){
-    --c-bg:#171717;--c-card:#232323;--c-ink:#ffffff;--c-ink-2:#ffffff;--c-muted:#ffffff;
+    --c-bg:#171717;--c-card:#232323;--c-ink:#ffffff;--c-ink-2:#ffffff;--c-muted:#b5bcc8;
     --c-line:rgba(255,255,255,.08);--c-line-2:rgba(255,255,255,.16);--c-accent:#a8c2ff;--c-accent-press:#e6ecfa;--c-btn:#ffffff;--c-btn-ink:#1f2b4d;
     --c-good:#00d26a;--c-warn:#f5c26b;--c-bad:#ff9999;--c-disabled-bg:rgba(255,255,255,.08);--c-disabled-ink:#9a9f9c;
-    --c-tabbar:#171717;--c-placeholder:#ffffff;--c-tick:#ffffff;--c-solid-card:#2a2a2a;
+    --c-tabbar:#171717;--c-placeholder:#9ba3b0;--c-tick:#b5bcc8;--c-solid-card:#2a2a2a;
     color-scheme:dark;
   }
   html.za-clean:not([data-theme]) :is(input,select,textarea):focus,html.za-clean:not([data-theme]) .premium-tab .input:focus{box-shadow:0 0 0 3px rgba(168,194,255,.3)!important}
@@ -198,9 +199,9 @@ html.za-clean .premium-main :is([class~="text-[12px]"],.text-sm){font-size:15px!
 html.za-clean .premium-main .text-base{font-size:17px!important;line-height:1.5!important}
 html.za-clean .premium-main :is(.leading-5,.leading-relaxed,.leading-tight,.leading-snug){line-height:1.55!important}
 /* 次要資訊淡一點；主要數字（粗體）維持清楚 */
-/* 淺色：次要字直接用 --c-muted（#5b6780，對白卡 5.7:1）；深藍維持原本略淡的混色。 */
+/* 淺色：次要字直接用 --c-muted（#5b6780，對白卡 5.7:1）；深藍用 --c-muted 混卡片色（約 #a0a6b1，hero 最差 6.0:1）。 */
 html.za-clean{--c-muted-2:var(--c-muted)}
-html.za-clean[data-theme="navy"],html.za-clean:not([data-theme]){--c-muted-2:color-mix(in srgb,var(--c-muted) 82%,var(--c-card))}
+html.za-clean[data-theme="navy"],html.za-clean:not([data-theme]){--c-muted-2:color-mix(in srgb,var(--c-muted) 86%,var(--c-card))}
 html.za-clean .premium-main [style*="color: var(--z-sub"]:not(.font-bold):not(.font-black):not(.font-semibold){color:var(--c-muted-2)!important}
 /* 列距 */
 html.za-clean .premium-main :is(.space-y-1,.space-y-1\.5,.space-y-2)>:not([hidden])~:not([hidden]){margin-top:10px!important}
@@ -255,7 +256,7 @@ html.za-clean[data-theme="navy"]{
   /* 終點壓暗（原 #526584）：紅 #ff5c5c／綠 #00d26a 在終點對比 3.51／5.28、白字 10.64（見下方說明） */
   --forma-hero-gradient:linear-gradient(180deg,#2e2e2e 0%,#262626 100%);
   --forma-text:#ffffff;
-  --forma-muted:#ffffff;
+  --forma-muted:#b5bcc8;
   --forma-border:#3a3a3a;
 }
 /* Hero is the sole gradient emphasis; all financial rows remain flat and compact. */
@@ -271,18 +272,21 @@ html.za-clean[data-theme="navy"] .premium-asset-hero:after{display:none!importan
 /* Refined navy: keep the hero gradient as a subdued accent, not a full-page wash. */
 html.za-clean[data-theme="navy"] .premium-dashboard>.premium-asset-hero{background-color:#2a2a2a!important}
 
-/* Forma Portfolio: white informational text on navy.
-   Keep gains/losses, active/inactive state and chart strokes untouched. */
+/* Forma Portfolio: layered informational hierarchy on navy.
+   Primary figures and titles stay crisp white; labels and secondary metadata step back to soft cool grey (#b5bcc8, ≥7.6:1 AA). */
 html.za-clean[data-theme="navy"]{
-  --premium-muted:#ffffff;
-  --z-sub:#ffffff;
-  --label-muted:#ffffff;
+  --premium-muted:#b5bcc8;
+  --z-sub:#b5bcc8;
+  --label-muted:#b5bcc8;
 }
-html.za-clean[data-theme="navy"] :is(.premium-tabbar button[data-active="false"],.premium-field-label,.premium-panel-title,.live-quote-heading){
+html.za-clean[data-theme="navy"] .premium-panel-title{
   color:#ffffff!important;
 }
-html.za-clean[data-theme="navy"] :is(input,select,textarea)::placeholder{color:#ffffff!important;opacity:.62}
-html.za-clean[data-theme="navy"] .recharts-cartesian-axis-tick text{fill:#ffffff!important}
+html.za-clean[data-theme="navy"] :is(.premium-field-label,.live-quote-heading){
+  color:var(--c-muted)!important;
+}
+html.za-clean[data-theme="navy"] :is(input,select,textarea)::placeholder{color:#b5bcc8!important;opacity:.75}
+html.za-clean[data-theme="navy"] .recharts-cartesian-axis-tick text{fill:#b5bcc8!important}
 
 /* Mobile quote layout: keep high / low / previous close on one line without
    changing the price/value columns, data formatting or global font sizes. */
@@ -459,15 +463,22 @@ html.za-clean [data-forma-theme="portfolio"] .forma-daily-records .forma-period-
 }
 
 /* 2026-10-28 總覽精簡：即時股價每檔一行摘要（代號・現價・漲跌％／今日損益），點一下展開高低昨收與市值 */
-html .live-q-sum{appearance:none;-webkit-appearance:none;border:0;background:transparent!important;box-shadow:none!important;width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto minmax(92px,auto);align-items:start;gap:10px;padding:2px 0;margin:0;text-align:left;color:inherit;font:inherit;cursor:pointer;min-height:44px;-webkit-tap-highlight-color:transparent}
+/* 2026-11-26 互動優化：右側補上可展開箭頭提示、點擊回饋與展開明細底色分組 */
+html .live-q-sum{appearance:none;-webkit-appearance:none;border:0;background:transparent!important;box-shadow:none!important;width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto minmax(88px,auto) 14px;align-items:start;gap:8px;padding:4px 2px;margin:0;border-radius:10px;text-align:left;color:inherit;font:inherit;cursor:pointer;min-height:44px;-webkit-tap-highlight-color:transparent}
+html .live-q-sum::after{content:"";width:14px;height:14px;margin-top:4px;justify-self:end;background:var(--c-muted);opacity:.65;
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center/14px 14px no-repeat;
+  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center/14px 14px no-repeat}
+html .live-q-sum[aria-expanded="true"]::after{transform:rotate(180deg);opacity:1;background:var(--c-accent)}
+html .live-q-sum:active{background:color-mix(in srgb,var(--c-accent) 8%,transparent)!important}
+@media (prefers-reduced-motion:no-preference){html .live-q-sum::after{transition:transform .18s ease,opacity .18s ease}}
 html .live-q-sum:focus-visible{outline:2px solid currentColor;outline-offset:2px;border-radius:8px}
 html .live-q-sym,html .live-q-price,html .live-q-chg{display:flex;flex-direction:column;font-size:15px;line-height:1.35;font-weight:650;min-width:0}
 html .live-q-price,html .live-q-chg{align-items:flex-end;text-align:right;white-space:nowrap}
 html .live-q-weight{font-size:12px;font-weight:500;line-height:1.4}
 html .live-q-sub{font-size:13px;margin-top:2px}
-html .live-q-detail{margin-top:6px;padding-top:6px;border-top:1px dashed var(--z-line,rgba(150,170,200,.25))}
+html .live-q-detail{margin-top:8px;padding:8px 10px;border-radius:10px;background:color-mix(in srgb,var(--c-bg) 55%,var(--c-card));border:1px solid var(--c-line)}
 html .live-q-more{appearance:none;-webkit-appearance:none;border:0;background:transparent!important;box-shadow:none!important;font:inherit;font-size:13px;display:inline-flex;align-items:center;gap:4px;min-height:36px;padding:0;margin:0;cursor:pointer}
-html.za-clean .live-quote-row .live-q-detail.live-quote-grid{padding-top:6px}
+html.za-clean .live-quote-row .live-q-detail.live-quote-grid{padding:8px 10px}
 
 /* 每日紀錄的收合框（使用者 2026-10-29「固定框的高度、裡面能滑動、加收合鍵」）：標題列是 44px 的按鈕，上下吃掉一點留白，收合時框只剩標題列 */
 html .premium-panel>.premium-panel-title.forma-fold-head,
@@ -513,7 +524,10 @@ html.za-clean[data-theme="navy"] .premium-tabbar button[data-active="true"]::bef
 
 /* ════ AI 浮動按鈕：白貓鈴鐺吊牌（2026-11-11 設計 C；只改外觀） ════ */
 /* 60×60、位置沿用 .premium-ai-launcher 的 bottom 規則；圓底與圓形陰影拿掉，由 SVG 本身（米白貼紙邊＋深棕描邊）畫出外形。 */
-html.za-clean .premium-ai-launcher.za-ai-cat{background:transparent!important;box-shadow:none!important;border:0!important;overflow:visible}
+/* 2026-11-26：靜止時微降透明度至 .88 減少對最右側數值的視覺干擾，觸碰或聚焦時回復 100%。 */
+html.za-clean .premium-ai-launcher.za-ai-cat{background:transparent!important;box-shadow:none!important;border:0!important;overflow:visible;opacity:.88}
+html.za-clean .premium-ai-launcher.za-ai-cat:is(:hover,:active,:focus-visible){opacity:1}
+@media (prefers-reduced-motion:no-preference){html.za-clean .premium-ai-launcher.za-ai-cat{transition:opacity .18s ease}}
 /* 貼紙感的柔和陰影（跟著貓咪外形） */
 .za-ai-cat .za-ai-cat-svg{display:block;overflow:visible;filter:drop-shadow(0 3px 4px rgba(15,23,42,.28))}
 html.za-clean[data-theme="navy"] .za-ai-cat .za-ai-cat-svg{filter:drop-shadow(0 3px 5px rgba(0,0,0,.6))}
@@ -664,81 +678,4 @@ html.za-clean .premium-ai-launcher.za-ai-cat:focus-visible{outline:2px solid var
   html.za-clean [data-forma-theme="portfolio"] .forma-composer-plus,
   html.za-clean [data-forma-theme="portfolio"] .forma-composer-chev svg{transition:transform .18s ease,background-color .18s ease}
   html.za-clean [data-forma-theme="portfolio"] .premium-tabbar button>span:first-child{transition:background-color .15s ease}
-}
-
-/* ════ UI/UX 手感與視覺層級優化 2026-11-26（只改外觀，不碰資料與計算）════
-   1. 深色模式（navy）次要標籤與未選中分頁柔和化（#b5bdc9 / rgba(255,255,255,.72)，對 #232323 卡片對比 > 8:1，符合 WCAG AAA），讓主數字立刻跳出。
-   2. 即時股價單行摘要加入右側展開提示箭頭（chevron），展開時旋轉 180° 且明細加上柔和底色區塊，避免與下一檔混在一起。
-   3. 強化手機觸控即時回饋（:active），並讓浮動 AI 貓咪平時微透明減少遮擋視線。 */
-html.za-clean[data-theme="navy"] [data-forma-theme="portfolio"],
-html.za-clean:not([data-theme]) [data-forma-theme="portfolio"]{
-  --forma-sub-ink:rgba(255,255,255,.72);
-  --forma-tab-idle:rgba(255,255,255,.64);
-}
-html.za-clean[data-theme="navy"] [data-forma-theme="portfolio"] :is(.premium-field-label,.live-quote-heading,.live-q-weight,.forma-holding-key-lab,.forma-ledger-asof),
-html.za-clean:not([data-theme]) [data-forma-theme="portfolio"] :is(.premium-field-label,.live-quote-heading,.live-q-weight,.forma-holding-key-lab,.forma-ledger-asof){
-  color:var(--forma-sub-ink)!important;
-}
-html.za-clean[data-theme="navy"] [data-forma-theme="portfolio"] .premium-tabbar button[data-active="false"],
-html.za-clean:not([data-theme]) [data-forma-theme="portfolio"] .premium-tabbar button[data-active="false"]{
-  color:var(--forma-tab-idle)!important;
-}
-
-/* 即時股價摘要：右側展開箭頭＋展開態明細卡片化 */
-html.za-clean [data-forma-theme="portfolio"] .live-q-sum{
-  grid-template-columns:minmax(0,1fr) auto minmax(86px,auto) 16px;
-  align-items:center;
-  gap:8px;
-  border-radius:10px;
-  padding:4px 2px;
-}
-html.za-clean [data-forma-theme="portfolio"] .live-q-sum::after{
-  content:"";
-  width:14px;
-  height:14px;
-  justify-self:end;
-  background:currentColor;
-  opacity:.46;
-  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center/14px 14px no-repeat;
-  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center/14px 14px no-repeat;
-}
-html.za-clean [data-forma-theme="portfolio"] .live-q-sum[aria-expanded="true"]::after{
-  opacity:.85;
-  transform:rotate(180deg);
-}
-html.za-clean [data-forma-theme="portfolio"] .live-q-sum:active{
-  background:color-mix(in srgb,var(--c-accent) 8%,transparent)!important;
-}
-html.za-clean [data-forma-theme="portfolio"] .live-quote-row .live-q-detail{
-  margin-top:8px;
-  padding:10px 12px!important;
-  border-top:0!important;
-  border:1px solid var(--c-line);
-  border-radius:12px;
-  background:color-mix(in srgb,var(--c-accent) 5%,var(--c-card));
-}
-html.za-clean[data-theme="navy"] [data-forma-theme="portfolio"] .live-quote-row .live-q-detail,
-html.za-clean:not([data-theme]) [data-forma-theme="portfolio"] .live-quote-row .live-q-detail{
-  background:rgba(255,255,255,.04);
-  border-color:rgba(255,255,255,.08);
-}
-
-/* 可點擊區塊觸控手感與 AI 貓咪不干擾瀏覽 */
-html.za-clean [data-forma-theme="portfolio"] :is(.forma-composer-row,.forma-expand-card):active{
-  background:color-mix(in srgb,var(--c-accent) 6%,var(--c-card))!important;
-}
-html.za-clean [data-forma-theme="portfolio"] .premium-ai-launcher.za-ai-cat{
-  opacity:.88;
-}
-html.za-clean [data-forma-theme="portfolio"] .premium-ai-launcher.za-ai-cat:is(:hover,:focus-visible,:active){
-  opacity:1;
-}
-
-@media (prefers-reduced-motion:no-preference){
-  html.za-clean [data-forma-theme="portfolio"] .live-q-sum::after{transition:transform .2s ease,opacity .2s ease}
-  html.za-clean [data-forma-theme="portfolio"] .premium-ai-launcher.za-ai-cat{transition:opacity .18s ease}
-}
-@media (prefers-reduced-motion:reduce){
-  html.za-clean [data-forma-theme="portfolio"] .live-q-sum::after,
-  html.za-clean [data-forma-theme="portfolio"] .premium-ai-launcher.za-ai-cat{transition:none!important}
 }
