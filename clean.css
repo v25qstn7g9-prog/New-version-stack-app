@@ -665,3 +665,80 @@ html.za-clean .premium-ai-launcher.za-ai-cat:focus-visible{outline:2px solid var
   html.za-clean [data-forma-theme="portfolio"] .forma-composer-chev svg{transition:transform .18s ease,background-color .18s ease}
   html.za-clean [data-forma-theme="portfolio"] .premium-tabbar button>span:first-child{transition:background-color .15s ease}
 }
+
+/* ════ UI/UX 手感與視覺層級優化 2026-11-26（只改外觀，不碰資料與計算）════
+   1. 深色模式（navy）次要標籤與未選中分頁柔和化（#b5bdc9 / rgba(255,255,255,.72)，對 #232323 卡片對比 > 8:1，符合 WCAG AAA），讓主數字立刻跳出。
+   2. 即時股價單行摘要加入右側展開提示箭頭（chevron），展開時旋轉 180° 且明細加上柔和底色區塊，避免與下一檔混在一起。
+   3. 強化手機觸控即時回饋（:active），並讓浮動 AI 貓咪平時微透明減少遮擋視線。 */
+html.za-clean[data-theme="navy"] [data-forma-theme="portfolio"],
+html.za-clean:not([data-theme]) [data-forma-theme="portfolio"]{
+  --forma-sub-ink:rgba(255,255,255,.72);
+  --forma-tab-idle:rgba(255,255,255,.64);
+}
+html.za-clean[data-theme="navy"] [data-forma-theme="portfolio"] :is(.premium-field-label,.live-quote-heading,.live-q-weight,.forma-holding-key-lab,.forma-ledger-asof),
+html.za-clean:not([data-theme]) [data-forma-theme="portfolio"] :is(.premium-field-label,.live-quote-heading,.live-q-weight,.forma-holding-key-lab,.forma-ledger-asof){
+  color:var(--forma-sub-ink)!important;
+}
+html.za-clean[data-theme="navy"] [data-forma-theme="portfolio"] .premium-tabbar button[data-active="false"],
+html.za-clean:not([data-theme]) [data-forma-theme="portfolio"] .premium-tabbar button[data-active="false"]{
+  color:var(--forma-tab-idle)!important;
+}
+
+/* 即時股價摘要：右側展開箭頭＋展開態明細卡片化 */
+html.za-clean [data-forma-theme="portfolio"] .live-q-sum{
+  grid-template-columns:minmax(0,1fr) auto minmax(86px,auto) 16px;
+  align-items:center;
+  gap:8px;
+  border-radius:10px;
+  padding:4px 2px;
+}
+html.za-clean [data-forma-theme="portfolio"] .live-q-sum::after{
+  content:"";
+  width:14px;
+  height:14px;
+  justify-self:end;
+  background:currentColor;
+  opacity:.46;
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center/14px 14px no-repeat;
+  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center/14px 14px no-repeat;
+}
+html.za-clean [data-forma-theme="portfolio"] .live-q-sum[aria-expanded="true"]::after{
+  opacity:.85;
+  transform:rotate(180deg);
+}
+html.za-clean [data-forma-theme="portfolio"] .live-q-sum:active{
+  background:color-mix(in srgb,var(--c-accent) 8%,transparent)!important;
+}
+html.za-clean [data-forma-theme="portfolio"] .live-quote-row .live-q-detail{
+  margin-top:8px;
+  padding:10px 12px!important;
+  border-top:0!important;
+  border:1px solid var(--c-line);
+  border-radius:12px;
+  background:color-mix(in srgb,var(--c-accent) 5%,var(--c-card));
+}
+html.za-clean[data-theme="navy"] [data-forma-theme="portfolio"] .live-quote-row .live-q-detail,
+html.za-clean:not([data-theme]) [data-forma-theme="portfolio"] .live-quote-row .live-q-detail{
+  background:rgba(255,255,255,.04);
+  border-color:rgba(255,255,255,.08);
+}
+
+/* 可點擊區塊觸控手感與 AI 貓咪不干擾瀏覽 */
+html.za-clean [data-forma-theme="portfolio"] :is(.forma-composer-row,.forma-expand-card):active{
+  background:color-mix(in srgb,var(--c-accent) 6%,var(--c-card))!important;
+}
+html.za-clean [data-forma-theme="portfolio"] .premium-ai-launcher.za-ai-cat{
+  opacity:.88;
+}
+html.za-clean [data-forma-theme="portfolio"] .premium-ai-launcher.za-ai-cat:is(:hover,:focus-visible,:active){
+  opacity:1;
+}
+
+@media (prefers-reduced-motion:no-preference){
+  html.za-clean [data-forma-theme="portfolio"] .live-q-sum::after{transition:transform .2s ease,opacity .2s ease}
+  html.za-clean [data-forma-theme="portfolio"] .premium-ai-launcher.za-ai-cat{transition:opacity .18s ease}
+}
+@media (prefers-reduced-motion:reduce){
+  html.za-clean [data-forma-theme="portfolio"] .live-q-sum::after,
+  html.za-clean [data-forma-theme="portfolio"] .premium-ai-launcher.za-ai-cat{transition:none!important}
+}
