@@ -445,8 +445,8 @@ test('資料不足時回傳安全的空結果', () => {
 });
 
 // ---------- 6. 2055 情境 ----------
-test('2055 年底情境：三種假設年化報酬率（悲觀 2%、中性 5%、樂觀 8%），純計算', () => {
-  assert.deepEqual(E.SCENARIO_RATES, { pessimistic: 0.02, neutral: 0.05, optimistic: 0.08 });
+test('2055 年底情境：三種假設年化報酬率（悲觀 2%、中性 5%、樂觀 10%），純計算', () => {
+  assert.deepEqual(E.SCENARIO_RATES, { pessimistic: 0.02, neutral: 0.05, optimistic: 0.1 });
   assert.equal(E.SCENARIO_YEAR, 2055);
   const s = E.scenarios(100, '2025-12-31');
   const years = 10957 / 365.25;
@@ -454,7 +454,7 @@ test('2055 年底情境：三種假設年化報酬率（悲觀 2%、中性 5%、
   const by = Object.fromEntries(s.rows.map((x) => [x.key, x]));
   assert.ok(near(by.pessimistic.price, Math.round(100 * 1.02 ** years * 100) / 100, 1e-6));
   assert.ok(near(by.neutral.price, Math.round(100 * 1.05 ** years * 100) / 100, 1e-6));
-  assert.ok(near(by.optimistic.price, Math.round(100 * 1.08 ** years * 100) / 100, 1e-6));
+  assert.ok(near(by.optimistic.price, Math.round(100 * 1.1 ** years * 100) / 100, 1e-6));
   assert.deepEqual(s.rows.map((x) => x.label), ['樂觀', '中性', '悲觀']);
   assert.match(s.note, /假設情境，不是預測/);
   assert.match(s.note, /不含股息/);
