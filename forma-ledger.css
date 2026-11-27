@@ -1,0 +1,72 @@
+/* ════ Issue #90：首頁「資料時間・來源」、唯一的「＋記交易」、記交易面板、資料來源抽屜 ════
+   - 只用這個 App 既有的顏色變數（clean.css 的 --c-*），不新增色碼；範圍限定在 [data-forma-theme="portfolio"] 與 .forma-ledger-*。
+   - 手機優先：可點的東西至少 44px；輸入框 16px（iOS 不會自動放大）；375／390／430 不左右超出。
+   - 紅／綠只給漲跌；狀態用重點色／警示色。 */
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-asof{display:flex;align-items:center;gap:6px;width:100%;min-height:44px;margin:0 0 -6px;padding:0;
+  background:transparent;border:0;text-align:left;color:var(--c-muted);font-size:11px;line-height:17px}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-asof-text{min-width:0;flex:1 1 auto;overflow-wrap:anywhere}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-asof-more{flex:none;color:var(--c-accent);font-weight:700;white-space:nowrap}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-dot{display:inline-block;flex:none;width:8px;height:8px;border-radius:50%;background:var(--c-muted)}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-dot.is-complete{background:var(--c-accent)}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-dot:is(.is-stale,.is-partial,.is-fallback){background:var(--c-warn)}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-dot.is-unknown{background:transparent;border:2px solid var(--c-warn)}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-cta{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;min-height:48px;margin-top:12px;
+  border-radius:14px;border:1px solid var(--c-btn);background:var(--c-btn);color:var(--c-btn-ink);font-size:16px;font-weight:700}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-cta:active{opacity:.85}
+
+/* 底部面板 */
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-scrim{position:fixed;inset:0;z-index:1000;background:rgba(15,23,42,.36);display:flex;flex-direction:column;justify-content:flex-end;align-items:center}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-sheet{width:100%;max-width:560px;max-height:min(92dvh,92vh);display:flex;flex-direction:column;outline:none;
+  background:var(--c-card);color:var(--c-ink);border-radius:24px 24px 0 0;box-shadow:0 -12px 40px rgba(15,23,42,.2);padding-bottom:env(safe-area-inset-bottom,0px)}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-sheet-h{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:56px;padding:4px 6px 4px 18px;border-bottom:1px solid var(--c-line);flex:none}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-sheet-h h2{font-size:17px;font-weight:700;margin:0}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-x{width:44px;height:44px;min-width:44px;display:grid;place-items:center;border-radius:50%;background:transparent;border:0;color:var(--c-muted)}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-sheet-b{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:14px 18px}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-sheet-f{flex:none;padding:10px 18px 14px;border-top:1px solid var(--c-line);background:var(--c-card)}
+
+/* 記交易表單 */
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-seg{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;border-radius:14px;background:var(--c-bg);border:1px solid var(--c-line)}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-seg-btn{min-height:44px;border-radius:10px;border:1px solid transparent;background:transparent;color:var(--c-muted);font-size:15px;font-weight:700}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-seg-btn.is-on{background:var(--c-card);color:var(--c-ink);border-color:var(--c-accent)}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-form{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px 10px;margin-top:14px}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-field{display:block;min-width:0}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-field.is-wide{grid-column:1/-1}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-field>span{display:flex;align-items:baseline;justify-content:space-between;gap:6px;font-size:12px;line-height:18px;color:var(--c-muted);margin-bottom:4px}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-field>span em{font-style:normal;font-size:11px;color:var(--c-accent);white-space:nowrap}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-field input{display:block;width:100%;min-width:0;box-sizing:border-box;min-height:48px;height:48px;padding:10px 12px;border-radius:12px;
+  border:1px solid var(--c-line-2);background:var(--c-card);color:var(--c-ink);font-size:16px;font-family:'JetBrains Mono',ui-monospace,monospace;-webkit-appearance:none;appearance:none}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-field input:focus{border-color:var(--c-accent);outline:none}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-sum{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:13px;color:var(--c-muted);margin-bottom:8px}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-sum b{font-size:17px;color:var(--c-ink);font-family:'JetBrains Mono',ui-monospace,monospace}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-hint{font-size:12px;line-height:18px;color:var(--c-muted);margin-bottom:8px}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-primary{display:block;width:100%;min-height:52px;border-radius:14px;border:1px solid var(--c-btn);background:var(--c-btn);color:var(--c-btn-ink);font-size:16px;font-weight:700}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-primary:disabled{background:var(--c-disabled-bg);border-color:var(--c-line-2);color:var(--c-disabled-ink)}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-secondary{display:block;width:100%;min-height:44px;margin-top:8px;border-radius:12px;border:1px solid var(--c-line-2);background:var(--c-card);color:var(--c-accent);font-size:14px;font-weight:700}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-foot-note{font-size:11px;line-height:17px;color:var(--c-muted);text-align:center;margin-top:8px}
+
+/* 資料來源抽屜（財務資料：沿用已核准的 11px／17px） */
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-sec{padding:14px 0;border-top:1px solid var(--c-line)}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-sec.is-top{padding-top:0;border-top:0}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-sec h3{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:0 0 6px;font-size:14px;line-height:20px;font-weight:700}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-sec h3 b{font-size:15px;white-space:nowrap}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-sec.is-top h3 b{font-size:20px;line-height:26px}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-note{font-size:11px;line-height:17px;color:var(--c-muted);margin:4px 0 0;overflow-wrap:anywhere}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-note.is-warn{color:var(--c-warn)}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-row{padding:8px 0;border-top:1px dashed var(--c-line)}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-row-top{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:13px;line-height:19px;font-weight:700}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-sym{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-sym i{font-style:normal;font-weight:400;color:var(--c-muted);margin-left:6px}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-row-meta{font-size:11px;line-height:17px;color:var(--c-muted);overflow-wrap:anywhere}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-chips{display:flex;flex-wrap:wrap;gap:4px}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-chip{margin-top:4px;font-size:11px;line-height:17px;font-weight:700;padding:0 8px;border-radius:999px;border:1px solid var(--c-warn);color:var(--c-warn)}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-kv{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:12px;line-height:18px;padding:3px 0}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-kv span{color:var(--c-muted);min-width:0}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-kv b{white-space:nowrap}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-explain{margin:0;padding:10px 12px;border-radius:12px;background:var(--c-bg);border:1px solid var(--c-line);
+  font-family:inherit;font-size:12px;line-height:19px;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--c-ink)}
+
+/* 交易紀錄：剛新增的那一筆 */
+html.za-clean [data-forma-theme="portfolio"] .premium-row.forma-ledger-flash{border-color:var(--c-accent)!important;box-shadow:0 0 0 2px var(--c-accent) inset}
+html.za-clean [data-forma-theme="portfolio"] .forma-ledger-new{display:inline-block;margin-right:6px;padding:0 8px;border-radius:999px;font-size:11px;line-height:17px;font-weight:700;
+  font-family:inherit;border:1px solid var(--c-accent);color:var(--c-accent)}
+@media (prefers-reduced-motion:reduce){html.za-clean [data-forma-theme="portfolio"] :is(.forma-ledger-cta,.forma-ledger-sheet){transition:none!important;animation:none!important}}

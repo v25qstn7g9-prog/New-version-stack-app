@@ -1,0 +1,32 @@
+{
+  "_note": "Issue #90 假資料：全部是虛構的代號數量與價格，不是任何人的帳本。時間以 2026-11-20（五）台北 13:35 為準。",
+  "now": "2026-11-20T05:35:00Z",
+  "holdings": [
+    { "id": "h-0050", "symbol": "0050", "name": "示範台灣五十", "initialShares": 1000, "manualAvgCost": 55, "target2035": 5000 },
+    { "id": "h-2330", "symbol": "2330", "name": "示範晶圓", "initialShares": 100, "manualAvgCost": 900, "target2035": 500 },
+    { "id": "h-00878", "symbol": "00878", "name": "示範高股息", "initialShares": 3000, "manualAvgCost": 21, "target2035": 20000 }
+  ],
+  "usHolding": { "id": "h-voo", "symbol": "VOO", "name": "Demo S&P 500 ETF", "initialShares": 1.5, "manualAvgCost": 17000, "target2035": 10 },
+  "trades": [
+    { "id": "t-old-1", "date": "2026-10-05", "symbol": "0050", "action": "buy", "shares": 200, "price": 60, "fee": 17, "tax": 0, "amount": 12017, "nativeAmount": 12017, "currency": "TWD", "fxRate": 1, "note": "" },
+    { "id": "t-old-2", "date": "2026-11-03", "symbol": "00878", "action": "buy", "shares": 1000, "price": 22.5, "fee": 32, "tax": 0, "amount": 22532, "nativeAmount": 22532, "currency": "TWD", "fxRate": 1, "note": "定期定額" },
+    { "id": "t-old-usd", "date": "2025-06-10", "symbol": "VOO", "action": "buy", "shares": 0.5, "price": 500, "fee": 1, "tax": 0, "nativeAmount": 251, "currency": "USD", "fxRate": 30.1, "note": "舊美元紀錄" }
+  ],
+  "dividends": [
+    { "id": "d-1", "date": "2026-08-18", "symbol": "00878", "shares": 3000, "perShare": 0.4, "amount": 1200, "nativeAmount": 1200, "currency": "TWD", "fxRate": 1 }
+  ],
+  "dailyRecords": [
+    { "id": "r-1118", "date": "2026-11-18", "twValue": 251000, "usValue": 0, "twCost": 200000, "usCost": 0 },
+    { "id": "r-1119", "date": "2026-11-19", "twValue": 253200, "usValue": 0, "twCost": 200000, "usCost": 0 }
+  ],
+  "quotes": {
+    "0050": { "price": 62.5, "prevClose": 62.0, "high": 62.8, "low": 61.9, "isStale": false, "asOfDate": "2026-11-20T05:30:00Z", "source": "TWSE", "priceSource": "last" },
+    "2330": { "price": 1050, "prevClose": 1040, "high": 1055, "low": 1038, "isStale": false, "asOfDate": "2026-11-20T05:30:00Z", "source": "TWSE", "priceSource": "last" },
+    "00878": { "price": 22.8, "prevClose": 22.7, "high": 22.9, "low": 22.6, "isStale": false, "asOfDate": "2026-11-20T05:30:00Z", "source": "TWSE", "priceSource": "last" }
+  },
+  "usQuotes": {
+    "VOO": { "price": 600, "prevClose": 596, "isStale": false, "asOfDate": "2026-11-19T21:00:00Z", "source": "Yahoo-US", "priceSource": "last" }
+  },
+  "fx": { "rate": 32, "asOf": "2026-11-20T05:30:00Z", "source": "Yahoo" },
+  "plan": { "startDate": "2026-01-31", "initialPrincipal": 100000, "initialAssets": 100000, "monthlyAmount": 10000, "annualReturn": 0, "horizonMonths": 12 }
+}

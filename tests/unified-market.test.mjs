@@ -54,6 +54,7 @@ function formHarness(name, form, props, extra={}) {
  const code=html.slice(start,end)+'  return { add, form };\n}';
  let first=true;
  const c=vm.createContext({UI_SHOW_ENGLISH:false,todayStr:()=> '2026-10-05',uid:()=> 'new-record',uiText:x=>x,useState:initial=>{const value=first?(first=false,form):initial;return[value,()=>{}];},useEffect:()=>{},useRef:v=>({current:v}),...extra});
+ vm.runInContext(fs.readFileSync('ledger-core.js','utf8'),c); // Issue #90：表單送出去重用到 ZinfLedger
  vm.runInContext(html.slice(a,b),c);vm.runInContext(code,c);
  return c[name](props);
 }
