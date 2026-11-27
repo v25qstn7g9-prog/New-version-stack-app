@@ -21,7 +21,12 @@
   const fin=v=>v!=null&&v!==''&&Number.isFinite(Number(v));
   const r2=v=>Math.round(v*100)/100;
   const r4=v=>Math.round(v*10000)/10000;
-  const ymd=s=>typeof s==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(s);
+  // 真實日期：格式 YYYY-MM-DD，且 UTC 解析後的年月日要和原字串一致（擋掉 2025-13-01、2025-04-31、2025-02-29 這種不存在的日期）。
+  const ymd=s=>{
+    if(typeof s!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(s))return false;
+    const t=Date.parse(s+'T00:00:00Z');
+    return Number.isFinite(t)&&new Date(t).toISOString().slice(0,10)===s;
+  };
   const calDays=(a,b)=>Math.round((Date.parse(b+'T00:00:00Z')-Date.parse(a+'T00:00:00Z'))/DAY);
   const fmt=v=>{const n=Number(v);return Math.abs(n)>=1000?n.toLocaleString('en-US',{maximumFractionDigits:0}):String(r2(n));};
 
@@ -57,14 +62,21 @@
     if(!Array.isArray(bars)||bars.length<2||!(p>0))return {pivots:[],inProgress:null};
     const mk=(i,type)=>({i,day:bars[i].day,type,price:type==='H'?bars[i].high:bars[i].low,close:bars[i].close,confirmed:true});
     const piv=[];let trend=0,hi=0,lo=0,ext=0;
+    // 初始化依時間順序：同時追蹤到目前為止的候選高點 hi、候選低點 lo；之後某一根相對其中一個候選反向達 pct%，
+    // 就確立第一個轉折（候選本身），延伸端取該候選之後到這一根為止的最極端價。
+    // 只看「這一根」是否從較早的候選反轉，所以首根（或初始化期間）是涵蓋後續區間的外包日K時，後續反轉仍會被確認。
+    const extAfter=(from,to,t)=>{let k=from+1;for(let j=from+2;j<=to;j++)if(t===1?bars[j].high>bars[k].high:bars[j].low<bars[k].low)k=j;return k;};
     for(let i=1;i<bars.length;i++){
       const b=bars[i];
       if(trend===0){
         if(b.high>bars[hi].high)hi=i;
         if(b.low<bars[lo].low)lo=i;
-        const upOk=bars[hi].high>=bars[lo].low*(1+p)&&lo<hi, dnOk=bars[lo].low<=bars[hi].high*(1-p)&&hi<lo;
-        if(upOk){piv.push(mk(lo,'L'));trend=1;ext=hi;}
-        else if(dnOk){piv.push(mk(hi,'H'));trend=-1;ext=lo;}
+        // 只認「從較早的候選」反轉：這一根自己創新高（hi===i）就不能拿它確認下跌，反之亦然。
+        const upOk=lo<i&&b.high>=bars[lo].low*(1+p), dnOk=hi<i&&b.low<=bars[hi].high*(1-p);
+        // 同一根同時達到兩個方向（大外包日K）：較早的候選先確立；同一根候選時取超過門檻較多的方向。
+        const up=upOk&&(!dnOk||lo<hi||(lo===hi&&b.high/bars[lo].low>=bars[hi].high/b.low));
+        if(up){piv.push(mk(lo,'L'));trend=1;ext=extAfter(lo,i,1);}
+        else if(dnOk){piv.push(mk(hi,'H'));trend=-1;ext=extAfter(hi,i,-1);}
         continue;
       }
       if(trend===1){
@@ -550,5 +562,5 @@
   }
 
   root.ZinfElliott={CANDIDATE_THRESHOLDS,ATR_DAYS,MIN_BARS,MIN_SCORE,CLOSE_MARGIN,SCENARIO_RATES,SCENARIO_YEAR,FIB,STATUS_TEXT,DISCLAIMER,SCENARIO_NOTE,
-    completedBars,atrPct,zigzag,fibLevels,analyze,candidates,scoreReasons,scenarios,summaryText,PATTERNS:PATTERNS.map(p=>p.id)};
+    isValidDay:ymd,completedBars,atrPct,zigzag,fibLevels,analyze,candidates,scoreReasons,scenarios,summaryText,PATTERNS:PATTERNS.map(p=>p.id)};
 })(globalThis);

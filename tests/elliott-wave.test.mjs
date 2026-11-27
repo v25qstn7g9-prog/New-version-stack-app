@@ -1072,3 +1072,135 @@ test('沒有候選（振幅低於所有候選門檻）→ 不確定＋轉折不�
   // 有主要計數時 noCandidates 也明確是 false
   assert.equal(E.analyze(makeBars(UP_5ABC)).noCandidates, false);
 });
+
+// ---------- Codex 第 4 輪：zigzag 初始化（外包日K）、真實日期驗證 ----------
+const ZZ_UP = [100, 108, 101, 109, 102, 108, 101, 107, 100];
+const ZZ_DN = [100, 92, 99, 91, 98, 92, 99, 93, 100];
+const zzSig = (z) => z.pivots.map((p) => `${p.i}${p.type}`);
+const zzWellFormed = (z, bars) => {
+  z.pivots.forEach((p, k) => {
+    if (k === 0) return;
+    const q = z.pivots[k - 1];
+    assert.notEqual(p.type, q.type, '高低交替');
+    assert.ok(p.i > q.i, '時間遞增');
+    assert.equal(p.price, p.type === 'H' ? bars[p.i].high : bars[p.i].low);
+  });
+};
+const withOutside = (bars, idx, high, low) => bars.map((b, i) => (i === idx ? { ...b, high, low } : { ...b }));
+
+test('zigzag：首根是涵蓋後續區間的外包日K（往上做 5% 反轉）→ 仍建立後續轉折，不是 0 個', () => {
+  const base = makeBars(ZZ_UP, { prefix: 0, step: 10 });
+  const z0 = E.zigzag(base, 5);
+  assert.equal(z0.pivots.length, 9);
+  const bars = withOutside(base, 0, 110, 99);
+  assert.ok(bars.slice(1).every((b) => b.high < 110 && b.low > 99));
+  const z = E.zigzag(bars, 5);
+  assert.ok(z.pivots.length >= 9, `轉折數 ${z.pivots.length}`);
+  zzWellFormed(z, bars);
+  assert.equal(z.pivots[0].i, 0); // 首根外包日K本身當第一個轉折
+  assert.equal(z.pivots[0].type, 'H');
+  // 第 10 根之後的轉折和沒有外包日K時一樣
+  assert.deepEqual(zzSig(z).filter((s) => parseInt(s, 10) >= 10), zzSig(z0).filter((s) => parseInt(s, 10) >= 10));
+  assert.ok(z.inProgress);
+  // analyze 也不再全被判成振幅不夠
+  const r = E.analyze(bars, { thresholds: [5] });
+  assert.equal(r.noCandidates, false);
+  assert.ok(r.candidatesTried[0].pivots >= 9);
+});
+
+test('zigzag：首根外包日K（往下做 5% 反轉，鏡像）→ 仍建立後續轉折', () => {
+  const base = makeBars(ZZ_DN, { prefix: 0, step: 10 });
+  const z0 = E.zigzag(base, 5);
+  assert.equal(z0.pivots.length, 9);
+  const bars = withOutside(base, 0, 101, 90);
+  assert.ok(bars.slice(1).every((b) => b.high < 101 && b.low > 90));
+  const z = E.zigzag(bars, 5);
+  assert.ok(z.pivots.length >= 9, `轉折數 ${z.pivots.length}`);
+  zzWellFormed(z, bars);
+  assert.equal(z.pivots[0].i, 0);
+  assert.equal(z.pivots[0].type, 'L');
+  assert.deepEqual(zzSig(z).filter((s) => parseInt(s, 10) >= 10), zzSig(z0).filter((s) => parseInt(s, 10) >= 10));
+});
+
+test('zigzag：初始化期間（非首根）出現外包日K，上下兩方向都能在其區間內建立後續轉折', () => {
+  for (const [pts, hi, lo] of [[ZZ_UP, 112, 98], [ZZ_DN, 102, 88]]) {
+    const base = makeBars(pts, { prefix: 0, step: 10 });
+    const bars = withOutside(base, 2, hi, lo); // 第 3 根是外包，之後全落在它的區間內
+    assert.ok(bars.slice(3).every((b) => b.high < hi && b.low > lo));
+    const z = E.zigzag(bars, 5);
+    assert.ok(z.pivots.length >= 8, `${pts[1]}：轉折數 ${z.pivots.length}`);
+    zzWellFormed(z, bars);
+    assert.equal(z.pivots[0].i, 2);
+    assert.equal(z.pivots.at(-1).i, bars.length - 1);
+  }
+});
+
+test('zigzag：同一根創新高又回落超過門檻時，不拿被它超過的舊高點當轉折', () => {
+  const days = tradingDays('2025-01-06', 6);
+  const bars = [[101, 99], [106, 94], [104, 100], [103, 99.5], [104, 100.5], [110, 104]].map(([h, l], i) => ({ day: days[i], high: h, low: l, close: (h + l) / 2 }));
+  // 第 2 根同時創新高（106）與新低（94）：不從第 1 根確認任何轉折；之後 94 → 110 才確認上漲
+  const z = E.zigzag(bars, 5);
+  assert.ok(!z.pivots.some((p) => p.i === 0), JSON.stringify(zzSig(z)));
+  assert.deepEqual(zzSig(z), ['1L', '5H']);
+  assert.equal(z.pivots[1].confirmed, false);
+});
+
+test('zigzag：一般資料（沒有外包日K）初始化結果不變：第一個轉折是先被反向達門檻確認的極值', () => {
+  const bars = makeBars([100, 120, 108, 130], { prefix: 0 });
+  assert.deepEqual(zzSig(E.zigzag(bars, 5)), ['0L', '5H', '10L', '15H']);
+  const dn = makeBars([130, 108, 120, 100], { prefix: 0 });
+  assert.deepEqual(zzSig(E.zigzag(dn, 5)), ['0H', '5L', '10H', '15L']);
+});
+
+test('真實日期驗證：核心 isValidDay 與 session 共用，拒絕不存在的月份、日期與無效閏日', () => {
+  assert.equal(typeof E.isValidDay, 'function');
+  const ok = ['2024-02-29', '2000-02-29', '2026-11-26', '2025-12-31', '2025-01-01', '2025-04-30'];
+  const bad = ['2025-02-29', '1900-02-29', '2025-13-01', '2025-00-10', '2025-04-31', '2025-06-31', '2025-01-00', '2025-01-32',
+    '2025-1-01', '2025-01-1', '2025/01/01', '2025-01-01T00:00:00Z', ' 2025-01-01', '', null, undefined, 20250101, {}];
+  for (const d of ok) {
+    assert.equal(E.isValidDay(d), true, d);
+    assert.equal(V.ewIsValidBar({ day: d, high: 10, low: 9, close: 9.5 }), true, d);
+  }
+  for (const d of bad) {
+    assert.equal(E.isValidDay(d), false, String(d));
+    assert.equal(V.ewIsValidBar({ day: d, high: 10, low: 9, close: 9.5 }), false, String(d));
+  }
+  // session 不再自己寫日期正規表示式，而是呼叫核心的 isValidDay
+  assert.match(section('elliott-session'), /ZinfElliott\?\.isValidDay/);
+  assert.doesNotMatch(section('elliott-session'), /\\d\{4\}-\\d\{2\}-\\d\{2\}/);
+});
+
+test('無效日期的日K被排除：最後一根是 2025-13-01 → 不算進分析，天數不出現 NaN，長期情境照算', () => {
+  const bars = makeBars(UP_5ABC);
+  const good = E.analyze(bars);
+  const broken = bars.map((b) => ({ ...b }));
+  broken[broken.length - 1].day = '2025-13-01';
+  assert.equal(E.completedBars(broken).length, bars.length - 1);
+  const r = E.analyze(broken);
+  assert.equal(r.ok, true);
+  assert.equal(r.lastBar.day, bars[bars.length - 2].day);
+  for (const c of [r.primary, ...r.alternatives].filter(Boolean)) {
+    for (const w of c.waves) assert.ok(Number.isFinite(w.calendarDays) && Number.isFinite(w.tradingDays), `${c.text} ${w.label}`);
+  }
+  assert.ok(E.scenarios(r.lastBar.close, r.lastBar.day));
+  assert.ok(good.ok);
+  // 其他不存在的日期也一樣被排除
+  for (const d of ['2025-02-29', '2025-04-31']) {
+    const x = bars.map((b) => ({ ...b }));
+    x[5].day = d;
+    assert.ok(E.completedBars(x).every((b) => b.day !== d), d);
+  }
+  // 今天的鍵不是真實日期 → 不拿來過濾（和沒給一樣）
+  assert.equal(E.completedBars(bars, '2025-13-01', 900).length, bars.length);
+});
+
+test('載入：API 回的日K日期全是不存在的日期 → 算缺漏（可重試），不放進記憶體', async () => {
+  const badDays = (n) => makeBars([100, 120, 110]).slice(0, n).map((b, i) => ({ ...b, day: i % 2 ? '2025-13-01' : '2025-02-29' }));
+  const h = harness({ fetchImpl: (want) => Promise.resolve({ ...goodBars(want.filter((s) => s !== '0050')), '0050': badDays(10) }) });
+  h.s.open();
+  await flush();
+  assert.equal(h.last().status, 'ready');
+  assert.deepEqual(h.last().failed, ['0050']);
+  assert.equal(h.last().bars['0050'], undefined);
+  assert.equal(V.ewSymbolStatus(h.last(), '0050'), 'missing');
+});
