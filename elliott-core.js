@@ -10,7 +10,7 @@
   const MIN_SCORE=0.55;                             // 主要計數分數低於這個值 → 不確定
   const CLOSE_MARGIN=0.06;                          // 主要與替代分數差距小於這個值 → 不確定
   const MAX_ALTERNATIVES=2;
-  const SCENARIO_RATES={pessimistic:0.02,neutral:0.05,optimistic:0.08}; // 2055 情境的假設年化報酬（價格指數，不含股息）
+  const SCENARIO_RATES={pessimistic:0.02,neutral:0.05,optimistic:0.10}; // 2055 情境的假設年化報酬（價格指數，不含股息）
   const SCENARIO_YEAR=2055;
   const FIB=[0.382,0.5,0.618];
   const STATUS_TEXT={valid:'成立',uncertain:'不確定',invalid:'計數不成立',insufficient:'資料不足'};
