@@ -27,13 +27,26 @@
     const t=Date.parse(s+'T00:00:00Z');
     return Number.isFinite(t)&&new Date(t).toISOString().slice(0,10)===s;
   };
+  // 有效日K（核心與 App session 共用）：day 是真實日期；high／low／close 為有限正數、high ≥ low，且 low ≤ close ≤ high；
+  // open 若有提供且是有限數，也要 low ≤ open ≤ high（open 缺漏或不是數字就不檢查）。比較時容許相對 1e-9 的浮點誤差。
+  function isValidBar(b){
+    if(!b||typeof b!=='object'||!ymd(b.day))return false;
+    if(![b.high,b.low,b.close].every(v=>fin(v)&&Number(v)>0))return false;
+    const hi=Number(b.high),lo=Number(b.low),c=Number(b.close);
+    if(!(hi>=lo))return false;
+    const eps=Math.max(Math.abs(hi),Math.abs(lo))*1e-9;
+    const inRange=v=>v>=lo-eps&&v<=hi+eps;
+    if(!inRange(c))return false;
+    if(fin(b.open)&&!inRange(Number(b.open)))return false;
+    return true;
+  }
   const calDays=(a,b)=>Math.round((Date.parse(b+'T00:00:00Z')-Date.parse(a+'T00:00:00Z'))/DAY);
   const fmt=v=>{const n=Number(v);return Math.abs(n)>=1000?n.toLocaleString('en-US',{maximumFractionDigits:0}):String(r2(n));};
 
   // ---------- 資料整理 ----------
   // 只留完整的日K；盤中未收盤的「今天」那根不算（照 App 既有 historyPhase：台北 820 分鐘（13:40）以後才算收盤）。
   function completedBars(bars,todayKey,minute){
-    const list=(Array.isArray(bars)?bars:[]).filter(b=>b&&ymd(b.day)&&[b.high,b.low,b.close].every(v=>fin(v)&&Number(v)>0)&&Number(b.high)>=Number(b.low))
+    const list=(Array.isArray(bars)?bars:[]).filter(isValidBar)
       .map(b=>({day:b.day,high:Number(b.high),low:Number(b.low),close:Number(b.close)}))
       .sort((a,b)=>a.day<b.day?-1:a.day>b.day?1:0);
     const out=[];
@@ -562,5 +575,5 @@
   }
 
   root.ZinfElliott={CANDIDATE_THRESHOLDS,ATR_DAYS,MIN_BARS,MIN_SCORE,CLOSE_MARGIN,SCENARIO_RATES,SCENARIO_YEAR,FIB,STATUS_TEXT,DISCLAIMER,SCENARIO_NOTE,
-    isValidDay:ymd,completedBars,atrPct,zigzag,fibLevels,analyze,candidates,scoreReasons,scenarios,summaryText,PATTERNS:PATTERNS.map(p=>p.id)};
+    isValidDay:ymd,isValidBar,completedBars,atrPct,zigzag,fibLevels,analyze,candidates,scoreReasons,scenarios,summaryText,PATTERNS:PATTERNS.map(p=>p.id)};
 })(globalThis);

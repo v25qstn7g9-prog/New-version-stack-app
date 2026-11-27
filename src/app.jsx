@@ -7200,8 +7200,8 @@ const ELLIOTT_SYMBOLS = [{ sym: "TAIEX", label: "加權指數" }, { sym: "0050",
 // - 各標的分開記錄成功／失敗：只把成功的標的放進記憶體；失敗的標的標成「暫時抓不到」，按重試只補抓缺的。
 // 日期驗證和 elliott-core 共用同一個 isValidDay（真實存在的 YYYY-MM-DD；2025-13-01、2025-04-31、2025-02-29 都不算）。
 const ewIsValidDay = (s) => !!globalThis.ZinfElliott?.isValidDay?.(s);
-const ewIsValidBar = (b) => !!b && typeof b === "object" && ewIsValidDay(b.day)
-  && [b.high, b.low, b.close].every((v) => v !== null && v !== "" && Number.isFinite(Number(v)) && Number(v) > 0) && Number(b.high) >= Number(b.low);
+// 日K驗證同樣呼叫核心的 isValidBar（含 low ≤ close ≤ high、有 open 時 low ≤ open ≤ high），兩邊不會各寫一套。
+const ewIsValidBar = (b) => !!globalThis.ZinfElliott?.isValidBar?.(b);
 const ewValidBarCount = (a) => (Array.isArray(a) ? a.filter(ewIsValidBar).length : 0);
 const ewPhaseKey = (clock) => clock.day + "|" + (clock.minute >= 820 ? "closed" : clock.minute < 540 ? "premarket" : "session");
 const elliottMemo = { key: null, bars: {} }; // 只在記憶體，重新整理頁面就沒了
@@ -7209,7 +7209,7 @@ function createElliottSession({ symbols, readCache, fetchBars, now, onChange, me
   let open = false, disposed = false, seq = 0, ctrl = null;
   let state = { status: "idle", key: null, clock: null, bars: {}, failed: [] };
   const emit = (next) => { state = next; if (!disposed) onChange(next); };
-  // 有效日K：day 是真實存在的 YYYY-MM-DD、high／low／close 都是有限正數且 high ≥ low（和 elliott-core 的 completedBars 同一套條件）。
+  // 有效日K：由核心 isValidBar 判定（真實日期、high／low／close 有限正數、high ≥ low、low ≤ close ≤ high、open 有提供時也在區間內；和 completedBars 同一套條件）。
   // 陣列非空但沒有任何一根有效（[null]、[{}]、全壞的日K）算缺漏：不放進記憶體、畫面顯示重試，重試時也略過這份無效快取。
   const usable = (a) => ewValidBarCount(a) > 0;
   const abort = () => { seq++; if (ctrl) { ctrl.abort(); ctrl = null; } };

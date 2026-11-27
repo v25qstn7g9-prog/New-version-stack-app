@@ -1204,3 +1204,55 @@ test('載入：API 回的日K日期全是不存在的日期 → 算缺漏（可�
   assert.equal(h.last().bars['0050'], undefined);
   assert.equal(V.ewSymbolStatus(h.last(), '0050'), 'missing');
 });
+
+test('日K價格區間驗證：核心 isValidBar 與 session 共用，收盤／開盤必須在當日高低價之間', () => {
+  assert.equal(typeof E.isValidBar, 'function');
+  const base = { day: '2026-11-20', high: 124.248, low: 123.752 };
+  const cases = [
+    [{ ...base, close: 999999 }, false, '收盤高於高價'],
+    [{ ...base, close: 124.3 }, false, '收盤略高於高價'],
+    [{ ...base, close: 1 }, false, '收盤低於低價'],
+    [{ ...base, close: 123.7 }, false, '收盤略低於低價'],
+    [{ ...base, close: 124.248 }, true, '收盤剛好等於高價'],
+    [{ ...base, close: 123.752 }, true, '收盤剛好等於低價'],
+    [{ ...base, close: '124.248' }, true, '字串數字等於高價'],
+    [{ ...base, close: 124.248 * (1 + 1e-12) }, true, '浮點誤差內的高價'],
+    [{ ...base, close: 123.752 * (1 - 1e-12) }, true, '浮點誤差內的低價'],
+    [{ ...base, close: 124, open: 125 }, false, '開盤高於高價'],
+    [{ ...base, close: 124, open: 120 }, false, '開盤低於低價'],
+    [{ ...base, close: 124, open: 124.248 }, true, '開盤剛好等於高價'],
+    [{ ...base, close: 124, open: 123.752 }, true, '開盤剛好等於低價'],
+    [{ ...base, close: 124 }, true, '開盤缺漏'],
+    [{ ...base, close: 124, open: null }, true, '開盤 null'],
+    [{ ...base, close: 124, open: '' }, true, '開盤空字串'],
+    [{ ...base, close: 124, open: NaN }, true, '開盤 NaN（不是有限數就不檢查）'],
+    [{ day: '2026-11-20', high: 10, low: 10, close: 10, open: 10 }, true, '一字線'],
+  ];
+  for (const [b, ok, why] of cases) {
+    assert.equal(E.isValidBar(b), ok, `核心：${why}`);
+    assert.equal(V.ewIsValidBar(b), ok, `session：${why}`);
+  }
+  // session 不再自己寫一套價格條件，而是呼叫核心的 isValidBar
+  assert.match(section('elliott-session'), /ZinfElliott\?\.isValidBar/);
+});
+
+test('收盤超出高低價的日K被排除：最後一根收盤 999999 → 不算進分析，結果與去掉該根相同、2055 情境不被污染', () => {
+  const bars = makeBars(UP_5ABC);
+  const broken = bars.map((b) => ({ ...b }));
+  broken[broken.length - 1].close = 999999;
+  assert.equal(E.completedBars(broken).length, bars.length - 1);
+  const r = E.analyze(broken);
+  const ref = E.analyze(bars.slice(0, -1));
+  assert.equal(r.lastBar.day, bars[bars.length - 2].day);
+  assert.equal(r.lastBar.close, ref.lastBar.close);
+  assert.ok(r.lastBar.close < 1000);
+  assert.deepEqual(r.primary && r.primary.text, ref.primary && ref.primary.text);
+  assert.equal(V.ewValidBarCount(broken), bars.length - 1);
+  // 開盤超出區間的那根也一樣被排除
+  const badOpen = bars.map((b) => ({ ...b }));
+  badOpen[3].open = badOpen[3].high * 2;
+  assert.equal(E.completedBars(badOpen).length, bars.length - 1);
+  // 全部 open 缺漏仍照常分析
+  const noOpen = bars.map(({ open, ...b }) => b);
+  assert.equal(E.completedBars(noOpen).length, bars.length);
+});
