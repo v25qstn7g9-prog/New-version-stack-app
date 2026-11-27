@@ -7198,13 +7198,18 @@ const ELLIOTT_SYMBOLS = [{ sym: "TAIEX", label: "加權指數" }, { sym: "0050",
 // - 讀快取之後、抓資料之前、寫回狀態之前都檢查「還開著、沒卸載、仍是最新一次請求」。
 // - 台北日期＋交易階段（盤前／盤中／收盤後）是資料的鍵：開啟、回到前景、開著時每分鐘檢查一次，鍵變了才重抓；分析用最新的時鐘。
 // - 各標的分開記錄成功／失敗：只把成功的標的放進記憶體；失敗的標的標成「暫時抓不到」，按重試只補抓缺的。
+const ewIsValidBar = (b) => !!b && typeof b === "object" && typeof b.day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(b.day)
+  && [b.high, b.low, b.close].every((v) => v !== null && v !== "" && Number.isFinite(Number(v)) && Number(v) > 0) && Number(b.high) >= Number(b.low);
+const ewValidBarCount = (a) => (Array.isArray(a) ? a.filter(ewIsValidBar).length : 0);
 const ewPhaseKey = (clock) => clock.day + "|" + (clock.minute >= 820 ? "closed" : clock.minute < 540 ? "premarket" : "session");
 const elliottMemo = { key: null, bars: {} }; // 只在記憶體，重新整理頁面就沒了
 function createElliottSession({ symbols, readCache, fetchBars, now, onChange, memo = elliottMemo }) {
   let open = false, disposed = false, seq = 0, ctrl = null;
   let state = { status: "idle", key: null, clock: null, bars: {}, failed: [] };
   const emit = (next) => { state = next; if (!disposed) onChange(next); };
-  const usable = (a) => Array.isArray(a) && a.length > 0;
+  // 有效日K：day 是 YYYY-MM-DD、high／low／close 都是有限正數且 high ≥ low（和 elliott-core 的 completedBars 同一套條件）。
+  // 陣列非空但沒有任何一根有效（[null]、[{}]、全壞的日K）算缺漏：不放進記憶體、畫面顯示重試，重試時也略過這份無效快取。
+  const usable = (a) => ewValidBarCount(a) > 0;
   const abort = () => { seq++; if (ctrl) { ctrl.abort(); ctrl = null; } };
   async function load(clock, key) {
     abort();
@@ -7257,6 +7262,8 @@ function createElliottSession({ symbols, readCache, fetchBars, now, onChange, me
   };
 }
 // </elliott-session>
+// <elliott-view>
+// 卡片的顯示決策（純 JS、不含 JSX，測試會直接拿這段來跑）：計數選取、標的載入狀態、標題、每浪天數與完整日期。
 const ewPrice = (v) => {
   const n = Number(v);
   if (!Number.isFinite(n)) return "—";
@@ -7264,6 +7271,45 @@ const ewPrice = (v) => {
 };
 const ewDay = (d) => (typeof d === "string" ? d.slice(5).replace("-", "/") : "");
 const EW_RULE_TEXT = { pass: "通過", fail: "失敗", pending: "未定", flat: "擴張平台" };
+const EW_PIVOTS_ONLY = "pivots"; // 「只看轉折」
+// 計數的身分用「型態＋門檻＋起點日期」，不靠陣列位置：資料更新後同一個計數換了位置也還是同一個選取。
+const ewCountKey = (c) => (c ? `${c.id}|${c.thresholdPct}|${c.points?.[0]?.day || ""}` : "");
+// 角色明確：主要只來自 result.primary；替代永遠標「替代」，沒通過硬性規則的另外標「計數不成立」
+function ewEntries(result) {
+  if (!result?.ok) return [];
+  return [...(result.primary ? [{ role: "primary", label: "主要計數", c: result.primary, key: ewCountKey(result.primary) }] : []),
+    ...(result.alternatives || []).map((c, k) => ({ role: "alternative", label: `替代 ${k + 1}`, c, key: ewCountKey(c) }))];
+}
+// 目前選取：view＝null（預設）、"pivots"（只看轉折）或某個計數的 key。
+// 選取的計數在新資料裡不存在（換日、資料更新後替代變少）→ 回到主要計數；沒有主要 → 回到「只看轉折」。
+// stale＝true 表示 view 已失效，元件要把 state 改回 null。
+function resolveElliottView(result, view) {
+  const entries = ewEntries(result);
+  const fallback = result?.primary ? 0 : -1;
+  let sel = fallback, stale = false;
+  if (view === EW_PIVOTS_ONLY) { if (!result?.primary) sel = -1; else stale = true; }
+  else if (view != null) { const k = entries.findIndex((e) => e.key === view); if (k >= 0) sel = k; else stale = true; }
+  return { entries, sel, shown: sel >= 0 ? entries[sel] || null : null, stale, pivotsOnly: sel < 0 };
+}
+// 目前標的的載入狀態：loading（讀取中）、missing（暫時抓不到，可重試）、ready（有可用日K）、idle
+function ewSymbolStatus(data, sym) {
+  const bars = data?.bars?.[sym];
+  if (ewValidBarCount(bars) > 0) return "ready";
+  if (data?.status === "loading") return "loading";
+  if (data?.status === "error" || (data?.failed || []).includes(sym)) return "missing";
+  return data?.status === "ready" ? "missing" : "loading";
+}
+function ewHeadline(result) {
+  if (!result?.ok) return "";
+  if (result.primary) return `主要：${result.primary.text}`;
+  if (result.noCandidates) return "轉折太少，還沒形成可以計數的波浪，只標出轉折點（不貼浪名）";
+  return "沒有符合硬性規則的主要計數，只標出轉折點（不貼浪名）";
+}
+// 每浪天數：交易日和日曆天都寫出來，例如「20 交易日／31 天」
+const ewSpanText = (w) => `${w?.tradingDays ?? "—"} 交易日／${w?.calendarDays ?? "—"} 天`;
+// 推敲細節裡的完整起訖：YYYY-MM-DD → YYYY-MM-DD（20 交易日／31 天）
+const ewWaveDatesText = (w) => `${w.label}${w.inProgress ? "＊" : ""}：${w.start.day} → ${w.end.day}（${ewSpanText(w)}）`;
+// </elliott-view>
 // <elliott-chart>
 // 圖表資料（純 JS）：時間窗、主要／替代計數、中性轉折、進行中虛線、浪名標籤的防重疊。
 // range＝"count"：從目前計數第一浪起點往前留 25% 跨度（至少 60 根）；"all"：全部（約 2 年）。
@@ -7318,7 +7364,7 @@ function ElliottWaveCard() {
   const E = globalThis.ZinfElliott;
   const [on, setOn] = useState(false);
   const [sym, setSym] = useState("TAIEX");
-  const [view, setView] = useState(null); // null＝預設（有主要計數就看主要、否則只看轉折）；數字＝entries 的索引
+  const [view, setView] = useState(null); // null＝預設（有主要計數就看主要、否則只看轉折）；"pivots"＝只看轉折；其他＝計數的 key（見 resolveElliottView）
   const [range, setRange] = useState("count");
   const [details, setDetails] = useState(false);
   const [data, setData] = useState({ status: "idle", key: null, clock: null, bars: {}, failed: [] });
@@ -7349,18 +7395,16 @@ function ElliottWaveCard() {
   }, [on]);
   useEffect(() => { setView(null); }, [sym]);
   const retry = useCallback(() => sessionRef.current?.retry(), []);
-  const symBars = data.bars?.[sym];
-  const symFailed = data.status === "error" || (data.failed || []).includes(sym);
+  const symStatus = ewSymbolStatus(data, sym);
+  const symBars = symStatus === "ready" ? data.bars[sym] : null;
   const result = useMemo(() => {
     if (!on || !E || !data.clock || !Array.isArray(symBars)) return null;
     return E.analyze(symBars, { today: data.clock.day, minute: data.clock.minute });
   }, [on, symBars, data.clock, E]);
   const scen = useMemo(() => (result?.lastBar ? E.scenarios(result.lastBar.close, result.lastBar.day) : null), [result, E]);
-  // 角色明確：主要只來自 result.primary；替代永遠標「替代」，沒通過硬性規則的另外標「計數不成立」
-  const entries = result ? [...(result.primary ? [{ role: "primary", label: "主要計數", c: result.primary }] : []),
-    ...result.alternatives.map((c, k) => ({ role: "alternative", label: `替代 ${k + 1}`, c }))] : [];
-  const sel = view == null ? (result?.primary ? 0 : -1) : view;
-  const shown = entries[sel] || null;
+  // 選取解析：資料更新後選取的計數不在了就回主要（沒有主要就回只看轉折），同時把 state 改回預設
+  const { entries, sel, shown, stale } = resolveElliottView(result, view);
+  useEffect(() => { if (stale) setView(null); }, [stale]);
   const chart = useMemo(() => {
     if (!result?.ok || !Array.isArray(symBars)) return null;
     const bars = E.completedBars(symBars, data.clock.day, data.clock.minute);
@@ -7386,7 +7430,7 @@ function ElliottWaveCard() {
   const tap = { minHeight: 44 };
   const pill = (active) => ({ ...tap, color: active ? COLORS.gold : COLORS.sub, border: `1px solid ${active ? COLORS.gold : COLORS.panelBorder}`, background: "transparent" });
   const symLabel = ELLIOTT_SYMBOLS.find((s) => s.sym === sym)?.label || sym;
-  const headline = result?.primary ? `主要：${result.primary.text}` : "沒有符合硬性規則的主要計數，只標出轉折點（不貼浪名）";
+  const headline = ewHeadline(result);
   return (
     <div className="premium-panel forma-ew rounded-2xl px-4 py-1" data-elliott-wave style={{ background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`, boxShadow: "none" }}>
       <div className="flex items-center justify-between gap-3">
@@ -7413,8 +7457,8 @@ function ElliottWaveCard() {
               </button>
             ))}
           </div>
-          {!Array.isArray(symBars) && (data.status === "loading" || data.status === "idle") && <div className="text-[11px] leading-[17px] mt-3" role="status" style={{ color: COLORS.sub }}>讀取日線資料中…</div>}
-          {!Array.isArray(symBars) && symFailed && data.status !== "loading" && (
+          {symStatus === "loading" && <div className="text-[11px] leading-[17px] mt-3" role="status" style={{ color: COLORS.sub }}>讀取日線資料中…</div>}
+          {symStatus === "missing" && (
             <div className="mt-3 flex items-center flex-wrap gap-2 text-[11px] leading-[17px]" role="alert" data-ew-missing={sym} style={{ color: COLORS.sub }}>
               <span>暫時抓不到{symLabel}的日線資料，沒有計算波浪。</span>
               <button type="button" onClick={retry} className="forma-tap rounded-lg px-3 text-[11px] font-bold" style={pill(true)}>重試</button>
@@ -7433,10 +7477,10 @@ function ElliottWaveCard() {
               {entries.length > 0 && (
                 <div className="flex gap-2 flex-wrap" role="group" aria-label="計數切換">
                   {!result.primary && (
-                    <button type="button" aria-pressed={sel === -1} onClick={() => setView(-1)} className="forma-tap rounded-lg px-3 text-[11px] font-bold" style={pill(sel === -1)}>只看轉折</button>
+                    <button type="button" aria-pressed={sel === -1} onClick={() => setView(EW_PIVOTS_ONLY)} className="forma-tap rounded-lg px-3 text-[11px] font-bold" style={pill(sel === -1)}>只看轉折</button>
                   )}
                   {entries.map((e, k) => (
-                    <button key={e.role + k} type="button" aria-pressed={sel === k} data-ew-role={e.role} onClick={() => setView(k)}
+                    <button key={e.role + k} type="button" aria-pressed={sel === k} data-ew-role={e.role} onClick={() => setView(e.key)}
                       className="forma-tap rounded-lg px-3 text-[11px] font-bold" style={pill(sel === k)}>
                       {e.label}{e.c.valid ? "" : "（不成立）"}
                     </button>
@@ -7492,9 +7536,10 @@ function ElliottWaveCard() {
                   <div className="rounded-lg text-[11px] leading-[17px] mono min-w-0" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, color: COLORS.text }}>
                     {shown.c.waves.map((w, k) => (
                       <div key={w.label + w.start.day} className="px-2.5 py-1 flex items-baseline justify-between gap-2 min-w-0" style={k ? { borderTop: `1px solid ${COLORS.panelBorder}` } : undefined}>
-                        <span className="min-w-0">
-                          <span className="font-bold" style={{ color: COLORS.gold }}>{w.label}{w.inProgress ? "＊" : ""}</span>{" "}
-                          {ewDay(w.start.day)}→{ewDay(w.end.day)} {ewPrice(w.end.price)}<span style={{ color: COLORS.sub }}>・{w.tradingDays}日</span>
+                        <span className="min-w-0" data-ew-wave-row>
+                          <span className="whitespace-nowrap"><span className="font-bold" style={{ color: COLORS.gold }}>{w.label}{w.inProgress ? "＊" : ""}</span>{" "}
+                          {ewDay(w.start.day)}→{ewDay(w.end.day)} {ewPrice(w.end.price)}</span>{" "}
+                          <span className="whitespace-nowrap" data-ew-span style={{ color: COLORS.sub }}>{ewSpanText(w)}</span>
                         </span>
                         <span className="flex-none" style={{ color: w.pct >= 0 ? COLORS.gain : COLORS.loss }}>{w.pct > 0 ? "+" : ""}{w.pct}%</span>
                       </div>
@@ -7552,6 +7597,12 @@ function ElliottWaveCard() {
                             <span className="font-bold" style={{ color: r.state === "pass" ? COLORS.gold : COLORS.text }}>{EW_RULE_TEXT[r.state] || r.state}</span>｜{r.text}<span style={{ color: COLORS.sub }}>：{r.detail}</span>
                           </div>
                         ))}
+                      </div>
+                    )}
+                    {shown && (
+                      <div className="text-[11px] leading-[17px] mono" style={{ color: COLORS.text }} data-ew-wave-dates>
+                        <div className="font-bold mb-0.5" style={{ color: COLORS.sub }}>各浪起訖日期（交易日／日曆天）</div>
+                        {shown.c.waves.map((w) => <div key={w.label + w.start.day}>{ewWaveDatesText(w)}</div>)}
                       </div>
                     )}
                     {shown && shown.c.ratios.length > 0 && (

@@ -458,10 +458,20 @@
       const t=thresholds.slice().sort((a,b)=>Math.abs(a/(atr||1)-2.5)-Math.abs(b/(atr||1)-2.5))[0];
       const z=zigzag(bars,t);
       const rejected=all.filter(c=>c.thresholdPct===t).map(c=>({id:c.id,text:c.text,direction:c.direction,rules:c.rules}));
-      return {ok:true,status:'invalid',statusText:STATUS_TEXT.invalid,thresholdPct:t,atrPct:atr!=null?r2(atr):null,barsUsed:bars.length,
+      // 兩種情況要分開講：
+      // - 沒有任何候選（每個門檻的轉折都太少，例如整段同價、或振幅低於所有門檻）→ 不確定，理由是轉折不足，不是「違反規則」
+      // - 有候選但全部違反硬性規則 → 計數不成立
+      const noCandidates=all.length===0;
+      const maxPivots=tried.reduce((m,x)=>Math.max(m,x.pivots),0);
+      const minT=thresholds.length?Math.min(...thresholds):null;
+      const why=noCandidates
+        ?[`轉折不足：在所有候選門檻（最小 ${minT}%）下最多只有 ${maxPivots} 個轉折，振幅不夠形成任何候選計數，無法判斷波浪`]
+        :['所有候選計數都違反至少一條硬性規則，不硬貼浪名'];
+      const st=noCandidates?'uncertain':'invalid';
+      return {ok:true,status:st,statusText:STATUS_TEXT[st],noCandidates,thresholdPct:t,atrPct:atr!=null?r2(atr):null,barsUsed:bars.length,
         lastBar:{day:lb.day,close:lb.close},pivots:z.pivots.map(p=>({...pt(p),type:p.type,confirmed:p.confirmed})),inProgress:z.inProgress,
         primary:null,alternatives:diag.filter(c=>c.finalScore>=0.4).slice(0,MAX_ALTERNATIVES).map(asAlt),rejected,keyLevels:[],invalidation:[],candidatesTried:tried,
-        uncertainReasons:['所有候選計數都違反至少一條硬性規則，不硬貼浪名']};
+        uncertainReasons:why};
     }
     const primary=uniq[0];
     // 替代計數要有一定份量：分數至少 0.4，且不低於主要計數的 55%，太弱的不列（避免把雜訊當選項）
@@ -475,7 +485,7 @@
     const status=reasons.length?'uncertain':'valid';
     const lvPrimary=levels(primary,bars);
     const z=primary._z;
-    return {ok:true,status,statusText:STATUS_TEXT[status],thresholdPct:primary.thresholdPct,atrPct:atr!=null?r2(atr):null,barsUsed:bars.length,
+    return {ok:true,status,statusText:STATUS_TEXT[status],noCandidates:false,thresholdPct:primary.thresholdPct,atrPct:atr!=null?r2(atr):null,barsUsed:bars.length,
       lastBar:{day:lb.day,close:lb.close},
       pivots:z.pivots.map(p=>({...pt(p),type:p.type,confirmed:p.confirmed})),inProgress:z.inProgress,
       primary:out(primary,'primary'),alternatives:alts.map(asAlt),

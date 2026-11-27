@@ -10,6 +10,9 @@ const core = fs.readFileSync(new URL('../elliott-core.js', import.meta.url), 'ut
 const jsx = fs.readFileSync(new URL('../src/app.jsx', import.meta.url), 'utf8');
 const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const ui = jsx.slice(jsx.indexOf('// <elliott-wave-ui>'), jsx.indexOf('// </elliott-wave-ui>'));
+// 卡片的顯示決策（純函式）：直接執行 app.jsx 的 <elliott-session> 與 <elliott-view> 段落
+const section = (name) => { const a = ui.indexOf(`// <${name}>`), b = ui.indexOf(`// </${name}>`); assert.ok(a >= 0 && b > a, name); return ui.slice(a, b); };
+const V = new Function(`${section('elliott-session')}\n${section('elliott-view')}; return { ewIsValidBar, ewValidBarCount, ewCountKey, ewEntries, resolveElliottView, ewSymbolStatus, ewHeadline, ewSpanText, ewWaveDatesText, EW_PIVOTS_ONLY };`)();
 
 // ---------- 合成資料 ----------
 // 交易日：週一到週五（不放假），從指定日期起算。
@@ -447,13 +450,21 @@ test('候選角色明確：primary.role＝primary、替代一律 alternative；�
   assert.equal(r.statusText, '計數不成立');
   assert.ok(r.alternatives.length >= 1);
   assert.ok(r.alternatives.every((c) => c.role === 'alternative' && c.valid === false && c.diagonal));
-  // 畫面：主要只來自 result.primary，不靠陣列位置；不成立的替代另外標示
-  assert.doesNotMatch(ui, /\[result\.primary, \.\.\.result\.alternatives\]\.filter\(Boolean\)/);
-  assert.match(ui, /result\.primary \? \[\{ role: "primary", label: "主要計數", c: result\.primary \}\] : \[\]/);
-  assert.match(ui, /result\.alternatives\.map\(\(c, k\) => \(\{ role: "alternative", label: `替代 \$\{k \+ 1\}`, c \}\)\)/);
+  // 畫面（純函式）：主要只來自 result.primary，不靠陣列位置；沒有主要時預設「只看轉折」，替代都標 alternative
+  const okE = V.ewEntries(ok);
+  assert.equal(okE[0].role, 'primary');
+  assert.equal(okE[0].c, ok.primary);
+  assert.ok(okE.slice(1).every((e, k) => e.role === 'alternative' && e.label === `替代 ${k + 1}`));
+  assert.equal(V.resolveElliottView(ok, null).sel, 0);
+  const rE = V.ewEntries(r);
+  assert.ok(rE.length >= 1 && rE.every((e) => e.role === 'alternative' && e.c.valid === false));
+  const rv = V.resolveElliottView(r, null);
+  assert.equal(rv.sel, -1);
+  assert.equal(rv.shown, null);
+  assert.equal(rv.pivotsOnly, true);
+  assert.match(V.ewHeadline(r), /沒有符合硬性規則的主要計數/);
+  assert.equal(V.ewHeadline(ok), `主要：${ok.primary.text}`);
   assert.match(ui, /!shown\.c\.valid && <span data-ew-invalid[^>]*>・計數不成立/);
-  assert.match(ui, /const sel = view == null \? \(result\?\.primary \? 0 : -1\) : view;/);
-  assert.match(ui, /沒有符合硬性規則的主要計數/);
 });
 
 // ---------- 3–5. 載入流程（直接執行 app.jsx 裡的純 JS 段落） ----------
@@ -606,7 +617,14 @@ test('載入：只有部分標的成功 → 缺的標成暫時抓不到，不當
   assert.match(ui, /暫時抓不到\{symLabel\}的日線資料/);
   assert.match(ui, /onClick=\{retry\} className="forma-tap[^"]*" style=\{pill\(true\)\}>重試<\/button>/);
   assert.match(ui, /const tap = \{ minHeight: 44 \};/);
-  assert.match(ui, /const symFailed = data\.status === "error" \|\| \(data\.failed \|\| \[\]\)\.includes\(sym\);/);
+  // 畫面狀態（純函式）：成功的標的 ready、缺的 missing（顯示重試）、全部失敗也是 missing
+  const partial = { status: 'ready', bars: { TAIEX: makeBars([100, 120, 110]) }, failed: ['0050', '0056'] };
+  assert.equal(V.ewSymbolStatus(partial, 'TAIEX'), 'ready');
+  assert.equal(V.ewSymbolStatus(partial, '0050'), 'missing');
+  assert.equal(V.ewSymbolStatus({ status: 'error', bars: {}, failed: SYMS }, '0056'), 'missing');
+  assert.equal(V.ewSymbolStatus({ status: 'loading', bars: {}, failed: [] }, '0056'), 'loading');
+  assert.equal(V.ewSymbolStatus({ status: 'idle', bars: {}, failed: [] }, '0056'), 'loading');
+  assert.match(ui, /\{symStatus === "missing" && \(/);
 });
 
 test('載入：唯讀快取同一天同一階段才用；只有部分標的時其餘照樣去抓', async () => {
@@ -699,4 +717,188 @@ test('推敲細節預設收合（button＋aria-expanded，≥44px）；規則、
   for (const t of ['data-ew-status', 'data-ew-reason', 'LineChart', 'shown.c.waves.map', '失效價位與關卡', 'data-ew-scenarios']) assert.ok(outer.includes(t), t);
   assert.ok(ui.indexOf('data-ew-disclaimer') > ui.indexOf('{details && ('), '免責永遠顯示（在細節區塊外）');
   assert.doesNotMatch(outer.slice(outer.indexOf('{result?.ok && (')), /shown\.c\.rules\.map|shown\.c\.ratios\.map/);
+});
+
+// ---------- Codex 第 2 輪：無效非空資料、選取失效、天數文字、沒有候選 ----------
+test('有效日K判斷：day 要是 YYYY-MM-DD、high／low／close 都是有限正數且 high ≥ low', () => {
+  assert.equal(V.ewIsValidBar({ day: '2026-11-26', high: 10, low: 9, close: 9.5 }), true);
+  assert.equal(V.ewIsValidBar({ day: '2026-11-26', high: '10', low: '9', close: '9.5' }), true);
+  for (const b of [null, undefined, {}, 5, 'x', { day: '2026/11/26', high: 10, low: 9, close: 9 }, { day: 20261126, high: 10, low: 9, close: 9 },
+    { day: '2026-11-26', high: 10, low: 9 }, { day: '2026-11-26', high: 10, low: 9, close: null }, { day: '2026-11-26', high: 10, low: 9, close: '' },
+    { day: '2026-11-26', high: NaN, low: 9, close: 9 }, { day: '2026-11-26', high: Infinity, low: 9, close: 9 }, { day: '2026-11-26', high: 10, low: 0, close: 5 },
+    { day: '2026-11-26', high: -1, low: -2, close: -1 }, { day: '2026-11-26', high: 9, low: 10, close: 9.5 }]) assert.equal(V.ewIsValidBar(b), false, JSON.stringify(b));
+  assert.equal(V.ewValidBarCount([null, {}, { day: '2026-11-26', high: 10, low: 9, close: 9.5 }]), 1);
+  assert.equal(V.ewValidBarCount([null]), 0);
+  assert.equal(V.ewValidBarCount('x'), 0);
+});
+
+const INVALID_SETS = { TAIEX: [null], '0050': [{}], '0056': [{ day: 'bad', high: 1, low: 1, close: 1 }, { day: '2026-11-20', high: -1, low: -2, close: -1 }, { day: '2026-11-21', high: NaN, low: 1, close: 1 }] };
+
+test('載入：同階段快取非空但全是無效日K（[null]、[{}]、全壞）→ 不當成功，照樣去抓', async () => {
+  const cache = { key: ewPhaseKey({ day: '2026-11-27', minute: 600 }) + '|x', bars: INVALID_SETS };
+  const h = harness({ cache });
+  h.s.open();
+  await flush();
+  assert.deepEqual(h.fetches, [SYMS]);
+  assert.equal(h.last().status, 'ready');
+  assert.deepEqual(h.last().failed, []);
+  for (const s of SYMS) assert.ok(V.ewValidBarCount(h.last().bars[s]) > 0);
+});
+
+test('載入：API 回非空但無效的日K → 算缺漏（可重試）；重試時略過那份無效快取、只補抓缺的', async () => {
+  const cache = { key: ewPhaseKey({ day: '2026-11-27', minute: 600 }) + '|x', bars: INVALID_SETS };
+  let mode = 'bad';
+  const h = harness({ cache, fetchImpl: (want) => Promise.resolve(mode === 'bad' ? { ...goodBars(want.filter((s) => s === 'TAIEX')), '0050': [null], '0056': [{}] } : goodBars(want)) });
+  h.s.open();
+  await flush();
+  assert.equal(h.last().status, 'ready');
+  assert.deepEqual(h.last().failed, ['0050', '0056']);
+  assert.equal(h.last().bars['0050'], undefined);
+  assert.equal(V.ewSymbolStatus(h.last(), '0050'), 'missing');
+  assert.equal(V.ewSymbolStatus(h.last(), 'TAIEX'), 'ready');
+  // 同階段 check 不自動重抓；重試會再讀一次快取，但快取還是無效 → 略過，照樣 fetch 缺的
+  h.s.check();
+  await flush();
+  assert.equal(h.fetches.length, 1);
+  mode = 'ok';
+  h.s.retry();
+  await flush();
+  assert.equal(h.cacheReads, 2);
+  assert.deepEqual(h.fetches, [SYMS, ['0050', '0056']]);
+  assert.deepEqual(h.last().failed, []);
+  assert.equal(V.ewSymbolStatus(h.last(), '0050'), 'ready');
+  // 全部標的都只拿到無效資料 → error（不是 ready）
+  const h2 = harness({ fetchImpl: () => Promise.resolve(INVALID_SETS) });
+  h2.s.open();
+  await flush();
+  assert.equal(h2.last().status, 'error');
+  assert.deepEqual(h2.last().failed, SYMS);
+  assert.equal(V.ewSymbolStatus(h2.last(), 'TAIEX'), 'missing');
+});
+
+// fixture 般的兩份結果：舊的（11/23）有主要＋2 個替代，新的（11/24）只剩 1 個替代
+const fxCount = (id, t, day, text) => ({ id, thresholdPct: t, text, valid: true, points: [{ i: 0, day, price: 1 }], waves: [], rules: [], ratios: [] });
+const FX_OLD = { ok: true, primary: fxCount('ABC12', 8, '2026-10-06', '主要'), alternatives: [fxCount('ABC1', 10, '2026-10-06', '替代甲'), fxCount('I5A', 5, '2026-06-03', '替代乙')] };
+const FX_NEW = { ok: true, primary: fxCount('ABC12', 8, '2026-10-06', '主要'), alternatives: [fxCount('I5A', 5, '2026-06-03', '替代乙')] };
+const FX_NEW_ONE = { ok: true, primary: fxCount('ABC12', 8, '2026-10-06', '主要'), alternatives: [fxCount('ABC1', 10, '2026-10-06', '替代甲')] };
+const FX_NONE = { ok: true, primary: null, alternatives: [] };
+
+test('選取解析：資料更新後選的替代不存在 → 回主要計數，並標 stale 讓元件把 state 改回預設', () => {
+  // 舊資料選「替代 2」
+  const old = V.resolveElliottView(FX_OLD, null);
+  assert.equal(old.sel, 0);
+  assert.equal(old.entries.length, 3);
+  const pick = old.entries[2].key;
+  const before = V.resolveElliottView(FX_OLD, pick);
+  assert.equal(before.sel, 2);
+  assert.equal(before.shown.c.text, '替代乙');
+  assert.equal(before.stale, false);
+  // 換日：新資料只剩 1 個替代，而且原本的「替代甲」不在了
+  const gone = V.resolveElliottView(FX_NEW_ONE, pick);
+  assert.equal(gone.stale, true);
+  assert.equal(gone.sel, 0);
+  assert.equal(gone.shown.role, 'primary');
+  assert.ok(gone.shown.c.waves, '逐浪資料不能消失');
+  // 同一個計數在新資料換了位置（替代 2 → 替代 1）→ 選取跟著它，不跳掉
+  const moved = V.resolveElliottView(FX_NEW, pick);
+  assert.equal(moved.stale, false);
+  assert.equal(moved.sel, 1);
+  assert.equal(moved.shown.label, '替代 1');
+  assert.equal(moved.shown.c.text, '替代乙');
+  // 沒有主要計數 → 回「只看轉折」
+  const none = V.resolveElliottView(FX_NONE, pick);
+  assert.equal(none.stale, true);
+  assert.equal(none.sel, -1);
+  assert.equal(none.shown, null);
+  assert.equal(none.pivotsOnly, true);
+  // 「只看轉折」只在沒有主要時有效；有主要了就回主要
+  assert.equal(V.resolveElliottView(FX_NONE, V.EW_PIVOTS_ONLY).stale, false);
+  const pv = V.resolveElliottView(FX_OLD, V.EW_PIVOTS_ONLY);
+  assert.equal(pv.stale, true);
+  assert.equal(pv.sel, 0);
+  // 資料不足或還沒算 → 沒有任何選取
+  assert.deepEqual(V.resolveElliottView(null, pick).entries, []);
+  assert.equal(V.resolveElliottView({ ok: false }, null).shown, null);
+});
+
+test('選取解析：模擬元件跨兩次資料更新（state 依 stale 修正後，之後的更新維持預設）', () => {
+  let view = null;
+  const render = (result) => { const r = V.resolveElliottView(result, view); if (r.stale) view = null; return r; };
+  render(FX_OLD);
+  view = V.ewEntries(FX_OLD)[2].key; // 使用者點「替代 2」
+  assert.equal(render(FX_OLD).shown.c.text, '替代乙');
+  const r1 = render(FX_NEW_ONE); // 換日：替代 2 不見了
+  assert.equal(r1.shown.role, 'primary');
+  assert.equal(view, null);
+  const r2 = render(FX_OLD); // 再更新回有 2 個替代：維持預設主要，不會又跳回替代
+  assert.equal(r2.sel, 0);
+  // 元件有用 resolveElliottView，並在 stale 時把 view 改回 null；按鈕用 key 不用索引
+  assert.match(ui, /const \{ entries, sel, shown, stale \} = resolveElliottView\(result, view\);/);
+  assert.match(ui, /useEffect\(\(\) => \{ if \(stale\) setView\(null\); \}, \[stale\]\);/);
+  assert.match(ui, /onClick=\{\(\) => setView\(e\.key\)\}/);
+  assert.doesNotMatch(ui, /entries\[view\]|setView\(k\)/);
+});
+
+test('每浪天數：精簡表寫「交易日／日曆天」，推敲細節列完整起訖年月日', () => {
+  const w = { label: 'A', inProgress: false, start: { day: '2026-10-06', price: 49969 }, end: { day: '2026-11-06', price: 37837 }, tradingDays: 20, calendarDays: 31 };
+  assert.equal(V.ewSpanText(w), '20 交易日／31 天');
+  assert.equal(V.ewWaveDatesText(w), 'A：2026-10-06 → 2026-11-06（20 交易日／31 天）');
+  assert.equal(V.ewWaveDatesText({ ...w, label: '2', inProgress: true }), '2＊：2026-10-06 → 2026-11-06（20 交易日／31 天）');
+  // 跨年：完整日期分得出年份
+  const r = E.analyze(makeBars(UP_5ABC, { start: '2025-11-03', step: 12 }));
+  const cross = r.primary.waves.find((x) => x.start.day.slice(0, 4) !== x.end.day.slice(0, 4)) || r.primary.waves[0];
+  assert.match(V.ewWaveDatesText(cross), /^\S+：\d{4}-\d{2}-\d{2} → \d{4}-\d{2}-\d{2}（\d+ 交易日／\d+ 天）$/);
+  for (const x of r.primary.waves) assert.ok(x.calendarDays >= x.tradingDays, '日曆天不少於交易日');
+  // 畫面接線：精簡表用 ewSpanText（不再只寫「N日」），推敲細節有完整日期
+  assert.match(ui, /data-ew-span[^>]*>\{ewSpanText\(w\)\}<\/span>/);
+  assert.doesNotMatch(ui, /\{w\.tradingDays\}日/);
+  assert.match(ui, /data-ew-wave-dates[\s\S]{0,300}ewWaveDatesText\(w\)/);
+});
+
+test('每浪精簡表在 320px 不左右超出：每個不換行的片段都放得下，片段之間可以換行', () => {
+  // 估寬：11px 等寬字，ASCII 約 0.62em、全形約 1em。320px 螢幕扣掉卡片與表格內距、右側漲跌幅後，左欄至少約 180px。
+  const est = (t) => [...t].reduce((n, ch) => n + (ch.charCodeAt(0) > 0x2e80 || /[＊→／]/.test(ch) ? 11 : 6.9), 0);
+  const worst = { label: '5', inProgress: true, start: { day: '2026-12-29' }, end: { day: '2027-12-31', price: 99999 }, tradingDays: 999, calendarDays: 1999 };
+  const piece1 = `${worst.label}＊ 12/29→12/31 ${(99999).toLocaleString('en-US')}`;
+  assert.ok(est(piece1) <= 180, `日期價格片段 ${est(piece1)}px`);
+  assert.ok(est(V.ewSpanText(worst)) <= 180, `天數片段 ${est(V.ewSpanText(worst))}px`);
+  // 兩個片段各自 whitespace-nowrap、中間有空白可換行；外層 min-w-0、沒有固定寬度
+  const row = ui.slice(ui.indexOf('data-ew-wave-row'), ui.indexOf('data-ew-wave-row') + 600);
+  assert.equal((row.match(/whitespace-nowrap/g) || []).length, 2);
+  assert.match(row, /<\/span>\{" "\}\s*<span className="whitespace-nowrap" data-ew-span/);
+  assert.doesNotMatch(row, /w-\[\d+px\]|width:\s*\d/);
+});
+
+test('沒有候選（100 根同價）→ 不確定＋轉折不足，不說成違反硬性規則', () => {
+  const days = tradingDays('2025-01-06', 100);
+  const r = E.analyze(days.map((day) => ({ day, high: 100, low: 100, close: 100 })));
+  assert.equal(r.ok, true);
+  assert.equal(r.status, 'uncertain');
+  assert.equal(r.noCandidates, true);
+  assert.equal(r.primary, null);
+  assert.deepEqual(r.alternatives, []);
+  assert.deepEqual(r.rejected, []);
+  assert.match(r.uncertainReasons[0], /轉折不足/);
+  assert.ok(r.uncertainReasons.every((t) => !t.includes('硬性規則')));
+  assert.match(V.ewHeadline(r), /轉折太少/);
+  assert.equal(V.resolveElliottView(r, null).sel, -1);
+});
+
+test('沒有候選（振幅低於所有候選門檻）→ 不確定＋轉折不足；有候選但全被淘汰才是計數不成立', () => {
+  const days = tradingDays('2025-01-06', 200);
+  // ±1% 的小波動，最小門檻 3% 下也形成不了任何轉折
+  const bars = days.map((day, i) => { const c = 100 * (1 + 0.01 * Math.sin(i / 4)); return { day, high: c * 1.001, low: c * 0.999, close: c }; });
+  const r = E.analyze(bars);
+  assert.equal(r.status, 'uncertain');
+  assert.equal(r.statusText, '不確定');
+  assert.equal(r.noCandidates, true);
+  assert.ok(r.candidatesTried.every((t) => t.validCounts === 0 && t.pivots < 2));
+  assert.match(r.uncertainReasons[0], /轉折不足.*最小 3%/);
+  // 對照：有候選但都違反規則 → invalid，noCandidates=false
+  const bad = E.analyze(makeBars([100, 106, 94, 112, 88, 118, 82, 124, 76], { prefix: 30 }), { thresholds: [5] });
+  assert.equal(bad.status, 'invalid');
+  assert.equal(bad.noCandidates, false);
+  assert.match(V.ewHeadline(bad), /沒有符合硬性規則/);
+  // 有主要計數時 noCandidates 也明確是 false
+  assert.equal(E.analyze(makeBars(UP_5ABC)).noCandidates, false);
 });
