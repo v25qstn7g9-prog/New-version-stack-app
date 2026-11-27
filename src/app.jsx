@@ -7548,7 +7548,7 @@ function ElliottWaveCard() {
                   {shown.c.waves.some((w) => w.inProgress) && <div className="text-[10px] leading-[15px]" style={{ color: COLORS.sub }}>＊進行中（尚未被反向走勢確認）</div>}
                 </div>
               )}
-              {(result.invalidation.length > 0 || result.keyLevels.length > 0) && (
+              {(result.invalidation.length > 0 || result.keyLevels.length > 0 || (result.levelNotes || []).length > 0) && (
                 <div className="text-[11px] leading-[17px]" style={{ color: COLORS.text }}>
                   <div className="font-bold mb-0.5" style={{ color: COLORS.sub }}>失效價位與關卡（主要計數）</div>
                   {result.invalidation.map((v) => (
@@ -7556,6 +7556,9 @@ function ElliottWaveCard() {
                   ))}
                   {result.keyLevels.map((v) => (
                     <div key={"k" + v.kind + v.price}><span className="mono font-bold">{ewPrice(v.price)}</span>　{v.why}</div>
+                  ))}
+                  {(result.levelNotes || []).map((t) => (
+                    <div key={"n" + t} style={{ color: COLORS.sub }}>說明：{t}</div>
                   ))}
                 </div>
               )}

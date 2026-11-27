@@ -230,6 +230,176 @@ test('第 5 浪進行中：失效價＝第 4 浪低點；第 3 浪短於第 1 �
   assert.ok(cap && near(cap.price, Math.round((c.waves[3].end.price + w3) * 100) / 100, 1e-4));
 });
 
+// ---------- 第 3 輪審查：目標不可越過硬性上限、價位必須 > 0、理由依方向 ----------
+const targetsOf = (c) => c.keyLevels.filter((k) => k.kind === 'target');
+const capOf = (c) => c.invalidation.find((v) => /第 5 浪不可比第 3 浪長/.test(v.why));
+const w = (c, k) => Math.abs(c.waves[k].end.price - c.waves[k].start.price);
+
+for (const [dirName, pts, d] of [
+  ['上漲', [100, 130, 112, 138, 131, 145], 1],
+  ['下跌', [145, 115, 133, 107, 114, 100], -1],
+]) {
+  test(`第 5 浪目標不可超過「第 3 浪不可最短」的上限：1.0 倍越界時改用 0.618 倍（${dirName}）`, () => {
+    const c = E.candidates(makeBars(pts, { prefix: 40, step: 6 }), 5).find((x) => x.id === 'I5');
+    assert.equal(c.valid, true);
+    assert.ok(w(c, 2) < w(c, 0));
+    const cap = capOf(c);
+    assert.ok(cap, '要有第 5 浪上限');
+    const e4 = c.waves[3].end.price;
+    // 原本的 1.0×第 1 浪目標會越界（上漲 161.30 > 157.24）
+    assert.ok(d * (e4 + d * w(c, 0) - cap.price) > 0);
+    const t = targetsOf(c);
+    assert.equal(t.length, 1);
+    assert.ok(t.every((k) => d * (k.price - cap.price) <= 0), '目標不可越過上限');
+    assert.match(t[0].why, /0\.618×第 1 浪/);
+    assert.ok(near(t[0].price, Math.round((e4 + d * 0.618 * w(c, 0)) * 100) / 100, 1e-3));
+    assert.deepEqual(c.levelNotes, []);
+  });
+}
+
+for (const [dirName, pts, d] of [
+  ['上漲', [100, 160, 150, 185, 170, 180], 1],
+  ['下跌', [200, 140, 150, 115, 125, 118], -1],
+]) {
+  test(`第 5 浪所有常見比例都越過上限時，不列目標並說明（${dirName}）`, () => {
+    const c = E.candidates(makeBars(pts, { prefix: 40, step: 6 }), 5).find((x) => x.id === 'I5');
+    assert.equal(c.valid, true);
+    const cap = capOf(c);
+    assert.ok(cap);
+    assert.equal(targetsOf(c).length, 0);
+    assert.ok(c.levelNotes.some((t) => /第 5 浪目標/.test(t) && t.includes(String(cap.price)) && /不列目標/.test(t)));
+    // analyze 與文字摘要也帶出說明
+    const r = E.analyze(makeBars(pts, { prefix: 40, step: 6 }), { thresholds: [5] });
+    if (r.primary && r.primary.id === 'I5') {
+      assert.ok(r.levelNotes.length > 0);
+      assert.match(E.summaryText('測試', r), /說明：.*不列目標/);
+    }
+    void d;
+  });
+}
+
+test('所有候選的目標都不越過硬性界線（第 5 浪上限、獨立修正不可超過被修正走勢起點），雙方向', () => {
+  const fixtures = [
+    [[100, 130, 112, 138, 131, 145], { prefix: 40, step: 6 }], [[145, 115, 133, 107, 114, 100], { prefix: 40, step: 6 }],
+    [[100, 160, 150, 185, 170, 180], { prefix: 40, step: 6 }], [[200, 140, 150, 115, 125, 118], { prefix: 40, step: 6 }],
+    [[100, 130, 112, 129, 122, 130], { prefix: 40, step: 6 }], [[130, 100, 118, 101, 108, 100], { prefix: 40, step: 6 }],
+    [UP_5ABC, {}],
+  ];
+  let checked = 0;
+  for (const [pts, o] of fixtures) {
+    for (const c of E.candidates(makeBars(pts, o), 5)) {
+      const d = c.direction === 'up' ? 1 : -1;
+      const t = targetsOf(c);
+      const cap = capOf(c);
+      if (cap) { checked++; assert.ok(t.every((k) => d * (k.price - cap.price) <= 1e-9), `${c.id} 目標越過第 5 浪上限`); }
+      if (c.kind === 'abc') {
+        const start = c.invalidation.find((v) => /被修正那段走勢的起點/.test(v.why));
+        // 修正方向與 d 相反：目標不可越過被修正走勢起點
+        if (start) { checked++; assert.ok(t.every((k) => -d * (k.price - start.price) <= 1e-9), `${c.id} C 浪目標越過被修正走勢起點`); }
+      }
+    }
+  }
+  assert.ok(checked >= 4);
+});
+
+for (const [dirName, pts, d] of [
+  ['上漲後修正（C 浪向下）', [100, 130, 112, 129, 122, 130], 1],
+  ['下跌後修正（C 浪向上）', [130, 100, 118, 101, 108, 100], -1],
+]) {
+  test(`獨立 A–B–C：C 浪目標越過被修正走勢起點時不列，並說明（${dirName}）`, () => {
+    const c = E.candidates(makeBars(pts, { prefix: 40, step: 6 }), 5).find((x) => x.id === 'ABC');
+    const start = c.invalidation.find((v) => /被修正那段走勢的起點/.test(v.why));
+    assert.ok(start);
+    assert.equal(targetsOf(c).length, 0);
+    assert.ok(c.levelNotes.some((t) => /C 浪目標/.test(t) && t.includes(String(start.price))));
+    void d;
+  });
+}
+
+const allPrices = (c) => [...c.invalidation, ...c.keyLevels].map((v) => v.price)
+  .concat(c.waves.flatMap((wv) => [wv.start.price, wv.end.price, wv.fib.r382, wv.fib.r500, wv.fib.r618]));
+
+test('C 浪延伸參考價 ≤ 0 時不輸出，改說明沒有可用參考（上漲方向，深度修正）', () => {
+  const r = E.analyze(makeBars([10, 100, 30, 55, 25, 50, 36], { step: 10 }), { thresholds: [5] });
+  assert.equal(r.primary.id, 'ABC12');
+  assert.equal(r.primary.direction, 'up');
+  assert.ok(r.invalidation.every((v) => Number.isFinite(v.price) && v.price > 0), JSON.stringify(r.invalidation));
+  assert.ok(!r.invalidation.some((v) => /C 浪延伸/.test(v.why)));
+  assert.ok(r.levelNotes.some((t) => /沒有可用的延伸參考價/.test(t)));
+});
+
+test('C 浪延伸參考價合法時照常輸出（下跌方向）', () => {
+  const r = E.analyze(makeBars([200, 100, 130, 112, 140, 122, 132], { step: 6 }), { thresholds: [5] });
+  assert.equal(r.primary.id, 'ABC12');
+  assert.equal(r.primary.direction, 'down');
+  const ext = r.invalidation.find((v) => /C 浪延伸/.test(v.why));
+  assert.ok(ext && ext.next && ext.price > 0);
+  assert.ok(!r.levelNotes.some((t) => /延伸/.test(t)));
+});
+
+test('目標價 ≤ 0 時不輸出，改說明（下跌第 3 浪）', () => {
+  const c = E.candidates(makeBars([100, 40, 90, 60], { prefix: 40, step: 6 }), 5).find((x) => x.id === 'I3');
+  assert.equal(c.direction, 'down');
+  assert.equal(targetsOf(c).length, 0);
+  assert.ok(c.levelNotes.some((t) => /第 3 浪目標/.test(t) && /≤0/.test(t)));
+});
+
+test('所有輸出價位（失效、參考、關卡、目標、回檔）都是有限且 > 0，雙方向多組資料', () => {
+  const fixtures = [
+    [[10, 100, 30, 55, 25, 50, 36], { step: 10 }], [[200, 100, 130, 112, 140, 122, 132], { step: 6 }],
+    [[100, 40, 90, 60], { prefix: 40, step: 6 }], [[10, 100, 15, 90, 5, 60], { step: 8 }], [[100, 5, 90, 3, 60, 20], { step: 8 }],
+    [[100, 130, 112, 138, 131, 145], { prefix: 40, step: 6 }], [[145, 115, 133, 107, 114, 100], { prefix: 40, step: 6 }],
+    [UP_5ABC, {}],
+  ];
+  let n = 0;
+  for (const [pts, o] of fixtures) {
+    const bars = makeBars(pts, o);
+    for (const c of E.candidates(bars, 5)) {
+      for (const p of allPrices(c)) { n++; assert.ok(Number.isFinite(p) && p > 0, `${pts} ${c.id} 價位 ${p}`); }
+      assert.ok(Array.isArray(c.levelNotes));
+    }
+    const r = E.analyze(bars);
+    for (const v of [...r.invalidation, ...r.keyLevels]) assert.ok(Number.isFinite(v.price) && v.price > 0);
+    assert.ok(Array.isArray(r.levelNotes));
+  }
+  assert.ok(n > 100);
+});
+
+test('新推動確認理由依方向：上漲「底部較可信」、下跌「頭部較可信」', () => {
+  const up = E.analyze(makeBars([100, 200, 170, 185, 155, 170, 162], { step: 6 }), { thresholds: [5] });
+  assert.equal(up.primary.id, 'ABC12'); assert.equal(up.primary.direction, 'up');
+  const kU = up.keyLevels.find((k) => /前一段修正的 B 浪/.test(k.why));
+  assert.match(kU.why, /B 浪高點：突破這裡，底部較可信/);
+  assert.doesNotMatch(kU.why, /頭部/);
+  const dn = E.analyze(makeBars([200, 100, 130, 112, 140, 122, 132], { step: 6 }), { thresholds: [5] });
+  assert.equal(dn.primary.id, 'ABC12'); assert.equal(dn.primary.direction, 'down');
+  const kD = dn.keyLevels.find((k) => /前一段修正的 B 浪/.test(k.why));
+  assert.match(kD.why, /B 浪低點：跌破這裡，頭部較可信/);
+  assert.doesNotMatch(kD.why, /底部/);
+});
+
+test('理由文字不可方向寫死：下跌計數不出現上漲用語、上漲計數不出現下跌用語（成對詞）', () => {
+  // 只檢查明確成對、與方向綁定的詞；「低點／高點」等可同時合理出現（例如失效價與目標分屬兩側），不列入。
+  const upOnly = /底部較可信|再創新高|前高）/;
+  const downOnly = /頭部較可信|再創新低|前低）/;
+  const cases = [
+    [[100, 200, 170, 185, 155, 170, 162], { step: 6 }], [[200, 100, 130, 112, 140, 122, 132], { step: 6 }],
+    [UP_5ABC, {}], [UP_5ABC.map((p) => 300 - p), {}],
+    [[100, 130, 112, 138, 131, 145], { prefix: 40, step: 6 }], [[145, 115, 133, 107, 114, 100], { prefix: 40, step: 6 }],
+    [[100, 130, 112, 129, 122, 130], { prefix: 40, step: 6 }], [[130, 100, 118, 101, 108, 100], { prefix: 40, step: 6 }],
+  ];
+  const seen = { up: 0, down: 0 };
+  for (const [pts, o] of cases) {
+    for (const c of E.candidates(makeBars(pts, o), 5)) {
+      const text = [...c.invalidation, ...c.keyLevels].map((v) => v.why).join('\n') + c.levelNotes.join('\n');
+      seen[c.direction]++;
+      if (c.direction === 'up') assert.doesNotMatch(text, downOnly, `${c.id} up: ${text}`);
+      else assert.doesNotMatch(text, upOnly, `${c.id} down: ${text}`);
+    }
+  }
+  assert.ok(seen.up > 3 && seen.down > 3);
+});
+
 // ---------- 評分與不確定 ----------
 test('分數接近時 status＝不確定；差距夠大才不因分數而不確定', () => {
   assert.equal(E.scoreReasons(0.7, 0.68).some((t) => /分數接近/.test(t)), true);

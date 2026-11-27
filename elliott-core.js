@@ -259,7 +259,27 @@
     const P=c._P,L=c._L,d=c._d,up=d===1,w=c._word,lv=[],inv=[];
     const price=x=>r2(x);
     const W=lb=>len(L[lb][0],L[lb][1]);
-    const add=(kind,p,why)=>{if(Number.isFinite(p)&&p>0)lv.push({kind,price:price(p),why});};
+    const okPrice=p=>Number.isFinite(p)&&p>0;
+    const add=(kind,p,why)=>{if(okPrice(p))lv.push({kind,price:price(p),why});};
+    // 失效／下一個參考價也一樣：只輸出有限且大於 0 的價位
+    const addInv=(p,why,next)=>{if(!okPrice(p))return false;inv.push(next?{price:price(p),why,next:true}:{price:price(p),why});return true;};
+    const notes=[];
+    const addTarget1=(p,why)=>addTargets([{p,why}],[],'第 3 浪目標');
+    // 硬性上限：目標不可越過（side＝這條界線擋住的方向：1＝不可高於、−1＝不可低於）
+    const caps=[];
+    const within=p=>caps.every(c=>c.side*(p-c.price)<=1e-9);
+    // 依序嘗試比例，只留不越界的目標；全部越界就省略並說明
+    // main 先試；都不行才試 fallback（較保守的比例）；仍沒有就不列目標並說明原因
+    const addTargets=(main,fallback,what)=>{
+      const ok=t=>okPrice(t.p)&&within(t.p);
+      let list=main.filter(ok);if(!list.length)list=fallback.filter(ok);
+      for(const t of list)add('target',t.p,t.why);
+      if(!list.length){
+        const crossed=caps.filter(c=>[...main,...fallback].some(t=>Number.isFinite(t.p)&&c.side*(t.p-c.price)>1e-9));
+        notes.push(`${what}：常見比例目標${crossed.length?`都會越過硬性界線 ${crossed.map(c=>fmt(c.price)).join('、')}（${crossed.map(c=>c.rule).join('；')}）`:'都不是合理價位（≤0）'}，故不列目標`);
+      }
+      return list.length;
+    };
     const lastLabel=c.waves[c.waves.length-1].label;
     // 更大浪級：被修正那段走勢（priorTrendStart → 修正起點）的 50%／61.8% 回檔位
     const largerRetrace=(startIdx,topPrice)=>{
@@ -270,23 +290,26 @@
       // 獨立 A–B–C：失效＝修正超過被修正那段走勢的起點（那就是新趨勢，不是修正）
       const sA=L['A'][0],eA=L['A'][1];
       const ps=priorTrendStart(bars,sA.i,d);
+      if(ps)caps.push({price:ps.price,side:-d,rule:'修正不可超過被修正那段走勢的起點'});
+      const cT=k=>({p:L['B'][1].price-d*k*W('A')});
       if(lastLabel==='B'){
         const eB=L['B'][1];
-        inv.push({price:price(sA.price),why:`A 浪起點（修正起點）：B 浪${w.over}這裡只能算擴張平台，再${up?'創新高':'創新低'}則修正計數要重算`});
+        addInv(sA.price,`A 浪起點（修正起點）：B 浪${w.over}這裡只能算擴張平台，再${up?'創新高':'創新低'}則修正計數要重算`);
         add('confirm',eA.price,`A 浪終點：C 浪通常會${w.break}這裡`);
-        add('target',eB.price-d*W('A'),`C 浪常見目標：B 浪終點 ${up?'−':'+'} 1.0×A 浪幅度（不是保證）`);
+        addTargets([{...cT(1),why:`C 浪常見目標：B 浪終點 ${up?'−':'+'} 1.0×A 浪幅度（不是保證）`}],
+          [{...cT(0.618),why:`C 浪目標：B 浪終點 ${up?'−':'+'} 0.618×A 浪幅度（1.0 倍會越過硬性界線，改用較小比例；不是保證）`}],'C 浪目標');
       } else if(lastLabel==='C'){
         const eB=L['B'][1];
-        inv.push({price:price(eB.price),why:`B 浪${up?'高點':'低點'}：C 浪期間${w.over}這裡，C 浪計數失效`});
-        add('target',eB.price-d*W('A'),`C＝1.0×A：B 浪終點 ${up?'−':'+'} A 浪幅度（不是保證）`);
-        add('target',eB.price-d*1.618*W('A'),`C＝1.618×A：B 浪終點 ${up?'−':'+'} 1.618×A 浪幅度（不是保證）`);
+        addInv(eB.price,`B 浪${up?'高點':'低點'}：C 浪期間${w.over}這裡，C 浪計數失效`);
+        addTargets([{...cT(1),why:`C＝1.0×A：B 浪終點 ${up?'−':'+'} A 浪幅度（不是保證）`},{...cT(1.618),why:`C＝1.618×A：B 浪終點 ${up?'−':'+'} 1.618×A 浪幅度（不是保證）`}],
+          [{...cT(0.618),why:`C＝0.618×A：B 浪終點 ${up?'−':'+'} 0.618×A 浪幅度（較大比例會越過硬性界線；不是保證）`}],'C 浪目標');
         add('confirm',eA.price,`A 浪終點：C 浪通常會${w.break}這裡`);
         add('confirm',sA.price,`整段修正起點（前${up?'高':'低'}）：${w.over}代表修正結束、回到原趨勢`);
       } else {
         add('reference',sA.price,`修正起點（前${up?'高':'低'}）：A 浪期間${w.over}這裡代表還沒進入修正`);
       }
       if(ps){
-        inv.push({price:price(ps.price),why:`被修正那段走勢的起點 ${ps.day}：修正${w.break}這裡就不是修正、是新趨勢，此計數不成立`,next:lastLabel!=='A'});
+        addInv(ps.price,`被修正那段走勢的起點 ${ps.day}：修正${w.break}這裡就不是修正、是新趨勢，此計數不成立`,lastLabel!=='A');
         const f=fibLevels(ps.price,sA.price);
         if(lastLabel!=='B'){add('support',f.r382,`被修正那段走勢（${ps.day} ${fmt(ps.price)} → ${sA.day} ${fmt(sA.price)}）的 38.2% 回檔位`);
           add('support',f.r500,`被修正那段走勢的 50% 回檔位`);add('support',f.r618,`被修正那段走勢的 61.8% 回檔位`);}
@@ -294,59 +317,64 @@
     } else if(c.kind==='abc+new'){
       const sA=L['A'][0],eA=L['A'][1],eB=L['B'][1],eC=L['C'][1];
       const A=W('A');
-      inv.push({price:price(eC.price),why:`C 浪${up?'低點':'高點'}（新推動起點）：第 2 浪不可${up?'跌破':'突破'}第 1 浪起點，${w.break}這個價位此計數失效`});
+      addInv(eC.price,`C 浪${up?'低點':'高點'}（新推動起點）：第 2 浪不可${up?'跌破':'突破'}第 1 浪起點，${w.break}這個價位此計數失效`);
       // 失效後下一個參考價：C 浪延伸（從 B 浪終點量 1.0／1.618／2.618 倍 A 浪，取第一個還沒到的）
-      const ext=[1,1.618,2.618].map(k=>({k,p:eB.price-d*k*A})).find(o=>d*(o.p-eC.price)<0);
-      if(ext)inv.push({price:price(ext.p),why:`若${w.break} C 浪${up?'低點':'高點'}：C 浪延伸到 ${ext.k}×A 浪（從 B 浪終點 ${fmt(eB.price)} 量 A 浪幅度 ${fmt(A)}）的參考價`,next:true});
+      // 延伸價必須是有限且 > 0 的價位；都不合理就不列，並說明
+      const beyondC=[1,1.618,2.618].map(k=>({k,p:eB.price-d*k*A})).filter(o=>Number.isFinite(o.p)&&d*(o.p-eC.price)<0);
+      const ext=beyondC.find(o=>okPrice(o.p));
+      if(ext)addInv(ext.p,`若${w.break} C 浪${up?'低點':'高點'}：C 浪延伸到 ${ext.k}×A 浪（從 B 浪終點 ${fmt(eB.price)} 量 A 浪幅度 ${fmt(A)}）的參考價`,true);
+      else if(beyondC.length)notes.push(`若${w.break} C 浪${up?'低點':'高點'}：C 浪延伸（從 B 浪終點 ${fmt(eB.price)} 量 1.0／1.618／2.618×A 浪幅度 ${fmt(A)}）算出的價位 ≤ 0，沒有可用的延伸參考價`);
       const lr=largerRetrace(sA.i,sA.price);
       if(lr)for(const [k,v] of [['50%',lr.r500],['61.8%',lr.r618]])if(d*(v-eC.price)<0)
-        inv.push({price:v,why:`更大浪級參考：被修正那段走勢（${lr.start.day} ${fmt(lr.start.price)} → ${sA.day} ${fmt(sA.price)}）的 ${k} 回檔位`,next:true});
+        addInv(v,`更大浪級參考：被修正那段走勢（${lr.start.day} ${fmt(lr.start.price)} → ${sA.day} ${fmt(sA.price)}）的 ${k} 回檔位`,true);
       if(L['1']){const e1=L['1'][1],s1=L['1'][0];
         if(!(L['3']&&!L['3'][2]&&d*(L['3'][1].price-e1.price)>0))add('confirm',e1.price,`新第 1 浪${up?'高點':'低點'}：${w.over}這裡，第 3 浪才算初步確認`);
         if(lastLabel==='1'||lastLabel==='2'){const f=fibLevels(s1.price,e1.price);
           add('support',f.r500,`第 1 浪幅度的 50% 回檔位（第 2 浪常見落點）`);add('support',f.r618,`第 1 浪幅度的 61.8% 回檔位（第 2 浪常見落點，再過去就要小心）`);}
-        if(L['2']&&!L['2'][2]){const e2=L['2'][1];add('target',e2.price+d*1.618*W('1'),`第 3 浪常見目標：第 2 浪終點 ${fmt(e2.price)} ${up?'+':'−'} 1.618×第 1 浪幅度（常見比例，不是保證）`);}
+        if(L['2']&&!L['2'][2]){const e2=L['2'][1];addTarget1(e2.price+d*1.618*W('1'),`第 3 浪常見目標：第 2 浪終點 ${fmt(e2.price)} ${up?'+':'−'} 1.618×第 1 浪幅度（常見比例，不是保證）`);}
       }
-      add('confirm',eB.price,`前一段修正的 B 浪${up?'高點':'低點'}：${w.over}這裡，底部較可信`);
+      add('confirm',eB.price,`前一段修正的 B 浪${up?'高點':'低點'}：${w.over}這裡，${up?'底部':'頭部'}較可信（新推動較可信）`);
       add('confirm',sA.price,`整段修正起點（前${up?'高':'低'}）：${w.over}代表修正結束、回到原趨勢`);
       add('reference',eA.price,`A 浪終點（修正第一段的${up?'低點':'高點'}）：第 2 浪${up?'跌破':'突破'}這裡代表回檔已深，下一道防線是 C 浪${up?'低點':'高點'}`);
     } else {
       const s1=L['1'][0],e1=L['1'][1];
       if(lastLabel==='3'){
         const e2=L['2'][1];
-        inv.push({price:price(e2.price),why:`第 2 浪${up?'低點':'高點'}：${w.break}這裡，第 3 浪計數失效`});
-        inv.push({price:price(s1.price),why:`第 1 浪起點：第 2 浪不可${up?'跌破':'突破'}，${w.break}則整段推動計數不成立`,next:true});
+        addInv(e2.price,`第 2 浪${up?'低點':'高點'}：${w.break}這裡，第 3 浪計數失效`);
+        addInv(s1.price,`第 1 浪起點：第 2 浪不可${up?'跌破':'突破'}，${w.break}則整段推動計數不成立`,true);
         if(d*(L['3'][1].price-e1.price)<=0)add('confirm',e1.price,`第 1 浪終點：第 3 浪必須超過這裡`);
-        add('target',e2.price+d*1.618*W('1'),`第 3 浪常見目標：第 2 浪終點 ${up?'+':'−'} 1.618×第 1 浪幅度（不是保證）`);
+        addTarget1(e2.price+d*1.618*W('1'),`第 3 浪常見目標：第 2 浪終點 ${up?'+':'−'} 1.618×第 1 浪幅度（不是保證）`);
       } else if(lastLabel==='4'){
-        inv.push({price:price(e1.price),why:`第 1 浪終點：第 4 浪不可進入第 1 浪價格區，${w.break}這裡計數不成立`});
+        addInv(e1.price,`第 1 浪終點：第 4 浪不可進入第 1 浪價格區，${w.break}這裡計數不成立`);
         const f=fibLevels(L['3'][0].price,L['3'][1].price);
         add('support',f.r382,`第 3 浪幅度的 38.2% 回檔位（第 4 浪常見落點）`);
         add('confirm',L['3'][1].price,`第 3 浪終點：第 5 浪通常會超過這裡（沒超過＝失敗的第 5 浪）`);
       } else if(lastLabel==='5'){
         const e4=L['4'][1],e3=L['3'][1];
-        inv.push({price:price(e4.price),why:`第 4 浪${up?'低點':'高點'}：${w.break}代表第 5 浪可能已結束、進入修正`});
-        if(W('3')<W('1'))inv.push({price:price(e4.price+d*W('3')),why:`第 3 浪短於第 1 浪，第 5 浪不可比第 3 浪長（否則第 3 浪成為最短）：${up?'超過':'低於'}這個價位此計數不成立`});
+        addInv(e4.price,`第 4 浪${up?'低點':'高點'}：${w.break}代表第 5 浪可能已結束、進入修正`);
+        if(W('3')<W('1')){const cap=e4.price+d*W('3');
+          addInv(cap,`第 3 浪短於第 1 浪，第 5 浪不可比第 3 浪長（否則第 3 浪成為最短）：${up?'超過':'低於'}這個價位此計數不成立`);
+          caps.push({price:cap,side:d,rule:'第 3 浪不可最短，第 5 浪不可比第 3 浪長'});}
         add('confirm',e3.price,`第 3 浪終點：第 5 浪超過這裡才不算失敗的第 5 浪`);
-        add('target',e4.price+d*W('1'),`第 5 浪常見目標：第 4 浪終點 ${up?'+':'−'} 1.0×第 1 浪幅度（不是保證）`);
+        addTargets([{p:e4.price+d*W('1'),why:`第 5 浪常見目標：第 4 浪終點 ${up?'+':'−'} 1.0×第 1 浪幅度（不是保證）`}],
+          [{p:e4.price+d*0.618*W('1'),why:`第 5 浪目標：第 4 浪終點 ${up?'+':'−'} 0.618×第 1 浪幅度（1.0 倍會超過第 5 浪上限，改用較小比例；不是保證）`}],'第 5 浪目標');
       } else {
         // 推動完成後的修正（A、B、C）
         const e5=L['5'][1],e4=L['4'][1];
         const imp=fibLevels(s1.price,e5.price);
         if(lastLabel==='A'){
-          inv.push({price:price(e5.price),why:`第 5 浪終點：A 浪期間${up?'突破':'跌破'}這裡，代表推動還沒結束，此計數不成立`});
+          addInv(e5.price,`第 5 浪終點：A 浪期間${up?'突破':'跌破'}這裡，代表推動還沒結束，此計數不成立`);
           add('support',e4.price,`第 4 浪${up?'低點':'高點'}：修正常回到第 4 浪附近`);
           add('support',imp.r382,`整段推動的 38.2% 回檔位`);add('support',imp.r500,`整段推動的 50% 回檔位`);add('support',imp.r618,`整段推動的 61.8% 回檔位`);
         } else if(lastLabel==='B'){
           const eA=L['A'][1];
-          inv.push({price:price(e5.price),why:`A 浪起點（第 5 浪終點）：B 浪超過這裡只能算擴張平台，${up?'再創新高':'再創新低'}則修正計數要重算`});
+          addInv(e5.price,`A 浪起點（第 5 浪終點）：B 浪超過這裡只能算擴張平台，${up?'再創新高':'再創新低'}則修正計數要重算`);
           add('confirm',eA.price,`A 浪終點：C 浪通常會${up?'跌破':'突破'}這裡`);
-          add('target',L['B'][1].price-d*W('A'),`C 浪常見目標：B 浪終點 ${up?'−':'+'} 1.0×A 浪幅度（不是保證）`);
+          addTargets([{p:L['B'][1].price-d*W('A'),why:`C 浪常見目標：B 浪終點 ${up?'−':'+'} 1.0×A 浪幅度（不是保證）`}],[],'C 浪目標');
         } else if(lastLabel==='C'){
           const eA=L['A'][1],eB=L['B'][1];
-          inv.push({price:price(eB.price),why:`B 浪${up?'高點':'低點'}：C 浪期間${up?'突破':'跌破'}這裡，C 浪計數失效`});
-          add('target',eB.price-d*W('A'),`C＝1.0×A：B 浪終點 ${up?'−':'+'} A 浪幅度`);
-          add('target',eB.price-d*1.618*W('A'),`C＝1.618×A：B 浪終點 ${up?'−':'+'} 1.618×A 浪幅度`);
+          addInv(eB.price,`B 浪${up?'高點':'低點'}：C 浪期間${up?'突破':'跌破'}這裡，C 浪計數失效`);
+          addTargets([{p:eB.price-d*W('A'),why:`C＝1.0×A：B 浪終點 ${up?'−':'+'} A 浪幅度`},{p:eB.price-d*1.618*W('A'),why:`C＝1.618×A：B 浪終點 ${up?'−':'+'} 1.618×A 浪幅度`}],[],'C 浪目標');
           add('support',e4.price,`推動第 4 浪${up?'低點':'高點'}：修正常落在第 4 浪附近`);
           add('confirm',e5.price,`整段修正起點（第 5 浪${up?'高點':'低點'}）`);
           void eA;
@@ -355,7 +383,7 @@
     }
     // 依價格由高到低排列，方便畫面閱讀
     lv.sort((a,b)=>b.price-a.price);
-    return {keyLevels:lv,invalidation:inv};
+    return {keyLevels:lv,invalidation:inv,levelNotes:notes};
   }
 
   // 計數的關鍵還沒被價格確認時，不說「成立」。
@@ -416,7 +444,7 @@
 
   function emptyResult(reason,extra){
     return {ok:false,status:'insufficient',statusText:STATUS_TEXT.insufficient,reason,thresholdPct:null,atrPct:null,pivots:[],inProgress:null,
-      primary:null,alternatives:[],keyLevels:[],invalidation:[],candidatesTried:[],uncertainReasons:[reason],...extra};
+      primary:null,alternatives:[],keyLevels:[],invalidation:[],levelNotes:[],candidatesTried:[],uncertainReasons:[reason],...extra};
   }
 
   // ---------- 主函式 ----------
@@ -470,7 +498,7 @@
       const st=noCandidates?'uncertain':'invalid';
       return {ok:true,status:st,statusText:STATUS_TEXT[st],noCandidates,thresholdPct:t,atrPct:atr!=null?r2(atr):null,barsUsed:bars.length,
         lastBar:{day:lb.day,close:lb.close},pivots:z.pivots.map(p=>({...pt(p),type:p.type,confirmed:p.confirmed})),inProgress:z.inProgress,
-        primary:null,alternatives:diag.filter(c=>c.finalScore>=0.4).slice(0,MAX_ALTERNATIVES).map(asAlt),rejected,keyLevels:[],invalidation:[],candidatesTried:tried,
+        primary:null,alternatives:diag.filter(c=>c.finalScore>=0.4).slice(0,MAX_ALTERNATIVES).map(asAlt),rejected,keyLevels:[],invalidation:[],levelNotes:[],candidatesTried:tried,
         uncertainReasons:why};
     }
     const primary=uniq[0];
@@ -489,7 +517,7 @@
       lastBar:{day:lb.day,close:lb.close},
       pivots:z.pivots.map(p=>({...pt(p),type:p.type,confirmed:p.confirmed})),inProgress:z.inProgress,
       primary:out(primary,'primary'),alternatives:alts.map(asAlt),
-      keyLevels:lvPrimary.keyLevels,invalidation:lvPrimary.invalidation,candidatesTried:tried,uncertainReasons:reasons};
+      keyLevels:lvPrimary.keyLevels,invalidation:lvPrimary.invalidation,levelNotes:lvPrimary.levelNotes,candidatesTried:tried,uncertainReasons:reasons};
   }
 
   // ---------- 6. 2055 長期情境（純計算，假設情境，不是預測） ----------
@@ -517,6 +545,7 @@
     res.alternatives.forEach((a,k)=>L.push(`替代計數 ${k+1}：${a.text}（分數 ${a.finalScore}，門檻 ${a.thresholdPct}%）`));
     if(res.invalidation.length)L.push('失效價位：'+res.invalidation.map(v=>`${fmt(v.price)}（${v.why}）`).join('；'));
     if(res.keyLevels.length)L.push('關卡：'+res.keyLevels.map(v=>`${fmt(v.price)}（${v.why}）`).join('；'));
+    if(res.levelNotes&&res.levelNotes.length)L.push('說明：'+res.levelNotes.join('；'));
     return L.join('\n');
   }
 
