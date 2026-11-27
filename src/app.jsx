@@ -110,6 +110,9 @@ const COLORS = {
 };
 
 const UI_EN = {
+  // 波浪圖層
+  "波浪圖層": "Wave layer",
+  "加權指數・0050・0056 日線艾略特波浪": "TAIEX · 0050 · 0056 daily Elliott waves",
   // 2026-11-12 手機版面
   "新增持股": "Add holding",
   "區間查詢": "Date range check",
@@ -7184,6 +7187,246 @@ function DashboardCollapsibleSection({ storageKey, title, subtitle, children, de
   );
 }
 
+// <elliott-wave-ui>
+// 波浪圖層（加權指數／0050／0056 日線）：預設關閉；關閉時只是一行標題＋開關，不抓資料也不計算。
+// 打開才讀 /daily-history（或剛好可用的 trendRadarDailyHistory 快取，唯讀），結果只放記憶體；開關狀態也只在 React state，不存任何東西。
+// 計算全部在 elliott-core.js（ZinfElliott），這裡只負責畫。盤中未收盤的今天那根日K由 completedBars 依 820 分鐘規則排除。
+const ELLIOTT_SYMBOLS = [{ sym: "TAIEX", label: "加權指數" }, { sym: "0050", label: "0050" }, { sym: "0056", label: "0056" }];
+let elliottBarsMemo = null; // { key, bars }：只在記憶體，重新整理頁面就沒了
+async function loadElliottBars(clock) {
+  const want = ELLIOTT_SYMBOLS.map((s) => s.sym);
+  const phase = clock.minute >= 820 ? "closed" : clock.minute < 540 ? "premarket" : "session";
+  const key = clock.day + "|" + phase;
+  if (elliottBarsMemo?.key === key) return elliottBarsMemo.bars;
+  const has = (b) => b && want.every((s) => Array.isArray(b[s]) && b[s].length > 0);
+  const cache = await loadKey("trendRadarDailyHistory", null);
+  if (typeof cache?.key === "string" && cache.key.startsWith(key + "|") && has(cache.bars)) {
+    elliottBarsMemo = { key, bars: cache.bars };
+    return cache.bars;
+  }
+  const res = await fetchWithTimeout(`/daily-history?symbols=${encodeURIComponent(want.join(","))}`, { cache: "no-store" }, 12000);
+  const j = res.ok ? await res.json().catch(() => null) : null;
+  if (!j?.ok || !j.bars || !want.some((s) => Array.isArray(j.bars[s]) && j.bars[s].length)) throw new Error("daily unavailable");
+  elliottBarsMemo = { key, bars: j.bars };
+  return j.bars;
+}
+const ewPrice = (v) => {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  return Math.abs(n) >= 1000 ? n.toLocaleString("en-US", { maximumFractionDigits: 0 }) : n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+const ewDay = (d) => (typeof d === "string" ? d.slice(5).replace("-", "/") : "");
+const EW_RULE_TEXT = { pass: "通過", fail: "失敗", pending: "未定", flat: "擴張平台" };
+function ElliottWaveCard() {
+  const E = globalThis.ZinfElliott;
+  const [on, setOn] = useState(false);
+  const [sym, setSym] = useState("TAIEX");
+  const [view, setView] = useState(0); // 0＝主要計數；1、2＝替代計數
+  const [data, setData] = useState({ status: "idle", bars: null, clock: null });
+  const load = useCallback(() => {
+    const clock = globalThis.ZinfForecast.clock(new Date());
+    setData({ status: "loading", bars: null, clock });
+    loadElliottBars(clock).then((bars) => setData({ status: "ready", bars, clock }), () => setData({ status: "error", bars: null, clock }));
+  }, []);
+  useEffect(() => { if (on && data.status === "idle") load(); }, [on, data.status, load]);
+  useEffect(() => { setView(0); }, [sym]);
+  const result = useMemo(() => {
+    if (!on || data.status !== "ready" || !E) return null;
+    return E.analyze(data.bars?.[sym], { today: data.clock.day, minute: data.clock.minute });
+  }, [on, data, sym, E]);
+  const scen = useMemo(() => (result?.lastBar ? E.scenarios(result.lastBar.close, result.lastBar.day) : null), [result, E]);
+  const counts = result ? [result.primary, ...result.alternatives].filter(Boolean) : [];
+  const shown = counts[Math.min(view, Math.max(0, counts.length - 1))] || null;
+  const chart = useMemo(() => {
+    if (!result?.ok || !data.bars) return null;
+    const bars = E.completedBars(data.bars[sym], data.clock.day, data.clock.minute);
+    const firstI = Math.min(...[result.primary, ...result.alternatives].filter(Boolean).map((c) => c.points[0].i), bars.length - 1);
+    const from = Math.max(0, Math.min(firstI - 10, bars.length - 120));
+    const rows = bars.slice(from).map((b, k) => ({ x: from + k, day: b.day, close: b.close, wave: null, alt: null, live: null, lab: null, altLab: null }));
+    const at = (i) => rows[i - from];
+    const put = (c, key, labKey) => {
+      if (!c) return;
+      c.points.forEach((p, k) => { const r = at(p.i); if (r) { r[key] = p.price; r[labKey] = k === 0 ? null : c.waves[k - 1].label; } });
+    };
+    put(result.primary, "wave", "lab");
+    if (view > 0 && shown) put(shown, "alt", "altLab");
+    const lastP = result.pivots[result.pivots.length - 1];
+    if (lastP && at(lastP.i) && lastP.i < bars.length - 1) { at(lastP.i).live = lastP.price; rows[rows.length - 1].live = rows[rows.length - 1].close; }
+    return { rows, from };
+  }, [result, data, sym, view, shown, E]);
+  const badgeStyle = (st) => ({
+    color: st === "valid" ? COLORS.gold : st === "invalid" ? COLORS.text : COLORS.sub,
+    border: `1px solid ${st === "valid" ? COLORS.gold : COLORS.panelBorder}`,
+  });
+  const waveLabel = (color) => function WaveLabel(props) {
+    const { x, y, index } = props;
+    const row = chart?.rows?.[index];
+    const text = color === "alt" ? row?.altLab : row?.lab;
+    if (!text || !Number.isFinite(x) || !Number.isFinite(y)) return null;
+    return <text x={x} y={y - 6} textAnchor="middle" fontSize={10} fontWeight={700} fill={color === "alt" ? COLORS.text : COLORS.gold}>{text}</text>;
+  };
+  return (
+    <div className="premium-panel forma-ew rounded-2xl px-4 py-1" data-elliott-wave style={{ background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`, boxShadow: "none" }}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-xs font-bold" style={{ color: COLORS.gold }}><UiLabel zh="波浪圖層" /></div>
+          <div className="text-[10px]" style={{ color: COLORS.sub }}><UiLabel zh="加權指數・0050・0056 日線艾略特波浪" /></div>
+        </div>
+        <button type="button" role="switch" aria-checked={on} aria-label="波浪圖層" onClick={() => setOn((v) => !v)}
+          className="forma-tap flex items-center justify-end gap-2 text-[11px] font-bold flex-none" style={{ color: on ? COLORS.gold : COLORS.sub, minWidth: 44 }}>
+          <span>{on ? "開" : "關"}</span>
+          <span aria-hidden="true" className="relative inline-block" style={{ width: 36, height: 20, borderRadius: 999, background: on ? COLORS.gold : COLORS.bg, border: `1px solid ${on ? COLORS.gold : COLORS.panelBorder}` }}>
+            <span className="absolute" style={{ top: 2, left: on ? 18 : 2, width: 14, height: 14, borderRadius: 999, background: on ? COLORS.panel : COLORS.sub }} />
+          </span>
+        </button>
+      </div>
+      {on && (
+        <div className="pb-3">
+          <div className="flex rounded-lg p-0.5 mt-1" role="tablist" aria-label="標的" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
+            {ELLIOTT_SYMBOLS.map((s) => (
+              <button key={s.sym} type="button" role="tab" aria-selected={sym === s.sym} onClick={() => setSym(s.sym)}
+                className="forma-tap flex-1 rounded-md px-2 text-[12px] font-bold whitespace-nowrap"
+                style={{ background: "transparent", color: sym === s.sym ? COLORS.gold : COLORS.sub, border: `1px solid ${sym === s.sym ? COLORS.gold : "transparent"}` }}>
+                {s.label}
+              </button>
+            ))}
+          </div>
+          {data.status === "loading" && <div className="text-[11px] leading-[17px] mt-3" role="status" style={{ color: COLORS.sub }}>讀取日線資料中…</div>}
+          {data.status === "error" && (
+            <div className="mt-3 text-[11px] leading-[17px]" role="alert" style={{ color: COLORS.sub }}>
+              暫時抓不到日線資料，沒有計算波浪。
+              <button type="button" onClick={load} className="forma-tap ml-2 rounded-lg px-3 text-[11px] font-bold" style={{ color: COLORS.gold, border: `1px solid ${COLORS.panelBorder}` }}>再試一次</button>
+            </div>
+          )}
+          {result && !result.ok && <div className="mt-3 text-[11px] leading-[17px]" style={{ color: COLORS.sub }}>資料不足：{result.reason}</div>}
+          {result?.ok && (
+            <div className="mt-2 space-y-3 min-w-0">
+              <div className="flex items-center flex-wrap gap-2 text-[11px] leading-[17px]">
+                <span className="rounded-full px-2 font-bold" data-ew-status={result.status} style={badgeStyle(result.status)}>{result.statusText}</span>
+                <span style={{ color: COLORS.text }}>{result.primary ? result.primary.text : "沒有符合規則的計數，只標出轉折點"}</span>
+              </div>
+              <div className="text-[10px] leading-[15px] mono" style={{ color: COLORS.sub }}>
+                轉折門檻 {result.thresholdPct}%（近 60 日平均真實波幅 {result.atrPct}%）・高點用最高價、低點用最低價・資料到 {result.lastBar.day}
+                {result.inProgress?.from && <span>・最後一段 {ewDay(result.inProgress.from.day)} {ewPrice(result.inProgress.from.price)} → {ewDay(result.inProgress.extreme.day)} {ewPrice(result.inProgress.extreme.price)} 尚未確認（進行中），最新收盤 {ewPrice(result.inProgress.lastClose)}</span>}
+              </div>
+              {chart && (
+                <div style={{ height: 210 }} aria-label="日線收盤曲線與波浪標記">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={chart.rows} margin={{ top: 14, right: 6, left: 0, bottom: 0 }}>
+                      <CartesianGrid stroke={COLORS.panelBorder} strokeDasharray="3 3" vertical={false} strokeOpacity={0.6} />
+                      <XAxis dataKey="x" type="number" domain={["dataMin", "dataMax"]} axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: COLORS.sub }}
+                        tickCount={5} tickFormatter={(v) => ewDay(chart.rows[Math.round(v) - chart.from]?.day)} />
+                      <YAxis domain={["auto", "auto"]} axisLine={false} tickLine={false} width={44} tick={{ fontSize: 9, fill: COLORS.sub }}
+                        tickFormatter={(v) => (v >= 1000 ? `${(v / 10000).toFixed(1)}萬` : String(Math.round(v)))} />
+                      <Tooltip contentStyle={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, fontSize: 11 }}
+                        labelFormatter={(v) => chart.rows[Math.round(v) - chart.from]?.day || ""}
+                        formatter={(v, name) => [ewPrice(v), name === "close" ? "收盤" : name === "wave" ? "主要計數轉折" : name === "alt" ? "替代計數轉折" : "進行中"]} />
+                      {result.invalidation[0] && <ReferenceLine y={result.invalidation[0].price} stroke={COLORS.text} strokeDasharray="2 3" strokeOpacity={0.8}
+                        label={{ value: `失效 ${ewPrice(result.invalidation[0].price)}`, position: "insideBottomLeft", fontSize: 9, fill: COLORS.text }} />}
+                      {result.keyLevels.filter((k) => k.kind === "confirm").slice(-2).map((k) => (
+                        <ReferenceLine key={k.price} y={k.price} stroke={COLORS.sub} strokeDasharray="4 4" strokeOpacity={0.8}
+                          label={{ value: `關卡 ${ewPrice(k.price)}`, position: "insideTopLeft", fontSize: 9, fill: COLORS.sub }} />
+                      ))}
+                      <Line type="linear" dataKey="close" stroke={COLORS.sub} strokeWidth={1.2} dot={false} isAnimationActive={false} />
+                      <Line type="linear" dataKey="wave" stroke={COLORS.gold} strokeWidth={2} connectNulls dot={{ r: 2.5, fill: COLORS.gold, stroke: COLORS.gold }} isAnimationActive={false} label={waveLabel("main")} />
+                      {view > 0 && <Line type="linear" dataKey="alt" stroke={COLORS.text} strokeWidth={1.5} strokeDasharray="5 4" connectNulls dot={{ r: 2, fill: COLORS.text }} isAnimationActive={false} label={waveLabel("alt")} />}
+                      <Line type="linear" dataKey="live" stroke={COLORS.gold} strokeWidth={1.5} strokeDasharray="2 3" connectNulls dot={false} isAnimationActive={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+              <div className="text-[10px] leading-[15px]" style={{ color: COLORS.sub }}>
+                實線＝主要計數；虛線＝替代計數或最後一段進行中的走勢；點線＝失效價位。0050／0056 用未還原除息的價格，除息跳空會算進走勢。
+              </div>
+              {counts.length > 1 && (
+                <div className="flex gap-2 flex-wrap" role="group" aria-label="計數切換">
+                  {counts.map((c, k) => (
+                    <button key={k} type="button" aria-pressed={view === k} onClick={() => setView(k)}
+                      className="forma-tap rounded-lg px-3 text-[11px] font-bold"
+                      style={{ color: view === k ? COLORS.gold : COLORS.sub, border: `1px solid ${view === k ? COLORS.gold : COLORS.panelBorder}`, background: "transparent" }}>
+                      {k === 0 ? "主要計數" : `替代 ${k}`}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {shown && (
+                <div className="space-y-2 min-w-0" data-ew-count={shown.id}>
+                  <div className="text-[11px] leading-[17px] font-bold" style={{ color: COLORS.text }}>
+                    {view === 0 ? "主要" : `替代 ${view}`}：{shown.text}（{shown.directionText}，分數 {shown.finalScore}{shown.thresholdPct !== result.thresholdPct ? `，門檻 ${shown.thresholdPct}%` : ""}）
+                  </div>
+                  <div className="space-y-1.5">
+                    {shown.waves.map((w) => (
+                      <div key={w.label + w.start.day} className="rounded-lg px-2.5 py-1.5 text-[11px] leading-[17px] mono min-w-0" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, color: COLORS.text }}>
+                        <div className="flex items-baseline justify-between gap-2">
+                          <span className="font-bold" style={{ color: COLORS.gold }}>{w.label} 浪{w.inProgress ? "（進行中）" : ""}</span>
+                          <span style={{ color: w.pct >= 0 ? COLORS.gain : COLORS.loss }}>{w.pct > 0 ? "+" : ""}{w.pct}%</span>
+                        </div>
+                        <div className="flex flex-wrap justify-between gap-x-2">
+                          <span>{ewDay(w.start.day)} {ewPrice(w.start.price)} → {ewDay(w.end.day)} {ewPrice(w.end.price)}</span>
+                          <span style={{ color: COLORS.sub }}>{w.tradingDays} 交易日／{w.calendarDays} 天</span>
+                        </div>
+                        <div style={{ color: COLORS.sub }}>回檔 38.2% {ewPrice(w.fib.r382)}・50% {ewPrice(w.fib.r500)}・61.8% {ewPrice(w.fib.r618)}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="text-[11px] leading-[17px]" style={{ color: COLORS.text }}>
+                    <div className="font-bold mb-0.5" style={{ color: COLORS.sub }}>規則檢查</div>
+                    {shown.rules.map((r) => (
+                      <div key={r.id} data-ew-rule={r.id} data-ew-rule-state={r.state}>
+                        <span className="font-bold" style={{ color: r.state === "pass" ? COLORS.gold : COLORS.text }}>{EW_RULE_TEXT[r.state] || r.state}</span>｜{r.text}<span style={{ color: COLORS.sub }}>：{r.detail}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {shown.ratios.length > 0 && (
+                    <div className="text-[11px] leading-[17px]" style={{ color: COLORS.text }}>
+                      <div className="font-bold mb-0.5" style={{ color: COLORS.sub }}>比例（評分用）</div>
+                      {shown.ratios.map((r) => (
+                        <div key={r.name}>{r.name} <span className="mono">{typeof r.value === "boolean" ? (r.value ? "是" : "否") : r.value}</span><span style={{ color: COLORS.sub }}>（理想 {r.ideal}）</span></div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {result.uncertainReasons.length > 0 && (
+                <div className="text-[11px] leading-[17px]" style={{ color: COLORS.text }}>
+                  <div className="font-bold mb-0.5" style={{ color: COLORS.sub }}>為什麼是「{result.statusText}」</div>
+                  {result.uncertainReasons.map((t) => <div key={t}>・{t}</div>)}
+                </div>
+              )}
+              {(result.invalidation.length > 0 || result.keyLevels.length > 0) && (
+                <div className="text-[11px] leading-[17px]" style={{ color: COLORS.text }}>
+                  <div className="font-bold mb-0.5" style={{ color: COLORS.sub }}>失效價位與關卡（主要計數）</div>
+                  {result.invalidation.map((v) => (
+                    <div key={"i" + v.price}><span className="mono font-bold">{ewPrice(v.price)}</span>　{v.next ? "下一個參考：" : "失效："}{v.why}</div>
+                  ))}
+                  {result.keyLevels.map((v) => (
+                    <div key={"k" + v.kind + v.price}><span className="mono font-bold">{ewPrice(v.price)}</span>　{v.why}</div>
+                  ))}
+                </div>
+              )}
+              {scen && (
+                <div className="rounded-lg px-2.5 py-2" data-ew-scenarios style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}` }}>
+                  <div className="text-[11px] leading-[17px] font-bold" style={{ color: COLORS.text }}>{scen.targetYear} 年底長期情境<span style={{ color: COLORS.gold }}>（假設情境，不是預測）</span></div>
+                  <div className="text-[10px] leading-[15px]" style={{ color: COLORS.sub }}>從 {scen.fromDay} 收盤 {ewPrice(scen.fromClose)} 起算約 {scen.years} 年，固定年化報酬率複利；價格指數不含股息。</div>
+                  {scen.rows.map((r) => (
+                    <div key={r.key} className="flex items-baseline justify-between gap-2 text-[11px] leading-[17px] mono" style={{ color: COLORS.text }}>
+                      <span>{r.label}・假設年化 {(r.rate * 100).toFixed(0)}%</span>
+                      <span className="font-bold">{ewPrice(r.price)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          <div className="mt-3 text-[10px] leading-[15px]" data-ew-disclaimer style={{ color: COLORS.sub }}>僅供參考，不構成投資建議。轉折點與比例由程式計算。</div>
+        </div>
+      )}
+    </div>
+  );
+}
+// </elliott-wave-ui>
+
+
 // 總覽「今日變化」的比較日標籤：交易日回傳 null（顯示「今日」）；休市日回傳「M/D」（今天之前最近一筆紀錄）。
 // 今日損益（使用者 2026-11-04「首頁的今日資產增減總數怪怪的」）：每檔「(現價 − 昨收) × 股數」加總，美股照匯率（含券商校準）
 // 換成台幣，和下面每檔的今日損益加起來一樣。以前用「現在市值 − 昨天存的每日紀錄」：那筆紀錄若是盤中存的、或之後又買了股票，
@@ -7476,6 +7719,9 @@ function Dashboard({ totalToday, currentTwValue, currentUsValue, dailyChange, da
       )}
 
       <LivePricePanel holdings={holdings} usLive={usLive} onFillDailyTw={onFillDailyTw} yesterdayTwValue={yesterdayTwValue} yesterdayUsValue={yesterdayUsValue} hasUsAssets={showUsFields && hasUsAssets} />
+
+      {/* 波浪圖層（加權指數／0050／0056 日線）：預設關閉，打開才抓資料與計算 */}
+      <ElliottWaveCard />
 
 
       <DashboardCollapsibleSection
