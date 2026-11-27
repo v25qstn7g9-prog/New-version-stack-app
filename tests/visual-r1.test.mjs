@@ -306,7 +306,7 @@ const DASHBOARD_STUBS = [
   // 日期／交易日工具
   "changeLabelDate", "todayStr", "isNonTradingDay",
   // hero 以外的子區塊（另有各自的測試）
-  "DashboardCollapsibleSection", "FactorBacktest", "LivePricePanel", "NewsCarousel", "PortfolioPerformanceCard", "TrendRadar",
+  "DashboardCollapsibleSection", "FactorBacktest", "LivePricePanel", "NewsCarousel", "PortfolioPerformanceCard", "TrendRadar", "ElliottWaveCard",
   // lucide 圖示
   "TrendingUp", "TrendingDown",
   // 資產曲線（Recharts 與刻度工具；圖表本身不在本測試驗證範圍）
