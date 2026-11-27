@@ -102,7 +102,8 @@ test('the floating AI launcher is the white bell-tag cat (design C): 60px, same 
   assert.ok(css.indexOf('html.za-clean .premium-ai-launcher.za-ai-cat{') > css.lastIndexOf('.premium-ai-launcher{background:#ffffff!important'));
   // 快取參數
   const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-  assert.match(html, /href="\/clean\.css\?v=mobile-layout-1"/);
+  // clean.css 要帶明確的 ?v= 快取參數（改 clean.css 時順手換版本字串，不必再改這個測試）
+  assert.match(html, /<link rel="stylesheet" href="\/clean\.css\?v=[\w.-]+" \/>/);
   assert.match(html, /<script src="\/app\.js\?v=10"><\/script>/);
 });
 
