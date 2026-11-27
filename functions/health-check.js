@@ -18,7 +18,7 @@ const HEALTH_VERSION = "4.6-health-check-2";
 const KV_KEY = "health:cards";
 const MAX_CARDS = 20;
 const MAX_BODY_BYTES = 64 * 1024;
-const CLOUDFLARE_TEST_MODEL = "@cf/zai-org/glm-5.3-flash"; // 跟 functions/ask.js 用同一顆模型
+const CLOUDFLARE_TEST_MODEL = "@cf/openai/gpt-oss-120b"; // 跟 functions/ask.js 用同一顆模型（2026-11-10 起；GLM-5.3 Flash 11-20 下架）
 
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -112,7 +112,9 @@ export async function runHealthCheck(env) {
     await Promise.race([
       env.AI.run(CLOUDFLARE_TEST_MODEL, {
         messages: [{ role: "user", content: "ping" }],
-        max_tokens: 5,
+        // 只看呼叫是否成功；GPT-OSS 推理 token 算在上限內，給 16 避免太小被截斷而報錯。
+        max_tokens: 16,
+        reasoning_effort: "low",
       }),
       timeoutPromise,
     ]);
