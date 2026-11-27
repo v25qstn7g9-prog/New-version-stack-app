@@ -10,7 +10,7 @@
  * 回傳: { ok: true, reply } 或 { ok: true, toolCalls: [{ name, arguments }] }
  *
  * Cloudflare AI Binding：Variable name = AI
- * Cloudflare 為主模型；Cloudflare 失敗時由同一個 Worker 直接切 Gemini 3.6 Flash。
+ * Cloudflare 為主模型（@cf/openai/gpt-oss-120b，推理強度 low）；Cloudflare 失敗時由同一個 Worker 直接切 Gemini 3.6 Flash。
  * 舊 fallback-vercel 仍保留作最後一道相容備援。
  */
 const ASK_VERSION = "4.7-personal-advisor-v3.4-claude-primary";
@@ -20,10 +20,12 @@ const GEMINI_MAX_OUTPUT_TOKENS = 1000;
 // 所以上限同步放寬，避免思考吃光額度、回答被截斷或空白。家人維持 minimal／1000。
 const GEMINI_OWNER_THINKING_LEVEL = "medium";
 const GEMINI_OWNER_MAX_OUTPUT_TOKENS = 3000;
-// 2026-10：輕、重都升級成 GLM-5.3 Flash（較新、較強、價格仍低）；原本的 20B 留作 Workers AI 內的備援
-const LIGHT_MODEL = "@cf/zai-org/glm-5.3-flash";
-const HEAVY_MODEL = "@cf/zai-org/glm-5.3-flash";
+// 2026-11-10：GLM-5.3 Flash 將於 2026-11-20 下架（之後回 410／code 5028），輕、重改用 GPT-OSS 120B；
+// 原本的 20B 仍留作 Workers AI 內的備援。所有 Workers AI 呼叫（含 20B 備援）一律推理強度 low。
+const LIGHT_MODEL = "@cf/openai/gpt-oss-120b";
+const HEAVY_MODEL = "@cf/openai/gpt-oss-120b";
 const FALLBACK_MODEL = "@cf/openai/gpt-oss-20b";
+const CF_REASONING_EFFORT = "low";
 
 function chooseAssetModel(message = "", contextText = "", toolTurns = [], forceAnswer = false) {
   const question = String(message || "");
@@ -36,9 +38,17 @@ const MAX_HISTORY_TURNS = 6;
 const MAX_MESSAGE_LEN = 2000;
 const MAX_HISTORY_CONTENT = 3000;
 const MAX_CONTEXT_LEN = 12000;
-const MAX_TOKENS = 1000;
+// Workers AI 專用輸出上限（Gemini／Claude 各有自己的上限，不受影響）。
+// GPT-OSS 的推理 token 也算在 max_tokens 內，原本的 1000 可能被推理吃光而回空白，
+// 所以放寬到 1600，讓 low 推理之後仍有足夠空間寫出回答。
+const MAX_TOKENS = 1600;
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_SERVER_SEARCH_ROUNDS = 2;
+
+// 組 Workers AI 的 inputs：三處 ai.run 共用，確保 max_tokens／reasoning_effort 一致。
+function cloudflareInputs(messages, extra = {}) {
+  return { messages, max_tokens: MAX_TOKENS, reasoning_effort: CF_REASONING_EFFORT, ...extra };
+}
 
 // 家人／朋友內測的 AI 成本保護：一般裝置每天最多 15 次模型請求。
 // Owner 沿用 LINE_REMINDER_SYNC_TOKEN 作伺服器端識別；token 只透過 Authorization header 傳送，
@@ -627,7 +637,11 @@ function extractCloudflareText(result) {
   }
   const output = result?.output;
   if (Array.isArray(output)) {
-    const joined = output.flatMap(x => Array.isArray(x?.content) ? x.content : [x])
+    // GPT-OSS 的 Responses 格式：output[] 會同時有 type:"reasoning"（推理過程）與 type:"message"（回答）。
+    // 只排除推理項目（外層 type 含 reasoning、content 內 reasoning_text 等區塊），其他可取文字的格式照舊保留，絕不把推理內容當成回覆。
+    const isReasoning = (x) => /reasoning/i.test(String(x?.type || ""));
+    const joined = output.filter(x => !isReasoning(x)).flatMap(x => Array.isArray(x?.content) ? x.content : [x])
+      .filter(x => !isReasoning(x))
       .map(x => x?.text || x?.content || "").filter(x => typeof x === "string" && x.trim()).join("\n").trim();
     if (joined) return joined;
   }
@@ -1027,7 +1041,13 @@ export async function onRequestPost(context) {
     });
 
     function parseToolCalls(result) {
-      const rawToolCalls = result?.tool_calls || result?.response?.tool_calls || result?.choices?.[0]?.message?.tool_calls || null;
+      let rawToolCalls = result?.tool_calls || result?.response?.tool_calls || result?.choices?.[0]?.message?.tool_calls || null;
+      // GPT-OSS 的 Responses 格式：工具呼叫放在 output[] 的 {type:"function_call", call_id, name, arguments(字串)}。
+      // 正規化成跟 Chat Completions 一樣的結構（id 用 call_id），下一輪仍以 chat 格式 assistant.tool_calls／role:"tool" 回給模型。
+      if ((!Array.isArray(rawToolCalls) || rawToolCalls.length === 0) && Array.isArray(result?.output)) {
+        rawToolCalls = result.output.filter((x) => x?.type === "function_call")
+          .map((x) => ({ id: x?.call_id || x?.id, name: x?.name, arguments: x?.arguments }));
+      }
       if (!Array.isArray(rawToolCalls) || rawToolCalls.length === 0) return [];
       return rawToolCalls.map((tc, idx) => {
         const name = tc?.name || tc?.function?.name;
@@ -1035,7 +1055,7 @@ export async function onRequestPost(context) {
         if (typeof args === "string") {
           try { args = JSON.parse(args.replace(/```json\n?/gi, "").replace(/```/g, "").trim()); } catch { args = {}; }
         }
-        const id = String(tc?.id || tc?.tool_call_id || `call_${idx}`);
+        const id = String(tc?.id || tc?.call_id || tc?.tool_call_id || `call_${idx}`);
         return name && ALLOWED_TOOL_NAMES.has(name) ? { id, name, arguments: args || {} } : null;
       }).filter(Boolean);
     }
@@ -1046,8 +1066,8 @@ export async function onRequestPost(context) {
       if ((primaryCooldown.get(ai) || 0) > Date.now()) throw new Error("AI 暫時冷卻，改用備援");
       if (Date.now() >= primaryDeadline) throw new Error("Cloudflare Workers AI 逾時");
       const request = forceAnswer
-        ? ai.run(activeModel, { messages, max_tokens: MAX_TOKENS })
-        : ai.run(activeModel, { messages, max_tokens: MAX_TOKENS, tools: TOOLS });
+        ? ai.run(activeModel, cloudflareInputs(messages))
+        : ai.run(activeModel, cloudflareInputs(messages, { tools: TOOLS }));
       return await withTimeout(request, primaryDeadline - Date.now(), "Cloudflare Workers AI");
     }
 
@@ -1072,41 +1092,49 @@ export async function onRequestPost(context) {
       }
     }
 
+    // 每個模型（120B 與空回應時的 20B 備援）的結果都走同一套「先處理工具、再取文字」流程。
+    // searchRounds 兩個模型共用，自動查詢總次數仍以 MAX_SERVER_SEARCH_ROUNDS 為上限。
+    let searchRounds = 0;
+    async function settleResult() {
+      let toolCalls = parseToolCalls(result);
+      while (toolCalls.length > 0 && toolCalls.every((tc) => tc.name === "web_search") && searchRounds < MAX_SERVER_SEARCH_ROUNDS) {
+        messages.push({ role: "assistant", content: "", tool_calls: toolCalls.map((tc) => ({ id: tc.id, type: "function", function: { name: tc.name, arguments: JSON.stringify(tc.arguments || {}) } })) });
+        for (const tc of toolCalls) {
+          const content = await callTavily(context.env.TAVILY_API_KEY, tc.arguments?.query);
+          messages.push({ role: "tool", tool_call_id: tc.id, content: content.slice(0, MAX_CONTEXT_LEN) });
+        }
+        result = await runModel();
+        toolCalls = parseToolCalls(result);
+        searchRounds += 1;
+      }
+      if (toolCalls.length > 0 && toolCalls.some((tc) => tc.name === "web_search")) {
+        messages.push({ role: "user", content: "（系統提示：已達自動查詢次數上限，請直接根據目前已經查到的資料用文字回答，不要再要求呼叫任何工具。）" });
+        if (Date.now() >= primaryDeadline) throw new Error("Cloudflare Workers AI 逾時");
+        result = await withTimeout(
+          ai.run(activeModel, cloudflareInputs(messages)),
+          primaryDeadline - Date.now(),
+          "Cloudflare Workers AI"
+        );
+        toolCalls = parseToolCalls(result).filter((tc) => tc.name !== "web_search");
+      }
+      if (toolCalls.length > 0) return { toolCalls };
+      return { reply: extractCloudflareText(result) };
+    }
+
     if (!primaryError) {
       try {
-        let toolCalls = parseToolCalls(result);
-        let searchRounds = 0;
-        while (toolCalls.length > 0 && toolCalls.every((tc) => tc.name === "web_search") && searchRounds < MAX_SERVER_SEARCH_ROUNDS) {
-          messages.push({ role: "assistant", content: "", tool_calls: toolCalls.map((tc) => ({ id: tc.id, type: "function", function: { name: tc.name, arguments: JSON.stringify(tc.arguments || {}) } })) });
-          for (const tc of toolCalls) {
-            const content = await callTavily(context.env.TAVILY_API_KEY, tc.arguments?.query);
-            messages.push({ role: "tool", tool_call_id: tc.id, content: content.slice(0, MAX_CONTEXT_LEN) });
-          }
+        let settled = await settleResult();
+        if (!settled.toolCalls && !settled.reply && activeModel !== FALLBACK_MODEL && ai) {
+          activeModel = FALLBACK_MODEL;
           result = await runModel();
-          toolCalls = parseToolCalls(result);
-          searchRounds += 1;
+          settled = await settleResult();
         }
-        if (toolCalls.length > 0 && toolCalls.some((tc) => tc.name === "web_search")) {
-          messages.push({ role: "user", content: "（系統提示：已達自動查詢次數上限，請直接根據目前已經查到的資料用文字回答，不要再要求呼叫任何工具。）" });
-          if (Date.now() >= primaryDeadline) throw new Error("Cloudflare Workers AI 逾時");
-          result = await withTimeout(
-            ai.run(activeModel, { messages, max_tokens: MAX_TOKENS }),
-            primaryDeadline - Date.now(),
-            "Cloudflare Workers AI"
-          );
-          toolCalls = parseToolCalls(result).filter((tc) => tc.name !== "web_search");
-        }
-        if (toolCalls.length > 0) {
-          const payload = { ok: true, version: ASK_VERSION, provider: "cloudflare", model: activeModel, toolCalls, ...(claudeNote ? { fallbackFrom: claudeNote } : {}) };
+        if (settled.toolCalls) {
+          const payload = { ok: true, version: ASK_VERSION, provider: "cloudflare", model: activeModel, toolCalls: settled.toolCalls, ...(claudeNote ? { fallbackFrom: claudeNote } : {}) };
           if (cacheEnabled) writeAskCache(cacheKey, payload);
           return jsonResponse(payload);
         }
-        let reply = extractCloudflareText(result);
-        if (!reply && activeModel !== FALLBACK_MODEL && ai) {
-          activeModel = FALLBACK_MODEL;
-          result = await runModel();
-          reply = extractCloudflareText(result);
-        }
+        const reply = settled.reply;
         if (!reply) throw new Error("AI 沒有回傳文字內容");
         const payload = { ok: true, version: ASK_VERSION, provider: "cloudflare", model: activeModel, reply, ...(claudeNote ? { fallbackFrom: claudeNote } : {}) };
         if (cacheEnabled) writeAskCache(cacheKey, payload);
