@@ -298,16 +298,18 @@ test('程式裡沒有寫死任何參考價位', () => {
 
 test('圖層預設關閉；關閉時不抓資料、不計算；開關不存檔', () => {
   assert.match(ui, /const \[on, setOn\] = useState\(false\);/);
-  assert.match(ui, /useEffect\(\(\) => \{ if \(on && data\.status === "idle"\) load\(\); \}, \[on, data\.status, load\]\);/);
-  assert.match(ui, /if \(!on \|\| data\.status !== "ready" \|\| !E\) return null;/);
-  assert.equal((ui.match(/loadElliottBars\(/g) || []).length, 2, '只有定義與 load() 內一處呼叫');
+  // 只有 on 時才 open()；關閉（effect cleanup）時 close() 會中止請求；卸載時 dispose()
+  assert.match(ui, /if \(!on \|\| !s\) return undefined;\s*s\.open\(\);/);
+  assert.match(ui, /return \(\) => \{ s\.close\(\);/);
+  assert.match(ui, /return \(\) => \{ s\.dispose\(\);/);
+  assert.match(ui, /if \(!on \|\| !E \|\| !data\.clock \|\| !Array\.isArray\(symBars\)\) return null;/);
   assert.match(ui, /\{on && \(/);
   assert.match(ui, /role="switch" aria-checked=\{on\}/);
   // 不新增儲存鍵、不寫入：只唯讀既有的 trendRadarDailyHistory 快取
   assert.doesNotMatch(ui, /saveKey|localStorage|sessionStorage|indexedDB|setItem/);
   assert.deepEqual([...ui.matchAll(/loadKey\("([^"]+)"/g)].map((m) => m[1]), ['trendRadarDailyHistory']);
   assert.deepEqual([...ui.matchAll(/fetchWithTimeout\(`([^`?]+)/g)].map((m) => m[1]), ['/daily-history']);
-  assert.match(ui, /symbols=\$\{encodeURIComponent\(want\.join\(","\)\)\}/);
+  assert.match(ui, /symbols=\$\{encodeURIComponent\(want\.join\(","\)\)\}`, \{ cache: "no-store", signal \}/);
   assert.deepEqual(jsx.match(/const ELLIOTT_SYMBOLS = \[[^\]]+\]/)[0].match(/sym: "([^"]+)"/g), ['sym: "TAIEX"', 'sym: "0050"', 'sym: "0056"']);
   // 核心是純計算：沒有網路、沒有儲存
   assert.doesNotMatch(core, /fetch\(|XMLHttpRequest|WebSocket|localStorage|indexedDB|https?:\/\//);
@@ -338,4 +340,363 @@ test('手機版面：可點區域用 forma-tap（≥44px）、不用固定寬度
   assert.equal(gainUses.length, 2);
   assert.match(ui, /color: w\.pct >= 0 \? COLORS\.gain : COLORS\.loss/);
   assert.match(ui, /text-\[11px\] leading-\[17px\]/);
+});
+
+// ======================= Codex 審查第 1 輪的修正 =======================
+const pick = (r) => [r.primary, ...r.alternatives].filter(Boolean);
+
+// ---------- 1. A 浪確認方向 ----------
+test('A 浪確認：上漲推動後，A 浪低點低於第 4 浪低點才算「跌破」；還沒跌破、剛好相等都不算', () => {
+  const at = (last) => {
+    const r = E.analyze(makeBars([100, 120, 108, 140, 128, 148, last]), { thresholds: [5] });
+    assert.equal(r.primary.id, 'I5A');
+    return { r, e4: r.primary.waves[3].end.price, eA: r.primary.waves[5].end.price };
+  };
+  const before = at(136); // A 浪低點 135.73 還高於第 4 浪低點 127.74
+  assert.ok(before.eA > before.e4);
+  assert.ok(before.r.uncertainReasons.some((t) => /A 浪還沒跌破第 4 浪低點/.test(t)), JSON.stringify(before.r.uncertainReasons));
+  const after = at(124); // 已跌破
+  assert.ok(after.eA < after.e4);
+  assert.ok(!after.r.uncertainReasons.some((t) => /推動結束尚未確認/.test(t)), JSON.stringify(after.r.uncertainReasons));
+  const equal = at(128); // A 浪低點＝第 4 浪低點（同一個 low），不算跌破
+  assert.equal(equal.eA, equal.e4);
+  assert.ok(equal.r.uncertainReasons.some((t) => /A 浪還沒跌破第 4 浪低點/.test(t)));
+});
+
+test('A 浪確認：下跌推動後，A 浪高點高於第 4 浪高點才算「突破」；相等不算', () => {
+  const at = (last) => {
+    const r = E.analyze(makeBars([150, 130, 142, 110, 122, 102, last]), { thresholds: [5] });
+    assert.equal(r.primary.id, 'I5A');
+    assert.equal(r.primary.direction, 'down');
+    return { r, e4: r.primary.waves[3].end.price, eA: r.primary.waves[5].end.price };
+  };
+  const before = at(114);
+  assert.ok(before.eA < before.e4);
+  assert.ok(before.r.uncertainReasons.some((t) => /A 浪還沒突破第 4 浪高點/.test(t)));
+  const after = at(126);
+  assert.ok(after.eA > after.e4);
+  assert.ok(!after.r.uncertainReasons.some((t) => /推動結束尚未確認/.test(t)));
+  const equal = at(122);
+  assert.equal(equal.eA, equal.e4);
+  assert.ok(equal.r.uncertainReasons.some((t) => /A 浪還沒突破第 4 浪高點/.test(t)));
+});
+
+// ---------- 2. 獨立 A–B–C ----------
+test('獨立 A–B–C：大漲後的 A–B–C（還沒有新第 1 浪）被認出，並和下跌推動競爭主要／替代', () => {
+  const bars = makeBars([60, 160, 130, 148, 120], { step: 10 });
+  const r = E.analyze(bars);
+  const abc = pick(r).find((c) => c.id === 'ABC');
+  assert.ok(abc, JSON.stringify(pick(r).map((c) => c.id)));
+  assert.equal(r.primary.id, 'ABC'); // 修正解讀比「下跌第 3 浪」更符合比例
+  assert.ok(pick(r).some((c) => c.id === 'I3' && c.direction === 'down'), '下跌推動仍列為替代');
+  assert.deepEqual(abc.waves.map((w) => w.label), ['A', 'B', 'C']);
+  assert.equal(abc.kind, 'abc');
+  assert.equal(abc.direction, 'up'); // 被修正的是上漲走勢
+  assert.match(abc.directionText, /上漲後的修正/);
+  const rule = ruleOf(abc, 'corr_within_prior');
+  assert.equal(rule.state, 'pass');
+  assert.match(rule.detail, /被修正那段走勢起點/);
+  assert.ok(abc.ratios.some((x) => /修正.*÷ 被修正那段走勢/.test(x.name)));
+  // C 浪還在進行中：不說成立
+  assert.equal(r.status, 'uncertain');
+  // 失效價：B 浪高點；跌破被修正那段走勢起點也列為（下一個）失效參考
+  assert.equal(r.invalidation[0].price, abc.waves[1].end.price);
+  assert.ok(r.invalidation.some((v) => /被修正那段走勢的起點/.test(v.why)));
+});
+
+test('獨立 A–B–C：進行中的 A、A–B 也有候選；修正超過被修正那段走勢的起點 → 不成立', () => {
+  const a = E.candidates(makeBars([60, 160, 130], { step: 10 }), 5).find((c) => c.id === 'A');
+  assert.ok(a && a.valid);
+  assert.deepEqual(a.waves.map((w) => w.label), ['A']);
+  assert.equal(a.waves[0].inProgress, true);
+  const ab = E.candidates(makeBars([60, 160, 130, 148], { step: 10 }), 5).find((c) => c.id === 'AB');
+  assert.ok(ab && ab.valid);
+  assert.deepEqual(ab.waves.map((w) => w.label), ['A', 'B']);
+  assert.equal(ruleOf(ab, 'b_not_beyond_a').state, 'pass');
+  assert.equal(ab.waves[1].inProgress, true);
+  const rA = E.analyze(makeBars([60, 160, 130], { step: 10 }));
+  if (rA.primary?.id === 'A') assert.ok(rA.uncertainReasons.some((t) => /只有 A 浪/.test(t)));
+  // 跌破前段漲勢起點（約 60）：不是修正，是新趨勢
+  const bad = E.candidates(makeBars([60, 160, 130, 148, 50], { step: 10 }), 5).find((c) => c.id === 'ABC');
+  assert.equal(ruleOf(bad, 'corr_within_prior').state, 'fail');
+  assert.equal(bad.valid, false);
+  // 下跌方向鏡像
+  const dn = E.candidates(makeBars([200, 100, 130, 112, 140], { step: 10 }), 5).find((c) => c.id === 'ABC');
+  assert.ok(dn && dn.valid);
+  assert.equal(dn.direction, 'down');
+  assert.ok(dn.waves[0].change > 0 && dn.waves[2].change > 0);
+});
+
+test('獨立 A–B–C 和「5 浪＋A–B–C」同一個 A 浪起點時算同一個解讀，不互相佔替代名額', () => {
+  const r = E.analyze(makeBars(UP_5ABC));
+  assert.equal(r.primary.id, 'I5ABC');
+  const a5 = r.primary.waves[5].start.day;
+  assert.ok(!r.alternatives.some((c) => c.kind === 'abc' && c.waves[0].start.day === a5));
+});
+
+// ---------- 6. 角色 ----------
+test('候選角色明確：primary.role＝primary、替代一律 alternative；沒有主要時，違反規則的替代不會變主要', () => {
+  const ok = E.analyze(makeBars(UP_5ABC));
+  assert.equal(ok.primary.role, 'primary');
+  assert.ok(ok.primary.valid);
+  assert.ok(ok.alternatives.every((c) => c.role === 'alternative'));
+  // 斜三角（只違反第 4 浪重疊）是唯一候選：primary 為 null、替代 valid:false
+  const r = E.analyze(makeBars([100, 135, 96, 120, 100, 135, 119, 139, 90]), { thresholds: [5] });
+  assert.equal(r.primary, null);
+  assert.equal(r.status, 'invalid');
+  assert.equal(r.statusText, '計數不成立');
+  assert.ok(r.alternatives.length >= 1);
+  assert.ok(r.alternatives.every((c) => c.role === 'alternative' && c.valid === false && c.diagonal));
+  // 畫面：主要只來自 result.primary，不靠陣列位置；不成立的替代另外標示
+  assert.doesNotMatch(ui, /\[result\.primary, \.\.\.result\.alternatives\]\.filter\(Boolean\)/);
+  assert.match(ui, /result\.primary \? \[\{ role: "primary", label: "主要計數", c: result\.primary \}\] : \[\]/);
+  assert.match(ui, /result\.alternatives\.map\(\(c, k\) => \(\{ role: "alternative", label: `替代 \$\{k \+ 1\}`, c \}\)\)/);
+  assert.match(ui, /!shown\.c\.valid && <span data-ew-invalid[^>]*>・計數不成立/);
+  assert.match(ui, /const sel = view == null \? \(result\?\.primary \? 0 : -1\) : view;/);
+  assert.match(ui, /沒有符合硬性規則的主要計數/);
+});
+
+// ---------- 3–5. 載入流程（直接執行 app.jsx 裡的純 JS 段落） ----------
+const sessionSrc = ui.slice(ui.indexOf('// <elliott-session>'), ui.indexOf('// </elliott-session>'));
+const { createElliottSession, ewPhaseKey } = new Function(`${sessionSrc}; return { createElliottSession, ewPhaseKey };`)();
+const SYMS = ['TAIEX', '0050', '0056'];
+const deferred = () => { let resolve, reject; const p = new Promise((a, b) => { resolve = a; reject = b; }); return { p, resolve, reject }; };
+const flush = () => new Promise((r) => setTimeout(r, 0));
+const goodBars = (syms) => Object.fromEntries(syms.map((s) => [s, makeBars([100, 120, 110])]));
+function harness({ cache = null, fetchImpl, clock = { day: '2026-11-27', minute: 600 } } = {}) {
+  const h = { clock, fetches: [], states: [], cacheReads: 0, signals: [] };
+  h.s = createElliottSession({
+    symbols: SYMS,
+    readCache: () => { h.cacheReads++; return typeof cache === 'function' ? cache() : Promise.resolve(cache); },
+    fetchBars: (want, signal) => { h.fetches.push(want.slice()); h.signals.push(signal); return fetchImpl ? fetchImpl(want, signal) : Promise.resolve(goodBars(want)); },
+    now: () => h.clock,
+    onChange: (st) => h.states.push(st),
+    memo: { key: null, bars: {} },
+  });
+  h.last = () => h.states[h.states.length - 1];
+  return h;
+}
+
+test('載入：沒打開就不讀快取、不抓資料；check() 在關閉時什麼都不做', async () => {
+  const h = harness();
+  h.s.check();
+  await flush();
+  assert.equal(h.cacheReads, 0);
+  assert.equal(h.fetches.length, 0);
+  assert.equal(h.states.length, 0);
+});
+
+test('載入：快取還沒讀完就關閉 → 不會再 fetch，也不會更新成 ready', async () => {
+  const d = deferred();
+  const h = harness({ cache: () => d.p });
+  h.s.open();
+  assert.equal(h.cacheReads, 1);
+  h.s.close();
+  d.resolve(null);
+  await flush();
+  assert.equal(h.fetches.length, 0, '關閉後不得 fetch');
+  assert.ok(!h.states.some((st) => st.status === 'ready'));
+  assert.equal(h.s.getState().status, 'idle');
+});
+
+test('載入：fetch 中關閉 → 請求被 abort，回來的結果丟掉；卸載後也不再回呼', async () => {
+  const d = deferred();
+  const h = harness({ fetchImpl: () => d.p });
+  h.s.open();
+  await flush();
+  assert.equal(h.fetches.length, 1);
+  h.s.close();
+  assert.equal(h.signals[0].aborted, true);
+  d.resolve(goodBars(SYMS));
+  await flush();
+  assert.ok(!h.states.some((st) => st.status === 'ready'));
+  // 卸載
+  const d2 = deferred();
+  const h2 = harness({ fetchImpl: () => d2.p });
+  h2.s.open();
+  await flush();
+  const n = h2.states.length;
+  h2.s.dispose();
+  assert.equal(h2.signals[0].aborted, true);
+  d2.resolve(goodBars(SYMS));
+  await flush();
+  assert.equal(h2.states.length, n, '卸載後不得 setState');
+});
+
+test('載入：快速開關，只有最後一次請求的結果會寫回', async () => {
+  const ds = [deferred(), deferred()];
+  let k = 0;
+  const h = harness({ fetchImpl: () => ds[k++].p });
+  h.s.open();
+  await flush();
+  h.s.close();
+  h.s.open();
+  await flush();
+  assert.equal(h.fetches.length, 2);
+  assert.equal(h.signals[0].aborted, true);
+  ds[1].resolve(goodBars(SYMS));
+  await flush();
+  ds[0].resolve({ TAIEX: [] });
+  await flush();
+  assert.equal(h.last().status, 'ready');
+  assert.deepEqual(h.last().failed, []);
+  assert.ok(SYMS.every((s) => h.last().bars[s].length > 0));
+});
+
+test('載入：同一天同一交易階段不重抓；隔天、跨過 13:40 收盤會重抓，分析用新的時鐘', async () => {
+  const h = harness();
+  h.s.open();
+  await flush();
+  assert.equal(h.fetches.length, 1);
+  h.clock = { day: '2026-11-27', minute: 700 };
+  h.s.check();
+  await flush();
+  assert.equal(h.fetches.length, 1, '同一階段不重抓');
+  h.clock = { day: '2026-11-27', minute: 821 }; // 跨過 13:40
+  h.s.check();
+  await flush();
+  assert.equal(h.fetches.length, 2);
+  assert.deepEqual(h.last().clock, { day: '2026-11-27', minute: 821 });
+  h.s.close();
+  h.clock = { day: '2026-11-30', minute: 600 }; // 關著時隔天：不抓
+  h.s.check();
+  await flush();
+  assert.equal(h.fetches.length, 2);
+  h.s.open(); // 重新打開 → 發現換日 → 重抓
+  await flush();
+  assert.equal(h.fetches.length, 3);
+  assert.equal(h.last().clock.day, '2026-11-30');
+  assert.equal(h.last().key, ewPhaseKey({ day: '2026-11-30', minute: 600 }));
+  assert.equal(ewPhaseKey({ day: 'd', minute: 539 }), 'd|premarket');
+  assert.equal(ewPhaseKey({ day: 'd', minute: 819 }), 'd|session');
+  assert.equal(ewPhaseKey({ day: 'd', minute: 820 }), 'd|closed');
+  // 畫面接線：回到前景與每分鐘檢查；分析用 session 回報的時鐘
+  assert.match(ui, /document\.addEventListener\("visibilitychange", onVisible\)/);
+  assert.match(ui, /document\.removeEventListener\("visibilitychange", onVisible\)/);
+  assert.match(ui, /setInterval\(\(\) => \{ if \(document\.visibilityState !== "hidden"\) s\.check\(\); \}, 60000\)/);
+  assert.match(ui, /now: \(\) => globalThis\.ZinfForecast\.clock\(new Date\(\)\)/);
+});
+
+test('載入：只有部分標的成功 → 缺的標成暫時抓不到，不當完整快取；重試只補抓缺的', async () => {
+  let mode = 'partial';
+  const h = harness({ fetchImpl: (want) => Promise.resolve(mode === 'partial' ? { TAIEX: makeBars([100, 120, 110]), '0050': [] } : goodBars(want)) });
+  h.s.open();
+  await flush();
+  assert.equal(h.last().status, 'ready');
+  assert.deepEqual(h.last().failed, ['0050', '0056']);
+  assert.ok(h.last().bars.TAIEX.length > 0);
+  assert.equal(h.last().bars['0050'], undefined);
+  // 同一階段的檢查不會自動重抓，但重試會、而且只抓缺的
+  mode = 'ok';
+  h.s.retry();
+  await flush();
+  assert.deepEqual(h.fetches, [SYMS, ['0050', '0056']]);
+  assert.deepEqual(h.last().failed, []);
+  // 全部失敗 → error；重新打開會再試
+  const h2 = harness({ fetchImpl: () => Promise.reject(new Error('timeout')) });
+  h2.s.open();
+  await flush();
+  assert.equal(h2.last().status, 'error');
+  assert.deepEqual(h2.last().failed, SYMS);
+  h2.s.close();
+  h2.s.open();
+  await flush();
+  assert.equal(h2.fetches.length, 2);
+  // 畫面：缺的標的顯示「暫時抓不到」＋重試（≥44px），不說資料不足
+  assert.match(ui, /暫時抓不到\{symLabel\}的日線資料/);
+  assert.match(ui, /onClick=\{retry\} className="forma-tap[^"]*" style=\{pill\(true\)\}>重試<\/button>/);
+  assert.match(ui, /const tap = \{ minHeight: 44 \};/);
+  assert.match(ui, /const symFailed = data\.status === "error" \|\| \(data\.failed \|\| \[\]\)\.includes\(sym\);/);
+});
+
+test('載入：唯讀快取同一天同一階段才用；只有部分標的時其餘照樣去抓', async () => {
+  const cache = { key: ewPhaseKey({ day: '2026-11-27', minute: 600 }) + '|x', bars: { TAIEX: makeBars([100, 120, 110]) } };
+  const h = harness({ cache });
+  h.s.open();
+  await flush();
+  assert.deepEqual(h.fetches, [['0050', '0056']]);
+  assert.deepEqual(h.last().failed, []);
+  const stale = harness({ cache: { key: '2026-11-26|closed|x', bars: goodBars(SYMS) } });
+  stale.s.open();
+  await flush();
+  assert.deepEqual(stale.fetches, [SYMS]);
+});
+
+// ---------- 7–9. 圖表資料 ----------
+const chartSrc = ui.slice(ui.indexOf('// <elliott-chart>'), ui.indexOf('// </elliott-chart>'));
+const { ewChartModel } = new Function(`${chartSrc}; return { ewChartModel };`)();
+
+test('圖表：沒有有效計數時，直接用 result.pivots 畫中性轉折（不貼浪名），最後一段是虛線', () => {
+  const bars = makeBars([100, 106, 94, 112, 88, 118, 82, 124, 76], { prefix: 30 });
+  const r = E.analyze(bars, { thresholds: [5] });
+  assert.equal(r.primary, null);
+  const m = ewChartModel(E.completedBars(bars), r, [], 'all');
+  const piv = m.rows.filter((x) => x.piv != null).length + m.rows.filter((x) => x.piv == null && x.pivLive != null).length;
+  assert.equal(piv, r.pivots.length);
+  assert.equal(m.labels.length, 0);
+  const lastP = r.pivots.at(-1);
+  assert.equal(lastP.confirmed, false);
+  assert.equal(m.rows[lastP.i - m.from].piv, undefined, '未確認的點不在實線');
+  assert.equal(m.rows[lastP.i - m.from].pivLive, lastP.price);
+  assert.equal(m.rows[r.pivots.at(-2).i - m.from].pivLive, r.pivots.at(-2).price);
+  assert.match(ui, /dataKey="piv"/);
+  assert.match(ui, /dataKey="pivLive"[^\n]*strokeDasharray/);
+});
+
+test('圖表：最後已確認轉折 → 未確認極值畫成虛線，不放在實線裡', () => {
+  const bars = makeBars(UP_5ABC);
+  const r = E.analyze(bars);
+  const m = ewChartModel(E.completedBars(bars), r, [{ series: 'wave', c: r.primary }], 'count');
+  const pts = r.primary.points, n = pts.length;
+  assert.equal(r.primary.waves.at(-1).inProgress, true);
+  const row = (p) => m.rows[p.i - m.from];
+  assert.equal(row(pts[n - 1]).wave, undefined);
+  assert.equal(row(pts[n - 1]).waveLive, pts[n - 1].price);
+  assert.equal(row(pts[n - 2]).wave, pts[n - 2].price);
+  assert.equal(row(pts[n - 2]).waveLive, pts[n - 2].price);
+  assert.equal(row(pts[n - 3]).waveLive, undefined);
+  assert.match(ui, /dataKey="waveLive"[^\n]*strokeDasharray/);
+  assert.match(ui, /dataKey="altLive"[^\n]*strokeDasharray/);
+});
+
+test('圖表時間窗：預設從計數第一浪起點往前留 25% 跨度（至少 60 根）；可切「2 年」看全部', () => {
+  const bars = E.completedBars(makeBars(UP_5ABC, { prefix: 300, step: 30 }));
+  const r = E.analyze(bars);
+  const first = r.primary.points[0].i, span = bars.length - 1 - first;
+  const m = ewChartModel(bars, r, [{ series: 'wave', c: r.primary }], 'count');
+  assert.equal(m.from, Math.max(0, first - Math.max(60, Math.round(span * 0.25))));
+  assert.ok(m.from > 0);
+  assert.equal(ewChartModel(bars, r, [{ series: 'wave', c: r.primary }], 'all').from, 0);
+  const short = E.completedBars(makeBars(UP_5ABC, { prefix: 300, step: 5 }));
+  const rs = E.analyze(short);
+  const ms = ewChartModel(short, rs, [{ series: 'wave', c: rs.primary }], 'count');
+  assert.ok(rs.primary.points[0].i - ms.from >= 60, '至少留 60 根');
+  assert.match(ui, /\[\["count", "計數區間"\], \["all", "2 年"\]\]/);
+  assert.match(ui, /aria-pressed=\{range === k\}/);
+});
+
+test('浪名標籤：高點標上方、低點標下方，同側太近的只留較新的一個', () => {
+  const bars = E.completedBars(makeBars(UP_5ABC, { prefix: 300, step: 4 }));
+  const r = E.analyze(bars);
+  const m = ewChartModel(bars, r, [{ series: 'wave', c: r.primary }], 'all', 290);
+  assert.ok(m.minGap > 4, '2 年視窗下每段只有 4 根，必須篩');
+  for (const a of m.labels) for (const b of m.labels) if (a !== b && a.series === b.series && a.side === b.side) assert.ok(Math.abs(a.i - b.i) >= m.minGap);
+  assert.ok(m.labels.some((l) => l.text === 'C'), '最新的浪名一定保留');
+  const wide = ewChartModel(bars, r, [{ series: 'wave', c: r.primary }], 'count', 290);
+  assert.ok(wide.labels.length >= m.labels.length);
+  const sides = Object.fromEntries(wide.labels.map((l) => [l.text, l.side]));
+  if (sides['1']) assert.equal(sides['1'], 'above');
+  if (sides['2']) assert.equal(sides['2'], 'below');
+});
+
+// ---------- 10. 卡片長度：細節預設收合 ----------
+test('推敲細節預設收合（button＋aria-expanded，≥44px）；規則、比例、候選門檻都收在裡面，功能沒刪', () => {
+  assert.match(ui, /const \[details, setDetails\] = useState\(false\);/);
+  assert.match(ui, /aria-expanded=\{details\} aria-controls="ew-details"[^\n]*\n\s*className="forma-tap/);
+  const inner = ui.slice(ui.indexOf('{details && ('), ui.indexOf('// </elliott-wave-ui>'));
+  for (const t of ['規則檢查', '比例評分', '候選門檻', 'result.candidatesTried', 'shown.c.rules', 'shown.c.ratios', 'w.fib.r382', '為什麼是「']) assert.ok(inner.includes(t), t);
+  const outer = ui.slice(0, ui.indexOf('{details && ('));
+  for (const t of ['data-ew-status', 'data-ew-reason', 'LineChart', 'shown.c.waves.map', '失效價位與關卡', 'data-ew-scenarios']) assert.ok(outer.includes(t), t);
+  assert.ok(ui.indexOf('data-ew-disclaimer') > ui.indexOf('{details && ('), '免責永遠顯示（在細節區塊外）');
+  assert.doesNotMatch(outer.slice(outer.indexOf('{result?.ok && (')), /shown\.c\.rules\.map|shown\.c\.ratios\.map/);
 });

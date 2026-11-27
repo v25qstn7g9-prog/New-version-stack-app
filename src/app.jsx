@@ -7192,24 +7192,71 @@ function DashboardCollapsibleSection({ storageKey, title, subtitle, children, de
 // 打開才讀 /daily-history（或剛好可用的 trendRadarDailyHistory 快取，唯讀），結果只放記憶體；開關狀態也只在 React state，不存任何東西。
 // 計算全部在 elliott-core.js（ZinfElliott），這裡只負責畫。盤中未收盤的今天那根日K由 completedBars 依 820 分鐘規則排除。
 const ELLIOTT_SYMBOLS = [{ sym: "TAIEX", label: "加權指數" }, { sym: "0050", label: "0050" }, { sym: "0056", label: "0056" }];
-let elliottBarsMemo = null; // { key, bars }：只在記憶體，重新整理頁面就沒了
-async function loadElliottBars(clock) {
-  const want = ELLIOTT_SYMBOLS.map((s) => s.sym);
-  const phase = clock.minute >= 820 ? "closed" : clock.minute < 540 ? "premarket" : "session";
-  const key = clock.day + "|" + phase;
-  if (elliottBarsMemo?.key === key) return elliottBarsMemo.bars;
-  const has = (b) => b && want.every((s) => Array.isArray(b[s]) && b[s].length > 0);
-  const cache = await loadKey("trendRadarDailyHistory", null);
-  if (typeof cache?.key === "string" && cache.key.startsWith(key + "|") && has(cache.bars)) {
-    elliottBarsMemo = { key, bars: cache.bars };
-    return cache.bars;
+// <elliott-session>
+// 載入流程（純 JS、不含 JSX，測試會直接拿這段來跑）：
+// - 只有 open() 之後才會讀快取或抓資料；close()／dispose() 會中止進行中的請求（AbortController），舊請求的結果一律丟掉（請求序號）。
+// - 讀快取之後、抓資料之前、寫回狀態之前都檢查「還開著、沒卸載、仍是最新一次請求」。
+// - 台北日期＋交易階段（盤前／盤中／收盤後）是資料的鍵：開啟、回到前景、開著時每分鐘檢查一次，鍵變了才重抓；分析用最新的時鐘。
+// - 各標的分開記錄成功／失敗：只把成功的標的放進記憶體；失敗的標的標成「暫時抓不到」，按重試只補抓缺的。
+const ewPhaseKey = (clock) => clock.day + "|" + (clock.minute >= 820 ? "closed" : clock.minute < 540 ? "premarket" : "session");
+const elliottMemo = { key: null, bars: {} }; // 只在記憶體，重新整理頁面就沒了
+function createElliottSession({ symbols, readCache, fetchBars, now, onChange, memo = elliottMemo }) {
+  let open = false, disposed = false, seq = 0, ctrl = null;
+  let state = { status: "idle", key: null, clock: null, bars: {}, failed: [] };
+  const emit = (next) => { state = next; if (!disposed) onChange(next); };
+  const usable = (a) => Array.isArray(a) && a.length > 0;
+  const abort = () => { seq++; if (ctrl) { ctrl.abort(); ctrl = null; } };
+  async function load(clock, key) {
+    abort();
+    const my = seq, c = new AbortController();
+    ctrl = c;
+    const alive = () => open && !disposed && my === seq && !c.signal.aborted;
+    if (memo.key !== key) { memo.key = key; memo.bars = {}; }
+    const missing = () => symbols.filter((s) => !usable(memo.bars[s]));
+    emit({ status: "loading", key, clock, bars: { ...memo.bars }, failed: [] });
+    if (missing().length) {
+      let cache = null;
+      try { cache = await readCache(); } catch { cache = null; }
+      if (!alive()) return;
+      if (typeof cache?.key === "string" && cache.key.startsWith(key + "|") && cache.bars) {
+        for (const s of missing()) if (usable(cache.bars[s])) memo.bars[s] = cache.bars[s];
+      }
+    }
+    const need = missing();
+    if (need.length) {
+      if (!alive()) return;
+      let got = null;
+      try { got = await fetchBars(need, c.signal); } catch { got = null; }
+      if (!alive()) return;
+      for (const s of need) if (usable(got?.[s])) memo.bars[s] = got[s];
+    }
+    if (!alive()) return;
+    const failed = missing();
+    ctrl = null;
+    emit({ status: failed.length === symbols.length ? "error" : "ready", key, clock, bars: { ...memo.bars }, failed });
   }
-  const res = await fetchWithTimeout(`/daily-history?symbols=${encodeURIComponent(want.join(","))}`, { cache: "no-store" }, 12000);
-  const j = res.ok ? await res.json().catch(() => null) : null;
-  if (!j?.ok || !j.bars || !want.some((s) => Array.isArray(j.bars[s]) && j.bars[s].length)) throw new Error("daily unavailable");
-  elliottBarsMemo = { key, bars: j.bars };
-  return j.bars;
+  // 時鐘檢查：鍵沒變而且已有結果（或正在載入）就不動；鍵變了（隔天、跨過開盤或 13:40 收盤）就重抓。
+  function check() {
+    if (!open || disposed) return;
+    const clock = now(), key = ewPhaseKey(clock);
+    if (state.key === key && (state.status === "ready" || state.status === "error" || (state.status === "loading" && ctrl))) return;
+    load(clock, key);
+  }
+  return {
+    open() {
+      if (disposed) return;
+      open = true;
+      // 重新打開時，上次全部失敗或有缺漏的標的再補抓一次
+      if (state.status === "error" || state.failed.length) { const clock = now(); load(clock, ewPhaseKey(clock)); } else check();
+    },
+    close() { open = false; abort(); if (state.status === "loading") emit({ ...state, status: "idle", key: null }); },
+    check,
+    retry() { if (!open || disposed) return; const clock = now(); load(clock, ewPhaseKey(clock)); },
+    dispose() { disposed = true; open = false; abort(); },
+    getState: () => state,
+  };
 }
+// </elliott-session>
 const ewPrice = (v) => {
   const n = Number(v);
   if (!Number.isFinite(n)) return "—";
@@ -7217,54 +7264,129 @@ const ewPrice = (v) => {
 };
 const ewDay = (d) => (typeof d === "string" ? d.slice(5).replace("-", "/") : "");
 const EW_RULE_TEXT = { pass: "通過", fail: "失敗", pending: "未定", flat: "擴張平台" };
+// <elliott-chart>
+// 圖表資料（純 JS）：時間窗、主要／替代計數、中性轉折、進行中虛線、浪名標籤的防重疊。
+// range＝"count"：從目前計數第一浪起點往前留 25% 跨度（至少 60 根）；"all"：全部（約 2 年）。
+function ewChartModel(bars, result, entries, range, plotPx = 290) {
+  if (!result?.ok || !Array.isArray(bars) || !bars.length) return null;
+  const N = bars.length, lastI = N - 1;
+  const counts = entries.filter(Boolean);
+  let firstI;
+  if (counts.length) firstI = Math.min(...counts.map((e) => e.c.points[0].i));
+  else { const pv = result.pivots || []; firstI = pv.length ? pv[Math.max(0, pv.length - 6)].i : Math.max(0, N - 120); }
+  const span = Math.max(1, lastI - firstI);
+  const pad = Math.max(60, Math.round(span * 0.25));
+  const from = range === "all" ? 0 : Math.max(0, Math.min(firstI - pad, N - 61));
+  const rows = bars.slice(from).map((b, k) => ({ x: from + k, day: b.day, close: b.close }));
+  const at = (i) => rows[i - from];
+  const set = (i, key, v) => { const r = at(i); if (r) r[key] = v; };
+  const labels = [];
+  // 計數：已確認的點畫實線（key），最後一段進行中（最後一個已確認轉折 → 未確認極值）畫虛線（key + "Live"）
+  for (const e of counts) {
+    const key = e.series, pts = e.c.points, n = pts.length, open = !!e.c.waves[n - 2]?.inProgress;
+    pts.forEach((p, k) => {
+      if (!(open && k === n - 1)) set(p.i, key, p.price);
+      if (open && k >= n - 2) set(p.i, key + "Live", p.price);
+      if (k > 0) {
+        const nb = pts[k - 1];
+        labels.push({ i: p.i, series: e.series, text: e.c.waves[k - 1].label, side: p.price >= nb.price ? "above" : "below", recent: k });
+      }
+    });
+  }
+  // 中性轉折（result.pivots，不貼浪名）：沒有有效計數時用來看原始 zigzag 結構
+  const pv = result.pivots || [];
+  pv.forEach((p, k) => {
+    const unconf = p.confirmed === false;
+    if (!unconf) set(p.i, "piv", p.price);
+    if (unconf || (k === pv.length - 2 && pv[k + 1]?.confirmed === false)) set(p.i, "pivLive", p.price);
+  });
+  // 最後一個極值之後到最新收盤（還沒反轉到門檻的小走勢）
+  const lastP = pv[pv.length - 1];
+  if (lastP && lastP.i < lastI && at(lastP.i)) { at(lastP.i).tail = lastP.price; rows[rows.length - 1].tail = rows[rows.length - 1].close; }
+  // 浪名防重疊：同一側（上方／下方）、同一系列的標籤相距太近時，只留比較新的那個（越接近現在越重要）
+  const minGap = Math.max(1, Math.ceil(16 / (plotPx / Math.max(1, rows.length))));
+  const kept = [];
+  for (const l of labels.filter((l) => at(l.i)).sort((a, b) => (a.series === b.series ? 0 : a.series === "wave" ? -1 : 1) || b.i - a.i)) {
+    if (kept.some((o) => o.series === l.series && o.side === l.side && Math.abs(o.i - l.i) < minGap)) continue;
+    kept.push(l);
+  }
+  const labelAt = new Map(kept.map((l) => [l.series + "|" + (l.i - from), l]));
+  return { rows, from, labelAt, labels: kept, minGap };
+}
+// </elliott-chart>
 function ElliottWaveCard() {
   const E = globalThis.ZinfElliott;
   const [on, setOn] = useState(false);
   const [sym, setSym] = useState("TAIEX");
-  const [view, setView] = useState(0); // 0＝主要計數；1、2＝替代計數
-  const [data, setData] = useState({ status: "idle", bars: null, clock: null });
-  const load = useCallback(() => {
-    const clock = globalThis.ZinfForecast.clock(new Date());
-    setData({ status: "loading", bars: null, clock });
-    loadElliottBars(clock).then((bars) => setData({ status: "ready", bars, clock }), () => setData({ status: "error", bars: null, clock }));
+  const [view, setView] = useState(null); // null＝預設（有主要計數就看主要、否則只看轉折）；數字＝entries 的索引
+  const [range, setRange] = useState("count");
+  const [details, setDetails] = useState(false);
+  const [data, setData] = useState({ status: "idle", key: null, clock: null, bars: {}, failed: [] });
+  const sessionRef = useRef(null);
+  useEffect(() => {
+    const s = createElliottSession({
+      symbols: ELLIOTT_SYMBOLS.map((x) => x.sym),
+      readCache: () => loadKey("trendRadarDailyHistory", null),
+      fetchBars: async (want, signal) => {
+        const res = await fetchWithTimeout(`/daily-history?symbols=${encodeURIComponent(want.join(","))}`, { cache: "no-store", signal }, 12000);
+        const j = res.ok ? await res.json().catch(() => null) : null;
+        return j?.ok && j.bars ? j.bars : null;
+      },
+      now: () => globalThis.ZinfForecast.clock(new Date()),
+      onChange: setData,
+    });
+    sessionRef.current = s;
+    return () => { s.dispose(); sessionRef.current = null; };
   }, []);
-  useEffect(() => { if (on && data.status === "idle") load(); }, [on, data.status, load]);
-  useEffect(() => { setView(0); }, [sym]);
+  useEffect(() => {
+    const s = sessionRef.current;
+    if (!on || !s) return undefined;
+    s.open();
+    const onVisible = () => { if (document.visibilityState === "visible") s.check(); };
+    document.addEventListener("visibilitychange", onVisible);
+    const timer = setInterval(() => { if (document.visibilityState !== "hidden") s.check(); }, 60000);
+    return () => { s.close(); document.removeEventListener("visibilitychange", onVisible); clearInterval(timer); };
+  }, [on]);
+  useEffect(() => { setView(null); }, [sym]);
+  const retry = useCallback(() => sessionRef.current?.retry(), []);
+  const symBars = data.bars?.[sym];
+  const symFailed = data.status === "error" || (data.failed || []).includes(sym);
   const result = useMemo(() => {
-    if (!on || data.status !== "ready" || !E) return null;
-    return E.analyze(data.bars?.[sym], { today: data.clock.day, minute: data.clock.minute });
-  }, [on, data, sym, E]);
+    if (!on || !E || !data.clock || !Array.isArray(symBars)) return null;
+    return E.analyze(symBars, { today: data.clock.day, minute: data.clock.minute });
+  }, [on, symBars, data.clock, E]);
   const scen = useMemo(() => (result?.lastBar ? E.scenarios(result.lastBar.close, result.lastBar.day) : null), [result, E]);
-  const counts = result ? [result.primary, ...result.alternatives].filter(Boolean) : [];
-  const shown = counts[Math.min(view, Math.max(0, counts.length - 1))] || null;
+  // 角色明確：主要只來自 result.primary；替代永遠標「替代」，沒通過硬性規則的另外標「計數不成立」
+  const entries = result ? [...(result.primary ? [{ role: "primary", label: "主要計數", c: result.primary }] : []),
+    ...result.alternatives.map((c, k) => ({ role: "alternative", label: `替代 ${k + 1}`, c }))] : [];
+  const sel = view == null ? (result?.primary ? 0 : -1) : view;
+  const shown = entries[sel] || null;
   const chart = useMemo(() => {
-    if (!result?.ok || !data.bars) return null;
-    const bars = E.completedBars(data.bars[sym], data.clock.day, data.clock.minute);
-    const firstI = Math.min(...[result.primary, ...result.alternatives].filter(Boolean).map((c) => c.points[0].i), bars.length - 1);
-    const from = Math.max(0, Math.min(firstI - 10, bars.length - 120));
-    const rows = bars.slice(from).map((b, k) => ({ x: from + k, day: b.day, close: b.close, wave: null, alt: null, live: null, lab: null, altLab: null }));
-    const at = (i) => rows[i - from];
-    const put = (c, key, labKey) => {
-      if (!c) return;
-      c.points.forEach((p, k) => { const r = at(p.i); if (r) { r[key] = p.price; r[labKey] = k === 0 ? null : c.waves[k - 1].label; } });
-    };
-    put(result.primary, "wave", "lab");
-    if (view > 0 && shown) put(shown, "alt", "altLab");
-    const lastP = result.pivots[result.pivots.length - 1];
-    if (lastP && at(lastP.i) && lastP.i < bars.length - 1) { at(lastP.i).live = lastP.price; rows[rows.length - 1].live = rows[rows.length - 1].close; }
-    return { rows, from };
-  }, [result, data, sym, view, shown, E]);
+    if (!result?.ok || !Array.isArray(symBars)) return null;
+    const bars = E.completedBars(symBars, data.clock.day, data.clock.minute);
+    const drawn = [];
+    if (result.primary) drawn.push({ series: "wave", c: result.primary });
+    if (shown && shown.role !== "primary") drawn.push({ series: "alt", c: shown.c });
+    return ewChartModel(bars, result, drawn, range);
+  }, [result, symBars, data.clock, shown, range, E]);
   const badgeStyle = (st) => ({
     color: st === "valid" ? COLORS.gold : st === "invalid" ? COLORS.text : COLORS.sub,
     border: `1px solid ${st === "valid" ? COLORS.gold : COLORS.panelBorder}`,
   });
-  const waveLabel = (color) => function WaveLabel(props) {
+  // 標籤只畫一次：實線那條畫已確認的點，虛線那條只畫實線沒有的最後一點
+  const waveLabel = (series, liveOnly) => function WaveLabel(props) {
     const { x, y, index } = props;
-    const row = chart?.rows?.[index];
-    const text = color === "alt" ? row?.altLab : row?.lab;
-    if (!text || !Number.isFinite(x) || !Number.isFinite(y)) return null;
-    return <text x={x} y={y - 6} textAnchor="middle" fontSize={10} fontWeight={700} fill={color === "alt" ? COLORS.text : COLORS.gold}>{text}</text>;
+    if (liveOnly && chart?.rows?.[index]?.[series] != null) return null;
+    const l = chart?.labelAt.get(series + "|" + index);
+    if (!l || !Number.isFinite(x) || !Number.isFinite(y)) return null;
+    const alt = series === "alt";
+    const dy = l.side === "above" ? (alt ? -17 : -6) : (alt ? 25 : 14);
+    return <text x={x} y={y + dy} textAnchor="middle" fontSize={10} fontWeight={700} fill={alt ? COLORS.text : COLORS.gold}>{l.text}</text>;
   };
+  const tap = { minHeight: 44 };
+  const pill = (active) => ({ ...tap, color: active ? COLORS.gold : COLORS.sub, border: `1px solid ${active ? COLORS.gold : COLORS.panelBorder}`, background: "transparent" });
+  const symLabel = ELLIOTT_SYMBOLS.find((s) => s.sym === sym)?.label || sym;
+  const headline = result?.primary ? `主要：${result.primary.text}` : "沒有符合硬性規則的主要計數，只標出轉折點（不貼浪名）";
   return (
     <div className="premium-panel forma-ew rounded-2xl px-4 py-1" data-elliott-wave style={{ background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`, boxShadow: "none" }}>
       <div className="flex items-center justify-between gap-3">
@@ -7273,7 +7395,7 @@ function ElliottWaveCard() {
           <div className="text-[10px]" style={{ color: COLORS.sub }}><UiLabel zh="加權指數・0050・0056 日線艾略特波浪" /></div>
         </div>
         <button type="button" role="switch" aria-checked={on} aria-label="波浪圖層" onClick={() => setOn((v) => !v)}
-          className="forma-tap flex items-center justify-end gap-2 text-[11px] font-bold flex-none" style={{ color: on ? COLORS.gold : COLORS.sub, minWidth: 44 }}>
+          className="forma-tap flex items-center justify-end gap-2 text-[11px] font-bold flex-none" style={{ color: on ? COLORS.gold : COLORS.sub, minWidth: 44, minHeight: 44 }}>
           <span>{on ? "開" : "關"}</span>
           <span aria-hidden="true" className="relative inline-block" style={{ width: 36, height: 20, borderRadius: 999, background: on ? COLORS.gold : COLORS.bg, border: `1px solid ${on ? COLORS.gold : COLORS.panelBorder}` }}>
             <span className="absolute" style={{ top: 2, left: on ? 18 : 2, width: 14, height: 14, borderRadius: 999, background: on ? COLORS.panel : COLORS.sub }} />
@@ -7286,111 +7408,99 @@ function ElliottWaveCard() {
             {ELLIOTT_SYMBOLS.map((s) => (
               <button key={s.sym} type="button" role="tab" aria-selected={sym === s.sym} onClick={() => setSym(s.sym)}
                 className="forma-tap flex-1 rounded-md px-2 text-[12px] font-bold whitespace-nowrap"
-                style={{ background: "transparent", color: sym === s.sym ? COLORS.gold : COLORS.sub, border: `1px solid ${sym === s.sym ? COLORS.gold : "transparent"}` }}>
+                style={{ ...tap, background: "transparent", color: sym === s.sym ? COLORS.gold : COLORS.sub, border: `1px solid ${sym === s.sym ? COLORS.gold : "transparent"}` }}>
                 {s.label}
               </button>
             ))}
           </div>
-          {data.status === "loading" && <div className="text-[11px] leading-[17px] mt-3" role="status" style={{ color: COLORS.sub }}>讀取日線資料中…</div>}
-          {data.status === "error" && (
-            <div className="mt-3 text-[11px] leading-[17px]" role="alert" style={{ color: COLORS.sub }}>
-              暫時抓不到日線資料，沒有計算波浪。
-              <button type="button" onClick={load} className="forma-tap ml-2 rounded-lg px-3 text-[11px] font-bold" style={{ color: COLORS.gold, border: `1px solid ${COLORS.panelBorder}` }}>再試一次</button>
+          {!Array.isArray(symBars) && (data.status === "loading" || data.status === "idle") && <div className="text-[11px] leading-[17px] mt-3" role="status" style={{ color: COLORS.sub }}>讀取日線資料中…</div>}
+          {!Array.isArray(symBars) && symFailed && data.status !== "loading" && (
+            <div className="mt-3 flex items-center flex-wrap gap-2 text-[11px] leading-[17px]" role="alert" data-ew-missing={sym} style={{ color: COLORS.sub }}>
+              <span>暫時抓不到{symLabel}的日線資料，沒有計算波浪。</span>
+              <button type="button" onClick={retry} className="forma-tap rounded-lg px-3 text-[11px] font-bold" style={pill(true)}>重試</button>
             </div>
           )}
           {result && !result.ok && <div className="mt-3 text-[11px] leading-[17px]" style={{ color: COLORS.sub }}>資料不足：{result.reason}</div>}
           {result?.ok && (
             <div className="mt-2 space-y-3 min-w-0">
-              <div className="flex items-center flex-wrap gap-2 text-[11px] leading-[17px]">
-                <span className="rounded-full px-2 font-bold" data-ew-status={result.status} style={badgeStyle(result.status)}>{result.statusText}</span>
-                <span style={{ color: COLORS.text }}>{result.primary ? result.primary.text : "沒有符合規則的計數，只標出轉折點"}</span>
-              </div>
-              <div className="text-[10px] leading-[15px] mono" style={{ color: COLORS.sub }}>
-                轉折門檻 {result.thresholdPct}%（近 60 日平均真實波幅 {result.atrPct}%）・高點用最高價、低點用最低價・資料到 {result.lastBar.day}
-                {result.inProgress?.from && <span>・最後一段 {ewDay(result.inProgress.from.day)} {ewPrice(result.inProgress.from.price)} → {ewDay(result.inProgress.extreme.day)} {ewPrice(result.inProgress.extreme.price)} 尚未確認（進行中），最新收盤 {ewPrice(result.inProgress.lastClose)}</span>}
-              </div>
-              {chart && (
-                <div style={{ height: 210 }} aria-label="日線收盤曲線與波浪標記">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={chart.rows} margin={{ top: 14, right: 6, left: 0, bottom: 0 }}>
-                      <CartesianGrid stroke={COLORS.panelBorder} strokeDasharray="3 3" vertical={false} strokeOpacity={0.6} />
-                      <XAxis dataKey="x" type="number" domain={["dataMin", "dataMax"]} axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: COLORS.sub }}
-                        tickCount={5} tickFormatter={(v) => ewDay(chart.rows[Math.round(v) - chart.from]?.day)} />
-                      <YAxis domain={["auto", "auto"]} axisLine={false} tickLine={false} width={44} tick={{ fontSize: 9, fill: COLORS.sub }}
-                        tickFormatter={(v) => (v >= 1000 ? `${(v / 10000).toFixed(1)}萬` : String(Math.round(v)))} />
-                      <Tooltip contentStyle={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, fontSize: 11 }}
-                        labelFormatter={(v) => chart.rows[Math.round(v) - chart.from]?.day || ""}
-                        formatter={(v, name) => [ewPrice(v), name === "close" ? "收盤" : name === "wave" ? "主要計數轉折" : name === "alt" ? "替代計數轉折" : "進行中"]} />
-                      {result.invalidation[0] && <ReferenceLine y={result.invalidation[0].price} stroke={COLORS.text} strokeDasharray="2 3" strokeOpacity={0.8}
-                        label={{ value: `失效 ${ewPrice(result.invalidation[0].price)}`, position: "insideBottomLeft", fontSize: 9, fill: COLORS.text }} />}
-                      {result.keyLevels.filter((k) => k.kind === "confirm").slice(-2).map((k) => (
-                        <ReferenceLine key={k.price} y={k.price} stroke={COLORS.sub} strokeDasharray="4 4" strokeOpacity={0.8}
-                          label={{ value: `關卡 ${ewPrice(k.price)}`, position: "insideTopLeft", fontSize: 9, fill: COLORS.sub }} />
-                      ))}
-                      <Line type="linear" dataKey="close" stroke={COLORS.sub} strokeWidth={1.2} dot={false} isAnimationActive={false} />
-                      <Line type="linear" dataKey="wave" stroke={COLORS.gold} strokeWidth={2} connectNulls dot={{ r: 2.5, fill: COLORS.gold, stroke: COLORS.gold }} isAnimationActive={false} label={waveLabel("main")} />
-                      {view > 0 && <Line type="linear" dataKey="alt" stroke={COLORS.text} strokeWidth={1.5} strokeDasharray="5 4" connectNulls dot={{ r: 2, fill: COLORS.text }} isAnimationActive={false} label={waveLabel("alt")} />}
-                      <Line type="linear" dataKey="live" stroke={COLORS.gold} strokeWidth={1.5} strokeDasharray="2 3" connectNulls dot={false} isAnimationActive={false} />
-                    </LineChart>
-                  </ResponsiveContainer>
+              <div className="text-[11px] leading-[17px] min-w-0">
+                <div className="flex items-center flex-wrap gap-x-2">
+                  <span className="rounded-full px-2 font-bold" data-ew-status={result.status} style={badgeStyle(result.status)}>{result.statusText}</span>
+                  <span style={{ color: COLORS.text }}>{headline}</span>
                 </div>
-              )}
-              <div className="text-[10px] leading-[15px]" style={{ color: COLORS.sub }}>
-                實線＝主要計數；虛線＝替代計數或最後一段進行中的走勢；點線＝失效價位。0050／0056 用未還原除息的價格，除息跳空會算進走勢。
+                {result.uncertainReasons[0] && <div style={{ color: COLORS.sub }} data-ew-reason>理由：{result.uncertainReasons[0]}{result.uncertainReasons.length > 1 ? `（另 ${result.uncertainReasons.length - 1} 項見推敲細節）` : ""}</div>}
               </div>
-              {counts.length > 1 && (
+              {entries.length > 0 && (
                 <div className="flex gap-2 flex-wrap" role="group" aria-label="計數切換">
-                  {counts.map((c, k) => (
-                    <button key={k} type="button" aria-pressed={view === k} onClick={() => setView(k)}
-                      className="forma-tap rounded-lg px-3 text-[11px] font-bold"
-                      style={{ color: view === k ? COLORS.gold : COLORS.sub, border: `1px solid ${view === k ? COLORS.gold : COLORS.panelBorder}`, background: "transparent" }}>
-                      {k === 0 ? "主要計數" : `替代 ${k}`}
+                  {!result.primary && (
+                    <button type="button" aria-pressed={sel === -1} onClick={() => setView(-1)} className="forma-tap rounded-lg px-3 text-[11px] font-bold" style={pill(sel === -1)}>只看轉折</button>
+                  )}
+                  {entries.map((e, k) => (
+                    <button key={e.role + k} type="button" aria-pressed={sel === k} data-ew-role={e.role} onClick={() => setView(k)}
+                      className="forma-tap rounded-lg px-3 text-[11px] font-bold" style={pill(sel === k)}>
+                      {e.label}{e.c.valid ? "" : "（不成立）"}
                     </button>
                   ))}
                 </div>
               )}
-              {shown && (
-                <div className="space-y-2 min-w-0" data-ew-count={shown.id}>
-                  <div className="text-[11px] leading-[17px] font-bold" style={{ color: COLORS.text }}>
-                    {view === 0 ? "主要" : `替代 ${view}`}：{shown.text}（{shown.directionText}，分數 {shown.finalScore}{shown.thresholdPct !== result.thresholdPct ? `，門檻 ${shown.thresholdPct}%` : ""}）
+              {chart && (
+                <div className="min-w-0">
+                  <div style={{ height: 220 }} aria-label="日線收盤曲線與波浪標記">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={chart.rows} margin={{ top: 20, right: 6, left: 0, bottom: 14 }}>
+                        <CartesianGrid stroke={COLORS.panelBorder} strokeDasharray="3 3" vertical={false} strokeOpacity={0.6} />
+                        <XAxis dataKey="x" type="number" domain={["dataMin", "dataMax"]} axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: COLORS.sub }}
+                          tickCount={5} tickFormatter={(v) => ewDay(chart.rows[Math.round(v) - chart.from]?.day)} />
+                        <YAxis domain={["auto", "auto"]} axisLine={false} tickLine={false} width={44} tick={{ fontSize: 9, fill: COLORS.sub }}
+                          tickFormatter={(v) => (v >= 1000 ? `${(v / 10000).toFixed(1)}萬` : String(Math.round(v)))} />
+                        <Tooltip contentStyle={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, fontSize: 11 }}
+                          labelFormatter={(v) => chart.rows[Math.round(v) - chart.from]?.day || ""}
+                          formatter={(v, name) => [ewPrice(v), name === "close" ? "收盤" : name === "piv" || name === "pivLive" ? "轉折" : name.startsWith("wave") ? "主要計數" : name.startsWith("alt") ? "替代計數" : "進行中"]} />
+                        {result.invalidation[0] && <ReferenceLine y={result.invalidation[0].price} stroke={COLORS.text} strokeDasharray="2 3" strokeOpacity={0.8}
+                          label={{ value: `失效 ${ewPrice(result.invalidation[0].price)}`, position: "insideBottomLeft", fontSize: 9, fill: COLORS.text }} />}
+                        {result.keyLevels.filter((k) => k.kind === "confirm").slice(-2).map((k) => (
+                          <ReferenceLine key={k.price} y={k.price} stroke={COLORS.sub} strokeDasharray="4 4" strokeOpacity={0.8}
+                            label={{ value: `關卡 ${ewPrice(k.price)}`, position: "insideTopLeft", fontSize: 9, fill: COLORS.sub }} />
+                        ))}
+                        <Line type="linear" dataKey="close" stroke={COLORS.sub} strokeWidth={1.2} dot={false} isAnimationActive={false} />
+                        <Line type="linear" dataKey="piv" stroke={COLORS.sub} strokeWidth={entries.length && sel >= 0 ? 0 : 1.2} strokeOpacity={0.9} connectNulls dot={{ r: 2, fill: COLORS.panel, stroke: COLORS.sub }} isAnimationActive={false} />
+                        <Line type="linear" dataKey="pivLive" stroke={COLORS.sub} strokeWidth={entries.length && sel >= 0 ? 0 : 1.2} strokeDasharray="4 3" connectNulls dot={false} isAnimationActive={false} />
+                        <Line type="linear" dataKey="wave" stroke={COLORS.gold} strokeWidth={2} connectNulls dot={{ r: 2.5, fill: COLORS.gold, stroke: COLORS.gold }} isAnimationActive={false} label={waveLabel("wave")} />
+                        <Line type="linear" dataKey="waveLive" stroke={COLORS.gold} strokeWidth={2} strokeDasharray="5 4" connectNulls dot={{ r: 2.5, fill: COLORS.panel, stroke: COLORS.gold }} isAnimationActive={false} label={waveLabel("wave", true)} />
+                        {shown && shown.role !== "primary" && <Line type="linear" dataKey="alt" stroke={COLORS.text} strokeWidth={1.5} connectNulls dot={{ r: 2, fill: COLORS.text }} isAnimationActive={false} label={waveLabel("alt")} />}
+                        {shown && shown.role !== "primary" && <Line type="linear" dataKey="altLive" stroke={COLORS.text} strokeWidth={1.5} strokeDasharray="5 4" connectNulls dot={{ r: 2, fill: COLORS.panel, stroke: COLORS.text }} isAnimationActive={false} label={waveLabel("alt", true)} />}
+                        <Line type="linear" dataKey="tail" stroke={COLORS.sub} strokeWidth={1.2} strokeDasharray="2 3" connectNulls dot={false} isAnimationActive={false} />
+                      </LineChart>
+                    </ResponsiveContainer>
                   </div>
-                  <div className="space-y-1.5">
-                    {shown.waves.map((w) => (
-                      <div key={w.label + w.start.day} className="rounded-lg px-2.5 py-1.5 text-[11px] leading-[17px] mono min-w-0" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, color: COLORS.text }}>
-                        <div className="flex items-baseline justify-between gap-2">
-                          <span className="font-bold" style={{ color: COLORS.gold }}>{w.label} 浪{w.inProgress ? "（進行中）" : ""}</span>
-                          <span style={{ color: w.pct >= 0 ? COLORS.gain : COLORS.loss }}>{w.pct > 0 ? "+" : ""}{w.pct}%</span>
-                        </div>
-                        <div className="flex flex-wrap justify-between gap-x-2">
-                          <span>{ewDay(w.start.day)} {ewPrice(w.start.price)} → {ewDay(w.end.day)} {ewPrice(w.end.price)}</span>
-                          <span style={{ color: COLORS.sub }}>{w.tradingDays} 交易日／{w.calendarDays} 天</span>
-                        </div>
-                        <div style={{ color: COLORS.sub }}>回檔 38.2% {ewPrice(w.fib.r382)}・50% {ewPrice(w.fib.r500)}・61.8% {ewPrice(w.fib.r618)}</div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="text-[11px] leading-[17px]" style={{ color: COLORS.text }}>
-                    <div className="font-bold mb-0.5" style={{ color: COLORS.sub }}>規則檢查</div>
-                    {shown.rules.map((r) => (
-                      <div key={r.id} data-ew-rule={r.id} data-ew-rule-state={r.state}>
-                        <span className="font-bold" style={{ color: r.state === "pass" ? COLORS.gold : COLORS.text }}>{EW_RULE_TEXT[r.state] || r.state}</span>｜{r.text}<span style={{ color: COLORS.sub }}>：{r.detail}</span>
-                      </div>
-                    ))}
-                  </div>
-                  {shown.ratios.length > 0 && (
-                    <div className="text-[11px] leading-[17px]" style={{ color: COLORS.text }}>
-                      <div className="font-bold mb-0.5" style={{ color: COLORS.sub }}>比例（評分用）</div>
-                      {shown.ratios.map((r) => (
-                        <div key={r.name}>{r.name} <span className="mono">{typeof r.value === "boolean" ? (r.value ? "是" : "否") : r.value}</span><span style={{ color: COLORS.sub }}>（理想 {r.ideal}）</span></div>
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="text-[10px] leading-[15px] min-w-0" style={{ color: COLORS.sub }}>實線＝已確認；虛線＝最後一段進行中；空心點＝轉折</div>
+                    <div className="flex gap-1 flex-none" role="group" aria-label="圖表區間">
+                      {[["count", "計數區間"], ["all", "2 年"]].map(([k, t]) => (
+                        <button key={k} type="button" aria-pressed={range === k} onClick={() => setRange(k)} className="forma-tap rounded-lg px-2.5 text-[11px] font-bold" style={pill(range === k)}>{t}</button>
                       ))}
                     </div>
-                  )}
+                  </div>
                 </div>
               )}
-              {result.uncertainReasons.length > 0 && (
-                <div className="text-[11px] leading-[17px]" style={{ color: COLORS.text }}>
-                  <div className="font-bold mb-0.5" style={{ color: COLORS.sub }}>為什麼是「{result.statusText}」</div>
-                  {result.uncertainReasons.map((t) => <div key={t}>・{t}</div>)}
+              {shown && (
+                <div className="space-y-1 min-w-0" data-ew-count={shown.c.id} data-ew-role={shown.role}>
+                  <div className="text-[11px] leading-[17px] font-bold" style={{ color: COLORS.text }}>
+                    {shown.role === "primary" ? "主要" : shown.label}：{shown.c.text}（{shown.c.directionText}）
+                    {!shown.c.valid && <span data-ew-invalid style={{ color: COLORS.sub }}>・計數不成立（違反硬性規則，只當替代參考）</span>}
+                  </div>
+                  <div className="rounded-lg text-[11px] leading-[17px] mono min-w-0" style={{ background: COLORS.bg, border: `1px solid ${COLORS.panelBorder}`, color: COLORS.text }}>
+                    {shown.c.waves.map((w, k) => (
+                      <div key={w.label + w.start.day} className="px-2.5 py-1 flex items-baseline justify-between gap-2 min-w-0" style={k ? { borderTop: `1px solid ${COLORS.panelBorder}` } : undefined}>
+                        <span className="min-w-0">
+                          <span className="font-bold" style={{ color: COLORS.gold }}>{w.label}{w.inProgress ? "＊" : ""}</span>{" "}
+                          {ewDay(w.start.day)}→{ewDay(w.end.day)} {ewPrice(w.end.price)}<span style={{ color: COLORS.sub }}>・{w.tradingDays}日</span>
+                        </span>
+                        <span className="flex-none" style={{ color: w.pct >= 0 ? COLORS.gain : COLORS.loss }}>{w.pct > 0 ? "+" : ""}{w.pct}%</span>
+                      </div>
+                    ))}
+                  </div>
+                  {shown.c.waves.some((w) => w.inProgress) && <div className="text-[10px] leading-[15px]" style={{ color: COLORS.sub }}>＊進行中（尚未被反向走勢確認）</div>}
                 </div>
               )}
               {(result.invalidation.length > 0 || result.keyLevels.length > 0) && (
@@ -7416,6 +7526,57 @@ function ElliottWaveCard() {
                   ))}
                 </div>
               )}
+              <div>
+                <button type="button" aria-expanded={details} aria-controls="ew-details" onClick={() => setDetails((v) => !v)}
+                  className="forma-tap w-full flex items-center justify-between rounded-lg px-3 text-[11px] font-bold" style={pill(false)}>
+                  <span>推敲細節（規則檢查、比例評分、候選門檻）</span><span aria-hidden="true">{details ? "▴" : "▾"}</span>
+                </button>
+                {details && (
+                  <div id="ew-details" className="mt-2 space-y-3 min-w-0" data-ew-details>
+                    {result.uncertainReasons.length > 0 && (
+                      <div className="text-[11px] leading-[17px]" style={{ color: COLORS.text }}>
+                        <div className="font-bold mb-0.5" style={{ color: COLORS.sub }}>為什麼是「{result.statusText}」</div>
+                        {result.uncertainReasons.map((t) => <div key={t}>・{t}</div>)}
+                      </div>
+                    )}
+                    <div className="text-[10px] leading-[15px] mono" style={{ color: COLORS.sub }}>
+                      轉折門檻 {result.thresholdPct}%（近 60 日平均真實波幅 {result.atrPct}%）・高點用最高價、低點用最低價・資料到 {result.lastBar.day}
+                      {result.inProgress?.from && <span>・最後一段 {ewDay(result.inProgress.from.day)} {ewPrice(result.inProgress.from.price)} → {ewDay(result.inProgress.extreme.day)} {ewPrice(result.inProgress.extreme.price)} 尚未確認（進行中），最新收盤 {ewPrice(result.inProgress.lastClose)}</span>}
+                      ・0050／0056 用未還原除息的價格，除息跳空會算進走勢。
+                    </div>
+                    {shown && (
+                      <div className="text-[11px] leading-[17px]" style={{ color: COLORS.text }}>
+                        <div className="font-bold mb-0.5" style={{ color: COLORS.sub }}>規則檢查（{shown.role === "primary" ? "主要" : shown.label}）</div>
+                        {shown.c.rules.map((r) => (
+                          <div key={r.id} data-ew-rule={r.id} data-ew-rule-state={r.state}>
+                            <span className="font-bold" style={{ color: r.state === "pass" ? COLORS.gold : COLORS.text }}>{EW_RULE_TEXT[r.state] || r.state}</span>｜{r.text}<span style={{ color: COLORS.sub }}>：{r.detail}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {shown && shown.c.ratios.length > 0 && (
+                      <div className="text-[11px] leading-[17px]" style={{ color: COLORS.text }}>
+                        <div className="font-bold mb-0.5" style={{ color: COLORS.sub }}>比例評分（分數 {shown.c.finalScore}{shown.c.thresholdPct !== result.thresholdPct ? `，門檻 ${shown.c.thresholdPct}%` : ""}）</div>
+                        {shown.c.ratios.map((r) => (
+                          <div key={r.name}>{r.name} <span className="mono">{typeof r.value === "boolean" ? (r.value ? "是" : "否") : r.value}</span><span style={{ color: COLORS.sub }}>（理想 {r.ideal}）</span></div>
+                        ))}
+                      </div>
+                    )}
+                    {shown && (
+                      <div className="text-[11px] leading-[17px] mono" style={{ color: COLORS.text }}>
+                        <div className="font-bold mb-0.5" style={{ color: COLORS.sub }}>各浪回檔位（38.2%／50%／61.8%）</div>
+                        {shown.c.waves.map((w) => <div key={w.label + w.start.day}>{w.label}：{ewPrice(w.start.price)}→{ewPrice(w.end.price)}｜{ewPrice(w.fib.r382)}／{ewPrice(w.fib.r500)}／{ewPrice(w.fib.r618)}</div>)}
+                      </div>
+                    )}
+                    <div className="text-[11px] leading-[17px] mono" style={{ color: COLORS.text }} data-ew-thresholds>
+                      <div className="font-bold mb-0.5" style={{ color: COLORS.sub }}>候選門檻（每個門檻的最佳計數與分數）</div>
+                      {result.candidatesTried.map((t) => (
+                        <div key={t.thresholdPct}>{t.thresholdPct}%（×ATR {t.atrMultiple ?? "—"}）轉折 {t.pivots}・通過 {t.validCounts}・{t.best || "—"} {t.bestScore}</div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
           <div className="mt-3 text-[10px] leading-[15px]" data-ew-disclaimer style={{ color: COLORS.sub }}>僅供參考，不構成投資建議。轉折點與比例由程式計算。</div>

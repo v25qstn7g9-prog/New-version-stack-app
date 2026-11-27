@@ -121,6 +121,10 @@
     {id:'I5A',labels:['1','2','3','4','5','A'],kind:'impulse+abc',text:'5 浪推動完成，A 浪修正'},
     {id:'I5AB',labels:['1','2','3','4','5','A','B'],kind:'impulse+abc',text:'5 浪推動完成，B 浪反彈'},
     {id:'I5ABC',labels:['1','2','3','4','5','A','B','C'],kind:'impulse+abc',text:'5 浪推動＋A–B–C 修正'},
+    // 獨立的 A–B–C 修正（還沒出現新的第 1 浪）：方向＝被修正那段走勢的方向，修正必須留在那段走勢的起點之內
+    {id:'A',labels:['A'],kind:'abc',text:'修正 A 浪進行中'},
+    {id:'AB',labels:['A','B'],kind:'abc',text:'修正 A 浪完成，B 浪反彈'},
+    {id:'ABC',labels:['A','B','C'],kind:'abc',text:'A–B–C 修正，C 浪進行中'},
     {id:'ABC1',labels:['A','B','C','1'],kind:'abc+new',text:'A–B–C 修正完成，新推動第 1 浪'},
     {id:'ABC12',labels:['A','B','C','1','2'],kind:'abc+new',text:'A–B–C 修正完成，新推動第 2 浪'},
     {id:'ABC123',labels:['A','B','C','1','2','3'],kind:'abc+new',text:'A–B–C 修正完成，新推動第 3 浪'},
@@ -135,7 +139,8 @@
     // 推動方向：數字浪 1 的方向；只有 ABC 時以「修正之後的新推動」方向
     const first=P[0],second=P[1];
     const segDir=(a,b)=>b.price>a.price?1:-1;
-    const d=pattern.kind==='abc+new'?-segDir(first,second):segDir(first,second); // 推動（數字浪）方向
+    const corrFirst=pattern.kind==='abc+new'||pattern.kind==='abc';
+    const d=corrFirst?-segDir(first,second):segDir(first,second); // 推動（數字浪）方向；獨立 A–B–C＝被修正那段走勢的方向
     const up=d===1, word=up?{beyond:'高於',below:'低於',break:'跌破',over:'突破'}:{beyond:'低於',below:'高於',break:'突破',over:'跌破'};
     const rules=[],ratios=[],soft=[];
     const done=lb=>L[lb]&&!L[lb][2];
@@ -181,15 +186,20 @@
     }
 
     // 新推動前的 A–B–C 必須是「修正」：不可超過被修正那段走勢的起點（超過就是新趨勢，不是修正）
-    if(pattern.kind==='abc+new'){
-      const sA=L['A'][0],eC=L['C'][1];
+    // 獨立 A–B–C（還沒有新第 1 浪）也一樣：修正到目前的最遠點（A、B、C 浪終點中最極端者）不可超過那段走勢的起點。
+    if(corrFirst){
+      const sA=L['A'][0];
+      const corrLabels=['A','B','C'].filter(lb=>L[lb]);
+      const extLb=corrLabels.reduce((m,lb)=>(!m||-d*(L[lb][1].price-L[m][1].price)>0)?lb:m,null);
+      const eX=L[extLb][1],openX=L[extLb][2];
+      const name=pattern.kind==='abc'?'修正':'A–B–C 修正';
       const ps=priorTrendStart(bars,sA.i,d);
-      if(!ps)rules.push(rule('corr_within_prior','A–B–C 修正不可超過被修正那段走勢的起點','pending','A 浪起點之前資料不足，無法判斷'));
-      else{const ok=d*(eC.price-ps.price)>0;
-        rules.push(rule('corr_within_prior','A–B–C 修正不可超過被修正那段走勢的起點',ok?'pass':'fail',
-          `C 浪${up?'低點':'高點'} ${fmt(eC.price)}；被修正那段走勢起點 ${ps.day} ${fmt(ps.price)}`));
-        const v=len(sA,eC)/Math.abs(sA.price-ps.price);
-        if(ok)addSoft('A–B–C 修正 ÷ 被修正那段走勢',v,fit(v,0.236,0.786,0.3),0.8,'23.6%–78.6%');
+      if(!ps)rules.push(rule('corr_within_prior',name+'不可超過被修正那段走勢的起點','pending','A 浪起點之前資料不足，無法判斷'));
+      else{const ok=d*(eX.price-ps.price)>0;
+        rules.push(rule('corr_within_prior',name+'不可超過被修正那段走勢的起點',ok?'pass':'fail',
+          `${extLb} 浪${openX?'目前':''}${up?'低點':'高點'} ${fmt(eX.price)}；被修正那段走勢起點 ${ps.day} ${fmt(ps.price)}`));
+        const v=len(sA,eX)/Math.abs(sA.price-ps.price);
+        if(ok)addSoft(name+(openX?'（到目前）':'')+' ÷ 被修正那段走勢',v,fit(v,0.236,0.786,0.3),0.8,'23.6%–78.6%');
       }
     }
     // ---- 軟性評分（只用已完成的浪） ----
@@ -235,11 +245,12 @@
     if(pending.length)score*=0.85;
     if(expandedFlat)score*=0.9;
     if(!anchorOk)score*=0.8;
+    if(pattern.id==='A')score*=0.85; // 只有一段 A 浪：任何回檔都套得上，證據最少
     const waves=pattern.labels.map((lb,k)=>wave(lb,P[k],P[k+1],k===n-1&&lastOpen));
     // 只差「第 4 浪進入第 1 浪價格區」這一條：可能是斜三角（本程式不處理斜三角例外），只能當替代計數，不當主要。
-    const diagonal=failed.length===1&&failed[0].id==='w4_overlap'&&pattern.kind!=='abc+new';
+    const diagonal=failed.length===1&&failed[0].id==='w4_overlap'&&!corrFirst;
     return {id:pattern.id,kind:pattern.kind,diagonal,text:pattern.text+(expandedFlat?'（B 浪超過 A 起點：擴張平台）':'')+(diagonal?'（替代：可能是斜三角，第 4 浪與第 1 浪重疊）':''),direction:d===1?'up':'down',
-      directionText:d===1?'上漲推動':'下跌推動',valid:failed.length===0,expandedFlat,rules,ratios,score:r4(failed.length?0:score),rawScore:r4(score),
+      directionText:pattern.kind==='abc'?(d===1?'上漲後的修正（向下）':'下跌後的修正（向上）'):d===1?'上漲推動':'下跌推動',valid:failed.length===0,expandedFlat,rules,ratios,score:r4(failed.length?0:score),rawScore:r4(score),
       waves,points:P.map(pt),lastOpen,_P:P,_L:L,_d:d,_word:word};
   }
 
@@ -255,7 +266,32 @@
       const ps=priorTrendStart(bars,startIdx,d);if(!ps)return null;
       const s=ps.price,e=topPrice;return {start:{day:ps.day,price:r2(s)},r500:r2(e-0.5*(e-s)),r618:r2(e-0.618*(e-s))};
     };
-    if(c.kind==='abc+new'){
+    if(c.kind==='abc'){
+      // 獨立 A–B–C：失效＝修正超過被修正那段走勢的起點（那就是新趨勢，不是修正）
+      const sA=L['A'][0],eA=L['A'][1];
+      const ps=priorTrendStart(bars,sA.i,d);
+      if(lastLabel==='B'){
+        const eB=L['B'][1];
+        inv.push({price:price(sA.price),why:`A 浪起點（修正起點）：B 浪${w.over}這裡只能算擴張平台，再${up?'創新高':'創新低'}則修正計數要重算`});
+        add('confirm',eA.price,`A 浪終點：C 浪通常會${w.break}這裡`);
+        add('target',eB.price-d*W('A'),`C 浪常見目標：B 浪終點 ${up?'−':'+'} 1.0×A 浪幅度（不是保證）`);
+      } else if(lastLabel==='C'){
+        const eB=L['B'][1];
+        inv.push({price:price(eB.price),why:`B 浪${up?'高點':'低點'}：C 浪期間${w.over}這裡，C 浪計數失效`});
+        add('target',eB.price-d*W('A'),`C＝1.0×A：B 浪終點 ${up?'−':'+'} A 浪幅度（不是保證）`);
+        add('target',eB.price-d*1.618*W('A'),`C＝1.618×A：B 浪終點 ${up?'−':'+'} 1.618×A 浪幅度（不是保證）`);
+        add('confirm',eA.price,`A 浪終點：C 浪通常會${w.break}這裡`);
+        add('confirm',sA.price,`整段修正起點（前${up?'高':'低'}）：${w.over}代表修正結束、回到原趨勢`);
+      } else {
+        add('reference',sA.price,`修正起點（前${up?'高':'低'}）：A 浪期間${w.over}這裡代表還沒進入修正`);
+      }
+      if(ps){
+        inv.push({price:price(ps.price),why:`被修正那段走勢的起點 ${ps.day}：修正${w.break}這裡就不是修正、是新趨勢，此計數不成立`,next:lastLabel!=='A'});
+        const f=fibLevels(ps.price,sA.price);
+        if(lastLabel!=='B'){add('support',f.r382,`被修正那段走勢（${ps.day} ${fmt(ps.price)} → ${sA.day} ${fmt(sA.price)}）的 38.2% 回檔位`);
+          add('support',f.r500,`被修正那段走勢的 50% 回檔位`);add('support',f.r618,`被修正那段走勢的 61.8% 回檔位`);}
+      }
+    } else if(c.kind==='abc+new'){
       const sA=L['A'][0],eA=L['A'][1],eB=L['B'][1],eC=L['C'][1];
       const A=W('A');
       inv.push({price:price(eC.price),why:`C 浪${up?'低點':'高點'}（新推動起點）：第 2 浪不可${up?'跌破':'突破'}第 1 浪起點，${w.break}這個價位此計數失效`});
@@ -333,7 +369,17 @@
     }
     if(c.kind==='impulse+abc'&&L['A']&&!L['B']){
       const e4=L['4'][1],eA=L['A'][1];
-      if(!(-d*(e4.price-eA.price)>0))return `推動結束尚未確認：A 浪還沒${up?'跌破':'突破'}第 4 浪${up?'低點':'高點'} ${fmt(e4.price)}`;
+      // 上漲推動後的 A 浪（向下）：A 浪低點要低於第 4 浪低點才算跌破；剛好相等不算。下跌推動反之。
+      if(!(d*(e4.price-eA.price)>0))return `推動結束尚未確認：A 浪還沒${up?'跌破':'突破'}第 4 浪${up?'低點':'高點'} ${fmt(e4.price)}`;
+    }
+    if(c.kind==='abc'){
+      const n=c.waves.length,lab=c.waves[n-1].label;
+      if(lab==='A')return '只有 A 浪：修正型態還沒成形，可能只是原趨勢中的回檔';
+      if(lab==='B')return 'B 浪進行中：C 浪還沒出現，修正尚未完成';
+      const eA=L['A'][1];
+      let after=null;for(let i=L['C'][0].i;i<bars.length;i++){const x=up?bars[i].low:bars[i].high;if(after==null||(up?x<after:x>after))after=x;}
+      if(!(d*(eA.price-after)>0))return `C 浪還沒${up?'跌破':'突破'} A 浪${up?'低點':'高點'} ${fmt(eA.price)}，修正結構尚未確認`;
+      return 'C 浪仍在進行中，修正何時結束尚未確認';
     }
     void last;return null;
   }
@@ -342,7 +388,14 @@
   const sig=c=>c.id+'|'+c.waves.map(w=>w.start.day+'>'+w.end.day).join(',');
   // 同一個「解讀」：目前這段推動的方向與第 1 浪起點相同（例如只差最後一小段要不要再細分成 1、2 浪、或 A 浪起點取在哪個小高點），
   // 只是解析度不同，不算互相競爭的替代計數；每個解讀只留分數最高的一個。
-  const family=c=>{const start=c.kind==='abc+new'?c._P[3]:c._P[0];return (c.kind==='impulse+abc'?'post':'imp')+'|'+c.direction+'|'+start.day;};
+  // 獨立 A–B–C 與「5 浪＋A–B–C」若 A 浪起點相同，也算同一個修正解讀（只差前面要不要數成 5 浪）。回傳這個候選所屬的所有解讀鍵。
+  const family=c=>{
+    if(c.kind==='abc')return ['corr|'+c.direction+'|'+c._P[0].day];
+    const start=c.kind==='abc+new'?c._P[3]:c._P[0];
+    const keys=[(c.kind==='impulse+abc'?'post':'imp')+'|'+c.direction+'|'+start.day];
+    if(c.kind==='impulse+abc')keys.push('corr|'+c.direction+'|'+c._P[5].day);
+    return keys;
+  };
 
   // 分數面的「不確定」理由：主要分數太低、或和第一個替代計數太接近。
   function scoreReasons(primaryScore,altScore,opts={}){
@@ -393,11 +446,13 @@
     }
     const valid=all.filter(c=>c.valid).sort((a,b)=>b.finalScore-a.finalScore||b.thresholdPct-a.thresholdPct);
     const seen=new Set(),uniq=[];
-    for(const c of valid){const s=sig(c),f=family(c);if(seen.has(s)||seen.has(f))continue;seen.add(s);seen.add(f);uniq.push(c);}
+    for(const c of valid){const s=sig(c),f=family(c);if(seen.has(s)||f.some(k=>seen.has(k)))continue;seen.add(s);f.forEach(k=>seen.add(k));uniq.push(c);}
     // 斜三角候選（只違反第 4 浪重疊）：只放進替代計數
     const diag=[];
-    for(const c of all.filter(c=>c.diagonal).sort((a,b)=>b.finalScore-a.finalScore)){const s=sig(c),f=family(c)+'|diag';if(seen.has(s)||seen.has(f))continue;seen.add(s);seen.add(f);diag.push(c);}
-    const out=c=>{const {_z,...o}={...strip(c),thresholdPct:c.thresholdPct,prior:c.prior,finalScore:c.finalScore,...levels(c,bars)};void _z;return o;};
+    for(const c of all.filter(c=>c.diagonal).sort((a,b)=>b.finalScore-a.finalScore)){const s=sig(c),f=family(c)[0]+'|diag';if(seen.has(s)||seen.has(f))continue;seen.add(s);seen.add(f);diag.push(c);}
+    // role 明確標出「主要／替代」，畫面不靠陣列位置判斷；沒通過硬性規則的候選（valid:false，例如斜三角）永遠只能是替代。
+    const out=(c,role)=>{const {_z,...o}={...strip(c),role,thresholdPct:c.thresholdPct,prior:c.prior,finalScore:c.finalScore,...levels(c,bars)};void _z;return o;};
+    const asAlt=c=>out(c,'alternative');
     if(!uniq.length){
       // 沒有任何候選通過硬性規則：只畫轉折，不貼浪名
       const t=thresholds.slice().sort((a,b)=>Math.abs(a/(atr||1)-2.5)-Math.abs(b/(atr||1)-2.5))[0];
@@ -405,7 +460,7 @@
       const rejected=all.filter(c=>c.thresholdPct===t).map(c=>({id:c.id,text:c.text,direction:c.direction,rules:c.rules}));
       return {ok:true,status:'invalid',statusText:STATUS_TEXT.invalid,thresholdPct:t,atrPct:atr!=null?r2(atr):null,barsUsed:bars.length,
         lastBar:{day:lb.day,close:lb.close},pivots:z.pivots.map(p=>({...pt(p),type:p.type,confirmed:p.confirmed})),inProgress:z.inProgress,
-        primary:null,alternatives:diag.filter(c=>c.finalScore>=0.4).slice(0,MAX_ALTERNATIVES).map(out),rejected,keyLevels:[],invalidation:[],candidatesTried:tried,
+        primary:null,alternatives:diag.filter(c=>c.finalScore>=0.4).slice(0,MAX_ALTERNATIVES).map(asAlt),rejected,keyLevels:[],invalidation:[],candidatesTried:tried,
         uncertainReasons:['所有候選計數都違反至少一條硬性規則，不硬貼浪名']};
     }
     const primary=uniq[0];
@@ -423,7 +478,7 @@
     return {ok:true,status,statusText:STATUS_TEXT[status],thresholdPct:primary.thresholdPct,atrPct:atr!=null?r2(atr):null,barsUsed:bars.length,
       lastBar:{day:lb.day,close:lb.close},
       pivots:z.pivots.map(p=>({...pt(p),type:p.type,confirmed:p.confirmed})),inProgress:z.inProgress,
-      primary:out(primary),alternatives:alts.map(out),
+      primary:out(primary,'primary'),alternatives:alts.map(asAlt),
       keyLevels:lvPrimary.keyLevels,invalidation:lvPrimary.invalidation,candidatesTried:tried,uncertainReasons:reasons};
   }
 
